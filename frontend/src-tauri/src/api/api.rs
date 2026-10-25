@@ -43,15 +43,6 @@ pub struct SearchRequest {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct TranscriptSearchResult {
-    pub id: String,
-    pub title: String,
-    #[serde(rename = "matchContext")]
-    pub match_context: String,
-    pub timestamp: String,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
 pub struct ModelConfig {
     pub provider: String,
     pub model: String,
@@ -374,36 +365,6 @@ pub async fn api_get_meeting_audio<R: Runtime>(
 }
 
 #[tauri::command]
-pub async fn api_search_transcripts<R: Runtime>(
-    _app: AppHandle<R>,
-    state: tauri::State<'_, AppState>,
-    query: String,
-    auth_token: Option<String>,
-) -> Result<Vec<TranscriptSearchResult>, String> {
-    log_info!(
-        "api_search_transcripts called with query: '{}', auth_token: {}",
-        query,
-        auth_token.is_some()
-    );
-
-    let pool = state.db_manager.pool();
-
-    match TranscriptsRepository::search_transcripts(pool, &query).await {
-        Ok(results) => {
-            log_info!(
-                "Search completed successfully with {} results.",
-                results.len()
-            );
-            Ok(results)
-        }
-        Err(e) => {
-            log_error!("Error searching transcripts for query '{}': {}", query, e);
-            Err(format!("Failed to search transcripts: {}", e))
-        }
-    }
-}
-
-#[tauri::command]
 pub async fn api_get_model_config<R: Runtime>(
     _app: AppHandle<R>,
     state: tauri::State<'_, AppState>,
@@ -721,36 +682,6 @@ pub async fn api_save_meeting_vocabulary(
     VocabularyRepository::save_meeting(state.db_manager.pool(), &meeting_id, &vocabulary)
         .await
         .map(|normalized| normalized.unwrap_or_default())
-}
-
-#[tauri::command]
-pub async fn api_get_transcript_api_key<R: Runtime>(
-    _app: AppHandle<R>,
-    state: tauri::State<'_, AppState>,
-    provider: String,
-    _auth_token: Option<String>,
-) -> Result<String, String> {
-    log_info!(
-        "api_get_transcript_api_key called (native) for provider '{}'",
-        &provider
-    );
-    match SettingsRepository::get_transcript_api_key(&state.db_manager.pool(), &provider).await {
-        Ok(key) => {
-            log_info!(
-                "Successfully retrieved transcript API key for provider '{}'.",
-                &provider
-            );
-            Ok(key.unwrap_or_default())
-        }
-        Err(e) => {
-            log_error!(
-                "Failed to get transcript API key for provider '{}': {}",
-                &provider,
-                e
-            );
-            Err(e.to_string())
-        }
-    }
 }
 
 #[tauri::command]
