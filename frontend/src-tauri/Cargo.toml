@@ -195,7 +195,6 @@ reqwest = { version = "0.11", features = ["multipart", "json"] }
 core-graphics = "0.23"
 cidre = { git = "https://github.com/yury/cidre", rev = "a9587fa", features = ["av"] }
 dasp = "0.11.0"
-futures-channel = "0.3.31"
 
 # PERFORMANCE: Enable Metal GPU + CoreML acceleration automatically on macOS
 # CoreML provides additional acceleration for Apple Silicon chips
@@ -211,7 +210,6 @@ whisper-rs = { version = "0.13.2", features = ["raw-api", "metal", "coreml"] }
 whisper-rs = { version = "0.13.2", features = ["raw-api"] }
 ort = { version = "2.0.0-rc.10", features = ["load-dynamic"] }
 libloading = "0.8.9"
-futures-channel = "0.3.31"
 
 # Linux-specific dependencies
 # Default: CPU-only build (no BLAS)
@@ -222,7 +220,6 @@ futures-channel = "0.3.31"
 #   --features openblas (OpenBLAS optimization, requires BLAS_INCLUDE_DIRS)
 [target.'cfg(target_os = "linux")'.dependencies]
 whisper-rs = { version = "0.13.2", features = ["raw-api"] }
-futures-channel = "0.3.31"
 
 [dev-dependencies]
 tempfile = "3.3.0"

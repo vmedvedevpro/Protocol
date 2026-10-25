@@ -1,19 +1,11 @@
 // Audio capture implementations module
 
 pub mod microphone;
-pub mod system;
 pub mod backend_config;
 pub mod per_app;
 
 #[cfg(target_os = "macos")]
 pub mod core_audio;
-
-// Re-export capture functionality
-pub use system::{
-    SystemAudioCapture, SystemAudioStream,
-    start_system_audio_capture, list_system_audio_devices,
-    check_system_audio_permissions
-};
 
 #[cfg(target_os = "macos")]
 pub use core_audio::{CoreAudioCapture, CoreAudioStream};

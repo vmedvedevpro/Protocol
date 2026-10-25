@@ -3587,7 +3587,6 @@ dependencies = [
  "esaxx-rs",
  "ffmpeg-sidecar",
  "futures",
- "futures-channel",
  "futures-util",
  "infer 0.15.0",
  "lazy_static",
