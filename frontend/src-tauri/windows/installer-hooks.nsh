@@ -413,10 +413,46 @@ Var MeetilyCudaNotice
   DetailPrint "────────────────────────────────────────"
 !macroend
 
+; Stops processes started from this install's own executable. Matching the full
+; image path, not the image name, leaves other programs with the same file name,
+; a Protocol dev build, and another Protocol install (Labs) running. The 32-bit
+; stub reads a 64-bit process's path through QueryFullProcessImageNameW, which
+; needs only limited query access.
+!macro Protocol_StopInstalledApp
+  StrCpy $R1 "$INSTDIR\${MAINBINARYNAME}.exe"
+  ; TH32CS_SNAPPROCESS
+  System::Call 'kernel32::CreateToolhelp32Snapshot(i 2, i 0) p.R2'
+  ${If} $R2 P<> -1
+    ; PROCESSENTRY32W; &l4 fills dwSize with the structure size.
+    System::Call '*(&l4, i, i, p, i, i, i, i, i, &w260) p.R3'
+    System::Call 'kernel32::Process32FirstW(p R2, p R3) i.R4'
+    ${DoWhile} $R4 <> 0
+      System::Call '*$R3(i, i, i .R5, p, i, i, i, i, i, &w260 .R6)'
+      ${If} $R6 == "${MAINBINARYNAME}.exe"
+        ; PROCESS_TERMINATE | PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE
+        System::Call 'kernel32::OpenProcess(i 0x101001, i 0, i R5) p.R7'
+        ${If} $R7 P<> 0
+          System::Call 'kernel32::QueryFullProcessImageNameW(p R7, i 0, w .R8, *i ${NSIS_MAX_STRLEN}) i.R9'
+          ${If} $R9 <> 0
+          ${AndIf} $R8 == $R1
+            DetailPrint "      Stopping $R8 (process $R5)."
+            System::Call 'kernel32::TerminateProcess(p R7, i 1)'
+            ; Wait so the uninstaller can delete the executable and sidecars.
+            System::Call 'kernel32::WaitForSingleObject(p R7, i 5000)'
+          ${EndIf}
+          System::Call 'kernel32::CloseHandle(p R7)'
+        ${EndIf}
+      ${EndIf}
+      System::Call 'kernel32::Process32NextW(p R2, p R3) i.R4'
+    ${Loop}
+    System::Free $R3
+    System::Call 'kernel32::CloseHandle(p R2)'
+  ${EndIf}
+!macroend
+
 !macro NSIS_HOOK_PREUNINSTALL
   DetailPrint "Stopping Protocol if it is still running…"
-  nsExec::ExecToLog 'taskkill /IM meetily.exe /F'
-  Pop $0
+  !insertmacro Protocol_StopInstalledApp
 !macroend
 
 !macro NSIS_HOOK_POSTUNINSTALL
