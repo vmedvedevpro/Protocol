@@ -778,27 +778,6 @@ pub async fn reassign_transcript_speaker(
     })
 }
 
-/// Run diarization on a recording and return speaker-labeled time segments.
-#[tauri::command]
-pub async fn diarize_recording(
-    audio_path: String,
-    num_speakers: Option<usize>,
-    threshold: Option<f32>,
-    engine: Option<String>,
-) -> Result<DiarizationResult, String> {
-    let path = PathBuf::from(&audio_path);
-    let selected_engine = engine.unwrap_or_else(get_active_engine);
-    if !matches!(selected_engine.as_str(), "pyannote" | "nemotron") { return Err("Unknown diarization engine".into()); }
-    // Model inference is CPU-heavy; keep it off the async runtime's core threads.
-    tokio::task::spawn_blocking(move || diarize_file_with_engine(&path, &selected_engine, num_speakers, threshold))
-        .await
-        .map_err(|e| format!("Diarization task failed: {}", e))?
-        .map_err(|e| {
-            log::error!("Diarization failed: {}", e);
-            e.to_string()
-        })
-}
-
 #[derive(Debug, Clone, Serialize)]
 pub struct MeetingDiarizationResult {
     pub num_speakers: usize,

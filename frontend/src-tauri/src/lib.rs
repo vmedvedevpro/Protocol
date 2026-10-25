@@ -753,7 +753,6 @@ pub fn run() {
             diarization::diarization_download_size,
             diarization::download_diarization_models,
             optional_models::uninstall_optional_model,
-            diarization::diarize_recording,
             diarization::diarize_meeting,
             diarization::rename_meeting_speaker,
             diarization::reassign_transcript_speaker,
