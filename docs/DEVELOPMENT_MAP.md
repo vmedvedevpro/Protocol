@@ -443,14 +443,108 @@ stack UI; its previous Parakeet CPU pill was fixed text. An ignored test with
 the installed v3 INT8 model and synthetic silence confirms encoder nodes run
 on both DirectML and CPU; real speech performance remains unqualified.
 
-The universal Windows build script is
-`frontend/scripts/build-universal-windows.ps1`. It packages CPU/Vulkan/CUDA app
-variants; the runtime payload must match the one validated in tests. Validate with
-`node frontend/scripts/verify-windows-release.mjs`.
-The packager no longer writes `latest.json` or updater signatures; the verifier
-checks `SHA256SUMS.txt` (setup and engine), the NSIS archive, packaged variants,
-the bundled notices (`parakeet-rs-LICENSE.txt`, and `THIRD_PARTY_MODELS.txt` for
-the Pyannote models), and the bootstrapper payload.
+### Windows installer
+
+`frontend/scripts/build-universal-windows.ps1` builds the one Windows asset,
+`protocol-windows-x64-setup.exe`: Tauri's NSIS installer, which is also the
+updater's payload (run with `/P /UPDATE`). There is no CUDA build and no
+bootstrapper any more (#15). The script builds the Vulkan variant and then the
+CPU bundle in one target dir (only `whisper-rs-sys`, `whisper-rs` and `protocol`
+recompile between them), copies the Vulkan executable to
+`installer-variants\protocol-vulkan.exe` before `tauri build` relinks
+`release\protocol.exe`, patches its bundle-type marker to `nsis` with
+`scripts/release/patch-bundle-type.mjs` (the updater reads the marker; the
+bundler patches only the executable it packages), and stages
+`runtime-deps\DirectML.dll` and the pinned Visual C++ redistributable
+(`stage-runtime-deps.ps1`, versioned download URL). It finds Visual Studio 2022
+with vswhere and uses Ninja when present. With #31's updater configuration in
+`tauri.conf.json` it gives `tauri build` a throwaway signing key; the release
+workflow signs the final file again. Output: `dist\protocol-windows-x64-setup.exe`
+and `dist\SHA256SUMS.txt`.
+
+The bundled `protocol.exe` is the CPU build. `installer-hooks.nsh`
+(`Meetily_SelectBackend`) runs `protocol-vulkan-probe.exe` and replaces
+`protocol.exe` with the Vulkan build only when it finds a usable device, writes
+`data\selected-backend.txt`, and deletes `installer-variants\`. An explicit
+`/BACKEND=vulkan|cpu` is saved as `BackendOverride` under
+`HKCU\Software\vmedvedevpro\Protocol` and reused by later installs and every
+update; `/BACKEND=auto` clears it, and an uninstall that deletes app data removes
+it with the key. This is the escape hatch for a driver that passes the probe but
+crashes in inference: an update would otherwise select Vulkan again. In update
+mode a failed Visual C++ setup only warns, because the files are already
+replaced. Installs over a pre-0.3.0 build delete the CUDA DLLs it copied next to
+`protocol.exe`. Without a CUDA build, `get_cuda_reconfiguration_status` reports
+"not applicable" unless the app is built with `--features cuda`
+(`CUDA_SETUP_AVAILABLE`), so the CUDA notice never shows.
+
+`node frontend/scripts/verify-windows-release.mjs [dist]` checks the output
+without installing: `SHA256SUMS.txt`, the NSIS archive (7-Zip; `SEVEN_ZIP`
+overrides the path), the exact variant and runtime sets (no CUDA files), that the
+bundled `protocol.exe` does not import `vulkan-1.dll` while the Vulkan build
+does, the `nsis` marker on both, and that ffmpeg, llama-helper, ONNX Runtime and
+the notices (`parakeet-rs-LICENSE.txt`, `THIRD_PARTY_MODELS.txt`) equal the
+staged files. A local warm build took about 8 minutes and produced a 118 MB
+installer (upstream's universal installer with CUDA was 674 MB).
+
+### Releases
+
+Releases are built by `.github/workflows/release.yml`, never locally; the
+procedure, dry runs and the `release` environment are in
+[WORKFLOWS_OVERVIEW.md](../.github/workflows/WORKFLOWS_OVERVIEW.md). Data flow:
+
+1. A release PR runs `scripts/release/bump-version.mjs <version>`: the version in
+   `tauri.conf.json`, `frontend/src-tauri/Cargo.toml`, `Cargo.lock` and
+   `frontend/package.json`, and `## Protocol <version> — <date>` in `CHANGELOG.md`.
+2. The owner pushes the tag `v<version>` on the merged commit.
+   `validate-release.mjs` checks the tag format, that the commit is on
+   `origin/main`, the version files, the CHANGELOG section (it becomes the notes),
+   the published releases (no duplicate, monotonic version), the updater
+   configuration and the locked tauri-cli's `--app-version` support, and
+   `check-migration-checksums.mjs --source git` the migration table.
+3. `pr-checks.yml` runs as a reusable workflow, then the legs
+   `release-build-{windows,macos,linux}.yml` build, test and smoke-test, and each
+   uploads a `release-<platform>` artifact with its `SHA256SUMS.txt`. Legs have
+   no secrets.
+4. `draft` (environment `release`, tag runs only) runs `assemble-release.sh`:
+   checks the artifacts, signs the three updater payloads with the production key
+   and `--app-version`, verifies the signatures against `plugins.updater.pubkey`
+   (`verify-updater-signature.mjs`), writes `latest.json` (`make-latest-json.mjs`),
+   `SHA256SUMS.txt` and the notes (`render-notes.mjs`), then attests the installers
+   and creates the draft; `check-release-assets.mjs` compares the uploaded assets
+   with the local files. Dry runs run the same script in `preview` with a
+   throwaway key.
+5. The owner publishes; `release-published.yml` (`check-published-release.mjs`)
+   checks the public assets, the feed and `/releases/latest`.
+
+The feed has `windows-x86_64-nsis` and `windows-x86_64` (both the setup),
+`darwin-aarch64-app` and `darwin-aarch64` (`protocol-macos-arm64.app.tar.gz`) and
+`linux-x86_64-appimage`, and deliberately no `linux-x86_64` or deb key: a deb
+install finds no entry and gets #31's download link instead of an AppImage.
+Until #31's configuration and #33's tauri-cli 2.12 are in `main`, dry runs warn
+about them and the macOS leg adds a throwaway updater configuration so the
+`.app.tar.gz` is still built; tag runs fail.
+
+**Migration checksums.** sqlx stores a SHA-384 per applied migration and refuses
+a binary whose embedded bytes differ. The ten historical migrations
+(`20250916100000` … `20251229000000`) have no `eol` attribute and were released
+from CRLF checkouts on Windows, so their checksums differ per platform; newer
+ones are `eol=lf`. `frontend/src-tauri/released-migration-checksums.json` records
+both columns; `check-migration-checksums.mjs` recomputes them from git blobs in
+`pr-checks.yml` and `validate`, and every leg checks the working tree it compiles
+after setting `core.autocrlf` explicitly. The authoritative check is the Rust test
+`embedded_migrations_match_released_checksums` (`database/manager.rs`) over the
+embedded `MIGRATOR`. The Windows column matches the owner's two real databases.
+A new migration needs an `eol=lf` line in `.gitattributes` and
+`check-migration-checksums.mjs --add-new`.
+
+Tests: `node --test "scripts/release/test/*.test.mjs"` (in `pr-checks.yml`);
+the Rust test above and the CUDA status test in
+`whisper_engine::commands::cuda_reconfiguration_tests`. Remaining limits: builds
+are unsigned (SmartScreen and Gatekeeper warnings); Linux packages are built and
+started in CI only, and their native tests do not block; caches saved by tag runs
+are visible only to that tag, so release runs start cold (about 75–90 minutes);
+`llama-helper` is CPU-only on Windows and Linux; the Vulkan/CPU choice happens at
+install and update time, not at launch.
 
 ### Fork identity and updates
 
@@ -460,12 +554,13 @@ beside an installed upstream build without sharing state:
 | Surface | Value | Owner |
 | --- | --- | --- |
 | Bundle identifier, Windows AUMID | `io.github.vmedvedevpro.protocol` | `tauri.conf.json`, `notifications/native_windows.rs` |
-| Product name, install folder | `Protocol`, `%LOCALAPPDATA%\vmedvedevpro\Protocol` | `tauri.conf.json`, `windows/installer.nsi`, `bootstrapper.cpp` |
-| Installer registry key | `HKCU\Software\vmedvedevpro\Protocol` | `bundle.publisher` + product name; read by `bootstrapper.cpp` |
+| Product name, install folder | `Protocol`, `%LOCALAPPDATA%\vmedvedevpro\Protocol` | `tauri.conf.json`, `windows/installer.nsi` |
+| Installer registry key | `HKCU\Software\vmedvedevpro\Protocol` (install folder, `BackendOverride`) | `bundle.publisher` + product name; `windows/installer-hooks.nsh` |
 | Uninstall entry | `HKCU\…\Uninstall\io.github.vmedvedevpro.protocol` | `windows/installer.nsi` (`UNINSTKEY`) |
 | Fallback data root | OS data dir `/vmedvedevpro/Protocol` | `paths.rs` (`FALLBACK_PUBLISHER`, `FALLBACK_APP_NAME`) |
 | Default recordings folder | `protocol-recordings` | `audio/recording_preferences.rs` |
-| Cargo package and executable | `protocol`, `protocol.exe`; installer variants `protocol-{cpu,vulkan,cuda}.exe`, `protocol-vulkan-probe.exe` | `src-tauri/Cargo.toml`, `build-universal-windows.ps1`, `windows/installer-hooks.nsh` |
+| Cargo package and executable | `protocol`, `protocol.exe`; installer variants `protocol-vulkan.exe`, `protocol-vulkan-probe.exe` | `src-tauri/Cargo.toml`, `build-universal-windows.ps1`, `windows/installer-hooks.nsh` |
+| Release assets | `protocol-windows-x64-setup.exe`, `protocol-macos-arm64.{dmg,app.tar.gz}`, `protocol-linux-x86_64.AppImage`, `protocol_<version>_amd64.deb` | `scripts/release/release-lib.mjs` |
 
 The identifier also keys the single-instance lock, WebView storage, plugin
 stores, and the legacy `app_data_dir` migration in `paths.rs`; under the old
@@ -559,14 +654,11 @@ was tested on temporary folders, not in a full universal build.
 
 ## 6. Tests, qualification, and historical notes
 
-macOS publication supports an explicitly labeled CI-qualified preview via
-`publish-macos.yml` (`preview=true`). It records no physical-test attestation,
-publishes a separate non-Latest prerelease, and retains artifact/hash/source
-provenance and public launch checks. Stable publication still requires the
-physical checklist. Documentation/publishing-only commits may follow a candidate;
-application, dependency, and build-workflow changes require a new candidate.
-See `.github/workflows/MACOS_RELEASE.md` for dispatch and remaining limitations.
-The `v0.2.19-macos` preview packages the #42 callback change; build
+Upstream published macOS separately, through `publish-macos.yml` and
+`MACOS_RELEASE.md` (an explicitly labeled CI-qualified preview, a separate
+non-Latest prerelease, a physical checklist for stable releases). Protocol removed
+that process in #15; macOS is a leg of `release.yml` and its notes below are
+upstream history. The `v0.2.19-macos` preview packages the #42 callback change; build
 `36790029640` and published-asset smoke test `36790877680` passed. It remains
 unqualified for physical microphone capture and the reporter's device. The
 Windows Latest release is now v0.2.20; see
@@ -577,8 +669,7 @@ source recovery for #42. Apple Silicon build `36876715270` passed all 22 worker
 and pipeline regressions plus bundle/launch checks; public smoke test
 `36878960910` passed. See [RELEASE_V0220_MACOS.md](RELEASE_V0220_MACOS.md) for
 provenance. Physical recording and live-transcription confirmation remain open.
-The Windows VirusTotal submission normalizes CRLF checksum manifests before
-filename matching and Linux checksum verification.
+Upstream's VirusTotal submission workflow was removed in #15.
 
 Live system-meter warnings are documented in
 [SYSTEM_AUDIO_LEVEL_ADVICE.md](SYSTEM_AUDIO_LEVEL_ADVICE.md).

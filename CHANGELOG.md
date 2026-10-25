@@ -114,6 +114,21 @@ issue and PR numbers refer to
 - Show why a built-in summary model failed: after a failed download or
   integrity check, Settings no longer says "Failed to load models", and the
   model card shows the error with Retry (#1).
+- Build releases in GitHub Actions from a version tag: one installer per
+  platform (Windows x64, macOS Apple Silicon, and experimental Linux x64
+  AppImage and deb), with `SHA256SUMS.txt`, updater signatures, and
+  build-provenance attestations, in a draft release that is published by hand
+  ([#15](https://github.com/vmedvedevpro/Protocol/issues/15)).
+- Ship Windows as a single `protocol-windows-x64-setup.exe` with the CPU and
+  Vulkan builds; setup still picks Vulkan when the graphics driver supports it.
+  CUDA is no longer included (NVIDIA GPUs use Vulkan), so the installer is about
+  118 MB instead of 674 MB, about 500 MB of CUDA libraries are no longer
+  installed (and are deleted from an existing install), and the CUDA setup
+  notice is gone. The frameless setup window is replaced by the installer's own
+  pages. `/BACKEND=cpu` or `/BACKEND=vulkan` is now remembered for later installs
+  and updates; `/BACKEND=auto` returns to the automatic choice (#15).
+- Pin the FFmpeg download of the build by size and SHA-256, and the Visual C++
+  runtime to a versioned download (#15).
 
 ## Unreleased
 

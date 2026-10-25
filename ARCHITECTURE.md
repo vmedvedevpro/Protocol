@@ -729,75 +729,51 @@ Packaging verification must include `binaries/onnxruntime/onnxruntime.dll`,
 with the verified build stage. Do not publish an executable-only update when
 introducing this runtime resource; use a newly built installer package.
 
-Protocol has **no in-app updater**: no update check, no `latest.json`, no
-updater signing key. A newer setup run over an existing install upgrades it in
-place. The universal build produces two Windows executables:
+Protocol releases one Windows file, `protocol-windows-x64-setup.exe` (#15):
+Tauri's NSIS installer built from this template and these hooks. People run it
+directly and get its own pages; the in-app updater that #31 adds runs the same
+file with `/P /UPDATE`. A newer setup run over an existing install upgrades it in
+place. The frameless bootstrapper and the NSIS overall-progress plugin that
+upstream wrapped around the installer were removed in #15.
 
-| Artifact | Caller | Purpose |
-|---|---|---|
-| `*-universal-setup.exe` | A person installing the app | Native frameless Win32 bootstrapper with the branded first-install UI |
-| `*-universal-engine.exe` | `-BootstrapperOnly` rebuilds, scripted installs | Unmodified Tauri NSIS installer that the bootstrapper embeds |
-
-### Manual setup path
+### Setup path
 
 ```text
-build-universal-windows.ps1
-  -> Tauri builds the universal NSIS engine
-  -> build-installer-bootstrapper.ps1 embeds that engine as RCDATA
-  -> user runs the frameless bootstrapper
-  -> bootstrapper extracts + SHA-256 verifies the engine in %TEMP%
-  -> engine runs in passive mode with its stock window forced hidden
-  -> bootstrapper shows completion and launches protocol.exe
+release.yml (tag) -> release-build-windows.yml -> build-universal-windows.ps1
+  -> Vulkan variant (cargo build --features vulkan) -> installer-variants\
+  -> its bundle-type marker patched to nsis; probe built; runtime deps staged
+  -> tauri build bundles the CPU build as protocol.exe
+  -> a person (or the updater) runs protocol-windows-x64-setup.exe
+  -> hooks: Visual C++ runtime, DirectML, Vulkan probe, Vulkan or CPU
 ```
 
 Relevant files:
 
 | File | Responsibility |
 |---|---|
-| `frontend/src-tauri/installer-bootstrapper/bootstrapper.cpp` | Frameless `WS_POPUP` shell, custom close/minimize controls, folder selection, extraction, hash verification, process supervision, completion UI |
-| `frontend/scripts/build-installer-bootstrapper.ps1` | Compiles the bootstrapper with MSVC `/MT`, embeds the finalized NSIS payload and its generated SHA-256 |
-| `frontend/src-tauri/windows/installer.nsi` | Tauri NSIS template used as the actual install/update engine |
-| `frontend/src-tauri/windows/installer-hooks.nsh` | Hardware backend detection, dependency checks, runtime staging, and selected-backend persistence |
-| `frontend/scripts/build-universal-windows.ps1` | Builds CPU/Vulkan/CUDA variants, packages NSIS, builds the outer setup, and writes checksums |
+| `frontend/src-tauri/windows/installer.nsi` | Tauri NSIS template: the install/update engine and its pages |
+| `frontend/src-tauri/windows/installer-hooks.nsh` | Dependency checks, runtime staging, Vulkan/CPU selection, the saved backend override |
+| `frontend/scripts/build-universal-windows.ps1` | Builds the Vulkan variant and the CPU bundle, writes the setup and its checksum |
+| `frontend/scripts/stage-runtime-deps.ps1` | Stages DirectML and the pinned Visual C++ redistributable |
+| `frontend/scripts/verify-windows-release.mjs` | Checks the setup's payload without installing it |
 
-The bootstrapper shows byte-accurate determinate progress while extracting its
-payload. During installation it launches NSIS with `/P` rather than `/S`, hides
-the stock window before display, and reads its real progress control/current
-operation text. It combines that with explicit phase-completion milestones
-under the temporary
-`HKCU\Software\meetily\InstallerProgress\<token>` key. This gives a real percent
-while still identifying runtime phases where NSIS itself is waiting on a child
-installer. For bundled files, `build-installer-bootstrapper.ps1` embeds the
-ordered uncompressed file sizes; the wrapper combines NSIS's current-file
-percentage with those sizes so large CUDA/runtime files advance smoothly rather
-than jumping once per `File` command. Text uses GDI+ grayscale grid-fitted
-antialiasing rather than GDI `DrawText`, and the
-completion badge alone is supersampled before being composited into the normal
-window buffer. Whole-window supersampling is unsafe because several GDI APIs
-ignore world transforms and produce a quarter-size UI. Progress from NSIS,
-milestones, and byte weighting is clamped monotonically because sources can
-briefly report an older value during phase transitions. The key is unique per run and removed when
-the engine exits. Closing
-is blocked once installation starts because externally terminating NSIS can
-leave a partial installation. The wrapper also restores the previously
-registered install path from `HKCU\Software\vmedvedevpro\Protocol` (NSIS
-`${MANUPRODUCTKEY}`: `bundle.publisher` and `productName` from `tauri.conf.json`)
-before offering the default. Fresh installs default to
-`%LOCALAPPDATA%\vmedvedevpro\Protocol`: `bundle.publisher`, then the product name
-with spaces replaced by hyphens, so the generic product name cannot collide with
-another app's folder and Labs bundles (`Protocol Labs Local Test`) get their own
-space-free `Protocol-Labs-Local-Test` folder instead of sharing executables and
-`data` with the main install. `bootstrapper.cpp` mirrors the main default; the
-uninstall hook removes the publisher folder once it is empty. The uninstall
-entry is keyed by the bundle identifier
-(`HKCU\…\Uninstall\io.github.vmedvedevpro.protocol`), not the product name.
-These values must stay distinct from upstream Meetily builds, otherwise setup
-offers, and overwrites, their folder.
+Fresh installs default to `%LOCALAPPDATA%\vmedvedevpro\Protocol`:
+`bundle.publisher`, then the product name with spaces replaced by hyphens, so the
+generic product name cannot collide with another app's folder and Labs bundles
+(`Protocol Labs Local Test`) get their own space-free `Protocol-Labs-Local-Test`
+folder instead of sharing executables and `data` with the main install. Setup
+restores a previously registered install path from
+`HKCU\Software\vmedvedevpro\Protocol` (NSIS `${MANUPRODUCTKEY}`:
+`bundle.publisher` and `productName` from `tauri.conf.json`). The uninstall hook
+removes the publisher folder once it is empty. The uninstall entry is keyed by the
+bundle identifier (`HKCU\…\Uninstall\io.github.vmedvedevpro.protocol`), not the
+product name. These values must stay distinct from upstream Meetily builds,
+otherwise setup offers, and overwrites, their folder.
 
-Backend selection still belongs to `installer-hooks.nsh`; do not reimplement it
-in the bootstrapper. The universal package stages three app executables and the
-hook chooses CUDA, Vulkan, or CPU, then installs the chosen variant
-(`protocol-{cpu,vulkan,cuda}.exe`) as the canonical `protocol.exe`. The
+Backend selection belongs to `installer-hooks.nsh`. The package bundles the CPU
+build as `protocol.exe` and stages only `protocol-vulkan.exe` and the probe; the
+hook replaces `protocol.exe` with the Vulkan build when the probe succeeds and
+otherwise keeps the CPU build. The
 executable no longer shares upstream's `meetily.exe` name (#12), so setup and
 uninstall leave a running Meetily or Meetily – Actually Free alone, except
 during the one-time upgrade from a pre-#12 install described below. The
@@ -807,15 +783,14 @@ uninstall hook stops only the process whose image path is this install's
 `installer.nsi`, before install and uninstall) still matches the image name
 `protocol.exe` among the current user's processes: it also finds a Protocol dev
 build or a Labs install, asks in an interactive run, and closes them without
-asking in passive (`/P`, how the bootstrapper runs the engine) and silent runs.
+asking in passive (`/P`, how the updater runs setup) and silent runs.
 
 The first setup over a pre-#12 install, one that still has `meetily.exe`, is a
 one-time transition that the installer does not special-case:
 
 - Setup runs the old install's own uninstaller after the default choice of an
   interactive upgrade or downgrade ("Uninstall before installing") and in a
-  passive run over the same version, which is how the bootstrapper runs the
-  engine. That old uninstaller still runs `taskkill /IM meetily.exe /F` and
+  passive run over the same version. That old uninstaller still runs `taskkill /IM meetily.exe /F` and
   `CheckIfAppIsRunning "meetily.exe"`, so it force-stops every `meetily.exe` of
   the user, including a separately installed Meetily or Meetily – Actually
   Free. Close Meetily too before this upgrade. The check that setup runs after
@@ -834,23 +809,21 @@ one-time transition that the installer does not special-case:
   pointing at `meetily.exe`. The uninstaller removes only shortcuts that target
   `protocol.exe`, so delete that one by hand.
 
-CUDA selection also distinguishes missing or outdated NVIDIA drivers from a PC
-with no NVIDIA display adapter. The hook checks PCI display-class metadata so a
-fresh Windows install using Microsoft Basic Display Adapter is still recognized,
-then reports the CUDA fallback reason through the run-specific progress registry
-key. The frameless setup shows that notice on its completion page, including the
-minimum NVIDIA driver and the temporary Vulkan/CPU selection. Keep this decision
-in NSIS; the bootstrapper only presents the result and removes the temporary key.
-
-The selected Whisper backend is compiled into the installed executable; closing
-and reopening a Vulkan build cannot turn it into the CUDA build. Setup Overview
-and completed-onboarding startup therefore run a fresh, timeout-bounded
-`nvidia-smi` check.
-Before a compatible driver exists it links to NVIDIA's driver page. If CUDA
-becomes available later, it replaces the stale "Vulkan selected" message with a
-prompt to rerun the latest setup, which safely installs the CUDA executable.
-That action opens the fork's GitHub releases page rather than a versioned asset,
-because not every version has a published universal setup.
+There is no CUDA build. An explicit `/BACKEND=vulkan|cpu` (for example
+`protocol-windows-x64-setup.exe /BACKEND=cpu` from a terminal) is saved as
+`BackendOverride` under `HKCU\Software\vmedvedevpro\Protocol` and reused by
+every later install and update that has no `/BACKEND`; `/BACKEND=auto` clears it,
+and an uninstall that deletes app data removes it with the key. Without the saved
+choice, an update would run the probe again and reselect a Vulkan build that the
+user left because its driver crashed in inference, which the probe cannot detect.
+The selected Whisper backend is compiled into the installed executable, so a GPU
+or driver change after install takes effect at the next install or update. The
+launch-time CUDA check (`get_cuda_reconfiguration_status`,
+`CudaReconfigurationNotice.tsx`, Setup Overview) reports "not applicable" unless
+the app is built with `--features cuda`. Installs over a pre-0.3.0 build delete
+the CUDA DLLs it had copied next to `protocol.exe`. In update mode a failed or
+missing Visual C++ setup only warns: the files are already replaced, and aborting
+would leave a half-updated install behind the updater's passive window.
 
 Vulkan selection requires the 64-bit system loader and runs the staged x64
 `protocol-vulkan-probe.exe`, which applies GGML's device-selection policy and
@@ -862,19 +835,13 @@ usable ICD, and the Vulkan backend cannot safely assume CPU fallback. A legacy
 Khronos ICD scan remains only for packages missing the probe. The helper is
 installer-only and is removed with the staged variants after selection.
 
-The raw engine still recognizes Tauri's `/UPDATE` flag before its install-files
-page is shown, although nothing passes it since the in-app updater was removed.
-That branch uses `Protocol Setup`, `Updating Protocol`, and `Updating app files`
-instead of the setup wording. Keep the verbose NSIS extraction log collapsed, preserve the
-stock MUI header font metrics so title/subtitle rectangles do not overlap at
-scaled DPI, and show a monotonic overall percentage in the header. The update
-progress color matches the blue native bootstrapper; setup-only pages and all
-hardware/runtime decisions remain shared with the normal installer.
-`nsis-progress/MeetilyProgress.cpp` subclasses NSIS's current-operation label on
-the UI thread, preserves its per-file text, and maps that file percentage through
-the build-generated uncompressed-size table to drive a separate overall bar and
-header percentage. Build it before every Tauri NSIS bundle; the install thread is
-blocked inside large `File` opcodes, so script timers cannot provide this signal.
+With `/UPDATE` the installer uses `Protocol Setup`, `Updating Protocol`, and
+`Updating app files` instead of the setup wording, and a blue progress bar. Keep
+the verbose NSIS extraction log collapsed, preserve the stock MUI header font
+metrics so title/subtitle rectangles do not overlap at scaled DPI, and show a
+monotonic overall percentage in the header (a timer reads NSIS's own progress
+bar; runtime phases report milestones). Setup-only pages and all
+hardware/runtime decisions are shared with the normal installer.
 Every install/update rewrites uninstall-key `DisplayVersion`, then broadcasts a
 shell/settings change notification. Without that notification, an Installed
 Apps window left open during an update can continue showing the previous
@@ -910,38 +877,28 @@ an exact-size file with valid GGUF magic becomes `Available`. Progress reaching
 
 ### Release rules
 
+- Releases are built by `.github/workflows/release.yml` from a pushed tag
+  (`WORKFLOWS_OVERVIEW.md`); a local build is for testing only.
 - Builds are unsigned unless `DIGICERT_KEYPAIR_ALIAS` configures Authenticode;
   an unsigned build must pass the explicit `-AllowUnsigned` switch.
-- When PDBs are generated, the universal builder preserves each EXE/PDB pair in
-  `target/release-symbols/<version>/<backend>` before packaging. Tauri may relink
-  the CPU placeholder; retain and verify the pre-packaging symbols against the
-  actual staged backend executable, not that later placeholder.
-- `SHA256SUMS.txt` covers the setup and the engine for manual verification.
-- `-PackageOnly` reuses staged CPU/Vulkan/CUDA binaries but still rebuilds NSIS,
-  the bootstrapper, and checksums. Use it only for installer
-  shell/template changes. Frontend, Rust, icon, or Tauri-command changes require
-  a full universal build: the post-install hook replaces the freshly packaged
-  placeholder with one of those staged variants, so stale variants silently
-  install stale application code.
-- `-BootstrapperOnly` is narrower: it re-embeds the existing universal engine,
-  rebuilds only the native outer setup, and refreshes checksums. Use it only for
-  `installer-bootstrapper/bootstrapper.cpp` presentation changes; it deliberately
-  does not regenerate NSIS or application variants.
+- When PDBs are generated, the builder keeps each EXE/PDB pair in
+  `target/release-symbols/<version>/{vulkan,cpu}` before the next build in the
+  same target dir overwrites it.
+- `SHA256SUMS.txt` covers the setup; the release adds every other asset.
+- The Vulkan executable is copied out of `target\release` before `tauri build`
+  relinks it as the CPU build, and patched with the `nsis` bundle-type marker
+  before it is signed; the updater (#31) reads that marker.
 - `tauri.universal.conf.json` deliberately clears `beforeBuildCommand`. The
-  universal script builds Next.js once unless `-SkipFrontend` is passed; letting
-  Tauri build it again changes the embedded assets and forces a redundant second
-  CPU relink. The script also creates `universal.marker` before compiling any
-  variants so that adding the resource later cannot invalidate the first CPU
-  build. Do not restore the command in that overlay or move marker creation back
-  below variant compilation.
-- `setup.exe --verify-payload` extracts and verifies the embedded engine without
-  installing it; use this as a release smoke test.
+  script builds Next.js once unless `-SkipFrontend` is passed; letting Tauri build
+  it again changes the embedded assets and forces a redundant relink. The script
+  creates `universal.marker` only around the bundling step; a standard Tauri
+  bundle without it keeps its compiled executable.
 - `node frontend/scripts/verify-windows-release.mjs [asset-directory]` verifies
-  checksums, NSIS archive integrity, packaged variant hashes, and the
-  bootstrapper payload without installation.
-- Isolated worktrees can pass `-LlvmDir`, `-VulkanSdk`, and `-CudaToolkit` to the
-  universal builder to reuse installed toolchains without writing into another
-  checkout. Runtime staging must use that same CUDA toolkit.
+  the checksum, NSIS archive integrity, the packaged variant and runtime sets, the
+  Vulkan import of each executable and their bundle-type markers without
+  installation.
+- Isolated worktrees can pass `-LlvmDir` and `-VulkanSdk` to reuse installed
+  toolchains, and `-OutputDir` to keep the result out of `dist`.
 
 ### Branding assets
 
@@ -972,7 +929,7 @@ The generated files feed every native surface through these connections:
 
 ```text
 icon-source.svg -> icon-source.png (+ icon-source-small.svg for 16-32 px)
-  -> icons/icon.ico  -> Windows app/taskbar + NSIS + bootstrapper executable
+  -> icons/icon.ico  -> Windows app/taskbar + NSIS installer
   -> icons/icon.png  -> native Windows notifications
   -> default app icon -> system tray (tray.rs)
   -> icons/icon.icns -> macOS bundle
@@ -980,7 +937,7 @@ icon-source.svg -> icon-source.png (+ icon-source-small.svg for 16-32 px)
   -> src/app/favicon.ico -> Next.js favicon
 ```
 
-`tauri.conf.json` and `build-installer-bootstrapper.ps1` both reference the
+`tauri.conf.json` (app and `bundle.windows.nsis.installerIcon`) references the
 generated `icon.*` family. Do not introduce a second `app_icon.*` family: that
 previous duplication allowed the tray/app and installer to silently use
 different brands.
@@ -1006,7 +963,7 @@ depends on APIs introduced in 14.2. Keep these declarations aligned:
 |---|---|
 | `frontend/src-tauri/.cargo/config.toml` | Rust linker deployment target |
 | `frontend/src-tauri/tauri.macos.conf.json` | Tauri bundle minimum system version |
-| `.github/workflows/build-macos.yml` | CI `MACOSX_DEPLOYMENT_TARGET` |
+| `.github/workflows/release-build-macos.yml` | CI `MACOSX_DEPLOYMENT_TARGET` |
 | `README.md` | User-visible support statement |
 
 ### Native capture and permission model
@@ -1088,36 +1045,27 @@ signature check cannot detect this class of regression.
 
 ### Release topology
 
-Windows and macOS do not share a production-release workflow:
+macOS is one leg of the common release (`release.yml`, #15): the same tag and
+draft release carry `protocol-macos-arm64.dmg` for people and
+`protocol-macos-arm64.app.tar.gz` (+ `.sig`) for the updater. Upstream's separate
+`vX.Y.Z-macos` publication (`build-macos.yml`, `publish-macos.yml`,
+`smoke-test-macos-release.yml`, `MACOS_RELEASE.md`) was removed.
 
-- Windows `vX.Y.Z` remains GitHub Latest and owns the universal setup and
-  engine executables.
-- macOS `vX.Y.Z-macos` is a separate immutable, non-latest release containing
-  the Apple Silicon DMG, checksum, and release provenance metadata.
-- No platform has an in-app updater; About links to the GitHub repository.
-- The macOS workflows below are inherited from upstream. Their app, DMG, artifact,
-  and data-folder names were switched to Protocol, but they have not been run on
-  this fork; re-check them before publishing a Protocol DMG.
-- `.github/workflows/build-macos.yml` is the only production Apple Silicon build
-  workflow. It never publishes. The removed generic `release.yml` must not be
-  recreated because it bypassed the platform-specific release invariants.
-- `build-macos.yml` compiles macOS-only Rust, executes both sidecars, validates
-  architecture/metadata/resources, installs the app, launches it twice, and
-  uploads the DMG, checksum, and build-identity metadata as one candidate.
-- `.github/workflows/publish-macos.yml` accepts a successful candidate run ID,
-  requires physical macOS 14.2 signoff and verifies the immutable-release
-  setting with a protected read-only Administration token before reserving the
-  tag. It validates the canonical workflow ID, current `main` commit, sole
-  artifact archive digest, run attempt, checksum, physical-test DMG digest,
-  public API digests, immutable status, and Latest isolation, then promotes those
-  exact bytes. It must not rebuild from mutable `main`.
-- After publishing, run `smoke-test-macos-release.yml` against the exact public
-  tag. This independently downloads and launches what users receive.
+- `.github/workflows/release-build-macos.yml` builds `--bundles app,dmg`, runs the
+  native tests, executes both sidecars, validates architecture, metadata,
+  resources and entitlements, installs the app, launches it twice, and uploads the
+  DMG and the updater bundle. It never publishes.
+- The updater signature is made in the release's `draft` job over the final
+  bytes; the leg signs with a throwaway key only because `tauri build` requires a
+  key once updater artifacts are on (`--no-sign` would also drop the ad-hoc
+  signature).
 
 Unsigned CI builds are ad-hoc signed and are not notarized. First launch may
 require Control-click and Open. Notarization is enabled only when all Apple
 certificate/account secrets are configured and `sign-and-notarize=true`; never
-claim notarization based on ad-hoc `codesign` success.
+claim notarization based on ad-hoc `codesign` success. The release workflow has
+no notarization step; it would need Apple secrets that this repository does not
+have.
 
 CI runs on an explicit Apple Silicon macOS 15 image while retaining and checking
 the 14.2 deployment target. The runner has no meaningful microphone, speaker
@@ -1126,7 +1074,7 @@ interactive privacy UI. Native CI proves build, package, sidecar, startup,
 storage, and signature invariants, but a physical Apple Silicon Mac must still
 test on macOS 14.2: microphone input, audible system capture, permission
 denial/retry, output-route changes, pause/resume/stop, and the three retained MP4
-tracks. The publisher's attestation inputs make this a release gate.
+tracks. The release workflow cannot do that; test on a Mac before publishing a
+release that changes macOS capture.
 
-The operational commands, immutable rollback procedure, CI assertions, and
-physical-device checklist are in `.github/workflows/MACOS_RELEASE.md`.
+The release procedure is in `.github/workflows/WORKFLOWS_OVERVIEW.md`.
