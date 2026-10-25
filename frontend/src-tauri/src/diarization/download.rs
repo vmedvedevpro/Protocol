@@ -107,7 +107,9 @@ pub async fn download_pyannote_models<R: Runtime>(app: &AppHandle<R>) -> Result<
         let file_index = index + 1;
 
         if dest.exists() {
-            // A copy that does not match is deleted by the check.
+            // The check deletes a full-size copy that does not match; one of
+            // another size is kept by it and removed below. Downloads write a
+            // `.part` file, so this is never a transfer in progress.
             if model_integrity::verify_file(pinned, &dest).await.is_ok() {
                 completed_bytes += pinned.size;
                 log::info!("✅ {} already present and verified", name);
@@ -170,8 +172,9 @@ pub async fn download_nemotron_models<R: Runtime>(app: &AppHandle<R>) -> Result<
         let dest = dir.join(name);
         let file_index = index + 1;
 
-        // Only an exact length and checksum can identify a completed artifact;
-        // a copy that does not match is deleted by the check.
+        // Only an exact length and checksum can identify a completed artifact.
+        // The check deletes a full-size copy that does not match, and the
+        // line below removes one of another size (never a `.part` transfer).
         if dest.exists() && model_integrity::verify_file(pinned, &dest).await.is_ok() {
             completed_bytes += pinned.size;
             log::info!("✅ {} already present and verified by SHA-256", name);

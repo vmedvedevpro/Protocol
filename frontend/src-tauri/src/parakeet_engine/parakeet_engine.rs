@@ -321,7 +321,9 @@ impl ParakeetEngine {
     /// Hashes the files of a model installed before SHA-256 pinning, or changed
     /// since its download, once before ONNX Runtime parses them. A mismatch
     /// deletes the file and leaves the reason in the model status until the
-    /// next discovery.
+    /// next discovery. Only an available model is hashed, so a download
+    /// (status Downloading) is never touched; a file whose size changed since
+    /// discovery is refused and kept, and its status left to the download.
     async fn verify_before_load(&self, model_name: &str) -> Result<()> {
         let model_dir = match self.available_models.read().await.get(model_name) {
             Some(info) if matches!(info.status, ModelStatus::Available) => info.path.clone(),
@@ -332,8 +334,10 @@ impl ParakeetEngine {
         for pinned in pinned_files {
             let file_path = model_dir.join(pinned.file);
             if let Err(error) = model_integrity::ensure_verified(pinned, &file_path).await {
-                if let Some(model) = self.available_models.write().await.get_mut(model_name) {
-                    model.status = ModelStatus::Error(error.to_string());
+                if matches!(error.downcast_ref(), Some(model_integrity::IntegrityError::Mismatch { .. })) {
+                    if let Some(model) = self.available_models.write().await.get_mut(model_name) {
+                        model.status = ModelStatus::Error(error.to_string());
+                    }
                 }
                 return Err(error);
             }

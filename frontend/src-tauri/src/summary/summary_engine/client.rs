@@ -13,6 +13,7 @@ use std::sync::RwLock;
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
+use super::model_manager::ModelManager;
 use super::models;
 use super::sidecar::SidecarManager;
 
@@ -156,7 +157,11 @@ pub async fn generate_with_builtin(
     // llama.cpp parses this file: hash it once if no download has verified it.
     let (_, pinned) = crate::model_integrity::summary_model(&model_def.gguf_file)
         .ok_or_else(|| anyhow!("{} has no pinned checksum", model_def.gguf_file))?;
-    crate::model_integrity::ensure_verified(pinned, &model_path).await?;
+    match ModelManager::registered() {
+        Some(manager) => manager.verify_before_load(model_name, pinned, &model_path).await?,
+        // Downloads run in the manager, so without one none is running.
+        None => crate::model_integrity::ensure_verified(pinned, &model_path).await?,
+    }
 
     // Apply model-specific chat template
     let formatted_prompt =

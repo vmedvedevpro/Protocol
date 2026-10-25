@@ -35,12 +35,15 @@
 //! and modification time. [`ensure_verified`] runs before a model is loaded: a
 //! valid marker costs two metadata reads, while a file without one — installed
 //! by an older build, or changed since — is hashed once, off the async runtime.
-//! A file that does not match is deleted at every stage. Diarization models
-//! keep their own checks (`diarization/download.rs`, `nemotron.rs`) and use no
-//! markers.
+//! A full-size file whose content does not match is deleted at every stage. A
+//! file on disk of another size is only refused: it may be a partial download
+//! kept for resume, or one that a download is writing right now. Diarization
+//! models keep their own checks (`diarization/download.rs`, `nemotron.rs`) and
+//! use no markers.
 
 use anyhow::{anyhow, Result};
 use sha2::{Digest, Sha256};
+use std::fmt;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
@@ -177,6 +180,37 @@ pub fn find(table: &'static [Pinned], file: &str) -> Option<&'static Pinned> {
 
 // --- Checking ---------------------------------------------------------------
 
+/// Why a file is not the one it was pinned to. Callers that react differently
+/// to these cases find them with `anyhow::Error::downcast_ref`.
+#[derive(Debug)]
+pub enum IntegrityError {
+    /// A file on disk has another size than its pin. It is kept: it may be a
+    /// partial download waiting to resume, or one being written right now.
+    WrongSize { file: &'static str, size: u64, expected: u64 },
+    /// The content does not match the pin, so the file was deleted.
+    Mismatch { file: &'static str, detail: String },
+}
+
+impl fmt::Display for IntegrityError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::WrongSize { file, size, expected } if size < expected => write!(
+                f,
+                "{file} is not fully downloaded: it has {size} of {expected} bytes. Finish its download first."
+            ),
+            Self::WrongSize { file, size, expected } => write!(
+                f,
+                "{file} is larger than its pinned size: it has {size} bytes, expected {expected}. Download it again."
+            ),
+            Self::Mismatch { file, detail } => {
+                write!(f, "{file} failed its integrity check and was deleted: {detail}. Download it again.")
+            }
+        }
+    }
+}
+
+impl std::error::Error for IntegrityError {}
+
 /// A SHA-256 fed as the bytes arrive, bounded by the pinned size.
 pub struct Check {
     pinned: &'static Pinned,
@@ -222,7 +256,7 @@ impl Check {
         if self.bytes == self.pinned.size && actual == self.pinned.sha256 {
             return Ok(());
         }
-        Err(discard(self.pinned, path, self.bytes, &actual))
+        Err(discard(self.pinned, path, self.bytes, &actual).into())
     }
 
     fn read(&mut self, path: &Path) -> Result<()> {
@@ -241,37 +275,34 @@ impl Check {
 }
 
 /// Deletes `path` and its marker and describes why.
-fn discard(pinned: &Pinned, path: &Path, bytes: u64, sha256: &str) -> anyhow::Error {
+fn discard(pinned: &'static Pinned, path: &Path, bytes: u64, sha256: &str) -> IntegrityError {
     let _ = std::fs::remove_file(path);
     clear_mark(path);
-    if bytes == pinned.size {
-        anyhow!(
-            "{} failed its integrity check and was deleted: its SHA-256 is {}, expected {}. Download it again.",
-            pinned.file,
-            sha256,
-            pinned.sha256
-        )
+    let detail = if bytes == pinned.size {
+        format!("its SHA-256 is {}, expected {}", sha256, pinned.sha256)
     } else {
-        anyhow!(
-            "{} failed its integrity check and was deleted: it has {} bytes, expected {}. Download it again.",
-            pinned.file,
-            bytes,
-            pinned.size
-        )
-    }
+        format!("it has {} bytes, expected {}", bytes, pinned.size)
+    };
+    IntegrityError::Mismatch { file: pinned.file, detail }
 }
 
-/// Hashes a file already on disk against its pin, off the async runtime. A
-/// mismatch deletes the file.
+/// Hashes a file already on disk against its pin, off the async runtime. Only
+/// a full-size file that does not match is deleted; a file of another size is
+/// refused with [`IntegrityError::WrongSize`] and kept.
 pub async fn verify_file(pinned: &'static Pinned, path: &Path) -> Result<()> {
     let path = path.to_path_buf();
     tokio::task::spawn_blocking(move || {
+        let wrong_size = |size| IntegrityError::WrongSize { file: pinned.file, size, expected: pinned.size };
         let size = std::fs::metadata(&path)?.len();
         if size != pinned.size {
-            return Err(discard(pinned, &path, size, ""));
+            return Err(wrong_size(size).into());
         }
         let mut check = Check::new(pinned);
         check.read(&path)?;
+        if check.bytes != pinned.size {
+            // The file shrank while it was read: a download has taken it over.
+            return Err(wrong_size(check.bytes).into());
+        }
         check.finish(&path)
     })
     .await?
@@ -316,8 +347,9 @@ fn is_marked(pinned: &Pinned, path: &Path) -> bool {
 }
 
 /// Makes sure `path` is the pinned file before native code parses it. A file
-/// with a valid marker is trusted; any other is hashed once and marked, or
-/// deleted when it does not match.
+/// with a valid marker is trusted; any other full-size file is hashed once and
+/// marked, or deleted when it does not match. A file of another size is
+/// refused and kept (see [`verify_file`]).
 pub async fn ensure_verified(pinned: &'static Pinned, path: &Path) -> Result<()> {
     if is_marked(pinned, path) {
         return Ok(());
@@ -445,19 +477,27 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn verify_file_rejects_size_and_hash_mismatches() {
+    async fn verify_file_keeps_a_file_of_another_size_and_deletes_a_mismatch() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("hello.txt");
         std::fs::write(&path, b"hello").unwrap();
         verify_file(&HELLO, &path).await.unwrap();
 
+        // A partial download, or one being written, is refused but kept.
+        std::fs::write(&path, b"hel").unwrap();
+        let error = verify_file(&HELLO, &path).await.unwrap_err();
+        assert!(matches!(error.downcast_ref(), Some(IntegrityError::WrongSize { size: 3, .. })), "{error}");
+        assert!(error.to_string().contains("is not fully downloaded: it has 3 of 5 bytes"), "{error}");
+        assert_eq!(std::fs::read(&path).unwrap(), b"hel");
+
         std::fs::write(&path, b"hello!").unwrap();
         let error = verify_file(&HELLO, &path).await.unwrap_err().to_string();
-        assert!(error.contains("it has 6 bytes, expected 5"), "{error}");
-        assert!(!path.exists());
+        assert!(error.contains("larger than its pinned size: it has 6 bytes, expected 5"), "{error}");
+        assert!(path.exists());
 
         std::fs::write(&path, b"jello").unwrap();
-        assert!(verify_file(&HELLO, &path).await.is_err());
+        let error = verify_file(&HELLO, &path).await.unwrap_err();
+        assert!(matches!(error.downcast_ref(), Some(IntegrityError::Mismatch { .. })), "{error}");
         assert!(!path.exists());
     }
 

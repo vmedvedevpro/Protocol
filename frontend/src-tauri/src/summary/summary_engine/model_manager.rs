@@ -2,11 +2,12 @@
 // Follows the same pattern as whisper_engine/whisper_engine.rs for consistency
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 
 use anyhow::{anyhow, Result};
+use once_cell::sync::Lazy;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -16,7 +17,7 @@ use tokio::sync::{Notify, RwLock};
 use tokio::time::timeout;
 
 use super::models::{get_available_models, get_model_by_name};
-use crate::model_integrity;
+use crate::model_integrity::{self, IntegrityError, Pinned};
 
 // ============================================================================
 // Model Status Types
@@ -128,7 +129,21 @@ pub struct ModelManager {
     download_controls: Arc<RwLock<HashMap<String, Arc<DownloadControl>>>>,
 }
 
+/// The manager kept in Tauri state, for the summary client, which runs without
+/// an app handle and must still see downloads and record failed checks.
+static REGISTERED: Lazy<std::sync::RwLock<Weak<ModelManager>>> =
+    Lazy::new(|| std::sync::RwLock::new(Weak::new()));
+
 impl ModelManager {
+    /// Makes this the manager that [`ModelManager::registered`] returns.
+    pub fn register(self: &Arc<Self>) {
+        *REGISTERED.write().unwrap_or_else(|poisoned| poisoned.into_inner()) = Arc::downgrade(self);
+    }
+
+    pub fn registered() -> Option<Arc<Self>> {
+        REGISTERED.read().unwrap_or_else(|poisoned| poisoned.into_inner()).upgrade()
+    }
+
     /// Create a new model manager with default models directory
     pub fn new() -> Result<Self> {
         Self::new_with_models_dir(None)
@@ -352,6 +367,36 @@ impl ModelManager {
         } else {
             false
         }
+    }
+
+    /// Checks `path`, the file of `model_name`, before llama-helper parses it.
+    /// Unlike the download, a generation request can meet a file that a
+    /// download owns: a partial kept for resume, or one being written. Such a
+    /// file is refused and kept. Only a full-size file that fails its hash is
+    /// deleted, and the status then changes so Settings offers the download.
+    pub async fn verify_before_load(
+        &self,
+        model_name: &str,
+        pinned: &'static Pinned,
+        path: &Path,
+    ) -> Result<()> {
+        if self.download_controls.read().await.contains_key(model_name) {
+            let name = get_model_by_name(model_name).map_or_else(|| model_name.to_string(), |m| m.display_name);
+            return Err(anyhow!("{} is still downloading. Wait for the download to finish in Settings.", name));
+        }
+        let Err(error) = model_integrity::ensure_verified(pinned, path).await else {
+            return Ok(());
+        };
+        if matches!(error.downcast_ref(), Some(IntegrityError::Mismatch { .. })) {
+            // A download that started meanwhile owns the status.
+            let controls = self.download_controls.read().await;
+            if !controls.contains_key(model_name) {
+                if let Some(info) = self.available_models.write().await.get_mut(model_name) {
+                    info.status = ModelStatus::NotDownloaded;
+                }
+            }
+        }
+        Err(error)
     }
 
     /// Download a model with simple percentage callback (backward compatible)
@@ -1063,5 +1108,76 @@ mod tests {
             manager.get_model_info(&model.name).await.unwrap().status,
             ModelStatus::Available
         );
+    }
+
+    /// Stands in for a GGUF pin, so a test hashes bytes rather than gigabytes.
+    fn small_pin(content: &[u8]) -> &'static Pinned {
+        use sha2::{Digest, Sha256};
+        Box::leak(Box::new(Pinned {
+            file: "model.gguf",
+            size: content.len() as u64,
+            sha256: Box::leak(format!("{:x}", Sha256::digest(content)).into_boxed_str()),
+        }))
+    }
+
+    async fn start_download(manager: &ModelManager, model_name: &str) {
+        let control = Arc::new(DownloadControl { cancelled: AtomicBool::new(false), notify: Notify::new() });
+        manager.download_controls.write().await.insert(model_name.to_string(), control);
+    }
+
+    /// The live assistant, person and group questions call `generate_with_builtin`
+    /// with no readiness check; it must leave a download's file alone.
+    #[tokio::test]
+    async fn the_live_assistant_keeps_a_partial_or_downloading_model() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let data_dir = temp.path().to_path_buf();
+        let models_dir = super::super::models::get_models_directory(&data_dir);
+        std::fs::create_dir_all(&models_dir).unwrap();
+        let manager = Arc::new(ModelManager::new_with_models_dir(Some(models_dir.clone())).unwrap());
+        manager.init().await.unwrap();
+        manager.register();
+        let model = get_model_by_name("qwen3.5:2b").expect("model");
+        let path = models_dir.join(&model.gguf_file);
+        // A download cancelled part-way and kept for resume.
+        std::fs::File::create(&path).unwrap().set_len(123_456).unwrap();
+
+        let ask = || super::super::client::generate_with_builtin(&data_dir, &model.name, "system", "question", None);
+        let error = ask().await.unwrap_err().to_string();
+        assert!(error.contains("is not fully downloaded: it has 123456 of"), "{error}");
+        assert_eq!(std::fs::metadata(&path).unwrap().len(), 123_456);
+
+        start_download(&manager, &model.name).await;
+        let error = ask().await.unwrap_err().to_string();
+        assert!(error.contains("is still downloading"), "{error}");
+        assert_eq!(std::fs::metadata(&path).unwrap().len(), 123_456);
+    }
+
+    #[tokio::test]
+    async fn a_full_size_model_that_fails_its_hash_is_deleted_and_offered_again() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let manager = ModelManager::new_with_models_dir(Some(temp.path().to_path_buf())).unwrap();
+        let model = get_model_by_name("qwen3.5:2b").expect("model");
+        let pinned = small_pin(b"GGUF model");
+        let path = temp.path().join(&model.gguf_file);
+        std::fs::write(&path, b"GGUF modeL").unwrap();
+        manager.init().await.unwrap();
+        manager.available_models.write().await.get_mut(&model.name).unwrap().status = ModelStatus::Available;
+
+        // While a download owns the file, even a full-size one is left alone.
+        start_download(&manager, &model.name).await;
+        let error = manager.verify_before_load(&model.name, pinned, &path).await.unwrap_err();
+        assert!(error.to_string().contains("is still downloading"), "{error}");
+        assert!(path.exists());
+        manager.download_controls.write().await.clear();
+
+        let error = manager.verify_before_load(&model.name, pinned, &path).await.unwrap_err();
+        assert!(error.to_string().contains("failed its integrity check and was deleted"), "{error}");
+        assert!(!path.exists());
+        // Settings lists the cached status, which now offers the download again.
+        assert_eq!(manager.get_model_info(&model.name).await.unwrap().status, ModelStatus::NotDownloaded);
+        serde_json::to_string(&manager.list_models().await).expect("statuses reach the UI");
+
+        std::fs::write(&path, b"GGUF model").unwrap();
+        manager.verify_before_load(&model.name, pinned, &path).await.unwrap();
     }
 }

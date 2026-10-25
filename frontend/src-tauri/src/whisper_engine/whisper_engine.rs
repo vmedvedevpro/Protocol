@@ -282,6 +282,9 @@ impl WhisperEngine {
     /// Hashes a model installed before SHA-256 pinning, or changed since its
     /// download, once before whisper.cpp parses it. A mismatch deletes the file
     /// and leaves the reason in the model status until the next discovery.
+    /// Only an available model is hashed, so a download (status Downloading)
+    /// is never touched; a file whose size changed since discovery is refused
+    /// and kept, and its status left to the download that rewrites it.
     async fn verify_before_load(&self, model_name: &str) -> Result<()> {
         let model_path = match self.available_models.read().await.get(model_name) {
             Some(info) if matches!(info.status, ModelStatus::Available) => info.path.clone(),
@@ -291,8 +294,10 @@ impl WhisperEngine {
         let pinned = model_integrity::whisper_model(model_name)
             .ok_or_else(|| anyhow!("Model {} has no pinned checksum", model_name))?;
         if let Err(error) = model_integrity::ensure_verified(pinned, &model_path).await {
-            if let Some(model_info) = self.available_models.write().await.get_mut(model_name) {
-                model_info.status = ModelStatus::Error(error.to_string());
+            if matches!(error.downcast_ref(), Some(model_integrity::IntegrityError::Mismatch { .. })) {
+                if let Some(model_info) = self.available_models.write().await.get_mut(model_name) {
+                    model_info.status = ModelStatus::Error(error.to_string());
+                }
             }
             return Err(error);
         }
