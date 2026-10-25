@@ -848,8 +848,13 @@ fn newest_audio_in(dir: &Path) -> Option<PathBuf> {
 ///
 /// Recordings are saved per-meeting as `<recordings folder>/<meeting name>/audio.mp4`,
 /// so we search: the meeting's own `folder_path`, then each meeting subfolder of
-/// the configured recordings folder, then the install-local data root (tray saves).
-fn find_meeting_audio(folder_path: Option<String>, meeting_title: Option<&str>) -> Option<PathBuf> {
+/// the recordings roots (see `recordings_roots`), then the install-local data
+/// root (tray saves).
+fn find_meeting_audio(
+    folder_path: Option<String>,
+    meeting_title: Option<&str>,
+    recordings_roots: &[PathBuf],
+) -> Option<PathBuf> {
     // 1. The meeting's recorded folder (or a direct file path).
     if let Some(folder) = folder_path.as_deref() {
         let p = PathBuf::from(folder);
@@ -863,14 +868,17 @@ fn find_meeting_audio(folder_path: Option<String>, meeting_title: Option<&str>) 
         }
     }
 
-    // 2. The configured recordings folder, matched by meeting title.
-    let recordings_root = crate::audio::recording_preferences::get_default_recordings_folder();
-    if recordings_root.is_dir() {
-        if let Some(title) = meeting_title {
-            // Folder names are sanitized versions of the meeting title, and get a
-            // timestamp suffix, so match on prefix rather than equality.
-            let needle = title.to_lowercase();
-            for entry in std::fs::read_dir(&recordings_root).ok()?.flatten() {
+    // 2. The recordings roots, matched by meeting title.
+    if let Some(title) = meeting_title {
+        // Folder names are sanitized versions of the meeting title, and get a
+        // timestamp suffix, so match on prefix rather than equality.
+        let needle = title.to_lowercase();
+        for recordings_root in recordings_roots {
+            // An unreadable root must not stop the search in the next one.
+            let Ok(entries) = std::fs::read_dir(recordings_root) else {
+                continue;
+            };
+            for entry in entries.flatten() {
                 let dir = entry.path();
                 if !dir.is_dir() {
                     continue;
@@ -890,6 +898,18 @@ fn find_meeting_audio(folder_path: Option<String>, meeting_title: Option<&str>) 
 
     // 3. Install-local data root (where tray/UI stop-recording saves land).
     newest_audio_in(&crate::paths::install_data_root())
+}
+
+/// Recordings roots to search by meeting title: the folder saved in Settings
+/// first, then the default root, where meetings recorded before the folder was
+/// changed still live.
+async fn recordings_roots(app: &tauri::AppHandle) -> Vec<PathBuf> {
+    let mut roots = vec![crate::audio::recording_preferences::configured_recordings_folder(app).await];
+    let default_root = crate::audio::recording_preferences::get_default_recordings_folder();
+    if !roots.contains(&default_root) {
+        roots.push(default_root);
+    }
+    roots
 }
 
 fn is_manual_speaker_label(label: &str) -> bool {
@@ -986,6 +1006,7 @@ fn ensure_wav(path: &Path) -> Result<(PathBuf, bool)> {
 /// Diarize a meeting's recording and assign "Speaker N" labels to its transcript segments.
 #[tauri::command]
 pub async fn diarize_meeting(
+    app: tauri::AppHandle,
     state: tauri::State<'_, crate::state::AppState>,
     meeting_id: String,
     audio_path: Option<String>,
@@ -1015,13 +1036,17 @@ pub async fn diarize_meeting(
 
     let source = match audio_path {
         Some(p) => PathBuf::from(p),
-        None => find_meeting_audio(folder_path.clone(), title.as_deref()).ok_or_else(|| {
-            format!(
-                "No recording found for this meeting. Looked in the meeting folder, \
-                 {} and the app data folder.",
-                crate::audio::recording_preferences::get_default_recordings_folder().display()
-            )
-        })?,
+        None => {
+            let roots = recordings_roots(&app).await;
+            find_meeting_audio(folder_path.clone(), title.as_deref(), &roots).ok_or_else(|| {
+                let searched: Vec<String> = roots.iter().map(|root| root.display().to_string()).collect();
+                format!(
+                    "No recording found for this meeting. Looked in the meeting folder, \
+                     {} and the app data folder.",
+                    searched.join(", ")
+                )
+            })?
+        }
     };
     log::info!("🧑‍🤝‍🧑 Diarizing meeting {} with {} using {}", meeting_id, selected_engine, source.display());
 
@@ -1734,6 +1759,30 @@ mod tests {
         assert!(failed.is_err());
         let labels: Vec<String> = sqlx::query_scalar("SELECT speaker FROM transcripts ORDER BY id").fetch_all(&pool).await.unwrap();
         assert_eq!(labels,vec!["You + Speaker 2","Guest","Named"]);
+    }
+
+    #[test]
+    fn meeting_audio_lookup_searches_configured_then_default_recordings_root() {
+        let dir = tempfile::tempdir().unwrap();
+        let configured = dir.path().join("custom-recordings");
+        let default = dir.path().join("protocol-recordings");
+        let imported = configured.join("Customer Interview_2026-10-25_10-00-00-000");
+        let same_title_in_default = default.join("Customer Interview_2026-09-01_09-00-00-000");
+        let older = default.join("Weekly Sync_2026-09-01_10-00-00-000");
+        for folder in [&imported, &same_title_in_default, &older] {
+            std::fs::create_dir_all(folder).unwrap();
+            std::fs::write(folder.join("audio.mp4"), b"").unwrap();
+        }
+        let roots = [dir.path().join("missing-root"), configured, default];
+
+        assert_eq!(
+            find_meeting_audio(None, Some("Customer Interview"), &roots),
+            Some(imported.join("audio.mp4"))
+        );
+        assert_eq!(
+            find_meeting_audio(None, Some("Weekly Sync"), &roots),
+            Some(older.join("audio.mp4"))
+        );
     }
 
     #[test]
