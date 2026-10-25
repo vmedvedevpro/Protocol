@@ -505,6 +505,7 @@ pub fn run() {
             // data from the OS app-data dir into the install-local root. Runs
             // BEFORE model/DB init so migrated models + history are picked up.
             crate::paths::migrate_legacy_data(&_app.handle());
+            crate::paths::remove_claude_cli_working_dir();
 
             // Meeting detection: load persisted settings and start the monitor
             // if the user enabled it (default off).

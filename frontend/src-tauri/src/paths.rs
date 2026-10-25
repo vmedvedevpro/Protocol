@@ -172,6 +172,22 @@ fn copy_path_recursive(src: &std::path::Path, dst: &std::path::Path) -> std::io:
     Ok(())
 }
 
+/// Deletes `<root>/claude-cli`, the working folder of the removed Claude Code
+/// CLI summary provider (#19). It only ever held `system-prompt-<uuid>.txt`
+/// files, which a run that crashed could leave behind. Best effort: a failure
+/// is logged and the next start tries again.
+pub fn remove_claude_cli_working_dir() {
+    remove_retired_dir(&install_data_root().join("claude-cli"));
+}
+
+fn remove_retired_dir(dir: &std::path::Path) {
+    match std::fs::remove_dir_all(dir) {
+        Ok(()) => log::info!("Removed retired folder {}", dir.display()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => log::warn!("Could not remove retired folder {}: {}", dir.display(), e),
+    }
+}
+
 /// Ensure `dir` exists and is writable by probing an actual file write.
 #[cfg(not(target_os = "macos"))]
 fn ensure_writable(dir: &PathBuf) -> bool {
@@ -185,5 +201,30 @@ fn ensure_writable(dir: &PathBuf) -> bool {
             true
         }
         Err(_) => false,
+    }
+}
+
+#[cfg(test)]
+mod retired_dir_tests {
+    use super::remove_retired_dir;
+
+    #[test]
+    fn removes_a_retired_folder_and_its_files() {
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path().join("claude-cli");
+        std::fs::create_dir(&dir).unwrap();
+        std::fs::write(dir.join("system-prompt-left-by-a-crash.txt"), b"prompt").unwrap();
+
+        remove_retired_dir(&dir);
+
+        assert!(!dir.exists());
+        assert!(root.path().exists());
+    }
+
+    #[test]
+    fn a_missing_folder_is_not_an_error() {
+        let root = tempfile::tempdir().unwrap();
+        remove_retired_dir(&root.path().join("claude-cli"));
+        assert!(root.path().exists());
     }
 }
