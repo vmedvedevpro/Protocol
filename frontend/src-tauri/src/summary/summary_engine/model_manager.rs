@@ -16,6 +16,7 @@ use tokio::sync::{Notify, RwLock};
 use tokio::time::timeout;
 
 use super::models::{get_available_models, get_model_by_name};
+use crate::model_integrity;
 
 // ============================================================================
 // Model Status Types
@@ -398,6 +399,11 @@ impl ModelManager {
                 return Err(anyhow!("Unknown model: {}", model_name));
             }
         };
+        // The exact size and SHA-256 of the file at the pinned URL.
+        let Some((_, pinned)) = model_integrity::summary_model(&model_def.gguf_file) else {
+            self.release_download(model_name, &control).await;
+            return Err(anyhow!("{} has no pinned checksum", model_def.gguf_file));
+        };
 
         // Update status to downloading
         {
@@ -414,9 +420,18 @@ impl ModelManager {
             if let Ok(metadata) = fs::metadata(&file_path).await {
                 let file_size_mb = metadata.len() / (1024 * 1024);
 
-                if metadata.len() == model_def.size_bytes
+                // A complete file is hashed once rather than trusted for its
+                // size; one that does not match is deleted and downloaded again.
+                let verified = metadata.len() == model_def.size_bytes
                     && self.validate_gguf_file(&file_path).await.is_ok()
-                {
+                    && match model_integrity::ensure_verified(pinned, &file_path).await {
+                        Ok(()) => true,
+                        Err(error) => {
+                            log::warn!("{}; downloading it again", error);
+                            false
+                        }
+                    };
+                if verified {
                     log::info!(
                         "Model '{}' already exists and is valid ({} MB), skipping download",
                         model_name,
@@ -457,8 +472,11 @@ impl ModelManager {
                         file_size_mb,
                         model_def.size_bytes
                     );
-                    if let Err(e) = fs::remove_file(&file_path).await {
-                        log::warn!("Failed to delete oversized model file: {}", e);
+                    // A failed integrity check has already deleted it.
+                    if file_path.exists() {
+                        if let Err(e) = fs::remove_file(&file_path).await {
+                            log::warn!("Failed to delete oversized model file: {}", e);
+                        }
                     }
                 } else {
                     // File is SMALLER than expected - likely partial download
@@ -563,13 +581,38 @@ impl ModelManager {
             if existing_size > 0 {
                 log::warn!("Server doesn't support resume, starting fresh download");
             }
-            (response.content_length().unwrap_or(0), false)
+            let length = response.content_length().unwrap_or(0);
+            if length > 0 && length != pinned.size {
+                let message = format!(
+                    "{} failed its integrity check: the server sent {} bytes, expected {}",
+                    pinned.file, length, pinned.size
+                );
+                self.fail_download(model_name, &control, message.clone()).await;
+                return Err(anyhow!(message));
+            }
+            (length, false)
         } else {
             self.fail_download(model_name, &control, format!("Download failed with status: {}", response.status())).await;
             return Err(anyhow!("Download failed with status: {}", response.status()));
         };
 
         log::info!("Total size: {} MB", total_size / (1024 * 1024));
+
+        // The hash covers the whole file, so a resumed transfer first reads back
+        // the bytes it keeps.
+        let mut integrity = if resuming {
+            match model_integrity::Check::resume(pinned, &file_path).await {
+                Ok(check) => check,
+                Err(error) => {
+                    self.fail_download(model_name, &control, format!("Failed to read partial model file: {}", error)).await;
+                    return Err(anyhow!("Failed to read partial model file: {}", error));
+                }
+            }
+        } else {
+            model_integrity::Check::new(pinned)
+        };
+        // The file is about to change; an old marker must not outlive it.
+        model_integrity::clear_mark(&file_path);
 
         // Open file for append if resuming, or create new
         let file_result = if resuming {
@@ -680,6 +723,12 @@ impl ModelManager {
                 }
             };
             let chunk_len = chunk.len() as u64;
+            if let Err(error) = integrity.update(&chunk) {
+                drop(writer);
+                let _ = fs::remove_file(&file_path).await;
+                self.fail_download(model_name, &control, error.to_string()).await;
+                return Err(error);
+            }
             if let Err(error) = writer.write_all(&chunk).await {
                 self.fail_download(model_name, &control, format!("Error writing model file: {}", error)).await;
                 return Err(anyhow!("Error writing to file: {}", error));
@@ -819,6 +868,15 @@ impl ModelManager {
             return Err(anyhow!("File validation failed: {}", e));
         }
 
+        // The right format is not the right file: compare the streamed SHA-256
+        // with the pin. A mismatch has deleted the file.
+        if let Err(error) = integrity.finish(&file_path) {
+            log::error!("{}", error);
+            self.fail_download(model_name, &control, error.to_string()).await;
+            return Err(error);
+        }
+        model_integrity::mark_verified(pinned, &file_path);
+
         // Commit completion while ownership is still held. Cancellation is
         // either observed here or rejected after the control is removed.
         let mut controls = self.download_controls.write().await;
@@ -951,6 +1009,7 @@ impl ModelManager {
             fs::remove_file(&file_path).await?;
             log::info!("Deleted model file: {}", file_path.display());
         }
+        model_integrity::clear_mark(&file_path);
 
         // Update status
         {
