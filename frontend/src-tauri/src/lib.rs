@@ -683,8 +683,6 @@ pub fn run() {
             api::api_get_meeting_audio,
             meeting_detection::get_meeting_detection_settings,
             meeting_detection::set_meeting_detection_settings,
-            meeting_detection::start_meeting_detection,
-            meeting_detection::stop_meeting_detection,
             diarization::diarization_models_available,
             diarization::diarization_model_directory,
             diarization::diarization_download_size,
