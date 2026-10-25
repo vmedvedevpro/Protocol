@@ -767,6 +767,7 @@ pub async fn whisper_download_model(
     model_name: String,
     enable_post_call: Option<bool>,
 ) -> Result<(), String> {
+    let _busy = crate::updater::busy::hold(crate::updater::busy::BusyReason::ModelDownload);
     if enable_post_call.unwrap_or(false) && model_name != crate::optional_models::WHISPER_MODEL {
         return Err("Native optional activation is only supported for the recommended Whisper model".into());
     }
