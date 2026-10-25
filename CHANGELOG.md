@@ -17,6 +17,11 @@ issue and PR numbers refer to
   signing in the Windows packaging script, release verifier, and workflows.
 - Point About, onboarding, crash reports, and the CUDA setup prompt at this
   repository.
+- Rename the executable from `meetily.exe` to `protocol.exe` (Cargo package
+  `protocol`, installer variants `protocol-{cpu,vulkan,cuda}.exe`). Setup and
+  uninstall no longer close a running Meetily or Meetily – Actually Free, the
+  uninstaller stops only the `protocol.exe` in its own install folder, and
+  meeting detection no longer treats Meetily as Protocol itself.
 
 ## Unreleased
 
