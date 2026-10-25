@@ -44,17 +44,17 @@ jobs:
           test "$(jq -r .immutable <<< "$RELEASE_JSON")" = "true"
 
           VERSION=${RELEASE_TAG#v}
-          SETUP="Meetily-ActuallyFree-${VERSION}-x64-universal-setup.exe"
-          UPDATER="Meetily-ActuallyFree-${VERSION}-x64-universal-updater.exe"
+          SETUP="Protocol-${VERSION}-x64-universal-setup.exe"
+          ENGINE="Protocol-${VERSION}-x64-universal-engine.exe"
           mkdir -p release
           gh release download "$RELEASE_TAG" \
             --repo "$GITHUB_REPOSITORY" \
             --pattern "$SETUP" \
-            --pattern "$UPDATER" \
+            --pattern "$ENGINE" \
             --pattern "SHA256SUMS.txt" \
             --dir release
 
-          for file in "$SETUP" "$UPDATER"; do
+          for file in "$SETUP" "$ENGINE"; do
             test -f "release/$file"
             (
               cd release
@@ -64,7 +64,7 @@ jobs:
               printf '%s\n' "$checksum" | sha256sum --check --strict
             )
           done
-          printf 'SETUP=%s\nUPDATER=%s\n' "$SETUP" "$UPDATER" >> "$GITHUB_ENV"
+          printf 'SETUP=%s\nENGINE=%s\n' "$SETUP" "$ENGINE" >> "$GITHUB_ENV"
 
       - name: Submit public executables
         shell: bash
@@ -150,5 +150,5 @@ jobs:
           } > "$RUNNER_TEMP/vt-results.md"
 
           submit_file "$SETUP"
-          submit_file "$UPDATER"
+          submit_file "$ENGINE"
           cat "$RUNNER_TEMP/vt-results.md" >> "$GITHUB_STEP_SUMMARY"

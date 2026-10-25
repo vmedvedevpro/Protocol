@@ -50,7 +50,7 @@ export default function CrashReportDialog({ report, onResolved }: CrashReportDia
     } catch (error) {
       console.error('[CrashReport] Failed to persist dismissal:', error)
       toast.warning('The report could not be dismissed permanently', {
-        description: 'You can continue now, but Meetily may ask about it again next launch.',
+        description: 'You can continue now, but Protocol may ask about it again next launch.',
       })
     }
     onResolved()
@@ -103,8 +103,8 @@ export default function CrashReportDialog({ report, onResolved }: CrashReportDia
     ? 'the previous session'
     : detected.toLocaleString()
   const description = report.crashType === 'panic'
-    ? 'Meetily encountered an internal error during the previous session.'
-    : 'Meetily did not shut down cleanly during the previous session.'
+    ? 'Protocol encountered an internal error during the previous session.'
+    : 'Protocol did not shut down cleanly during the previous session.'
 
   return (
     <Dialog open>
@@ -120,7 +120,7 @@ export default function CrashReportDialog({ report, onResolved }: CrashReportDia
               <ShieldCheck className="h-5 w-5" />
             </div>
             <DialogTitle className="text-xl text-[var(--af-text)]">
-              Meetily encountered a problem
+              Protocol encountered a problem
             </DialogTitle>
             <DialogDescription className="text-[var(--af-text-2)]">
               {description} Creating or ignoring this report does not include or modify meeting content.
@@ -145,7 +145,7 @@ export default function CrashReportDialog({ report, onResolved }: CrashReportDia
               What&apos;s included?
             </summary>
             <div className="mt-3 space-y-2 border-t border-[var(--af-border)] pt-3 text-xs leading-relaxed text-[var(--af-text-3)]">
-              <p>Crash time and type, Meetily version, coarse operating-system details, bucketed CPU core count, rounded memory size, acceleration backend, and source-relative panic file/line details with a location fingerprint when available.</p>
+              <p>Crash time and type, Protocol version, coarse operating-system details, bucketed CPU core count, rounded memory size, acceleration backend, and source-relative panic file/line details with a location fingerprint when available.</p>
               <p>No audio, recordings, transcripts, summaries, meeting names, database, settings, credentials, usernames, hostnames, or device names.</p>
             </div>
           </details>

@@ -65,7 +65,7 @@ export function SettingsModals({ modals, messages, onClose }: SettingsModalsProp
             </DialogTitle>
             <DialogDescription>
               {messages.modelSelector
-                ? 'Meetily needs a speech model on this computer before it can transcribe. Parakeet is fast and works well for live meetings.'
+                ? 'Protocol needs a speech model on this computer before it can transcribe. Parakeet is fast and works well for live meetings.'
                 : 'Choose the speech model used while recording and after the call.'}
             </DialogDescription>
           </DialogHeader>

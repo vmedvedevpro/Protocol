@@ -1,4 +1,4 @@
-; Meetily - Actually Free — NSIS installer dependency hooks
+; Protocol — NSIS installer dependency hooks
 ; Tauri copies bundle.resources flat under $INSTDIR (e.g. $INSTDIR\runtime-deps\).
 ; The NSIS stub is 32-bit: use Sysnative / disable WOW64 redirection for 64-bit tools.
 
@@ -42,11 +42,11 @@ Var MeetilyCudaNotice
     ${If} $0 != 0
     ${AndIf} $0 != 1638
     ${AndIf} $0 != 3010
-      MessageBox MB_ICONSTOP|MB_OK "Microsoft Visual C++ Runtime installation failed (code $0). Meetily setup cannot continue."
+      MessageBox MB_ICONSTOP|MB_OK "Microsoft Visual C++ Runtime installation failed (code $0). Protocol setup cannot continue."
       Abort
     ${EndIf}
   ${Else}
-    MessageBox MB_ICONSTOP|MB_OK "The Microsoft Visual C++ Runtime package is missing. Meetily setup cannot continue."
+    MessageBox MB_ICONSTOP|MB_OK "The Microsoft Visual C++ Runtime package is missing. Protocol setup cannot continue."
     Abort
   ${EndIf}
 !macroend
@@ -55,7 +55,7 @@ Var MeetilyCudaNotice
   ; Tauri resource path: $INSTDIR\runtime-deps\*.dll
   StrCpy $R1 "$INSTDIR\runtime-deps"
   ${If} ${FileExists} "$R1\cudart64_13.dll"
-    DetailPrint "      Copying CUDA / DirectML libraries next to Meetily…"
+    DetailPrint "      Copying CUDA / DirectML libraries next to Protocol…"
     CopyFiles /SILENT "$R1\cudart64_13.dll" "$INSTDIR\"
     ${If} ${FileExists} "$R1\cublas64_13.dll"
       CopyFiles /SILENT "$R1\cublas64_13.dll" "$INSTDIR\"
@@ -333,11 +333,11 @@ Var MeetilyCudaNotice
     StrCpy $R3 "the bundled backend"
   ${EndIf}
   ${If} $MeetilyCudaState == "no-driver"
-    StrCpy $MeetilyCudaNotice "NVIDIA graphics were detected, but a compatible driver was not found. Install NVIDIA driver ${MEETILY_MIN_NVIDIA_DRIVER} or newer, then rerun setup to enable CUDA. Meetily selected $R3 for now."
+    StrCpy $MeetilyCudaNotice "NVIDIA graphics were detected, but a compatible driver was not found. Install NVIDIA driver ${MEETILY_MIN_NVIDIA_DRIVER} or newer, then rerun setup to enable CUDA. Protocol selected $R3 for now."
   ${ElseIf} $MeetilyCudaState == "old-driver"
-    StrCpy $MeetilyCudaNotice "The installed NVIDIA driver is too old for Meetily CUDA. Update to NVIDIA driver ${MEETILY_MIN_NVIDIA_DRIVER} or newer, then rerun setup. Meetily selected $R3 for now."
+    StrCpy $MeetilyCudaNotice "The installed NVIDIA driver is too old for Protocol CUDA. Update to NVIDIA driver ${MEETILY_MIN_NVIDIA_DRIVER} or newer, then rerun setup. Protocol selected $R3 for now."
   ${ElseIf} $MeetilyCudaState == "query-failed"
-    StrCpy $MeetilyCudaNotice "NVIDIA graphics were detected, but setup could not verify CUDA support. Update or reinstall the NVIDIA driver, then rerun setup. Meetily selected $R3 for now."
+    StrCpy $MeetilyCudaNotice "NVIDIA graphics were detected, but setup could not verify CUDA support. Update or reinstall the NVIDIA driver, then rerun setup. Protocol selected $R3 for now."
   ${EndIf}
   ${If} $MeetilyCudaNotice != ""
     DetailPrint "      NOTICE: $MeetilyCudaNotice"
@@ -358,7 +358,7 @@ Var MeetilyCudaNotice
 !macro NSIS_HOOK_PREINSTALL
   SetDetailsPrint both
   DetailPrint "────────────────────────────────────────"
-  DetailPrint " Meetily - Actually Free"
+  DetailPrint " Protocol"
   ${If} $UpdateMode == 1
     DetailPrint " Updating app files…"
   ${Else}
@@ -414,11 +414,14 @@ Var MeetilyCudaNotice
 !macroend
 
 !macro NSIS_HOOK_PREUNINSTALL
-  DetailPrint "Stopping Meetily if it is still running…"
+  DetailPrint "Stopping Protocol if it is still running…"
   nsExec::ExecToLog 'taskkill /IM meetily.exe /F'
   Pop $0
 !macroend
 
 !macro NSIS_HOOK_POSTUNINSTALL
-  DetailPrint "Meetily was removed from this user profile."
+  ; Installs default to %LOCALAPPDATA%\<publisher>\<product> (installer.nsi).
+  ; RMDir without /r removes the publisher folder only once it is empty.
+  RMDir "$LOCALAPPDATA\${MANUFACTURER}"
+  DetailPrint "Protocol was removed from this user profile."
 !macroend

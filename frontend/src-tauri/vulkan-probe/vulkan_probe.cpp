@@ -167,7 +167,7 @@ int main() {
   const VkApplicationInfo application_info{
       VK_STRUCTURE_TYPE_APPLICATION_INFO,
       nullptr,
-      "Meetily Vulkan Probe",
+      "Protocol Vulkan Probe",
       1,
       nullptr,
       0,
@@ -282,12 +282,12 @@ int main() {
   FreeLibrary(loader);
 
   if (!selected_devices_compatible) {
-    std::fputs("Meetily's selected Vulkan device is not compatible.\n",
+    std::fputs("Protocol's selected Vulkan device is not compatible.\n",
                stderr);
     return kNoCompatibleDevice;
   }
 
-  std::printf("Validated %zu Vulkan device(s) selected by Meetily.\n",
+  std::printf("Validated %zu Vulkan device(s) selected by Protocol.\n",
               selected_devices.size());
   return kAvailable;
 }

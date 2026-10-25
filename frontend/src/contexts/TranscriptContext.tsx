@@ -319,7 +319,7 @@ export function TranscriptProvider({ children }: { children: ReactNode }) {
         console.log('✅ MAIN transcript listener setup complete');
       } catch (error) {
         console.error('❌ Failed to setup MAIN transcript listener:', error);
-        toast.error('Live transcript is unavailable', { description: 'Restart Meetily. If it keeps happening, check the logs.' });
+        toast.error('Live transcript is unavailable', { description: 'Restart Protocol. If it keeps happening, check the logs.' });
       }
     };
 

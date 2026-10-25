@@ -356,7 +356,7 @@ jobs:
           cleanup_app
           trap - EXIT
 
-          DATA_ROOT="$HOME/Library/Application Support/Meetily"
+          DATA_ROOT="$HOME/Library/Application Support/vmedvedevpro/Protocol"
           test -f "$DATA_ROOT/meeting_minutes.sqlite"
           test ! -e "$INSTALLED_APP/Contents/MacOS/data"
           codesign --verify --deep --strict "$INSTALLED_APP"
@@ -394,7 +394,7 @@ jobs:
           codesign --verify --deep --strict "$INSTALLED_APP"
 
           mkdir -p dist
-          OUTPUT_DMG="dist/Meetily-Actually-Free_${VERSION}_aarch64.dmg"
+          OUTPUT_DMG="dist/Protocol_${VERSION}_aarch64.dmg"
           cp "$DMG_PATH" "$OUTPUT_DMG"
           (
             cd dist
@@ -423,7 +423,7 @@ jobs:
       - name: Upload workflow artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: meetily-actually-free-${{ steps.release.outputs.version }}-macos-aarch64
+          name: protocol-${{ steps.release.outputs.version }}-macos-aarch64
           path: |
             dist/*.dmg
             dist/SHA256SUMS-macos.txt

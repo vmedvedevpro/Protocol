@@ -36,7 +36,7 @@ describe('buildFrontmatter', () => {
     expect(fm).toContain('title: "Weekly Sync"');
     expect(fm).toContain('meeting_id: "mtg-123"');
     expect(fm).toContain('date: 2026-09-11');
-    expect(fm).toContain('tags:\n  - meetily');
+    expect(fm).toContain('tags:\n  - protocol');
     expect(fm.startsWith('---\n')).toBe(true);
     expect(fm.endsWith('\n---')).toBe(true);
   });

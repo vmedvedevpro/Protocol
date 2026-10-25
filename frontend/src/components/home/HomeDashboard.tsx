@@ -173,7 +173,7 @@ export function HomeDashboard() {
           </div>
         ) : (
           <p className="af-appear mx-auto mt-14 max-w-sm text-center text-[13px] leading-relaxed text-af-text-3">
-            Press the red button to record your first meeting. Meetily transcribes it on this computer and writes a summary when you stop.
+            Press the red button to record your first meeting. Protocol transcribes it on this computer and writes a summary when you stop.
           </p>
         )}
       </div>

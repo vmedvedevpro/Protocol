@@ -5,6 +5,36 @@ transcription, speaker-labeling, model-download, and release paths to their owni
 files. Feature qualification notes are linked there; read the relevant note before
 changing that subsystem.
 
+## Project lineage
+
+[Protocol](https://github.com/vmedvedevpro/Protocol) is a personal Windows-first
+fork. Its code comes from two upstream projects, both MIT licensed:
+
+1. [Meetily](https://github.com/Zackriya-Solutions/meetily) by Zackriya Solutions,
+   the original open-source meeting assistant.
+2. [Meetily – Actually Free](https://github.com/TylerBuza/Meetily-ActuallyFree) by
+   Tyler Buza, a fork of Meetily. Protocol branched from it at `3130d16` and merges
+   its changes through the `upstream` remote.
+
+Most notes under `docs/` (releases, qualification, PR integration) are Actually
+Free's history. Protocol's own identity (bundle identifier, install and data
+folders, registry keys, the removed updater) is described in
+[Fork identity and updates](docs/DEVELOPMENT_MAP.md#fork-identity-and-updates);
+planned work is tracked in [GitHub issues](https://github.com/vmedvedevpro/Protocol/issues).
+
+## Fork conventions
+
+- Keep upstream internal names so upstream merges stay small: the `meetily` crate
+  and `meetily.exe` (until #12), `MEETILY_*` variables, storage and event keys.
+  Rebrand only what identifies the product to its users.
+- Sample data is not branding: leave example names in tests, fixtures, and
+  placeholders as upstream wrote them.
+- Put new features in new modules and keep edits to upstream files minimal. Keep
+  the copyright notices of MIT code ported from other projects.
+- The in-app updater was removed on purpose; do not add update checks.
+- Do not add `Co-Authored-By` trailers or other AI attribution to commits, PR
+  titles, or descriptions.
+
 ## Working conventions
 
 - Inspect the current diff before editing; preserve unrelated local work.

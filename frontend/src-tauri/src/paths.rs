@@ -1,9 +1,10 @@
 //! Platform-safe local path resolution.
 //!
 //! Windows and Linux prefer a self-contained `data` directory beside the
-//! executable. macOS always uses `~/Library/Application Support/Meetily` because
-//! its executable lives inside the signed app bundle; writing runtime data there
-//! invalidates the bundle signature.
+//! executable. macOS always uses
+//! `~/Library/Application Support/vmedvedevpro/Protocol` because its executable
+//! lives inside the signed app bundle; writing runtime data there invalidates the
+//! bundle signature.
 //!
 //! On portable platforms, everything is placed under `<exe_dir>/data`. If that
 //! directory is not writable (for example, under `C:\Program Files`), storage
@@ -15,8 +16,11 @@ use std::sync::OnceLock;
 /// The subfolder (relative to the executable) that holds portable app data.
 #[cfg(not(target_os = "macos"))]
 const DATA_SUBDIR: &str = "data";
-/// Folder name used under the OS data directory.
-const FALLBACK_APP_NAME: &str = "Meetily";
+/// Folders used under the OS data directory: `<publisher>/<product>`, as in the
+/// Windows install folder, so the generic product name cannot collide with
+/// another app's folder.
+const FALLBACK_PUBLISHER: &str = "vmedvedevpro";
+const FALLBACK_APP_NAME: &str = "Protocol";
 
 static ROOT: OnceLock<PathBuf> = OnceLock::new();
 
@@ -64,6 +68,7 @@ fn os_data_root() -> PathBuf {
     let root = dirs::data_dir()
         .or_else(dirs::home_dir)
         .unwrap_or_else(|| PathBuf::from("."))
+        .join(FALLBACK_PUBLISHER)
         .join(FALLBACK_APP_NAME);
     let _ = std::fs::create_dir_all(&root);
     root

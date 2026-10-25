@@ -45,7 +45,7 @@ pub fn ensure_available() -> anyhow::Result<()> {
 #[cfg(windows)]
 fn initialize_library(path: &std::path::Path) -> Result<(), String> {
     if !path.is_absolute() || !path.is_file() {
-        return Err("The bundled ONNX Runtime is missing. Repair or reinstall Meetily, then restart it.".into());
+        return Err("The bundled ONNX Runtime is missing. Repair or reinstall Protocol, then restart it.".into());
     }
     // Preflight OS loading and the expected export as a Result, so a missing
     // dependency does not trigger ort's panic-based dynamic-loader failure.
@@ -62,15 +62,15 @@ fn initialize_library(path: &std::path::Path) -> Result<(), String> {
         }
     }
     let library = unsafe { libloading::Library::new(path) }
-        .map_err(|error| format!("Cannot load bundled ONNX Runtime: {error}. Repair/reinstall and restart Meetily."))?;
+        .map_err(|error| format!("Cannot load bundled ONNX Runtime: {error}. Repair/reinstall and restart Protocol."))?;
     unsafe { library.get::<unsafe extern "system" fn() -> *const std::ffi::c_void>(b"OrtGetApiBase\0") }
         .map_err(|error| format!("Invalid bundled ONNX Runtime: {error}"))?;
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         ort::init_from(path.to_string_lossy().into_owned()).with_telemetry(false).commit()
-    })).map_err(|_| "ONNX Runtime initialization failed. Repair/reinstall and restart Meetily.".to_string())?
+    })).map_err(|_| "ONNX Runtime initialization failed. Repair/reinstall and restart Protocol.".to_string())?
         .map_err(|error| error.to_string())?;
     if !result {
-        return Err("An ONNX environment was initialized before the bundled runtime. Restart Meetily.".into());
+        return Err("An ONNX environment was initialized before the bundled runtime. Restart Protocol.".into());
     }
     log::info!("Initialized verified bundled Windows ONNX Runtime");
     Ok(())

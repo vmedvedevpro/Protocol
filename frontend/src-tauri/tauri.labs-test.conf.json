@@ -1,7 +1,4 @@
 {
-  "productName": "Meetily Labs Local Test",
-  "identifier": "com.meetily.labs-test",
-  "bundle": {
-    "createUpdaterArtifacts": false
-  }
+  "productName": "Protocol Labs Local Test",
+  "identifier": "io.github.vmedvedevpro.protocol.labs-test"
 }

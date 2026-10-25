@@ -231,7 +231,7 @@ export function PreferenceSettings() {
       <div className="rounded-2xl border border-af-border bg-af-panel-2/40 p-5">
         <h3 className="text-[15px] font-semibold text-af-text mb-4">Data Storage Locations</h3>
         <p className="text-sm text-af-text-2 mb-6">
-          View and access where Meetily stores your data
+          View and access where Protocol stores your data
         </p>
 
         <div className="space-y-4">
@@ -293,7 +293,7 @@ export function PreferenceSettings() {
 
         <div className="mt-4 p-3 bg-af-accent/10 rounded-md">
           <p className="text-xs text-af-accent">
-            <strong>Portable core data:</strong> Models, database, and templates use Meetily&apos;s app data
+            <strong>Portable core data:</strong> Models, database, and templates use Protocol&apos;s app data
             folder. Recordings stay in the user-facing folder shown above so they remain easy to find,
             play, and back up.
           </p>

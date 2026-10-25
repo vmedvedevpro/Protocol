@@ -14,17 +14,17 @@ use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipWriter};
 
 const REPORT_SCHEMA_VERSION: u8 = 1;
-const README: &str = "Meetily crash report\n\
+const README: &str = "Protocol crash report\n\
 \n\
 Included:\n\
 - Crash type, time, and anonymous report ID\n\
-- Meetily version and selected acceleration backend\n\
+- Protocol version and selected acceleration backend\n\
 - Operating system family/version, architecture, bucketed CPU core count, and a rounded memory size\n\
 - Panic source and anonymous fingerprint when available\n\
 \n\
 Not included:\n\
 - Recordings, audio checkpoints, transcripts, summaries, or meeting names\n\
-- Meetily's database, settings, or WebView storage\n\
+- Protocol's database, settings, or WebView storage\n\
 - API keys, tokens, environment variables, usernames, hostnames, or device names\n\
 - Ordinary application logs or memory dumps\n";
 
@@ -128,7 +128,7 @@ pub fn install_panic_hook() {
             let _ = write_json_atomic(&panic_path(&data_root), &record);
         }
         append_legacy_crash_log(&data_root, &occurred_at, info, &backtrace);
-        log::error!("Meetily encountered a panic; a local crash record was written");
+        log::error!("Protocol encountered a panic; a local crash record was written");
         previous(info);
     }));
 }
@@ -166,16 +166,6 @@ pub fn finish_session() -> Result<(), String> {
         .map_err(|error| error.to_string())?;
     *current_session = None;
     Ok(())
-}
-
-#[tauri::command]
-pub fn prepare_for_app_restart() -> Result<(), String> {
-    finish_session()
-}
-
-#[tauri::command]
-pub fn resume_crash_session() -> Result<(), String> {
-    start_session()
 }
 
 #[tauri::command]

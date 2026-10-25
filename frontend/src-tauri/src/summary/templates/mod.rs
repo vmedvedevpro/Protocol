@@ -31,7 +31,7 @@
 //! # Custom Templates
 //!
 //! Users can add custom templates to:
-//! - macOS: `~/Library/Application Support/Meetily/templates/`
+//! - macOS: `~/Library/Application Support/vmedvedevpro/Protocol/templates/`
 //! - Windows/Linux: `<exe dir>/data/templates/` when install-local storage is writable
 //!
 //! Custom templates must follow the JSON schema defined in `types::Template`.

@@ -192,8 +192,8 @@ its duration is unconfirmed and no completed multi-hour soak is claimed.
 ## 3. Where things are stored
 
 This fork is install-local on Windows and Linux. On macOS, core writable data is
-under `~/Library/Application Support/Meetily`; Tauri plugin stores use the app
-identifier directory `~/Library/Application Support/com.meetily.ai`. Both are
+under `~/Library/Application Support/vmedvedevpro/Protocol`; Tauri plugin stores use the app
+identifier directory `~/Library/Application Support/io.github.vmedvedevpro.protocol`. Both are
 outside the signed `.app`, because writing inside that bundle invalidates its
 signature.
 
@@ -201,10 +201,10 @@ signature.
 
 | What | Where |
 |---|---|
-| Database, templates, models, file-backed settings | Windows/Linux: `<exe dir>/data/…`; macOS: `~/Library/Application Support/Meetily/…` |
-| Tauri plugin stores (recording preferences/onboarding) | macOS: `~/Library/Application Support/com.meetily.ai/…` |
+| Database, templates, models, file-backed settings | Windows/Linux: `<exe dir>/data/…` (OS data dir `…/vmedvedevpro/Protocol` if not writable); macOS: `~/Library/Application Support/vmedvedevpro/Protocol/…` |
+| Tauri plugin stores (recording preferences/onboarding) | Windows: `%APPDATA%\io.github.vmedvedevpro.protocol\…`; macOS: `~/Library/Application Support/io.github.vmedvedevpro.protocol/…` |
 | Bundled diarization models | The platform app bundle's `resources/diarization/` directory |
-| **Audio recordings** | Windows: `%USERPROFILE%\Music\meetily-recordings\<meeting>`; macOS: `~/Movies/meetily-recordings/<meeting>` |
+| **Audio recordings** | Windows: `%USERPROFILE%\Music\protocol-recordings\<meeting>`; macOS: `~/Movies/protocol-recordings/<meeting>` |
 
 Two gotchas:
 
@@ -629,26 +629,21 @@ Gotchas:
 
 ---
 
-## 8. Windows installer, onboarding, and updates
+## 8. Windows installer and onboarding
 
 Packaging verification must include `binaries/onnxruntime/onnxruntime.dll`,
 `onnxruntime_providers_shared.dll`, and `onnxruntime-LICENSE.txt` and compare them
 with the verified build stage. Do not publish an executable-only update when
-introducing this runtime resource; use a newly built installer/updater package.
+introducing this runtime resource; use a newly built installer package.
 
-There are deliberately **two Windows installer executables** in each release.
-They contain the same application, but they have different callers and must not
-be substituted for one another:
+Protocol has **no in-app updater**: no update check, no `latest.json`, no
+updater signing key. A newer setup run over an existing install upgrades it in
+place. The universal build produces two Windows executables:
 
-| Release asset | Caller | Purpose |
+| Artifact | Caller | Purpose |
 |---|---|---|
-| `*-universal-setup.exe` | A person downloading from GitHub | Native frameless Win32 bootstrapper with the branded first-install UI |
-| `*-universal-updater.exe` + `.sig` | Tauri's updater plugin | Unmodified NSIS engine and the Tauri signature over those exact bytes |
-
-`latest.json` always points at `*-universal-updater.exe`, never the bootstrapper.
-The updater plugin expects an NSIS-compatible executable and verifies the exact
-download against the adjacent signature. Embedding the NSIS engine in the
-bootstrapper does not transfer that signature to the outer executable.
+| `*-universal-setup.exe` | A person installing the app | Native frameless Win32 bootstrapper with the branded first-install UI |
+| `*-universal-engine.exe` | `-BootstrapperOnly` rebuilds, scripted installs | Unmodified Tauri NSIS installer that the bootstrapper embeds |
 
 ### Manual setup path
 
@@ -670,7 +665,7 @@ Relevant files:
 | `frontend/scripts/build-installer-bootstrapper.ps1` | Compiles the bootstrapper with MSVC `/MT`, embeds the finalized NSIS payload and its generated SHA-256 |
 | `frontend/src-tauri/windows/installer.nsi` | Tauri NSIS template used as the actual install/update engine |
 | `frontend/src-tauri/windows/installer-hooks.nsh` | Hardware backend detection, dependency checks, runtime staging, and selected-backend persistence |
-| `frontend/scripts/build-universal-windows.ps1` | Builds CPU/Vulkan/CUDA variants, packages NSIS, builds the outer setup, signs updater bytes, and writes `latest.json`/checksums |
+| `frontend/scripts/build-universal-windows.ps1` | Builds CPU/Vulkan/CUDA variants, packages NSIS, builds the outer setup, and writes checksums |
 
 The bootstrapper shows byte-accurate determinate progress while extracting its
 payload. During installation it launches NSIS with `/P` rather than `/S`, hides
@@ -692,16 +687,26 @@ briefly report an older value during phase transitions. The key is unique per ru
 the engine exits. Closing
 is blocked once installation starts because externally terminating NSIS can
 leave a partial installation. The wrapper also restores the previously
-registered install path from `HKCU\Software\meetily\Meetily - Actually Free`
+registered install path from `HKCU\Software\vmedvedevpro\Protocol` (NSIS
+`${MANUPRODUCTKEY}`: `bundle.publisher` and `productName` from `tauri.conf.json`)
 before offering the default. Fresh installs default to
-`%LOCALAPPDATA%\Meetily-ActuallyFree` (no spaces); do not derive the folder from
-the display product name, which intentionally contains spaces.
+`%LOCALAPPDATA%\vmedvedevpro\Protocol`: `bundle.publisher`, then the product name
+with spaces replaced by hyphens, so the generic product name cannot collide with
+another app's folder and Labs bundles (`Protocol Labs Local Test`) get their own
+space-free `Protocol-Labs-Local-Test` folder instead of sharing executables and
+`data` with the main install. `bootstrapper.cpp` mirrors the main default; the
+uninstall hook removes the publisher folder once it is empty. The uninstall
+entry is keyed by the bundle identifier
+(`HKCU\…\Uninstall\io.github.vmedvedevpro.protocol`), not the product name.
+These values must stay distinct from upstream Meetily builds, otherwise setup
+offers, and overwrites, their folder.
 
 Backend selection still belongs to `installer-hooks.nsh`; do not reimplement it
 in the bootstrapper. The universal package stages three app executables and the
 hook chooses CUDA, Vulkan, or CPU, then installs the chosen variant as the
-canonical `meetily.exe`. In-app updates continue through the raw NSIS engine so
-they retain Tauri's `/P /R /UPDATE /ARGS` behavior.
+canonical `meetily.exe`. The executable keeps the upstream name for now, so the
+running-app check and the uninstall hook's `taskkill /IM meetily.exe` stop every
+`meetily.exe`, including upstream Meetily and a Protocol dev build (#12).
 
 CUDA selection also distinguishes missing or outdated NVIDIA drivers from a PC
 with no NVIDIA display adapter. The hook checks PCI display-class metadata so a
@@ -718,8 +723,8 @@ and completed-onboarding startup therefore run a fresh, timeout-bounded
 Before a compatible driver exists it links to NVIDIA's driver page. If CUDA
 becomes available later, it replaces the stale "Vulkan selected" message with a
 prompt to rerun the latest setup, which safely installs the CUDA executable.
-That action links directly to the current version's `*-universal-setup.exe`, not
-the updater engine listed beside it on the release.
+That action opens the fork's GitHub releases page rather than a versioned asset,
+because not every version has a published universal setup.
 
 Vulkan selection requires the 64-bit system loader and runs the staged x64
 `meetily-vulkan-probe.exe`, which applies GGML's device-selection policy and
@@ -731,10 +736,10 @@ usable ICD, and the Vulkan backend cannot safely assume CPU fallback. A legacy
 Khronos ICD scan remains only for packages missing the probe. The helper is
 installer-only and is removed with the staged variants after selection.
 
-The raw engine detects `/UPDATE` before its install-files page is shown. Update
-mode must use updater-specific chrome and language (`Meetily - Actually Free
-Updater`, `Updating Meetily`, and `Updating app files`) rather than exposing the
-setup wording. Keep the verbose NSIS extraction log collapsed, preserve the
+The raw engine still recognizes Tauri's `/UPDATE` flag before its install-files
+page is shown, although nothing passes it since the in-app updater was removed.
+That branch uses `Protocol Setup`, `Updating Protocol`, and `Updating app files`
+instead of the setup wording. Keep the verbose NSIS extraction log collapsed, preserve the
 stock MUI header font metrics so title/subtitle rectangles do not overlap at
 scaled DPI, and show a monotonic overall percentage in the header. The update
 progress color matches the blue native bootstrapper; setup-only pages and all
@@ -749,26 +754,12 @@ shell/settings change notification. Without that notification, an Installed
 Apps window left open during an update can continue showing the previous
 version even though the registry and executable already contain the new one.
 
-### Update-consent path
+### Onboarding
 
-Update consent is an application preference, not an installer option:
-
-```text
-WelcomeStep.tsx
-  -> invoke("set_check_updates_on_launch")
-  -> src-tauri/src/lib.rs writes data/check-updates-on-launch.txt
-  -> UpdateCheckProvider.tsx reads get_check_updates_on_launch on app startup
-  -> updateService.ts / Tauri updater checks latest.json when enabled
-```
-
-The first app process has already started before the user answers onboarding,
-so the preference takes effect on the next launch. A manual check remains
-available from About. Setup must not write this preference or add the question
-back to NSIS.
-
-Onboarding itself is rendered by
-`frontend/src/components/onboarding/OnboardingFlow.tsx`. The update choice is in
-`steps/WelcomeStep.tsx`; the fork issue link is in `steps/SetupOverviewStep.tsx`
+Onboarding is rendered by
+`frontend/src/components/onboarding/OnboardingFlow.tsx`. It asks nothing about
+updates; an older `data/check-updates-on-launch.txt` left by upstream builds is
+ignored. The fork's issues link is in `steps/SetupOverviewStep.tsx`
 and uses the `open_external_url` Tauri command because browser-style
 `target="_blank"` links are unreliable inside a desktop webview. On Windows that
 command calls `ShellExecuteW` directly; do not regress it to `cmd /C start`,
@@ -793,39 +784,24 @@ an exact-size file with valid GGUF magic becomes `Available`. Progress reaching
 
 ### Release rules
 
-The updater is already "inside the app" from the user's perspective: the Tauri
-plugin checks `latest.json`, downloads `*-universal-updater.exe`, verifies its
-matching `.sig`, exits Meetily, and launches that payload to replace files that
-the running process cannot overwrite. GitHub must expose the updater as a
-release asset so installed clients can download it. Users manually launch only
-`*-universal-setup.exe`; removing the updater asset breaks in-app updates.
-
-- Tauri updater signing and Windows Authenticode are separate. This fork's
-  updater signature is required. Published builds are currently unsigned and
-  must pass the explicit `-AllowUnsigned` build switch; Authenticode support
-  remains available when `DIGICERT_KEYPAIR_ALIAS` is configured.
-- Never modify `*-universal-updater.exe` after Tauri generates its `.sig`.
+- Builds are unsigned unless `DIGICERT_KEYPAIR_ALIAS` configures Authenticode;
+  an unsigned build must pass the explicit `-AllowUnsigned` switch.
 - When PDBs are generated, the universal builder preserves each EXE/PDB pair in
   `target/release-symbols/<version>/<backend>` before packaging. Tauri may relink
   the CPU placeholder; retain and verify the pre-packaging symbols against the
   actual staged backend executable, not that later placeholder.
-- The outer `setup.exe` has no Tauri `.sig`; `SHA256SUMS.txt` covers it for
-  manual verification.
-- Keep the updater private key and password under the ignored
-  `.build-tools/updater/` directory. Losing them prevents compatible updates.
+- `SHA256SUMS.txt` covers the setup and the engine for manual verification.
 - `-PackageOnly` reuses staged CPU/Vulkan/CUDA binaries but still rebuilds NSIS,
-  the bootstrapper, updater metadata, and checksums. Use it only for installer
+  the bootstrapper, and checksums. Use it only for installer
   shell/template changes. Frontend, Rust, icon, or Tauri-command changes require
   a full universal build: the post-install hook replaces the freshly packaged
   placeholder with one of those staged variants, so stale variants silently
   install stale application code.
-- `-BootstrapperOnly` is narrower: it re-embeds the existing universal updater
-  engine, rebuilds only the native outer setup, and refreshes checksums. Use it
-  only for `installer-bootstrapper/bootstrapper.cpp` presentation changes; it
-  deliberately does not regenerate NSIS, application variants, or `latest.json`.
-  It refuses to run unless the existing metadata version, URL, and signature
-  match the updater engine.
-- `tauri.updater.conf.json` deliberately clears `beforeBuildCommand`. The
+- `-BootstrapperOnly` is narrower: it re-embeds the existing universal engine,
+  rebuilds only the native outer setup, and refreshes checksums. Use it only for
+  `installer-bootstrapper/bootstrapper.cpp` presentation changes; it deliberately
+  does not regenerate NSIS or application variants.
+- `tauri.universal.conf.json` deliberately clears `beforeBuildCommand`. The
   universal script builds Next.js once unless `-SkipFrontend` is passed; letting
   Tauri build it again changes the embedded assets and forces a redundant second
   CPU relink. The script also creates `universal.marker` before compiling any
@@ -835,22 +811,17 @@ release asset so installed clients can download it. Users manually launch only
 - `setup.exe --verify-payload` extracts and verifies the embedded engine without
   installing it; use this as a release smoke test.
 - `node frontend/scripts/verify-windows-release.mjs [asset-directory]` verifies
-  manifest routing, checksums, both Minisign signatures, NSIS archive integrity,
-  packaged variant hashes, and the bootstrapper payload without installation.
+  checksums, NSIS archive integrity, packaged variant hashes, and the
+  bootstrapper payload without installation.
 - Isolated worktrees can pass `-LlvmDir`, `-VulkanSdk`, and `-CudaToolkit` to the
   universal builder to reuse installed toolchains without writing into another
   checkout. Runtime staging must use that same CUDA toolkit.
 
-Native updater downloads in `app_update.rs` are owned by a frontend-generated
-request ID. Cancellation, completion cleanup, and installation must remain scoped
-to that ID; an old dialog must not discard another dialog's download. Rust reserves
-verified bytes until installation or cancellation and rejects replacement during
-installation. The dialog enters its non-cancellable phase after the download
-command resolves, not upon receipt of the progress channel's Finished event.
-
 ### Branding assets
 
-`frontend/src-tauri/icon-source.png` is the canonical high-resolution logo.
+`frontend/src-tauri/icon-source.png` is the canonical high-resolution logo. It
+still carries the upstream "Meetily / Actually Free" artwork until Protocol has
+its own icon.
 Tauri's icon generator produces the platform family under `src-tauri/icons/`.
 Those generated files feed every native surface through these connections:
 
@@ -867,12 +838,13 @@ icon-source.png
 `tauri.conf.json` and `build-installer-bootstrapper.ps1` both reference the
 generated `icon.*` family. Do not introduce a second `app_icon.*` family: that
 previous duplication allowed the tray/app and installer to silently use
-different brands. The README intentionally renders `icon-source.png` from the
-repository so GitHub uses the same canonical art.
+different brands.
 
-On Windows, `com.meetily.ai` is also the single shell identity: it is Tauri's
-bundle identifier, the installer shortcut AUMID, and the explicit process AUMID
-set before any windows are created. Setup and updater runs recreate Start Menu
+On Windows, `io.github.vmedvedevpro.protocol` is also the single shell identity:
+it is Tauri's bundle identifier, the installer shortcut AUMID, and the explicit
+process AUMID (`notifications/native_windows.rs`) set before any windows are
+created. Changing it detaches the app from upstream Meetily's single-instance
+lock, WebView storage, and plugin stores. Setup runs recreate Start Menu
 shortcuts (and any existing desktop shortcut) with `meetily.exe,0` as the
 explicit icon source, then call `SHChangeNotify`; application startup must not
 replace those installer-owned shortcuts with PNG-backed WScript shortcuts.
@@ -955,11 +927,11 @@ parses both files and verifies the packaged values.
 ### Bundle integrity and writable data
 
 A signed `.app` is immutable at runtime. Writing a database, settings, models,
-or logs beneath `Meetily.app/Contents/MacOS` changes the sealed bundle and makes
+or logs beneath `Protocol.app/Contents/MacOS` changes the sealed bundle and makes
 `codesign --verify --deep --strict` fail after first launch. macOS therefore
-uses `~/Library/Application Support/Meetily` for core data,
-`~/Library/Application Support/com.meetily.ai` for Tauri plugin stores, and
-`~/Movies/meetily-recordings` (or the configured root) for recordings. Bundled
+uses `~/Library/Application Support/vmedvedevpro/Protocol` for core data,
+`~/Library/Application Support/io.github.vmedvedevpro.protocol` for Tauri plugin stores, and
+`~/Movies/protocol-recordings` (or the configured root) for recordings. Bundled
 diarization models and sidecars are read-only resources.
 
 The build and published-release smoke tests deliberately launch the installed
@@ -972,14 +944,14 @@ signature check cannot detect this class of regression.
 
 Windows and macOS do not share a production-release workflow:
 
-- Windows `vX.Y.Z` remains GitHub Latest and owns `latest.json`, the universal
-  setup executable, and the updater engine/signature.
+- Windows `vX.Y.Z` remains GitHub Latest and owns the universal setup and
+  engine executables.
 - macOS `vX.Y.Z-macos` is a separate immutable, non-latest release containing
-  the Apple Silicon DMG, checksum, and release provenance metadata. There is no
-  compatible macOS updater artifact or macOS entry in `latest.json`.
-- `UpdateCheckProvider`, tray actions, onboarding update consent, and About must
-  not invoke Tauri's updater on macOS. About links to the GitHub releases page
-  instead.
+  the Apple Silicon DMG, checksum, and release provenance metadata.
+- No platform has an in-app updater; About links to the GitHub repository.
+- The macOS workflows below are inherited from upstream. Their app, DMG, artifact,
+  and data-folder names were switched to Protocol, but they have not been run on
+  this fork; re-check them before publishing a Protocol DMG.
 - `.github/workflows/build-macos.yml` is the only production Apple Silicon build
   workflow. It never publishes. The removed generic `release.yml` must not be
   recreated because it bypassed the platform-specific release invariants.

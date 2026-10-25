@@ -47,9 +47,9 @@ Each template JSON file follows this schema:
 
 Users can add custom templates to the application data directory:
 
-- **macOS**: `~/Library/Application Support/Meetily/templates/`
-- **Windows**: `%APPDATA%\Meetily\templates\`
-- **Linux**: `~/.config/Meetily/templates/`
+- **macOS**: `~/Library/Application Support/vmedvedevpro/Protocol/templates/`
+- **Windows**: `<app folder>\data\templates\` (`%APPDATA%\vmedvedevpro\Protocol\templates\` if the app folder is not writable)
+- **Linux**: `<app folder>/data/templates/` (`~/.local/share/vmedvedevpro/Protocol/templates/` if the app folder is not writable)
 
 Custom templates override built-in templates with the same filename.
 

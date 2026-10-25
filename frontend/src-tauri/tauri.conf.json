@@ -1,8 +1,8 @@
 {
     "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-    "productName": "Meetily - Actually Free",
+    "productName": "Protocol",
     "version": "0.2.22",
-    "identifier": "com.meetily.ai",
+    "identifier": "io.github.vmedvedevpro.protocol",
     "build": {
         "frontendDist": "../out",
         "devUrl": "http://localhost:3118",
@@ -12,7 +12,7 @@
     "app": {
         "windows": [
             {
-                "title": "Meetily - Actually Free",
+                "title": "Protocol",
                 "url": "/",
                 "width": 1280,
                 "height": 760,
@@ -75,8 +75,6 @@
                         "dialog:allow-save",
                         "notification:default",
                         "notification:allow-is-permission-granted",
-                        "updater:default",
-                        "process:default",
                         {
                             "identifier": "fs:scope",
                             "allow": [
@@ -97,10 +95,10 @@
     },
     "bundle": {
         "active": true,
+        "publisher": "vmedvedevpro",
         "targets": [
             "nsis"
         ],
-        "createUpdaterArtifacts": false,
         "icon": [
             "icons/icon.png",
             "icons/icon.icns",
@@ -138,14 +136,6 @@
                     "English": "./windows/English.nsh"
                 }
             }
-        }
-    },
-    "plugins": {
-        "updater": {
-            "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDc1MjA0M0FCMkRCNzM2QUIKUldTck5yY3RxME1nZFZmNTlaSFpLYVYxelh1RFp6cE9lOFZ2VkE0VlFXdThWUzRUK091c2ZQQ3AK",
-            "endpoints": [
-                "https://github.com/TylerBuza/Meetily-ActuallyFree/releases/latest/download/latest.json"
-            ]
         }
     }
 }

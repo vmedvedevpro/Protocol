@@ -21,7 +21,7 @@ export function OptionalModelDownloads({ activeOnly = false, allowUninstall = fa
           </span>
         </h3>
         <p className="mt-1 text-sm text-af-text-2">
-          Downloads continue while you use Meetily and automatically enable the model when complete. Keep the app open until downloads finish.
+          Downloads continue while you use Protocol and automatically enable the model when complete. Keep the app open until downloads finish.
         </p>
       </div>
       {visible.map(model => {
