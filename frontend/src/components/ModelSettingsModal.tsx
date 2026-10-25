@@ -30,10 +30,11 @@ import {
 import { cn, isOllamaNotInstalledError } from '@/lib/utils';
 import { toast } from 'sonner';
 import { claudeOutputBudget, parseClaudeOutputTokens } from '@/lib/claude-output-tokens';
+import type { SummaryProvider } from '@/services/configService';
 
 export interface ModelConfig {
   /** '' means no provider is selected: the saved one is no longer offered */
-  provider: 'ollama' | 'groq' | 'claude' | 'openai' | 'openrouter' | 'builtin-ai' | 'custom-openai' | '';
+  provider: SummaryProvider | '';
   model: string;
   whisperModel: string;
   apiKey?: string | null;
