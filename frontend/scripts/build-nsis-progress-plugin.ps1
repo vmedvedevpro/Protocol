@@ -20,14 +20,40 @@ $vcvars = Join-Path $vsInstall "VC\Auxiliary\Build\vcvars32.bat"
 foreach ($required in @($ProgressMainBinary, $source, $vcvars)) {
   if (-not (Test-Path -LiteralPath $required)) { throw "NSIS progress input missing: $required" }
 }
-if (-not (Test-Path -LiteralPath $nsis)) {
-  $archive = Join-Path $repo ".build-tools\nsis-3.11.zip"
-  $download = "https://github.com/NSIS-Dev/nsis/releases/download/v3.11/nsis-3.11.zip"
+# tauri-bundler 2.10 (CLI 2.12) deletes and re-downloads this toolset unless
+# NSIS.exe is its NSIS 3.13 and nsis_tauri_utils.dll is present, which would
+# also delete MeetilyProgress.dll and silently build the installer without it.
+# Prepare exactly the toolset the bundler expects (same URLs and SHA-1 values
+# as tauri-bundler's nsis/mod.rs) before installing the plugin.
+$nsisArchiveUrl = "https://github.com/tauri-apps/binary-releases/releases/download/nsis-3.13/nsis-3.13.zip"
+$nsisArchiveSha1 = "DB14F8AF2EA346B786C6AE19343F61AAF5E09B8E"
+$nsisExeSha1 = "6D45D4E8CCF18FE1FDAC9164058F356102A2ECF2"
+$tauriUtilsUrl = "https://github.com/tauri-apps/nsis-tauri-utils/releases/download/nsis_tauri_utils-v0.5.3/nsis_tauri_utils.dll"
+$tauriUtilsSha1 = "75197FEE3C6A814FE035788D1C34EAD39349B860"
+function Test-Sha1([string]$Path, [string]$Expected) {
+  (Test-Path -LiteralPath $Path) -and ((Get-FileHash -LiteralPath $Path -Algorithm SHA1).Hash -eq $Expected)
+}
+if (-not (Test-Sha1 (Join-Path $nsis "NSIS.exe") $nsisExeSha1)) {
+  $archive = Join-Path $repo ".build-tools\nsis-3.13.zip"
   New-Item -ItemType Directory -Force -Path (Split-Path $archive -Parent) | Out-Null
-  Invoke-WebRequest -Uri $download -OutFile $archive
-  Expand-Archive -LiteralPath $archive -DestinationPath (Split-Path $nsis -Parent) -Force
-  $expanded = Join-Path (Split-Path $nsis -Parent) "nsis-3.11"
-  if (Test-Path -LiteralPath $expanded) { Move-Item -LiteralPath $expanded -Destination $nsis }
+  if (-not (Test-Sha1 $archive $nsisArchiveSha1)) {
+    Invoke-WebRequest -Uri $nsisArchiveUrl -OutFile $archive
+    if (-not (Test-Sha1 $archive $nsisArchiveSha1)) { throw "NSIS 3.13 archive failed its SHA-1 check: $archive" }
+  }
+  $toolsDir = Split-Path $nsis -Parent
+  $expanded = Join-Path $toolsDir "nsis-3.13"
+  foreach ($stale in @($nsis, $expanded)) {
+    if (Test-Path -LiteralPath $stale) { Remove-Item -LiteralPath $stale -Recurse -Force }
+  }
+  New-Item -ItemType Directory -Force -Path $toolsDir | Out-Null
+  Expand-Archive -LiteralPath $archive -DestinationPath $toolsDir -Force
+  Move-Item -LiteralPath $expanded -Destination $nsis
+}
+$tauriUtils = Join-Path $nsis "Plugins\x86-unicode\additional\nsis_tauri_utils.dll"
+if (-not (Test-Sha1 $tauriUtils $tauriUtilsSha1)) {
+  New-Item -ItemType Directory -Force -Path (Split-Path $tauriUtils -Parent) | Out-Null
+  Invoke-WebRequest -Uri $tauriUtilsUrl -OutFile $tauriUtils
+  if (-not (Test-Sha1 $tauriUtils $tauriUtilsSha1)) { throw "nsis_tauri_utils.dll failed its SHA-1 check: $tauriUtils" }
 }
 New-Item -ItemType Directory -Force -Path $build | Out-Null
 New-Item -ItemType Directory -Force -Path $pluginDir | Out-Null
