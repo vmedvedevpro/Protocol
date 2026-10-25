@@ -239,27 +239,6 @@ fn get_transcription_status() -> TranscriptionStatus {
     }
 }
 
-#[tauri::command]
-async fn get_meeting_playback_audio<R: Runtime>(
-    app: AppHandle<R>,
-    state: tauri::State<'_, state::AppState>,
-    meeting_id: String,
-) -> Result<Option<String>, String> {
-    let folder: Option<String> = sqlx::query_scalar("SELECT folder_path FROM meetings WHERE id = ?")
-        .bind(meeting_id)
-        .fetch_optional(state.db_manager.pool())
-        .await.map_err(|error| error.to_string())?.flatten();
-    let Some(folder) = folder else { return Ok(None); };
-    for name in ["audio.mp4", "audio.m4a", "audio.wav", "audio.mp3", "audio.webm"] {
-        let file = std::path::Path::new(&folder).join(name);
-        if file.is_file() {
-            app.asset_protocol_scope().allow_file(&file).map_err(|error| error.to_string())?;
-            return Ok(Some(file.to_string_lossy().into_owned()));
-        }
-    }
-    Ok(None)
-}
-
 // Audio level monitoring commands
 #[tauri::command]
 async fn start_audio_level_monitoring<R: Runtime>(
@@ -589,7 +568,6 @@ pub fn run() {
             stop_recording,
             is_recording,
             get_transcription_status,
-            get_meeting_playback_audio,
             audio::waveform::get_waveform_peaks,
             whisper_engine::labs::get_whisper_strict_silence,
             whisper_engine::labs::set_whisper_strict_silence,
