@@ -219,7 +219,7 @@ Var MeetilyCudaNotice
   ${EndIf}
   ${If} $R6 == 1
     StrCpy $R6 0
-    StrCpy $R4 "$INSTDIR\installer-variants\meetily-vulkan-probe.exe"
+    StrCpy $R4 "$INSTDIR\installer-variants\protocol-vulkan-probe.exe"
     ${If} ${FileExists} "$R4"
       nsExec::ExecToStack /TIMEOUT=15000 '"$R4"'
       Pop $R3
@@ -251,7 +251,7 @@ Var MeetilyCudaNotice
   ${EnableX64FSRedirection}
 !macroend
 
-; Pick and install the canonical meetily.exe. Optional command-line override:
+; Pick and install the canonical protocol.exe. Optional command-line override:
 ;   /BACKEND=cuda | /BACKEND=vulkan | /BACKEND=cpu
 !macro Meetily_SelectBackend
   StrCpy $MeetilyBackend ""
@@ -298,26 +298,26 @@ Var MeetilyCudaNotice
   ${If} $MeetilyBackend == "bundled"
     StrCpy $R5 ""
   ${ElseIf} $MeetilyBackend == "cuda"
-    StrCpy $R5 "$INSTDIR\installer-variants\meetily-cuda.exe"
+    StrCpy $R5 "$INSTDIR\installer-variants\protocol-cuda.exe"
   ${ElseIf} $MeetilyBackend == "vulkan"
-    StrCpy $R5 "$INSTDIR\installer-variants\meetily-vulkan.exe"
+    StrCpy $R5 "$INSTDIR\installer-variants\protocol-vulkan.exe"
   ${Else}
     StrCpy $MeetilyBackend "cpu"
-    StrCpy $R5 "$INSTDIR\installer-variants\meetily-cpu.exe"
+    StrCpy $R5 "$INSTDIR\installer-variants\protocol-cpu.exe"
   ${EndIf}
   ${If} $MeetilyBackend != "bundled"
   ${AndIfNot} ${FileExists} "$R5"
     DetailPrint "      Requested backend binary missing — falling back to CPU."
     StrCpy $MeetilyBackend "cpu"
-    StrCpy $R5 "$INSTDIR\installer-variants\meetily-cpu.exe"
+    StrCpy $R5 "$INSTDIR\installer-variants\protocol-cpu.exe"
   ${EndIf}
 
   ${If} $MeetilyBackend != "bundled"
     DetailPrint "      Selected transcription backend: $MeetilyBackend"
-    CopyFiles /SILENT "$R5" "$INSTDIR\meetily.selected.exe"
-    ${If} ${FileExists} "$INSTDIR\meetily.selected.exe"
+    CopyFiles /SILENT "$R5" "$INSTDIR\protocol.selected.exe"
+    ${If} ${FileExists} "$INSTDIR\protocol.selected.exe"
       Delete "$INSTDIR\${MAINBINARYNAME}.exe"
-      Rename "$INSTDIR\meetily.selected.exe" "$INSTDIR\${MAINBINARYNAME}.exe"
+      Rename "$INSTDIR\protocol.selected.exe" "$INSTDIR\${MAINBINARYNAME}.exe"
     ${Else}
       DetailPrint "      Backend replacement failed — keeping bundled executable."
       StrCpy $MeetilyBackend "bundled"

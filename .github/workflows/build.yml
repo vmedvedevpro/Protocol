@@ -535,9 +535,9 @@ jobs:
         run: |
           $profile = "${{ steps.build-profile.outputs.profile }}"
           $profileFlag = if ($profile -eq "release") { "--release" } else { $null }
-          cargo build $profileFlag -p meetily --bin meetily --no-default-features --features vulkan,custom-protocol
+          cargo build $profileFlag -p protocol --bin protocol --no-default-features --features vulkan,custom-protocol
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & "frontend/scripts/build-nsis-progress-plugin.ps1" -ProgressMainBinary "target/$profile/meetily.exe"
+          & "frontend/scripts/build-nsis-progress-plugin.ps1" -ProgressMainBinary "target/$profile/protocol.exe"
 
       - name: Build llama-helper sidecar (macOS/Linux)
         if: "!contains(inputs.platform, 'windows')"

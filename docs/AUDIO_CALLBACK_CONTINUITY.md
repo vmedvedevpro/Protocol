@@ -84,7 +84,7 @@ Run from `frontend/src-tauri` with the normal Windows Rust/native prerequisites:
 $env:MEETILY_HW_MIC = 'Exact microphone endpoint name'
 $env:MEETILY_HW_OUTPUT = 'Exact output endpoint name'
 $env:MEETILY_HW_SECONDS = '660'
-cargo test --release -p meetily --lib physical_windows_capture_continuity --no-default-features -- --ignored --nocapture --test-threads=1
+cargo test --release -p protocol --lib physical_windows_capture_continuity --no-default-features -- --ignored --nocapture --test-threads=1
 ```
 
 The test accepts 3–900 seconds and currently requires an f32 output endpoint.

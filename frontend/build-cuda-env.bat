@@ -2,7 +2,7 @@
 REM Fork build helper: MSVC + LLVM + reassembled CUDA toolkit + Ninja.
 REM Usage: build-cuda-env.bat [helper|libhelper|lib|bundle|check]
 REM   check = cargo check only (type-check, NO exe link) - safe to run while the
-REM           app is still running (won't hit LNK1104 on the locked meetily.exe).
+REM           app is still running (won't hit LNK1104 on the locked protocol.exe).
 setlocal enabledelayedexpansion
 
 set "ROOT=%~dp0"
@@ -63,7 +63,7 @@ if /I "%MODE%"=="libhelper" goto :lib
 exit /b 0
 
 :lib
-echo [lib] building meetily --release --features cuda,custom-protocol
+echo [lib] building protocol --release --features cuda,custom-protocol
 cd /d "%ROOT%src-tauri"
 cargo build --release --features cuda,custom-protocol
 if errorlevel 1 exit /b %errorlevel%
@@ -79,7 +79,7 @@ echo [lib] staged bundled resources (diarization models, templates)
 exit /b 0
 
 :check
-echo [check] cargo check meetily --release --features cuda,custom-protocol (no exe link)
+echo [check] cargo check protocol --release --features cuda,custom-protocol (no exe link)
 cd /d "%ROOT%src-tauri"
 cargo check --release --features cuda,custom-protocol
 exit /b %errorlevel%
@@ -88,7 +88,7 @@ exit /b %errorlevel%
 REM Apply rustc's own suggested fixes (unused imports/variables etc.)
 echo [fix] cargo fix --lib --release --features cuda,custom-protocol
 cd /d "%ROOT%src-tauri"
-cargo fix --lib -p meetily --release --features cuda,custom-protocol --allow-dirty --allow-staged
+cargo fix --lib -p protocol --release --features cuda,custom-protocol --allow-dirty --allow-staged
 exit /b %errorlevel%
 
 :test
@@ -102,10 +102,10 @@ exit /b %errorlevel%
 :bundle
 echo [bundle] Build CUDA app, NSIS overall-progress plugin, then Tauri bundle
 cd /d "%ROOT%src-tauri"
-cargo build --release -p meetily --bin meetily --no-default-features --features cuda,custom-protocol
+cargo build --release -p protocol --bin protocol --no-default-features --features cuda,custom-protocol
 if errorlevel 1 exit /b %errorlevel%
 cd /d "%ROOT%"
-powershell -NoProfile -ExecutionPolicy Bypass -File "scripts\build-nsis-progress-plugin.ps1" -ProgressMainBinary "..\target\release\meetily.exe"
+powershell -NoProfile -ExecutionPolicy Bypass -File "scripts\build-nsis-progress-plugin.ps1" -ProgressMainBinary "..\target\release\protocol.exe"
 if errorlevel 1 exit /b %errorlevel%
 cd /d "%ROOT%"
 call pnpm run tauri:build:cuda

@@ -41,7 +41,7 @@ run(sevenZip, ['t', join(dist, engine)]);
 const extracted = await mkdtemp(join(dist, 'verify-'));
 try {
   run(sevenZip, ['x', join(dist, engine), `-o${extracted}`, '-y', 'installer-variants/*', 'ffmpeg.exe', 'llama-helper.exe', 'resources/*', 'runtime-deps/*', 'binaries/onnxruntime/*']);
-  for (const name of ['meetily-cpu.exe', 'meetily-vulkan.exe', 'meetily-cuda.exe', 'meetily-vulkan-probe.exe']) {
+  for (const name of ['protocol-cpu.exe', 'protocol-vulkan.exe', 'protocol-cuda.exe', 'protocol-vulkan-probe.exe']) {
     assert.deepEqual(await hash(join(extracted, 'installer-variants', name)),
       await hash(join(repo, 'frontend/src-tauri/installer-variants', name)), `Stale packaged variant: ${name}`);
   }

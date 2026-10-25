@@ -1,6 +1,6 @@
 @echo off
 REM Fast frontend-only rebuild for the portable CUDA app.
-REM 1) next build  2) kill meetily  3) cargo relink (embeds ../out)  4) launch
+REM 1) next build  2) kill protocol  3) cargo relink (embeds ../out)  4) launch
 REM Use this when you only changed TS/CSS. For Rust-only type checks while the
 REM app is running, prefer:  build-cuda-env.bat check
 
@@ -14,8 +14,8 @@ if errorlevel 1 (
   exit /b 1
 )
 
-echo [2/4] Stopping meetily.exe if running...
-taskkill /IM meetily.exe /F >nul 2>&1
+echo [2/4] Stopping protocol.exe if running...
+taskkill /IM protocol.exe /F >nul 2>&1
 timeout /t 1 /nobreak >nul
 
 echo [3/4] Relinking Tauri release binary (embeds frontend)...
@@ -26,6 +26,6 @@ if errorlevel 1 (
 )
 
 echo [4/4] Launching...
-start "" "%~dp0..\target\release\meetily.exe"
+start "" "%~dp0..\target\release\protocol.exe"
 echo Done.
 endlocal

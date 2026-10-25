@@ -199,7 +199,7 @@ jobs:
           hdiutil detach "$MOUNT_POINT"
           trap - EXIT
 
-          APP_BINARY="$APP_PATH/Contents/MacOS/meetily"
+          APP_BINARY="$APP_PATH/Contents/MacOS/protocol"
           for binary in \
             "$APP_BINARY" \
             "$APP_PATH/Contents/MacOS/llama-helper" \
@@ -268,7 +268,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          APP_BINARY="$MEETILY_APP_PATH/Contents/MacOS/meetily"
+          APP_BINARY="$MEETILY_APP_PATH/Contents/MacOS/protocol"
           LOG_PATH="$RUNNER_TEMP/meetily-launch.log"
 
           RUST_BACKTRACE=1 RUST_LOG=info "$APP_BINARY" >"$LOG_PATH" 2>&1 &
@@ -320,7 +320,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          APP_BINARY="$MEETILY_APP_PATH/Contents/MacOS/meetily"
+          APP_BINARY="$MEETILY_APP_PATH/Contents/MacOS/protocol"
           LOG_PATH="$RUNNER_TEMP/meetily-second-launch.log"
           RUST_BACKTRACE=1 RUST_LOG=info "$APP_BINARY" >"$LOG_PATH" 2>&1 &
           APP_PID=$!

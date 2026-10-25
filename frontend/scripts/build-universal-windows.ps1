@@ -39,7 +39,7 @@ function Build-VulkanProbe([string]$Sdk) {
   $header = Join-Path $Sdk "Include\vulkan\vulkan.h"
   $build = Join-Path $repo "target\vulkan-probe\release"
   $object = Join-Path $build "vulkan_probe.obj"
-  $binary = Join-Path $build "meetily-vulkan-probe.exe"
+  $binary = Join-Path $build "protocol-vulkan-probe.exe"
   foreach ($required in @($source, $header)) {
     if (-not (Test-Path -LiteralPath $required)) {
       throw "Vulkan probe input missing: $required"
@@ -61,14 +61,14 @@ if ($BootstrapperOnly) {
   $dist = Join-Path $repo "dist"
   $engineOutput = Join-Path $dist "Protocol-${appVersion}-x64-universal-engine.exe"
   $output = Join-Path $dist "Protocol-${appVersion}-x64-universal-setup.exe"
-  $cpuBinary = Join-Path $repo "target\variants\cpu\release\meetily.exe"
+  $cpuBinary = Join-Path $repo "target\variants\cpu\release\protocol.exe"
 
   foreach ($required in @($engineOutput, $cpuBinary)) {
     if (-not (Test-Path -LiteralPath $required)) {
       throw "Bootstrapper-only input is missing: $required"
     }
   }
-  foreach ($variant in @("meetily-cpu.exe", "meetily-vulkan.exe", "meetily-cuda.exe", "meetily-vulkan-probe.exe")) {
+  foreach ($variant in @("protocol-cpu.exe", "protocol-vulkan.exe", "protocol-cuda.exe", "protocol-vulkan-probe.exe")) {
     $variantPath = Join-Path $variants $variant
     if (-not (Test-Path -LiteralPath $variantPath)) {
       throw "Staged variant missing: $variantPath"
@@ -80,9 +80,9 @@ if ($BootstrapperOnly) {
     -Output $output `
     -Version $appVersion `
     -ProgressMainBinary $cpuBinary `
-    -CpuVariantBytes (Get-Item (Join-Path $variants "meetily-cpu.exe")).Length `
-    -CudaVariantBytes (Get-Item (Join-Path $variants "meetily-cuda.exe")).Length `
-    -VulkanVariantBytes (Get-Item (Join-Path $variants "meetily-vulkan.exe")).Length
+    -CpuVariantBytes (Get-Item (Join-Path $variants "protocol-cpu.exe")).Length `
+    -CudaVariantBytes (Get-Item (Join-Path $variants "protocol-cuda.exe")).Length `
+    -VulkanVariantBytes (Get-Item (Join-Path $variants "protocol-vulkan.exe")).Length
   if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $output)) {
     throw "Frameless installer bootstrapper build failed"
   }
@@ -153,19 +153,19 @@ function Build-Variant([string]$Name, [string]$TargetDir, [string[]]$Features) {
   Push-Location $repo
   try {
     $featureList = (@("custom-protocol") + $Features) -join ","
-    & cargo build --release -p meetily --bin meetily --no-default-features --features $featureList
+    & cargo build --release -p protocol --bin protocol --no-default-features --features $featureList
     if ($LASTEXITCODE -ne 0) { throw "$Name build failed" }
   } finally { Pop-Location }
-  $binary = Join-Path $TargetDir "release\meetily.exe"
+  $binary = Join-Path $TargetDir "release\protocol.exe"
   if (-not (Test-Path $binary)) { throw "$Name binary missing: $binary" }
   # Tauri's packaging pass can relink the CPU placeholder with a different
   # context. Retain each EXE/PDB pair before that pass overwrites its symbols.
-  $pdb = Join-Path $TargetDir "release\meetily.pdb"
+  $pdb = Join-Path $TargetDir "release\protocol.pdb"
   if (Test-Path $pdb) {
     $symbols = Join-Path $repo "target\release-symbols\$appVersion\$($Name.ToLowerInvariant())"
     New-Item -ItemType Directory -Force -Path $symbols | Out-Null
-    Copy-Item $binary (Join-Path $symbols "meetily.exe") -Force
-    Copy-Item $pdb (Join-Path $symbols "meetily.pdb") -Force
+    Copy-Item $binary (Join-Path $symbols "protocol.exe") -Force
+    Copy-Item $pdb (Join-Path $symbols "protocol.pdb") -Force
   }
   return $binary
 }
@@ -198,10 +198,10 @@ foreach ($sidecar in @("llama-helper-x86_64-pc-windows-msvc.exe", "ffmpeg-x86_64
 }
 
 New-Item -ItemType Directory -Force -Path $variants | Out-Null
-Copy-Item $cpuBinary (Join-Path $variants "meetily-cpu.exe") -Force
-Copy-Item $vulkanBinary (Join-Path $variants "meetily-vulkan.exe") -Force
-Copy-Item $cudaBinary (Join-Path $variants "meetily-cuda.exe") -Force
-Copy-Item $vulkanProbeBinary (Join-Path $variants "meetily-vulkan-probe.exe") -Force
+Copy-Item $cpuBinary (Join-Path $variants "protocol-cpu.exe") -Force
+Copy-Item $vulkanBinary (Join-Path $variants "protocol-vulkan.exe") -Force
+Copy-Item $cudaBinary (Join-Path $variants "protocol-cuda.exe") -Force
+Copy-Item $vulkanProbeBinary (Join-Path $variants "protocol-vulkan-probe.exe") -Force
 
 & (Join-Path $PSScriptRoot "stage-runtime-deps.ps1") -BuildOutput @(
   (Join-Path $cpuTarget "release"),
@@ -214,19 +214,19 @@ foreach ($binary in Get-ChildItem $variants -Filter "*.exe") {
   & $sign -FilePath $binary.FullName
 }
 } else {
-  foreach ($variant in @("meetily-cpu.exe", "meetily-vulkan.exe", "meetily-cuda.exe")) {
+  foreach ($variant in @("protocol-cpu.exe", "protocol-vulkan.exe", "protocol-cuda.exe")) {
     $variantPath = Join-Path $variants $variant
     if (-not (Test-Path $variantPath)) { throw "Staged variant missing: $variantPath" }
   }
-  Copy-Item $vulkanProbeBinary (Join-Path $variants "meetily-vulkan-probe.exe") -Force
-  & $sign -FilePath (Join-Path $variants "meetily-vulkan-probe.exe")
+  Copy-Item $vulkanProbeBinary (Join-Path $variants "protocol-vulkan-probe.exe") -Force
+  & $sign -FilePath (Join-Path $variants "protocol-vulkan-probe.exe")
 }
 
 # Bundle once with CPU as the safe main executable. The post-install hook
-# replaces it with the selected signed variant and keeps meetily.exe canonical.
+# replaces it with the selected signed variant and keeps protocol.exe canonical.
 $env:CARGO_TARGET_DIR = $cpuTarget
 & (Join-Path $PSScriptRoot "build-nsis-progress-plugin.ps1") `
-  -ProgressMainBinary (Join-Path $cpuTarget "release\meetily.exe")
+  -ProgressMainBinary (Join-Path $cpuTarget "release\protocol.exe")
 if ($LASTEXITCODE -ne 0) { throw "NSIS overall-progress plugin build failed" }
 Push-Location $frontend
 try {
@@ -253,10 +253,10 @@ Copy-Item $installer $engineOutput -Force
   -Payload $installer `
   -Output $output `
   -Version $appVersion `
-  -ProgressMainBinary (Join-Path $cpuTarget "release\meetily.exe") `
-  -CpuVariantBytes (Get-Item (Join-Path $variants "meetily-cpu.exe")).Length `
-  -CudaVariantBytes (Get-Item (Join-Path $variants "meetily-cuda.exe")).Length `
-  -VulkanVariantBytes (Get-Item (Join-Path $variants "meetily-vulkan.exe")).Length
+  -ProgressMainBinary (Join-Path $cpuTarget "release\protocol.exe") `
+  -CpuVariantBytes (Get-Item (Join-Path $variants "protocol-cpu.exe")).Length `
+  -CudaVariantBytes (Get-Item (Join-Path $variants "protocol-cuda.exe")).Length `
+  -VulkanVariantBytes (Get-Item (Join-Path $variants "protocol-vulkan.exe")).Length
 if ($LASTEXITCODE -ne 0 -or -not (Test-Path $output)) {
   throw "Frameless installer bootstrapper build failed"
 }

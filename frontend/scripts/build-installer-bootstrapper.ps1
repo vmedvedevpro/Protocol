@@ -37,8 +37,8 @@ function Add-ProgressFile([string]$RelativePath, [string]$SourcePath) {
     })
   }
 }
-Add-ProgressFile "meetily.exe" $ProgressMainBinary
-foreach ($name in @(".gitkeep", "meetily-cpu.exe", "meetily-cuda.exe", "meetily-vulkan-probe.exe", "meetily-vulkan.exe", "universal.marker")) {
+Add-ProgressFile "protocol.exe" $ProgressMainBinary
+foreach ($name in @(".gitkeep", "protocol-cpu.exe", "protocol-cuda.exe", "protocol-vulkan-probe.exe", "protocol-vulkan.exe", "universal.marker")) {
   Add-ProgressFile "installer-variants\$name" (Join-Path $tauri "installer-variants\$name")
 }
 foreach ($name in @("parakeet-rs-LICENSE.txt", "segmentation-3.0-fp16.onnx", "wespeaker-resnet34-LM.onnx", "xvec_transform.npz")) {
