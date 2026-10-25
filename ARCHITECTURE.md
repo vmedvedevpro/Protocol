@@ -592,6 +592,15 @@ this repository; `xvec_transform.npz` matches `pyannote-community/speaker-diariz
 but is served from the same place to keep one source. Switching to public
 exports would change the model bytes and needs re-qualification.
 
+The installer redistributes the three Pyannote files, so their notices ship
+beside them in `resources/diarization/THIRD_PARTY_MODELS.txt`: segmentation-3.0
+is MIT (Copyright (c) 2023 CNRS, full text included), and the WeSpeaker
+ResNet34-LM weights and `xvec_transform.npz` are CC BY 4.0. The file names each
+source, its authors and the ONNX conversion. The release verifier checks it like
+`parakeet-rs-LICENSE.txt`. When a bundled model changes, update this file and
+the Settings credit line together. The other models are downloaded by the user
+from the sources above and are not redistributed, so they need no notices.
+
 Integrity checks:
 
 - **Download.** The SHA-256 is computed while the file streams in

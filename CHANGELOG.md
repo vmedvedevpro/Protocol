@@ -23,6 +23,10 @@ issue and PR numbers refer to
   an integrity error. Models installed by older builds are hashed once before
   their first load. Parakeet v3 no longer falls back to the previous fork's
   GitHub release, and the Pyannote repair download comes from this repository.
+- Ship license notices for the bundled Pyannote/WeSpeaker models
+  (`resources/diarization/THIRD_PARTY_MODELS.txt`), and correct the Settings
+  credit line: the WeSpeaker weights and the VBx x-vector transform are
+  CC BY 4.0, not Apache-2.0 (#1).
 
 ## Unreleased
 

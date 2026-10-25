@@ -307,7 +307,8 @@ variants; the runtime payload must match the one validated in tests. Validate wi
 `node frontend/scripts/verify-windows-release.mjs`.
 The packager no longer writes `latest.json` or updater signatures; the verifier
 checks `SHA256SUMS.txt` (setup and engine), the NSIS archive, packaged variants,
-and the bootstrapper payload.
+the bundled notices (`parakeet-rs-LICENSE.txt`, and `THIRD_PARTY_MODELS.txt` for
+the Pyannote models), and the bootstrapper payload.
 
 ### Fork identity and updates
 
