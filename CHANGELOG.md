@@ -35,6 +35,9 @@ issue and PR numbers refer to
   generation ask you to choose another provider, and the CLI's leftover working
   folder is deleted at startup
   ([#19](https://github.com/vmedvedevpro/Protocol/issues/19)).
+- Import audio into the recordings folder chosen in Settings instead of always
+  the default folder, failing with the folder path when it is unusable; speaker
+  identification also looks there for recordings a meeting does not link (#29).
 
 ## Unreleased
 
