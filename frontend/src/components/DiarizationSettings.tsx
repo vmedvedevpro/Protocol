@@ -404,8 +404,8 @@ export function DiarizationSettings() {
             <div className="mt-4 rounded-xl bg-af-warning/10 p-4">
               <p className="text-sm text-af-text mb-3 leading-relaxed">
                 The bundled speaker models couldn&apos;t be found. You can re-download them
-                {downloadBytes > 0 && <> (~{formatMB(downloadBytes)})</>} from this app&apos;s GitHub
-                release — files are verified with SHA-256.
+                {downloadBytes > 0 && <> (~{formatMB(downloadBytes)})</>} from the Protocol repository on
+                GitHub, at the fixed commit 76e9939 — files are verified with SHA-256.
               </p>
               <Button size="sm" onClick={() => handleDownload('pyannote')} className="bg-af-accent text-af-on-accent hover:bg-af-accent-hover">
                 <Download size={16} className="mr-1.5" />
