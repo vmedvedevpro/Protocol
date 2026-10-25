@@ -109,9 +109,12 @@ jobs:
           deb=$(find target/release/bundle/deb -maxdepth 1 -name '*.deb' -print -quit)
           test -n "$appimage" && test -n "$deb"
           dpkg-deb --info "$deb"
-          dpkg-deb --contents "$deb" | grep -E ' \./usr/bin/protocol$'
-          dpkg-deb --contents "$deb" | grep -q 'resources/diarization/THIRD_PARTY_MODELS.txt'
-          if dpkg-deb --contents "$deb" | grep -Eq 'runtime-deps|installer-variants'; then
+          contents="$RUNNER_TEMP/deb-contents.txt"
+          dpkg-deb --contents "$deb" | tee "$contents"
+          # tauri-bundler writes the data archive without the usual ./ prefix.
+          grep -Eq ' (\./)?usr/bin/protocol$' "$contents"
+          grep -q 'resources/diarization/THIRD_PARTY_MODELS.txt' "$contents"
+          if grep -Eq 'runtime-deps|installer-variants' "$contents"; then
             echo "The deb carries the Windows resource folders"
             exit 1
           fi
