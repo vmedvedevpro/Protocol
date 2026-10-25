@@ -18,9 +18,10 @@ issue and PR numbers refer to
 - Point About, onboarding, crash reports, and the CUDA setup prompt at this
   repository.
 - Remove the manual Windows support-bundle script inherited from upstream: it
-  zipped the database with provider API keys, WebView storage, and memory dumps,
-  and read the old Meetily folders. The in-app crash report remains the
-  supported path.
+  zipped the database with provider API keys, WebView storage, memory dumps, by
+  default the newest meeting recording, the computer and user names, and the
+  command lines of running app processes, and it read the old Meetily folders.
+  The in-app crash report remains the supported path.
 
 ## Unreleased
 

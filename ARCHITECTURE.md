@@ -272,7 +272,19 @@ meeting identity, SQLite/WebView/settings storage, credentials, usernames,
 hostnames, or device names. It is the only supported crash-reporting path. The
 manual support-bundle script inherited from upstream was removed because it
 zipped the SQLite database (provider API keys are stored there in plaintext),
-WebView storage, and memory dumps; do not add a broader collector back.
+WebView storage, memory dumps, the newest meeting recording (copied unless
+`--no-recording` was passed), the computer and user names, and the command lines
+of running app processes; do not add a broader collector back.
+
+Nothing in the repository collects native-crash evidence (exception code,
+faulting module, stack) any more, so a native fault that is not a Rust panic
+yields only an `unexpected_exit` report. For such a crash, ask the user for the
+matching Windows Application event log entries, the WER `ReportArchive` and
+`ReportQueue` folders, dumps in `%LOCALAPPDATA%\CrashDumps` (written only when
+WER LocalDumps is enabled), and `<data>\crash.log`. The panic hook still appends
+the panic message and sanitized backtrace to that file (for an installed Windows
+build, `%LOCALAPPDATA%\vmedvedevpro\Protocol\data\crash.log`); it stays as the
+local manual-debugging file and is never added to the ZIP.
 
 ---
 
