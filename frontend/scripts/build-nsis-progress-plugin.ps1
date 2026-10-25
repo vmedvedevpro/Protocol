@@ -42,7 +42,7 @@ Add-ProgressFile "protocol.exe" $ProgressMainBinary
 foreach ($name in @(".gitkeep", "protocol-cpu.exe", "protocol-cuda.exe", "protocol-vulkan-probe.exe", "protocol-vulkan.exe", "universal.marker")) {
   Add-ProgressFile "installer-variants\$name" (Join-Path $tauri "installer-variants\$name")
 }
-foreach ($name in @("parakeet-rs-LICENSE.txt", "segmentation-3.0-fp16.onnx", "wespeaker-resnet34-LM.onnx", "xvec_transform.npz")) {
+foreach ($name in @("parakeet-rs-LICENSE.txt", "THIRD_PARTY_MODELS.txt", "segmentation-3.0-fp16.onnx", "wespeaker-resnet34-LM.onnx", "xvec_transform.npz")) {
   Add-ProgressFile "resources\diarization\$name" (Join-Path $tauri "resources\diarization\$name")
 }
 foreach ($name in @("DirectML.dll", "cublas64_13.dll", "cublasLt64_13.dll", "cudart64_13.dll", "vc_redist.x64.exe")) {

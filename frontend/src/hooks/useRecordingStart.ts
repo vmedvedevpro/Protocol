@@ -12,7 +12,7 @@ import { AUTO_START_KEY, START_RECORDING_EVENT } from '@/lib/recording-launch';
 import { beginAutomatedRecording, endAutomatedRecording, takeAutomatedStart } from '@/lib/meeting-automation';
 import { showRecordingNotification } from '@/lib/recordingNotification';
 import { toast } from 'sonner';
-import { describeStartError } from '@/lib/recording-start-errors';
+import { describeStartError, modelIntegrityMessage } from '@/lib/recording-start-errors';
 
 interface UseRecordingStartReturn {
   handleRecordingStart: () => Promise<void>;
@@ -36,6 +36,8 @@ export function useRecordingStart(
 ): UseRecordingStartReturn {
   const [isAutoStarting, setIsAutoStarting] = useState(false);
   const runtimeErrorRef = useRef<string | null>(null);
+  // Set when the model failed to load because it did not match its pin.
+  const modelErrorRef = useRef<string | null>(null);
 
   const { clearTranscripts, setMeetingTitle } = useTranscripts();
   const { setIsMeetingActive, meetings } = useSidebar();
@@ -55,6 +57,7 @@ export function useRecordingStart(
   // Prefetch the configured provider so Start Recording feels snappy after idle unload.
   const prefetchSttModel = useCallback(async (): Promise<boolean> => {
     runtimeErrorRef.current = null;
+    modelErrorRef.current = null;
     try {
       await invoke('check_transcription_runtime');
     } catch (error) {
@@ -102,6 +105,7 @@ export function useRecordingStart(
       return true;
     } catch (error) {
       console.error('Failed to prefetch STT model:', error);
+      modelErrorRef.current = modelIntegrityMessage(error);
       return false;
     }
   }, [transcriptModelConfig]);
@@ -129,7 +133,12 @@ export function useRecordingStart(
       setStatus(RecordingStatus.ERROR, runtimeErrorRef.current);
       return;
     }
-    if (await checkIfModelDownloading()) {
+    if (modelErrorRef.current) {
+      // Shown like the native start's message (useModalState); the model
+      // selector is where it is downloaded again.
+      toast.error('', { description: modelErrorRef.current, duration: 5000 });
+      showModal?.('modelSelector', 'Transcription model setup required');
+    } else if (await checkIfModelDownloading()) {
       toast.info('Model download in progress', {
         description: 'Recording can start once the transcription model finishes downloading.',
         duration: 5000,

@@ -1,0 +1,105 @@
+Third-party models in resources/diarization/
+=============================================
+
+Protocol ships three speaker-diarization model files in this folder. They are
+not covered by Protocol's own MIT license (LICENSE.md in the repository): each
+keeps the license of the work it comes from, listed below.
+parakeet-rs-LICENSE.txt in this folder is the license of the Sortformer code
+adapted from altunenes/parakeet-rs, not of a model.
+
+The sources below were checked on 2026-10-25. The two ONNX files were
+converted from the original PyTorch models by Meetily - Actually Free
+(https://github.com/TylerBuza/Meetily-ActuallyFree), the project Protocol is
+forked from. It did not record how they were exported (tool, settings, source
+revision), and no byte-identical copy of either file is published upstream.
+Replacing them with public exports is tracked in
+https://github.com/vmedvedevpro/Protocol/issues/23.
+
+The models are provided as is, without warranties of any kind; see the
+licenses below.
+
+
+1. segmentation-3.0-fp16.onnx
+-----------------------------
+
+Model:      pyannote segmentation-3.0, "Powerset" speaker segmentation
+Source:     https://huggingface.co/pyannote/segmentation-3.0
+            (license and model card read at revision
+            e66f3d3b9eb0873085418a7b813d3b369bf160bb)
+Authors:    trained by Séverin Baroudi with pyannote.audio 3.0.0; method by
+            Alexis Plaquet and Hervé Bredin, "Powerset multi-class cross
+            entropy loss for neural speaker diarization", Interspeech 2023
+Copyright:  Copyright (c) 2023 CNRS
+License:    MIT License, full text at the end of this file
+Changes:    converted to ONNX; the file name marks it as float16. The exact
+            export is unknown (see above).
+SHA-256:    b0acba8e4cc30e8ec2bd33075ce95f282d66acab86fb155860d8deddbfacd30c
+
+
+2. wespeaker-resnet34-LM.onnx
+-----------------------------
+
+Model:      WeSpeaker ResNet34 r-vector speaker embedding, trained on the
+            VoxCeleb2 dev set, after large-margin fine-tuning (ResNet34-LM)
+Source:     https://huggingface.co/Wespeaker/wespeaker-voxceleb-resnet34-LM
+            (revision f0c48c298fd835726c27956a5d617bad7115627e). The same
+            weights are published for pyannote.audio at
+            https://huggingface.co/pyannote/wespeaker-voxceleb-resnet34-LM
+Authors:    the WeSpeaker project, https://github.com/wenet-e2e/wespeaker;
+            Hongji Wang, Chengdong Liang, Shuai Wang, Zhengyang Chen, Binbin
+            Zhang, Xu Xiang, Yanlei Deng and Yanmin Qian, "Wespeaker: A
+            research and production oriented speaker embedding learning
+            toolkit", ICASSP 2023
+License:    Creative Commons Attribution 4.0 International (CC BY 4.0),
+            https://creativecommons.org/licenses/by/4.0/
+            WeSpeaker's VoxCeleb models follow the license of the VoxCeleb
+            dataset (https://github.com/wenet-e2e/wespeaker/blob/master/docs/pretrained.md).
+            The Apache-2.0 license of the WeSpeaker toolkit covers its code,
+            not these weights.
+Changes:    converted to ONNX. The file differs from the project's own
+            voxceleb_resnet34_LM.onnx; the exact export is unknown (see
+            above).
+SHA-256:    992a5632618f11644608dbfbd28d401cd8480713207dc2db9af1c4cfc2c8652e
+
+
+3. xvec_transform.npz
+---------------------
+
+Model:      x-vector transform of the VBx/PLDA speaker clustering in the
+            pyannote community-1 pipeline
+Source:     https://huggingface.co/pyannote-community/speaker-diarization-community-1
+            file plda/xvec_transform.npz at revision
+            8a527374977391da736e0daaef26855d949d9685
+Authors:    PLDA model trained by the BUT Speech@FIT group,
+            https://speech.fit.vut.cz/; VBx integration in pyannote.audio by
+            Jiangyu Han and Petr Pálka; pipeline published by pyannote
+License:    Creative Commons Attribution 4.0 International (CC BY 4.0),
+            https://creativecommons.org/licenses/by/4.0/
+Changes:    none; byte-identical to the source file
+SHA-256:    325f1ce8e48f7e55e9c8aa47e05d2766b7c48c4b25b8de8dd751e7a4cc5fbe8f
+
+
+License of segmentation-3.0
+---------------------------
+
+MIT License
+
+Copyright (c) 2023 CNRS
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

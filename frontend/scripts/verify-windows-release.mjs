@@ -47,8 +47,10 @@ try {
   }
   assert.deepEqual(await hash(join(extracted, 'ffmpeg.exe')),
     await hash(join(repo, 'frontend/src-tauri/binaries/ffmpeg-x86_64-pc-windows-msvc.exe')));
-  assert.deepEqual(await hash(join(extracted, 'resources/diarization/parakeet-rs-LICENSE.txt')),
-    await hash(join(repo, 'frontend/src-tauri/resources/diarization/parakeet-rs-LICENSE.txt')));
+  for (const name of ['parakeet-rs-LICENSE.txt', 'THIRD_PARTY_MODELS.txt']) {
+    assert.deepEqual(await hash(join(extracted, 'resources/diarization', name)),
+      await hash(join(repo, 'frontend/src-tauri/resources/diarization', name)), `Missing or stale notice: ${name}`);
+  }
   for (const name of ['onnxruntime.dll', 'onnxruntime_providers_shared.dll', 'onnxruntime-LICENSE.txt', 'DirectML.dll', 'DirectML-LICENSE.txt']) {
     assert.deepEqual(await hash(join(extracted, 'binaries/onnxruntime', name)),
       await hash(join(repo, 'frontend/src-tauri/binaries/onnxruntime', name)), `Unexpected ONNX Runtime: ${name}`);

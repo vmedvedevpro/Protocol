@@ -203,7 +203,7 @@ signature.
 |---|---|
 | Database, templates, models, file-backed settings | Windows/Linux: `<exe dir>/data/…` (OS data dir `…/vmedvedevpro/Protocol` if not writable); macOS: `~/Library/Application Support/vmedvedevpro/Protocol/…` |
 | Tauri plugin stores (recording preferences/onboarding) | Windows: `%APPDATA%\io.github.vmedvedevpro.protocol\…`; macOS: `~/Library/Application Support/io.github.vmedvedevpro.protocol/…` |
-| Bundled diarization models | The platform app bundle's `resources/diarization/` directory |
+| Diarization models | Pyannote/WeSpeaker: bundled in the platform app bundle's `resources/diarization/`; a repaired or user-supplied copy in `<data>/models/diarization/` takes precedence. Nemotron-3: downloaded to `<data>/models/diarization/` only |
 | **Audio recordings** | Windows: `%USERPROFILE%\Music\protocol-recordings\<meeting>`; macOS: `~/Movies/protocol-recordings/<meeting>` |
 
 Two gotchas:
@@ -588,18 +588,65 @@ which bypass the requested destination and behave inconsistently in a webview.
 
 ## 6. Model sources
 
-No dependency on any third party's hosting:
+Every download URL names a commit, and every file its exact size and SHA-256.
+The tables live in `src-tauri/src/model_integrity.rs`, whose module comment
+records how each hash was obtained; there are no `resolve/main` URLs and no
+mirrors.
 
 | Model | Source |
 |---|---|
-| Whisper | HuggingFace (`ggerganov/whisper.cpp`) |
-| Parakeet v2 | HuggingFace (`istupakov/…-v2-onnx`) |
-| Parakeet v3 | This project's own GitHub release |
-| Qwen / Gemma | HuggingFace (`unsloth`, `bartowski`) |
-| Diarization | Bundled in the app (`resources/diarization/`) |
+| Whisper | Hugging Face `ggerganov/whisper.cpp` @ `5359861` |
+| Parakeet v2 (INT8) | Hugging Face `istupakov/parakeet-tdt-0.6b-v2-onnx` @ `0bbb45a` |
+| Parakeet v3 (INT8) | Hugging Face `istupakov/parakeet-tdt-0.6b-v3-onnx` @ `8f23f0c` |
+| Qwen / Gemma | Hugging Face `unsloth/Qwen3.5-{2B,4B}-GGUF`, `bartowski/google_gemma-3-{1b,4b}-it-GGUF`, each at a pinned commit |
+| Pyannote/WeSpeaker | Bundled in the app (`resources/diarization/`); the Settings repair download takes the same files from this repository at `76e9939` |
+| Nemotron-3 | Hugging Face `altunenes/parakeet-rs` @ `4d2a8bc` |
 
-Parakeet v3 originally pointed at the upstream project's server; it was mirrored
-so this fork doesn't consume someone else's bandwidth.
+The two Pyannote ONNX files have no byte-identical upstream copy (they are the
+previous fork's own exports), which is why their repair download comes from
+this repository; `xvec_transform.npz` matches `pyannote-community/speaker-diarization-community-1`
+but is served from the same place to keep one source. Switching to public
+exports would change the model bytes and needs re-qualification.
+
+The installer redistributes the three Pyannote files, so their notices ship
+beside them in `resources/diarization/THIRD_PARTY_MODELS.txt`: segmentation-3.0
+is MIT (Copyright (c) 2023 CNRS, full text included), and the WeSpeaker
+ResNet34-LM weights and `xvec_transform.npz` are CC BY 4.0. The file names each
+source, its authors and the ONNX conversion. The release verifier checks it like
+`parakeet-rs-LICENSE.txt`. When a bundled model changes, update this file and
+the Settings credit line together. The other models are downloaded by the user
+from the sources above and are not redistributed, so they need no notices.
+
+Integrity checks:
+
+- **Download.** The SHA-256 is computed while the file streams in
+  (`model_integrity::Check`, bounded by the pinned size). A resumed Parakeet or
+  summary download first re-reads the bytes it keeps, and checking that kept
+  part, or a complete file already on disk, stops at once on Cancel. A mismatch
+  deletes the file and the error says so ("… failed its integrity check and was
+  deleted"), or says it "could not be deleted" with the OS error. A server that
+  announces another length is refused before anything is written ("Nothing was
+  deleted"). The shared download toast shows each of these as "Integrity check
+  failed" with the matching outcome. Progress stays below 100% while bytes
+  arrive; 100% and "Download completed" follow a matching hash.
+- **Startup.** Discovery checks only the exact pinned size, so startup never
+  reads gigabytes. A file that failed and could not be deleted carries a
+  `<file>.rejected` marker, and discovery does not list it as installed.
+- **First load.** A successful check writes `<file>.verified` beside the model
+  (pin, size, modification time). Before Parakeet, Whisper or llama.cpp parses a
+  model, `ensure_verified` accepts a valid marker after two metadata reads and
+  otherwise hashes the file once, off the async runtime: models installed by an
+  older build, or changed since their download. A full-size file that does not
+  match is deleted and the load fails with the reason. A file of another size
+  is refused and kept: it may be a partial download kept for resume or one being
+  written. The built-in summary path, which the live assistant reaches without
+  a readiness check, also refuses while the model is downloading, and after a
+  deletion marks the model failed, with the reason, so Settings offers it again.
+  It logs every refusal with the model name, as an error when the content did
+  not match.
+- Diarization keeps its own checks: downloads go to `.part`, are verified and
+  then renamed; Nemotron is hashed before every load (`nemotron.rs`); bundled
+  or manually placed Pyannote files are not hashed at load.
 
 ### Summary providers
 

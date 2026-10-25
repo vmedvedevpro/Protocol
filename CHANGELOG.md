@@ -100,6 +100,20 @@ issue and PR numbers refer to
     found": `api_get_auto_generate_setting`, which the Model Settings view sent
     on every mount for a switch that was already hidden (Auto Summary keeps its
     own setting), and the unused `builtin_ai_get_models_directory` wrapper.
+- Pin every model download to a commit and verify each file's size and SHA-256
+  (#1): Whisper, Parakeet, the built-in summary models, Pyannote and Nemotron. A
+  file that does not match is deleted, or reported when it cannot be, and the
+  download or model load fails with an integrity error; a partial download is
+  kept for resume. Models installed by older builds are hashed once before
+  their first load. Parakeet v3 no longer falls back to the previous fork's
+  GitHub release, and the Pyannote repair download comes from this repository.
+- Ship license notices for the bundled Pyannote/WeSpeaker models
+  (`resources/diarization/THIRD_PARTY_MODELS.txt`), and correct the Settings
+  credit line: the WeSpeaker weights and the VBx x-vector transform are
+  CC BY 4.0, not Apache-2.0 (#1).
+- Show why a built-in summary model failed: after a failed download or
+  integrity check, Settings no longer says "Failed to load models", and the
+  model card shows the error with Retry (#1).
 
 ## Unreleased
 
