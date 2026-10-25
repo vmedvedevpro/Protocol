@@ -1405,8 +1405,7 @@ pub async fn resume_recording<R: Runtime>(app: AppHandle<R>) -> Result<(), Strin
     }
 }
 
-/// Check if recording is currently paused
-#[tauri::command]
+/// Check if recording is currently paused (the tray menu asks this)
 pub async fn is_recording_paused() -> bool {
     let manager_guard = RECORDING_MANAGER.lock().unwrap();
     if let Some(manager) = manager_guard.as_ref() {
