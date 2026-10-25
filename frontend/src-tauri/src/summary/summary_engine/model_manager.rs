@@ -77,8 +77,10 @@ pub enum ModelStatus {
     /// Model file is corrupted and needs redownload
     Corrupted { file_size: u64, expected_min_size: u64 },
 
-    /// Error occurred with the model
-    Error(String),
+    /// Error occurred with the model. A struct variant: the internally tagged
+    /// enum cannot serialize a newtype holding a string, and the UI reads
+    /// `{ "type": "error", "message": … }`.
+    Error { message: String },
 }
 
 /// Model information for UI display
@@ -316,7 +318,9 @@ impl ModelManager {
                             model_def.name,
                             e
                         );
-                        ModelStatus::Error(format!("Failed to read metadata: {}", e))
+                        ModelStatus::Error {
+                            message: format!("Failed to read metadata: {}", e),
+                        }
                     }
                 }
             } else {
@@ -392,7 +396,7 @@ impl ModelManager {
     /// Unlike the download, a generation request can meet a file that a
     /// download owns: a partial kept for resume, or one being written. Such a
     /// file is refused and kept. Only a full-size file that fails its hash is
-    /// deleted, and the status then changes so Settings offers the download.
+    /// deleted, and the status then shows why, so Settings offers the download.
     pub async fn verify_before_load(
         &self,
         model_name: &str,
@@ -412,7 +416,8 @@ impl ModelManager {
             if !controls.contains_key(model_name) {
                 if let Some(info) = self.available_models.write().await.get_mut(model_name) {
                     info.status = match undeleted {
-                        None => ModelStatus::NotDownloaded,
+                        // Gone: the card shows the reason and offers Retry.
+                        None => ModelStatus::Error { message: error.to_string() },
                         // Still on disk: offer Retry and Delete, as a scan would.
                         Some(_) => ModelStatus::Corrupted {
                             file_size: pinned.size / (1024 * 1024),
@@ -946,7 +951,9 @@ impl ModelManager {
             {
                 let mut models = self.available_models.write().await;
                 if let Some(model_info) = models.get_mut(model_name) {
-                    model_info.status = ModelStatus::Error(format!("Validation failed: {}", e));
+                    model_info.status = ModelStatus::Error {
+                        message: format!("Validation failed: {}", e),
+                    };
                 }
             }
 
@@ -1023,7 +1030,7 @@ impl ModelManager {
     ) {
         let mut models = self.available_models.write().await;
         if let Some(model_info) = models.get_mut(model_name) {
-            model_info.status = ModelStatus::Error(message);
+            model_info.status = ModelStatus::Error { message };
         }
         drop(models);
         self.release_download(model_name, control).await;
@@ -1162,9 +1169,64 @@ mod tests {
         }))
     }
 
-    async fn start_download(manager: &ModelManager, model_name: &str) {
+    async fn start_download(manager: &ModelManager, model_name: &str) -> Arc<DownloadControl> {
         let control = Arc::new(DownloadControl { cancelled: AtomicBool::new(false), notify: Notify::new() });
-        manager.download_controls.write().await.insert(model_name.to_string(), control);
+        manager.download_controls.write().await.insert(model_name.to_string(), control.clone());
+        control
+    }
+
+    #[test]
+    fn every_status_serializes_with_its_tag_and_round_trips() {
+        use serde_json::json;
+        let statuses = [
+            (ModelStatus::NotDownloaded, json!({ "type": "not_downloaded" })),
+            (ModelStatus::Downloading { progress: 42 }, json!({ "type": "downloading", "progress": 42 })),
+            (ModelStatus::Available, json!({ "type": "available" })),
+            (
+                ModelStatus::Incomplete { file_size: 1, expected_size: 2 },
+                json!({ "type": "incomplete", "file_size": 1, "expected_size": 2 }),
+            ),
+            (
+                ModelStatus::Corrupted { file_size: 3, expected_min_size: 4 },
+                json!({ "type": "corrupted", "file_size": 3, "expected_min_size": 4 }),
+            ),
+            (
+                ModelStatus::Error { message: "Download timeout".to_string() },
+                json!({ "type": "error", "message": "Download timeout" }),
+            ),
+        ];
+        for (status, expected) in statuses {
+            // Exhaustive, so a new variant fails to compile until it is listed.
+            match status {
+                ModelStatus::NotDownloaded
+                | ModelStatus::Downloading { .. }
+                | ModelStatus::Available
+                | ModelStatus::Incomplete { .. }
+                | ModelStatus::Corrupted { .. }
+                | ModelStatus::Error { .. } => {}
+            }
+            assert_eq!(serde_json::to_value(&status).expect("serializes"), expected);
+            assert_eq!(serde_json::from_value::<ModelStatus>(expected).expect("deserializes"), status);
+        }
+    }
+
+    /// `builtin_ai_list_models` returns the cached statuses without a rescan,
+    /// so the Error a failed download leaves must reach Settings.
+    #[tokio::test]
+    async fn the_model_list_serializes_after_a_failed_download() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let manager = ModelManager::new_with_models_dir(Some(temp.path().to_path_buf())).unwrap();
+        manager.init().await.unwrap();
+        let model = get_model_by_name("qwen3.5:2b").expect("model");
+        let control = start_download(&manager, &model.name).await;
+
+        let message = "Download timeout - No data received for 30 seconds";
+        manager.fail_download(&model.name, &control, message.to_string()).await;
+
+        assert!(manager.download_controls.read().await.is_empty());
+        let listed = serde_json::to_value(manager.list_models().await).expect("Settings can list the models");
+        let failed = listed.as_array().unwrap().iter().find(|info| info["name"] == model.name).unwrap();
+        assert_eq!(failed["status"], serde_json::json!({ "type": "error", "message": message }));
     }
 
     /// The live assistant, person and group questions call `generate_with_builtin`
@@ -1215,8 +1277,11 @@ mod tests {
         let error = manager.verify_before_load(&model.name, pinned, &path).await.unwrap_err();
         assert!(error.to_string().contains("failed its integrity check and was deleted"), "{error}");
         assert!(!path.exists());
-        // Settings lists the cached status, which now offers the download again.
-        assert_eq!(manager.get_model_info(&model.name).await.unwrap().status, ModelStatus::NotDownloaded);
+        // Settings lists the cached status, which now says why and offers Retry.
+        assert_eq!(
+            manager.get_model_info(&model.name).await.unwrap().status,
+            ModelStatus::Error { message: error.to_string() }
+        );
         serde_json::to_string(&manager.list_models().await).expect("statuses reach the UI");
 
         std::fs::write(&path, b"GGUF model").unwrap();
