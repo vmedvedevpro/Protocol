@@ -43,9 +43,9 @@ issue and PR numbers refer to
   uninstall no longer close a running Meetily or Meetily – Actually Free,
   except once: the first upgrade over a build that still has `meetily.exe` can
   run that build's old uninstaller, which closes every `meetily.exe`. The
-  uninstall hook stops only the `protocol.exe` in its own install folder, but
-  Tauri's running-app check, before install and uninstall, still closes every
-  `protocol.exe` of the user by name (asking first only in an interactive run).
+  uninstall hook stops only the `protocol.exe` in its own install folder, and
+  since the Tauri 2.12 update (#33) so does Tauri's running-app check before
+  install and uninstall (asking first only in an interactive run).
   Meeting detection no longer treats Meetily as Protocol itself.
 - Remove 70 IPC commands that nothing in the app called, together with the code
   that only they used, and two frontend calls to commands that do not exist;
@@ -114,6 +114,13 @@ issue and PR numbers refer to
 - Show why a built-in summary model failed: after a failed download or
   integrity check, Settings no longer says "Failed to load models", and the
   model card shows the error with Retry (#1).
+- Update Tauri to 2.12 (`tauri` 2.12.5, CLI and JavaScript API 2.12.4, the
+  plugins to their matching releases), which includes the fix for the Tauri
+  security advisory GHSA-w28w-mhc8-qvjv. The Windows crash fix in the bundled
+  `tauri-runtime-wry` is carried over to 2.12.3. The Windows installer is built
+  with NSIS 3.13, and setup and uninstall now close a running Protocol only when
+  it runs from the folder being installed or removed
+  ([#33](https://github.com/vmedvedevpro/Protocol/issues/33)).
 
 ## Unreleased
 
