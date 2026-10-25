@@ -27,7 +27,7 @@ Everything below comes from upstream and works as it does there.
   merge speakers during or after a call; link them to contacts.
 - **Notes and summaries.** Notes, action items, and AI summaries with local
   models (built-in GGUF models, Ollama) or a provider you configure with your own
-  key (Claude, OpenAI, Groq, OpenRouter, a custom endpoint, or the Claude Code CLI).
+  key (Claude, OpenAI, Groq, OpenRouter, or a custom endpoint).
 - **Library.** Meeting history, groups, contacts, a Ctrl+K command bar, and export
   to PDF, Word, Markdown (with YAML frontmatter), text, or JSON.
 - **Labs.** Opt-in meeting detection and automation, waveform scrubbing, clean
@@ -45,12 +45,15 @@ Everything below comes from upstream and works as it does there.
   alike ([#12](https://github.com/vmedvedevpro/Protocol/issues/12)).
 - **No updater.** There is no in-app updater and no update check. To update,
   pull the source and rebuild.
+- **No Claude Code CLI provider.** Summaries and Ask AI never run an external
+  program; a summary provider saved as the CLI loads as unselected, and the app
+  asks you to choose another ([#19](https://github.com/vmedvedevpro/Protocol/issues/19)).
 
 ## Roadmap
 
 | Area | Issues |
 | --- | --- |
-| Hygiene and security | [#1](https://github.com/vmedvedevpro/Protocol/issues/1) model hashes, [#2](https://github.com/vmedvedevpro/Protocol/issues/2) Claude CLI, [#3](https://github.com/vmedvedevpro/Protocol/issues/3) IPC commands, [#4](https://github.com/vmedvedevpro/Protocol/issues/4) diagnostics script |
+| Hygiene and security | [#1](https://github.com/vmedvedevpro/Protocol/issues/1) model hashes, [#19](https://github.com/vmedvedevpro/Protocol/issues/19) Claude CLI provider removal, [#3](https://github.com/vmedvedevpro/Protocol/issues/3) IPC commands, [#4](https://github.com/vmedvedevpro/Protocol/issues/4) diagnostics script |
 | Russian transcription | [#5](https://github.com/vmedvedevpro/Protocol/issues/5) GigaAM v3 |
 | Starting recordings | [#6](https://github.com/vmedvedevpro/Protocol/issues/6) Discord detection, [#7](https://github.com/vmedvedevpro/Protocol/issues/7) Google Calendar via iCal |
 | Using meetings elsewhere | [#8](https://github.com/vmedvedevpro/Protocol/issues/8) read-only MCP server |
@@ -60,8 +63,8 @@ Everything below comes from upstream and works as it does there.
 ## Privacy
 
 Recordings, transcripts, and settings stay on the machine. Nothing is sent
-anywhere unless you choose a cloud provider or the Claude Code CLI for
-summaries, which then processes that content under its own terms. Analytics
+anywhere unless you choose a cloud provider for summaries, which then
+processes that content under its own terms. Analytics
 transmission is disabled and there are no update checks. The network is used to
 download models: most come from Hugging Face, while the speaker models and a
 Parakeet fallback still come from upstream's GitHub releases

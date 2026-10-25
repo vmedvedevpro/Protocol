@@ -17,6 +17,12 @@ issue and PR numbers refer to
   signing in the Windows packaging script, release verifier, and workflows.
 - Point About, onboarding, crash reports, and the CUDA setup prompt at this
   repository.
+- Remove the Claude Code CLI summary provider, its Model Settings panel, and the
+  IPC commands that let the app choose and run a `claude` executable; summaries
+  and Ask AI use the built-in models, Ollama, or an HTTP API provider. A summary
+  provider saved as the CLI now loads as unselected: Model Settings and summary
+  generation ask you to choose another provider
+  ([#19](https://github.com/vmedvedevpro/Protocol/issues/19)).
 
 ## Unreleased
 

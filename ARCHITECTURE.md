@@ -582,25 +582,42 @@ No dependency on any third party's hosting:
 | Qwen / Gemma | HuggingFace (`unsloth`, `bartowski`) |
 | Diarization | Bundled in the app (`resources/diarization/`) |
 
-### Claude Code CLI provider
-
-The `claude-cli` summary provider is the one provider that is neither an HTTP
-call nor a bundled model: it runs the user's own `claude` executable once per
-completion (`--print --output-format json`, prompt on stdin). `claude_cli/`
-owns discovery, the free `--version` / `auth status --json` probe, and the
-one-shot spawn; `llm_client::generate_summary` returns to it early, exactly as
-it does for `BuiltInAI`. The CLI is never bundled and no API key is stored —
-authentication belongs to the signed-in CLI, which is the point of the provider.
-
-Each run is stripped to a plain model call (`--tools ""`, `--strict-mcp-config`,
-`--setting-sources ""`, `--no-session-persistence`) inside an empty app-owned
-working directory. Do not relax this: with settings, hooks or MCP servers
-loaded, a summary can hit a permission prompt and hang, or absorb an unrelated
-project's `CLAUDE.md`. The prompt must stay on stdin — transcripts routinely
-exceed the Windows ~32k command-line limit.
-
 Parakeet v3 originally pointed at the upstream project's server; it was mirrored
 so this fork doesn't consume someone else's bandwidth.
+
+### Summary providers
+
+Summaries and the live assistant run on the built-in GGUF models, Ollama, or an
+HTTP API provider (Claude, OpenAI, Groq, OpenRouter, Custom Server);
+`llm_client::LLMProvider` lists them, and none starts an external program.
+Protocol removed upstream's Claude Code CLI provider, which ran the user's
+`claude` executable from a path the WebView could choose
+([#19](https://github.com/vmedvedevpro/Protocol/issues/19)).
+
+Settings saved while that provider was selected still load:
+
+- `api_get_model_config` (`read_model_config`) returns any saved provider that
+  `LLMProvider::from_str` rejects with an empty provider and model, keeping
+  `whisperModel`, `ollamaEndpoint` and `summaryMaxTokens`. The frontend reads
+  `provider: ''` as no provider selected: `ConfigContext` adopts it instead of
+  its Ollama default, Model Settings shows **Select provider** with a hint and
+  keeps Save disabled, and generating or regenerating a summary shows **Choose a
+  summary provider** without calling the backend. The hook also calls
+  `onOpenModelSettings`, but the meeting page never sets that callback, so as
+  with the Ollama and built-in model checks nothing opens by itself. The live
+  assistant answers "No AI model configured" for the same row.
+- After a recording, `keepsSavedSummaryModel` (`lib/meeting-summary-policy.ts`)
+  counts such a row as configured, so the summary attempt asks for a provider.
+  The first-run gemma3:1b fallback still applies only when there is no settings
+  row or the saved provider has no model.
+- Migration `20260914000000_add_claude_cli_path.sql` stays, because sqlx refuses
+  to start when an applied migration is missing. The `settings.claudeCliPath`
+  column it adds is no longer read or written.
+
+Tests: native `api::model_config_tests` and
+`live_assistant::assistant_model_tests`; frontend
+`tests/hooks/summary-provider-unavailable.test.tsx` and
+`tests/lib/meeting-summary-policy.test.ts`.
 
 ---
 
