@@ -28,6 +28,13 @@ issue and PR numbers refer to
   default the newest meeting recording, the computer and user names, and the
   command lines of running app processes, and it read the old Meetily folders.
   The in-app crash report remains the supported path.
+- Remove the Claude Code CLI summary provider, its Model Settings panel, and the
+  IPC commands that let the app choose and run a `claude` executable; summaries
+  and Ask AI use the built-in models, Ollama, or an HTTP API provider. A summary
+  provider saved as the CLI now loads as unselected: Model Settings and summary
+  generation ask you to choose another provider, and the CLI's leftover working
+  folder is deleted at startup
+  ([#19](https://github.com/vmedvedevpro/Protocol/issues/19)).
 
 ## Unreleased
 

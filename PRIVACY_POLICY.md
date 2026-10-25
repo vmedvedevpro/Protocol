@@ -29,9 +29,9 @@ version may still be on disk (see [Your control](#your-control)).
 Data leaves your machine only when **you** choose an action that sends it:
 
 - If you select a **cloud AI provider** (Claude, OpenAI, Groq, OpenRouter, or a
-  custom endpoint) or the **Claude Code CLI**, the transcript text you summarize
-  or ask about is sent to that provider under **your** account, subject to
-  **their** privacy policy and data-retention terms.
+  custom endpoint), the transcript text you summarize or ask about is sent to
+  that provider under **your** account, subject to **their** privacy policy and
+  data-retention terms.
 - If you select a **cloud transcription provider**, your audio is sent to that
   provider.
 - **Model downloads** contact Hugging Face and, for some models, GitHub release

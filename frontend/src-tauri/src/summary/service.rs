@@ -370,14 +370,9 @@ impl SummaryService {
             }
         };
 
-        // Validate and setup api_key, Flexible for Ollama, BuiltInAI, ClaudeCli, and CustomOpenAI
-        let api_key = if provider == LLMProvider::Ollama
-            || provider == LLMProvider::BuiltInAI
-            || provider == LLMProvider::ClaudeCli
-            || provider == LLMProvider::CustomOpenAI
-        {
+        // Validate and setup api_key, Flexible for Ollama, BuiltInAI, and CustomOpenAI
+        let api_key = if provider == LLMProvider::Ollama || provider == LLMProvider::BuiltInAI || provider == LLMProvider::CustomOpenAI {
             // These providers don't require API keys from the standard database column
-            // (ClaudeCli delegates authentication to the signed-in Claude Code CLI)
             String::new()
         } else {
             match SettingsRepository::get_api_key(&pool, &model_provider).await {
@@ -402,20 +397,6 @@ impl SummaryService {
                 Ok(None) => None,
                 Err(e) => {
                     info!("Failed to retrieve Ollama endpoint: {}, using default", e);
-                    None
-                }
-            }
-        } else {
-            None
-        };
-
-        // Get the explicit Claude Code CLI path if the user set one; None means
-        // the backend discovers the executable itself.
-        let claude_cli_path = if provider == LLMProvider::ClaudeCli {
-            match SettingsRepository::get_claude_cli_path(&pool).await {
-                Ok(path) => path,
-                Err(e) => {
-                    info!("Failed to read Claude Code CLI path: {}, using auto-discovery", e);
                     None
                 }
             }
@@ -619,7 +600,6 @@ impl SummaryService {
             custom_openai_temperature,
             custom_openai_top_p,
             app_data_dir.as_ref(),
-            claude_cli_path.as_deref(),
             Some(&cancellation_token),
             summary_language.as_deref(),
             detected_summary_language.as_deref(),

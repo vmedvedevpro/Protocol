@@ -7,34 +7,24 @@ import { toast } from 'sonner';
 import { isOllamaNotInstalledError } from '@/lib/utils';
 import { BuiltInModelInfo } from '@/lib/builtin-ai';
 import {
-  CLAUDE_CODE_INSTALL_URL,
-  claudeCliBlockingReason,
-  getClaudeCliStatus,
-} from '@/lib/claude-cli';
-import {
   detectAndCacheSummaryLanguage,
   readMeetingSummaryLanguage,
   readCachedDetectedSummaryLanguage,
 } from '@/lib/summary-language-preferences';
 
 /**
- * The Claude Code CLI provider depends on software outside this app, so it can
- * be missing or signed out at any time. Checking up front turns that into an
- * actionable message instead of a backend failure part-way through a summary.
- *
- * Returns null when summaries can run.
+ * A saved provider the app no longer offers loads as no provider (''); see
+ * api_get_model_config. Ask for another one instead of starting a summary the
+ * backend would reject. The fixed id makes a repeated prompt replace the
+ * visible toast instead of stacking another one.
  */
-async function claudeCliPreflight(): Promise<{ message: string; installed: boolean } | null> {
-  try {
-    const status = await getClaudeCliStatus();
-    const message = claudeCliBlockingReason(status);
-    return message ? { message, installed: status.installed } : null;
-  } catch (error) {
-    return {
-      message: error instanceof Error ? error.message : String(error),
-      installed: false,
-    };
-  }
+function askForSummaryProvider(onOpenModelSettings?: () => void) {
+  toast.error('Choose a summary provider', {
+    id: 'choose-summary-provider',
+    description: 'The provider saved earlier is no longer available. Pick another one in Model Settings.',
+    duration: 7000,
+  });
+  onOpenModelSettings?.();
 }
 
 async function resolveSummaryLanguage(
@@ -621,6 +611,11 @@ export function useSummaryGeneration({
       return false;
     }
 
+    if (!modelConfig.provider) {
+      askForSummaryProvider(onOpenModelSettings);
+      return false;
+    }
+
     // Flip the UI into "Generating…" immediately — before the (slow) transcript
     // fetch / model checks — so auto-summary doesn't leave the empty-state
     // "Generate summary" button up for the whole prep phase.
@@ -710,30 +705,6 @@ export function useSummaryGeneration({
             { duration: 5000 }
           );
         }
-        onOpenModelSettings?.();
-        return false;
-      }
-    }
-
-    // Check the Claude Code CLI is installed and signed in
-    if (modelConfig.provider === 'claude-cli') {
-      const problem = await claudeCliPreflight();
-      if (!isCurrentRequest()) return false;
-
-      if (problem) {
-        setSummaryStatus('error');
-        setSummaryError(problem.message);
-        toast.error('Claude Code CLI is not ready', {
-          description: problem.message,
-          duration: 7000,
-          action: problem.installed
-            ? undefined
-            : {
-                label: 'Install',
-                onClick: () =>
-                  invokeTauri('open_external_url', { url: CLAUDE_CODE_INSTALL_URL }),
-              },
-        });
         onOpenModelSettings?.();
         return false;
       }
@@ -855,47 +826,36 @@ export function useSummaryGeneration({
     });
   }, [meeting.id, fetchAllTranscripts, buildSummaryTranscriptPayload, processSummary, modelConfig, isModelConfigLoading, selectedTemplate, onOpenModelSettings]);
 
-  // Public API: Regenerate summary from the current saved transcript
-  const handleRegenerateSummary = useCallback(async (customPrompt = '') => {
+  // Public API: Regenerate summary from the current saved transcript.
+  // Resolves true only when the backend accepted a run.
+  const handleRegenerateSummary = useCallback(async (customPrompt = ''): Promise<boolean> => {
     const requestMeetingId = meeting.id;
     const requestGeneration = ++summaryRequestGenerationRef.current;
     const isCurrentRequest = () =>
       mountedRef.current && activeMeetingIdRef.current === requestMeetingId &&
       summaryRequestGenerationRef.current === requestGeneration;
+    if (!modelConfig.provider) {
+      askForSummaryProvider(onOpenModelSettings);
+      return false;
+    }
     setSummaryStatus('regenerating');
     setSummaryError(null);
 
     const allTranscripts = await fetchAllTranscripts(meeting.id);
-    if (!isCurrentRequest()) return;
+    if (!isCurrentRequest()) return false;
 
     if (!allTranscripts.length) {
       console.error('No transcripts available for regeneration');
       setSummaryStatus('idle');
       toast.error('No transcripts available for summary regeneration');
-      return;
-    }
-
-    if (modelConfig.provider === 'claude-cli') {
-      const problem = await claudeCliPreflight();
-      if (!isCurrentRequest()) return;
-
-      if (problem) {
-        setSummaryStatus('error');
-        setSummaryError(problem.message);
-        toast.error('Claude Code CLI is not ready', {
-          description: problem.message,
-          duration: 7000,
-        });
-        onOpenModelSettings?.();
-        return;
-      }
+      return false;
     }
 
     if (modelConfig.provider === 'ollama') {
       try {
         const endpoint = modelConfig.ollamaEndpoint || null;
         const models = await invokeTauri('get_ollama_models', { endpoint }) as any[];
-        if (!isCurrentRequest()) return;
+        if (!isCurrentRequest()) return false;
 
         const selectedModelAvailable = models?.some((model) =>
           model?.name === modelConfig.model || model?.id === modelConfig.model
@@ -911,10 +871,10 @@ export function useSummaryGeneration({
             duration: 6000,
           });
           onOpenModelSettings?.();
-          return;
+          return false;
         }
       } catch (error) {
-        if (!isCurrentRequest()) return;
+        if (!isCurrentRequest()) return false;
         const errorMessage = error instanceof Error ? error.message : String(error);
         setSummaryStatus('error');
         setSummaryError(errorMessage);
@@ -922,11 +882,11 @@ export function useSummaryGeneration({
           description: errorMessage,
           duration: 5000,
         });
-        return;
+        return false;
       }
     }
 
-    await processSummary({
+    return processSummary({
       ...buildSummaryTranscriptPayload(allTranscripts),
       customPrompt,
       isRegeneration: true,

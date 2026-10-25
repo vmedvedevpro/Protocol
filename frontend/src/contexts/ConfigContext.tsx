@@ -3,7 +3,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, ReactNode, useRef } from 'react';
 import { TranscriptModelProps } from '@/components/TranscriptSettings';
 import { SelectedDevices } from '@/components/DeviceSelection';
-import { configService, ModelConfig } from '@/services/configService';
+import { configService, ModelConfig, SummaryProvider } from '@/services/configService';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 
@@ -66,7 +66,7 @@ interface ConfigContextType {
 
   // Ollama models
   models: OllamaModel[];
-  modelOptions: Record<ModelConfig['provider'], string[]>;
+  modelOptions: Record<SummaryProvider, string[]>;
   error: string;
 
   // Summary configuration
@@ -234,6 +234,19 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     const fetchModelConfig = async () => {
       try {
         const data = await configService.getModelConfig();
+        if (data && data.provider === '') {
+          // The saved provider is no longer offered (see api_get_model_config):
+          // select none, so summaries ask for another instead of using the default.
+          setModelConfig(prev => ({
+            ...prev,
+            provider: '',
+            model: '',
+            whisperModel: data.whisperModel || prev.whisperModel,
+            ollamaEndpoint: data.ollamaEndpoint,
+            summaryMaxTokens: data.summaryMaxTokens ?? null,
+          }));
+          return;
+        }
         if (data && data.provider) {
           // If provider is custom-openai, fetch the additional config
           if (data.provider === 'custom-openai') {
@@ -368,10 +381,9 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // Calculate model options based on available models
-  const modelOptions: Record<ModelConfig['provider'], string[]> = {
+  const modelOptions: Record<SummaryProvider, string[]> = {
     ollama: models.map(model => model.name),
     claude: ['claude-3-5-sonnet-latest'],
-    'claude-cli': ['sonnet', 'opus', 'haiku', 'default'],
     groq: ['llama-3.3-70b-versatile'],
     openrouter: [],
     openai: ['gpt-4', 'gpt-4-turbo', 'gpt-3.5-turbo'],

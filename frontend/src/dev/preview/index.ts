@@ -494,29 +494,6 @@ function handle(cmd: string, args: Args): unknown {
       state.diarization.nemotron_threshold = args.nemotronThreshold;
       state.diarization.pyannote_threshold = args.pyannoteThreshold;
       return null;
-    case 'claude_cli_get_status':
-      return {
-        installed: true,
-        path: 'C:\\Users\\you\\.local\\bin\\claude.exe',
-        version: '2.1.177 (Claude Code)',
-        auth: { loggedIn: true, authMethod: 'claude.ai', subscriptionType: 'pro' },
-        api_key_env_detected: false,
-        error: null,
-      };
-    case 'claude_cli_list_models':
-      return [
-        { id: 'sonnet', display_name: 'Sonnet — balanced quality and speed' },
-        { id: 'opus', display_name: 'Opus — highest quality, slowest' },
-        { id: 'haiku', display_name: 'Haiku — fastest, lightest summaries' },
-        { id: 'default', display_name: 'Whatever the CLI is configured to use' },
-      ];
-    case 'claude_cli_get_path':
-    case 'claude_cli_save_path':
-      return null;
-    case 'claude_cli_test_connection':
-      return new Promise((resolve) =>
-        setTimeout(() => resolve({ status: 'success', message: 'Claude Code CLI responded: ready' }), 900),
-      );
     case 'download_diarization_models':
       return new Promise((resolve) =>
         setTimeout(() => {

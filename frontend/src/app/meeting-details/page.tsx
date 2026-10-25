@@ -9,7 +9,7 @@ import { PostCallHandoffCard } from "@/components/PostCallHandoffCard";
 import { Spinner } from "@/components/ui/spinner";
 import { useConfig } from "@/contexts/ConfigContext";
 import { usePaginatedTranscripts } from "@/hooks/usePaginatedTranscripts";
-import { shouldSetUpAutoSummary } from "@/lib/meeting-summary-policy";
+import { keepsSavedSummaryModel, shouldSetUpAutoSummary } from "@/lib/meeting-summary-policy";
 
 interface MeetingDetailsResponse {
   id: string;
@@ -96,7 +96,7 @@ function MeetingDetailsContent() {
       if (!isCurrentSetup()) return;
 
       // If DB already has a model, use it (never override!)
-      if (currentConfig && currentConfig.model) {
+      if (keepsSavedSummaryModel(currentConfig)) {
         console.log('Using existing model from DB:', currentConfig.model);
         setShouldAutoGenerate(true);
         setHasCheckedAutoGen(true);
