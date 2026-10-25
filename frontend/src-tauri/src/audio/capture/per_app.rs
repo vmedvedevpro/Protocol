@@ -76,7 +76,7 @@ fn is_system_process(name: &str) -> bool {
         "taskhostw.exe", "searchhost.exe", "runtimebroker.exe", "startmenuexperiencehost.exe",
         "shellexperiencehost.exe", "lockapp.exe", "ctfmon.exe", "conhost.exe",
         "wlanext.exe", "spoolsv.exe", "audiodg.exe", "registry", "memory compression",
-        "meetily.exe", "meetily-cuda.exe", "meetily-cpu.exe", "meetily-vulkan.exe",
+        "protocol.exe", "protocol-cuda.exe", "protocol-cpu.exe", "protocol-vulkan.exe",
         "llama-helper-x86_64-pc-windows-msvc.exe", "ffmpeg-x86_64-pc-windows-msvc.exe",
         "searchindexer.exe", "securityhealthservice.exe", "smartscreen.exe",
         // macOS system daemons
