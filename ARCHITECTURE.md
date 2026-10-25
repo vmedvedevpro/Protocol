@@ -805,15 +805,18 @@ uninstall leave a running Meetily or Meetily – Actually Free alone, except
 during the one-time upgrade from a pre-#12 install described below. The
 uninstall hook stops only the process whose image path is this install's
 `protocol.exe` (a Toolhelp snapshot plus `QueryFullProcessImageNameW`, not
-`taskkill /IM`). Tauri's running-app check (`CheckIfAppIsRunning` in
-`installer.nsi`, before install and uninstall) is path-based as well since
-tauri-bundler 2.10 (#33): it registers `$INSTDIR\protocol.exe` with Windows
-Restart Manager and shuts down only the processes using that file, so a
-Protocol dev build or a Labs install elsewhere keeps running. It asks in an
-interactive run and closes the app without asking in passive (`/P`, how the
-bootstrapper runs the engine) and silent runs. The template must pass the full
-path and include `Win\RestartManager.nsh`, which the bundler's `utils.nsh`
-needs.
+`taskkill /IM`), and it does so without asking. Tauri's running-app check
+(`CheckIfAppIsRunning` in `installer.nsi`, before install and uninstall) is
+path-based as well since tauri-bundler 2.10 (#33): it registers
+`$INSTDIR\protocol.exe` with Windows Restart Manager and shuts down only the
+processes using that file, so a Protocol dev build or a Labs install elsewhere
+keeps running. Before install it asks in an interactive run and closes the app
+without asking in passive (`/P`, how the bootstrapper runs the engine) and
+silent runs. Uninstall runs the hook before the check, so the check normally
+finds nothing there: even an interactive uninstall terminates a running
+Protocol at once, with no prompt and no end-session request, and a recording in
+progress ends as it would in a crash. The template must pass the full path and
+include `Win\RestartManager.nsh`, which the bundler's `utils.nsh` needs.
 
 The first setup over a pre-#12 install, one that still has `meetily.exe`, is a
 one-time transition that the installer does not special-case:

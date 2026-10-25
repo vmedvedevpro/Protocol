@@ -43,9 +43,10 @@ issue and PR numbers refer to
   uninstall no longer close a running Meetily or Meetily – Actually Free,
   except once: the first upgrade over a build that still has `meetily.exe` can
   run that build's old uninstaller, which closes every `meetily.exe`. The
-  uninstall hook stops only the `protocol.exe` in its own install folder, and
-  since the Tauri 2.12 update (#33) so does Tauri's running-app check before
-  install and uninstall (asking first only in an interactive run).
+  uninstall hook stops only the `protocol.exe` in its own install folder,
+  without asking, and since the Tauri 2.12 update (#33) Tauri's running-app
+  check before install also closes only that one (asking first only in an
+  interactive run).
   Meeting detection no longer treats Meetily as Protocol itself.
 - Remove 70 IPC commands that nothing in the app called, together with the code
   that only they used, and two frontend calls to commands that do not exist;
