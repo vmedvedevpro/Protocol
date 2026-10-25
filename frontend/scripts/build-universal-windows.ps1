@@ -198,6 +198,10 @@ foreach ($sidecar in @("llama-helper-x86_64-pc-windows-msvc.exe", "ffmpeg-x86_64
 }
 
 New-Item -ItemType Directory -Force -Path $variants | Out-Null
+# installer-variants is gitignored and survives branch switches. Remove the
+# executables an earlier build staged, such as meetily-*.exe from before #12,
+# so they are not signed and packaged; .gitkeep and universal.marker stay.
+Get-ChildItem -LiteralPath $variants -Filter "*.exe" -File | Remove-Item -Force
 Copy-Item $cpuBinary (Join-Path $variants "protocol-cpu.exe") -Force
 Copy-Item $vulkanBinary (Join-Path $variants "protocol-vulkan.exe") -Force
 Copy-Item $cudaBinary (Join-Path $variants "protocol-cuda.exe") -Force

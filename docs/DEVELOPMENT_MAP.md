@@ -333,7 +333,10 @@ uninstalled, with stand-in processes: a running `meetily.exe` survived install
 and uninstall, the installed `protocol.exe` was stopped, and a second
 `protocol.exe` elsewhere was stopped by Tauri's check. The universal installer
 (CUDA toolkit) and `verify-windows-release.mjs` (7-Zip, universal payload) were
-not run.
+not run. Before staging, `build-universal-windows.ps1` deletes the `*.exe` an
+earlier build left in the gitignored `installer-variants` folder, so a
+checkout's pre-rename `meetily-*.exe` are not signed and packaged; that cleanup
+was tested on temporary folders, not in a full universal build.
 
 ## 6. Tests, qualification, and historical notes
 
