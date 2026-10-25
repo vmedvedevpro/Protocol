@@ -41,8 +41,13 @@ Everything below comes from upstream and works as it does there.
   beside an installed Meetily or Meetily – Actually Free without sharing data,
   settings, or the single-instance lock. The executable is `protocol.exe`, so
   installing, upgrading, or uninstalling Protocol leaves a running Meetily
-  alone. Setup still closes any other running `protocol.exe` of your user, such
-  as a dev build or a Labs install, without asking.
+  alone, with one exception: the first upgrade over a Protocol build that still
+  has `meetily.exe` can run that build's old uninstaller, which closes every
+  running `meetily.exe`. Close Meetily too before that upgrade (see
+  [ARCHITECTURE.md](ARCHITECTURE.md#8-windows-installer-and-onboarding)).
+  Setup and uninstall still close any other running `protocol.exe` of your
+  user, such as a dev build or a Labs install: they ask first in an
+  interactive run and close it without asking in passive and silent runs.
 - **No updater.** There is no in-app updater and no update check. To update,
   pull the source and rebuild.
 

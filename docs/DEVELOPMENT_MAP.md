@@ -320,7 +320,8 @@ macOS `Contents/MacOS/protocol` follow it. Meeting detection
 the app itself and Meetily as another app; the macOS console runs
 `log stream --process protocol`. The uninstall hook stops only
 `$INSTDIR\protocol.exe`, matched by image path; Tauri's `CheckIfAppIsRunning`
-still matches `protocol.exe` by name (see `ARCHITECTURE.md`). Checks run for
+still matches `protocol.exe` by name (see `ARCHITECTURE.md`, also for the
+one-time upgrade from a pre-#12 install). Checks run for
 the change: `cargo check --locked -p protocol --features vulkan --all-targets`;
 `cargo test -p protocol --lib --features vulkan -- --test-threads=1` (379
 passed, 10 ignored); makensis 3.11 on a stub that inserts every hook (only the

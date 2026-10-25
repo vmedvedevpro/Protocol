@@ -706,7 +706,8 @@ in the bootstrapper. The universal package stages three app executables and the
 hook chooses CUDA, Vulkan, or CPU, then installs the chosen variant
 (`protocol-{cpu,vulkan,cuda}.exe`) as the canonical `protocol.exe`. The
 executable no longer shares upstream's `meetily.exe` name (#12), so setup and
-uninstall leave a running Meetily or Meetily – Actually Free alone. The
+uninstall leave a running Meetily or Meetily – Actually Free alone, except
+during the one-time upgrade from a pre-#12 install described below. The
 uninstall hook stops only the process whose image path is this install's
 `protocol.exe` (a Toolhelp snapshot plus `QueryFullProcessImageNameW`, not
 `taskkill /IM`). Tauri's running-app check (`CheckIfAppIsRunning` in
@@ -714,9 +715,31 @@ uninstall hook stops only the process whose image path is this install's
 `protocol.exe` among the current user's processes: it also finds a Protocol dev
 build or a Labs install, asks in an interactive run, and closes them without
 asking in passive (`/P`, how the bootstrapper runs the engine) and silent runs.
-An upgrade over a pre-#12 install deletes the old `meetily.exe` through the
-template's `MainBinaryName` registry value and recreates the shortcuts, but does
-not close a still-running `meetily.exe` first; close the app before upgrading.
+
+The first setup over a pre-#12 install, one that still has `meetily.exe`, is a
+one-time transition that the installer does not special-case:
+
+- Setup runs the old install's own uninstaller after the default choice of an
+  interactive upgrade or downgrade ("Uninstall before installing") and in a
+  passive run over the same version, which is how the bootstrapper runs the
+  engine. That old uninstaller still runs `taskkill /IM meetily.exe /F` and
+  `CheckIfAppIsRunning "meetily.exe"`, so it force-stops every `meetily.exe` of
+  the user, including a separately installed Meetily or Meetily – Actually
+  Free. Close Meetily too before this upgrade. The check that setup runs after
+  the old uninstaller looks for `protocol.exe`, so it misses a `meetily.exe`
+  that uninstaller left behind.
+- When no uninstall step runs (for example a passive run over another version,
+  or an interactive run without the uninstall choice), nothing closes the old
+  install's running `meetily.exe`, because the hook and the check look only for
+  `protocol.exe`. The template's `MainBinaryName` cleanup then cannot delete
+  the locked `meetily.exe`, does not report it, and records `protocol.exe`, so
+  no later setup or uninstaller removes the leftover file. Close the old
+  Protocol before upgrading and delete a leftover `meetily.exe` from the
+  install folder by hand.
+- If an interactive run without an uninstall step ends with the
+  desktop-shortcut box unticked, an existing desktop `Protocol.lnk` keeps
+  pointing at `meetily.exe`. The uninstaller removes only shortcuts that target
+  `protocol.exe`, so delete that one by hand.
 
 CUDA selection also distinguishes missing or outdated NVIDIA drivers from a PC
 with no NVIDIA display adapter. The hook checks PCI display-class metadata so a

@@ -19,9 +19,13 @@ issue and PR numbers refer to
   repository.
 - Rename the executable from `meetily.exe` to `protocol.exe` (Cargo package
   `protocol`, installer variants `protocol-{cpu,vulkan,cuda}.exe`). Setup and
-  uninstall no longer close a running Meetily or Meetily – Actually Free, the
-  uninstaller stops only the `protocol.exe` in its own install folder, and
-  meeting detection no longer treats Meetily as Protocol itself.
+  uninstall no longer close a running Meetily or Meetily – Actually Free,
+  except once: the first upgrade over a build that still has `meetily.exe` can
+  run that build's old uninstaller, which closes every `meetily.exe`. The
+  uninstall hook stops only the `protocol.exe` in its own install folder, but
+  Tauri's running-app check, before install and uninstall, still closes every
+  `protocol.exe` of the user by name (asking first only in an interactive run).
+  Meeting detection no longer treats Meetily as Protocol itself.
 
 ## Unreleased
 
