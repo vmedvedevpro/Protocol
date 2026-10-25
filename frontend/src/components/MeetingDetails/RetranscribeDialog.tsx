@@ -547,7 +547,7 @@ export function RetranscribeDialog({
 
           {error && (
             <div className="bg-af-danger/10 border border-af-danger/35 rounded-lg p-3">
-              <p className="text-sm text-af-danger">{error}</p>
+              <p className="text-sm text-af-danger [overflow-wrap:anywhere]">{error}</p>
             </div>
           )}
         </div>

@@ -49,6 +49,21 @@ function formatMB(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
+const CC_BY_4_0 = 'https://creativecommons.org/licenses/by/4.0/';
+
+/** A credits link, opened in the system browser like the About links. */
+function CreditLink({ href, children }: { href: string; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={() => invoke('open_external_url', { url: href }).catch((e) => console.error('Failed to open URL:', e))}
+      className="underline underline-offset-2 hover:text-af-text-2 cursor-pointer transition-colors"
+    >
+      {children}
+    </button>
+  );
+}
+
 /**
  * Speaker diarization status and configuration panel.
  * Supports choosing between Pyannote (bundled/lightweight) and NVIDIA Nemotron-3 (Sortformer v3).
@@ -389,8 +404,8 @@ export function DiarizationSettings() {
             <div className="mt-4 rounded-xl bg-af-warning/10 p-4">
               <p className="text-sm text-af-text mb-3 leading-relaxed">
                 The bundled speaker models couldn&apos;t be found. You can re-download them
-                {downloadBytes > 0 && <> (~{formatMB(downloadBytes)})</>} from this app&apos;s GitHub
-                release — files are verified with SHA-256.
+                {downloadBytes > 0 && <> (~{formatMB(downloadBytes)})</>} from the Protocol repository on
+                GitHub, at the fixed commit 76e9939 — files are verified with SHA-256.
               </p>
               <Button size="sm" onClick={() => handleDownload('pyannote')} className="bg-af-accent text-af-on-accent hover:bg-af-accent-hover">
                 <Download size={16} className="mr-1.5" />
@@ -539,8 +554,15 @@ export function DiarizationSettings() {
       <p className="mt-4 text-xs text-af-text-4 leading-relaxed">
         {isPyannote ? (
           <>
-            Models: pyannote <code>segmentation-3.0</code> (MIT) · WeSpeaker ResNet34 (Apache-2.0) · VBx
-            x-vector transform (Apache-2.0). Credit to their respective authors.
+            Models:{' '}
+            <CreditLink href="https://huggingface.co/pyannote/segmentation-3.0">pyannote segmentation-3.0</CreditLink>{' '}
+            by CNRS (<CreditLink href="https://huggingface.co/pyannote/segmentation-3.0/blob/main/LICENSE">MIT</CreditLink>) ·{' '}
+            <CreditLink href="https://huggingface.co/Wespeaker/wespeaker-voxceleb-resnet34-LM">WeSpeaker ResNet34-LM</CreditLink>{' '}
+            by the WeSpeaker project (<CreditLink href={CC_BY_4_0}>CC BY 4.0</CreditLink>) · VBx x-vector transform by
+            BUT Speech@FIT, from{' '}
+            <CreditLink href="https://huggingface.co/pyannote-community/speaker-diarization-community-1">pyannote community-1</CreditLink>{' '}
+            (<CreditLink href={CC_BY_4_0}>CC BY 4.0</CreditLink>). Both ONNX files were converted from the original
+            models. Notices ship with the app in <code>resources/diarization/THIRD_PARTY_MODELS.txt</code>.
           </>
         ) : (
           <>

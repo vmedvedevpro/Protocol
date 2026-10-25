@@ -1,5 +1,29 @@
 import { describe, expect, test } from 'bun:test';
-import { describeStartError } from '../../src/lib/recording-start-errors';
+import { describeStartError, modelIntegrityMessage } from '../../src/lib/recording-start-errors';
+
+describe('modelIntegrityMessage', () => {
+  test('passes on an integrity failure from the Record button model load', () => {
+    // As parakeet_load_model rejects when model_integrity deleted a file.
+    const error = 'Failed to load Parakeet model: vocab.txt failed its integrity check and was deleted: it has 4 bytes, expected 9384. Download it again.';
+    expect(modelIntegrityMessage(error)).toBe(
+      'Recording cannot start: the transcription model failed its integrity check and was deleted. Download it again in Settings.',
+    );
+    expect(modelIntegrityMessage(new Error(error))).not.toBeNull();
+  });
+
+  test('says when the failed file could not be deleted', () => {
+    const error = 'Failed to load Whisper model: ggml-base.bin failed its integrity check and could not be deleted (Access is denied. (os error 5)): its SHA-256 is 00, expected 60ed. Close any program that has it open, then download it again.';
+    expect(modelIntegrityMessage(error)).toBe(
+      'Recording cannot start: the transcription model failed its integrity check and could not be deleted. Close any program that has it open, then download it again in Settings.',
+    );
+  });
+
+  test('leaves other load failures to the generic message', () => {
+    expect(modelIntegrityMessage('Model parakeet-tdt-0.6b-v3-int8 is not available')).toBeNull();
+    expect(modelIntegrityMessage('encoder-model.int8.onnx is not fully downloaded: it has 3 of 652183999 bytes.')).toBeNull();
+    expect(modelIntegrityMessage(undefined)).toBeNull();
+  });
+});
 
 describe('describeStartError', () => {
   test('advises opening an app only when none of the chosen apps runs', () => {

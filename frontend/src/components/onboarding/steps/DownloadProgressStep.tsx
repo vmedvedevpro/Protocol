@@ -427,7 +427,7 @@ export function DownloadProgressStep() {
       {state.status === 'error' && state.error && (
         <div className="mt-2 p-3 bg-af-danger/10 border border-af-danger/35 rounded-md">
           <p className="text-sm text-af-danger font-medium">Download Error</p>
-          <p className="text-xs text-af-danger mt-1">{state.error}</p>
+          <p className="text-xs text-af-danger mt-1 [overflow-wrap:anywhere]">{state.error}</p>
           {(title === 'Transcription Engine' || title === 'Summary Engine') && (
             <button
               onClick={title === 'Transcription Engine' ? handleRetryDownload : handleRetrySummaryDownload}

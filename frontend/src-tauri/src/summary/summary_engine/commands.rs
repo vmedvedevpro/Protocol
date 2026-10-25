@@ -56,9 +56,12 @@ pub async fn init_model_manager<R: Runtime>(app: &AppHandle<R>) -> anyhow::Resul
     let manager = ModelManager::new_with_models_dir(Some(models_dir))?;
     manager.init().await?;
 
+    let manager = Arc::new(manager);
     let state: State<ModelManagerState> = app.state();
     let mut manager_lock = state.0.lock().await;
-    *manager_lock = Some(Arc::new(manager));
+    // Under the state lock, so the registered manager is the one in state.
+    manager.register();
+    *manager_lock = Some(manager);
 
     log::info!("Built-in AI model manager initialized");
     Ok(())
@@ -370,9 +373,11 @@ pub async fn init_model_manager_at_startup<R: Runtime>(
         .await
         .map_err(|e| format!("Failed to initialize ModelManager: {}", e))?;
 
+    let manager = Arc::new(manager);
     let state: State<ModelManagerState> = app.state();
     let mut manager_lock = state.0.lock().await;
-    *manager_lock = Some(Arc::new(manager));
+    manager.register();
+    *manager_lock = Some(manager);
 
     log::info!("ModelManager initialized at startup");
     Ok(())

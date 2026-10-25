@@ -1,5 +1,5 @@
 //! Strict, cancellable artifact requests. Recovery follows upstream #749 while
-//! retaining this fork's published catalog and mirror fallback.
+//! retaining this fork's pinned catalog (`crate::model_integrity`).
 use anyhow::{anyhow, Result};
 use reqwest::{Client, Response, StatusCode};
 use std::time::Duration;
