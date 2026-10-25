@@ -1,14 +1,21 @@
 ; Protocol — NSIS installer dependency hooks
 ; Tauri copies bundle.resources flat under $INSTDIR (e.g. $INSTDIR\runtime-deps\).
 ; The NSIS stub is 32-bit: use Sysnative / disable WOW64 redirection for 64-bit tools.
+;
+; The same installer is the Windows download and the in-app updater's payload
+; (run with /P /UPDATE), so these hooks run again on every update.
 
 !include "LogicLib.nsh"
 !include "x64.nsh"
 
 Var MeetilyBackend
-Var MeetilyCudaState
-Var MeetilyCudaNotice
-!define MEETILY_MIN_NVIDIA_DRIVER "580.00"
+
+; An explicit /BACKEND=vulkan|cpu is saved under ${MANUPRODUCTKEY} (HKCU) and
+; reused by later installs and updates without the option. Otherwise the next
+; update would run the probe again and reselect a Vulkan build the user left
+; because it crashed (a driver can pass the probe and still fail in inference).
+; /BACKEND=auto clears the saved choice.
+!define PROTOCOL_BACKEND_VALUE "BackendOverride"
 
 !macro Meetily_CheckVcredist
   StrCpy $R9 0
@@ -31,6 +38,9 @@ Var MeetilyCudaNotice
   SetRegView lastused
 !macroend
 
+; A failure stops a first install. An update only warns: the files are already
+; replaced and the previous version ran with the runtime it found, so aborting
+; would leave a half-updated install behind the updater's passive window.
 !macro Meetily_InstallVcredist
   ; Bundled next to other runtime-deps (NOT under resources\)
   StrCpy $R0 "$INSTDIR\runtime-deps\vc_redist.x64.exe"
@@ -42,48 +52,28 @@ Var MeetilyCudaNotice
     ${If} $0 != 0
     ${AndIf} $0 != 1638
     ${AndIf} $0 != 3010
-      MessageBox MB_ICONSTOP|MB_OK "Microsoft Visual C++ Runtime installation failed (code $0). Protocol setup cannot continue."
-      Abort
+      ${If} $UpdateMode = 1
+        DetailPrint "      WARNING: Visual C++ Runtime setup failed (code $0); keeping the installed runtime."
+      ${Else}
+        MessageBox MB_ICONSTOP|MB_OK "Microsoft Visual C++ Runtime installation failed (code $0). Protocol setup cannot continue." /SD IDOK
+        Abort
+      ${EndIf}
     ${EndIf}
+  ${ElseIf} $UpdateMode = 1
+    DetailPrint "      WARNING: the Visual C++ Runtime package is missing from this update."
   ${Else}
-    MessageBox MB_ICONSTOP|MB_OK "The Microsoft Visual C++ Runtime package is missing. Protocol setup cannot continue."
+    MessageBox MB_ICONSTOP|MB_OK "The Microsoft Visual C++ Runtime package is missing. Protocol setup cannot continue." /SD IDOK
     Abort
   ${EndIf}
 !macroend
 
-!macro Meetily_InstallCudaRuntime
-  ; Tauri resource path: $INSTDIR\runtime-deps\*.dll
-  StrCpy $R1 "$INSTDIR\runtime-deps"
-  ${If} ${FileExists} "$R1\cudart64_13.dll"
-    DetailPrint "      Copying CUDA / DirectML libraries next to Protocol…"
-    CopyFiles /SILENT "$R1\cudart64_13.dll" "$INSTDIR\"
-    ${If} ${FileExists} "$R1\cublas64_13.dll"
-      CopyFiles /SILENT "$R1\cublas64_13.dll" "$INSTDIR\"
-    ${EndIf}
-    ${If} ${FileExists} "$R1\cublasLt64_13.dll"
-      CopyFiles /SILENT "$R1\cublasLt64_13.dll" "$INSTDIR\"
-    ${EndIf}
-    ${If} ${FileExists} "$R1\DirectML.dll"
-      CopyFiles /SILENT "$R1\DirectML.dll" "$INSTDIR\"
-    ${EndIf}
-    DetailPrint "      GPU runtime libraries installed."
-  ${ElseIf} ${FileExists} "$INSTDIR\resources\runtime-deps\cudart64_13.dll"
-    ; Fallback if resource layout ever nests under resources\
-    StrCpy $R1 "$INSTDIR\resources\runtime-deps"
-    DetailPrint "      Copying CUDA / DirectML libraries (nested resources path)…"
-    CopyFiles /SILENT "$R1\cudart64_13.dll" "$INSTDIR\"
-    CopyFiles /SILENT "$R1\cublas64_13.dll" "$INSTDIR\"
-    CopyFiles /SILENT "$R1\cublasLt64_13.dll" "$INSTDIR\"
-    ${If} ${FileExists} "$R1\DirectML.dll"
-      CopyFiles /SILENT "$R1\DirectML.dll" "$INSTDIR\"
-    ${EndIf}
-    DetailPrint "      GPU runtime libraries installed."
-  ${Else}
-    DetailPrint "      WARNING: cudart64_13.dll not in bundle — GPU build may fail to start."
-  ${EndIf}
-!macroend
-
 !macro Meetily_InstallCommonRuntime
+  ; Installers before 0.3.0 copied the CUDA runtime (about 500 MB) next to
+  ; protocol.exe. Nothing loads it any more, and an install over such a copy
+  ; would otherwise keep it forever.
+  Delete "$INSTDIR\cudart64_13.dll"
+  Delete "$INSTDIR\cublas64_13.dll"
+  Delete "$INSTDIR\cublasLt64_13.dll"
   StrCpy $R1 "$INSTDIR\runtime-deps"
   ${If} ${FileExists} "$R1\DirectML.dll"
     CopyFiles /SILENT "$R1\DirectML.dll" "$INSTDIR\"
@@ -91,118 +81,6 @@ Var MeetilyCudaNotice
   ${Else}
     DetailPrint "      WARNING: DirectML.dll missing from bundle."
   ${EndIf}
-!macroend
-
-; Sets $R8=1 if an NVIDIA driver / nvidia-smi is present (WOW64-safe)
-!macro Meetily_CheckNvidia
-  StrCpy $R8 0
-  ${DisableX64FSRedirection}
-  ${If} ${FileExists} "$WINDIR\System32\nvidia-smi.exe"
-    StrCpy $R8 1
-  ${ElseIf} ${FileExists} "$WINDIR\Sysnative\nvidia-smi.exe"
-    StrCpy $R8 1
-  ${ElseIf} ${FileExists} "$PROGRAMFILES64\NVIDIA Corporation\NVSMI\nvidia-smi.exe"
-    StrCpy $R8 1
-  ${ElseIf} ${FileExists} "$PROGRAMFILES\NVIDIA Corporation\NVSMI\nvidia-smi.exe"
-    StrCpy $R8 1
-  ${EndIf}
-  ${EnableX64FSRedirection}
-  ; Registry fallback (driver package)
-  ${If} $R8 == 0
-    SetRegView 64
-    EnumRegKey $0 HKLM "SOFTWARE\NVIDIA Corporation\GPU" 0
-    ${If} $0 != ""
-      StrCpy $R8 1
-    ${EndIf}
-    ReadRegStr $0 HKLM "SOFTWARE\NVIDIA Corporation\Global\NVTweak" "NvCplDaemon"
-    ${If} $0 != ""
-      StrCpy $R8 1
-    ${EndIf}
-    SetRegView lastused
-  ${EndIf}
-!macroend
-
-; Sets $R9=1 when Windows has an NVIDIA display adapter, including fresh
-; machines where only Microsoft Basic Display Adapter is installed and
-; nvidia-smi is not available yet.
-!macro Meetily_CheckNvidiaHardware
-  StrCpy $R9 0
-  SetRegView 64
-  StrCpy $0 0
-  ${Do}
-    EnumRegKey $1 HKLM "SYSTEM\CurrentControlSet\Enum\PCI" $0
-    ${If} $1 == ""
-      ${ExitDo}
-    ${EndIf}
-    StrCpy $2 $1 8
-    ${If} $2 == "VEN_10DE"
-      StrCpy $3 0
-      ${Do}
-        EnumRegKey $4 HKLM "SYSTEM\CurrentControlSet\Enum\PCI\$1" $3
-        ${If} $4 == ""
-          ${ExitDo}
-        ${EndIf}
-        ReadRegStr $5 HKLM "SYSTEM\CurrentControlSet\Enum\PCI\$1\$4" "ClassGUID"
-        ${If} $5 == "{4d36e968-e325-11ce-bfc1-08002be10318}"
-          StrCpy $R9 1
-          ${ExitDo}
-        ${EndIf}
-        IntOp $3 $3 + 1
-      ${LoopUntil} $R9 == 1
-    ${EndIf}
-    IntOp $0 $0 + 1
-  ${LoopUntil} $R9 == 1
-  SetRegView lastused
-!macroend
-
-; CUDA 13 requires a modern driver and this universal build targets Turing+
-; (compute capability 7.5 and newer). Sets $R8=1 when both checks pass and
-; records a reason in $MeetilyCudaState when detected NVIDIA hardware cannot.
-!macro Meetily_CheckCudaCapable
-  StrCpy $R8 0
-  StrCpy $R7 ""
-  StrCpy $MeetilyCudaState "no-nvidia"
-  !insertmacro Meetily_CheckNvidiaHardware
-  ${DisableX64FSRedirection}
-  ${If} ${FileExists} "$WINDIR\System32\nvidia-smi.exe"
-    StrCpy $R7 "$WINDIR\System32\nvidia-smi.exe"
-  ${ElseIf} ${FileExists} "$WINDIR\Sysnative\nvidia-smi.exe"
-    StrCpy $R7 "$WINDIR\Sysnative\nvidia-smi.exe"
-  ${ElseIf} ${FileExists} "$PROGRAMFILES64\NVIDIA Corporation\NVSMI\nvidia-smi.exe"
-    StrCpy $R7 "$PROGRAMFILES64\NVIDIA Corporation\NVSMI\nvidia-smi.exe"
-  ${EndIf}
-
-  ${If} $R7 != ""
-    ; A working nvidia-smi path itself proves an NVIDIA driver is present even
-    ; if Windows' PCI class metadata was unavailable to this process.
-    StrCpy $R9 1
-    StrCpy $MeetilyCudaState "query-failed"
-    nsExec::ExecToStack /TIMEOUT=5000 '"$R7" --id=0 --query-gpu=driver_version --format=csv,noheader,nounits'
-    Pop $0
-    Pop $1
-    ${If} $0 == 0
-      ${VersionCompare} "$1" "${MEETILY_MIN_NVIDIA_DRIVER}" $2
-      ${If} $2 != 2
-        nsExec::ExecToStack /TIMEOUT=5000 '"$R7" --id=0 --query-gpu=compute_cap --format=csv,noheader,nounits'
-        Pop $0
-        Pop $1
-        ${If} $0 == 0
-          ${VersionCompare} "$1" "7.5" $2
-          ${If} $2 != 2
-            StrCpy $R8 1
-            StrCpy $MeetilyCudaState "ready"
-          ${Else}
-            StrCpy $MeetilyCudaState "unsupported-gpu"
-          ${EndIf}
-        ${EndIf}
-      ${Else}
-        StrCpy $MeetilyCudaState "old-driver"
-      ${EndIf}
-    ${EndIf}
-  ${ElseIf} $R9 == 1
-    StrCpy $MeetilyCudaState "no-driver"
-  ${EndIf}
-  ${EnableX64FSRedirection}
 !macroend
 
 ; Sets $R6=1 when the 64-bit Vulkan loader can reach a usable physical device.
@@ -251,106 +129,84 @@ Var MeetilyCudaNotice
   ${EnableX64FSRedirection}
 !macroend
 
-; Pick and install the canonical protocol.exe. Optional command-line override:
-;   /BACKEND=cuda | /BACKEND=vulkan | /BACKEND=cpu
+; Pick the canonical protocol.exe. The bundled main executable is the CPU
+; build; only a Vulkan selection replaces it. Optional command-line override:
+;   /BACKEND=vulkan | /BACKEND=cpu   (saved for later installs and updates)
+;   /BACKEND=auto                    (clears the saved choice)
 !macro Meetily_SelectBackend
   StrCpy $MeetilyBackend ""
-  StrCpy $MeetilyCudaState ""
-  StrCpy $MeetilyCudaNotice ""
+  StrCpy $R0 ""
   ClearErrors
-  ${GetOptions} $CMDLINE "/BACKEND=" $MeetilyBackend
+  ${GetOptions} $CMDLINE "/BACKEND=" $R0
+  ${If} ${Errors}
+    StrCpy $R0 ""
+  ${EndIf}
 
-  ; A standard Tauri bundle has no complete variant set. Keep its compiled
-  ; executable instead of accidentally consuming stale local variant files.
+  ; A standard Tauri bundle has no variant set. Keep its compiled executable
+  ; instead of accidentally consuming stale local variant files.
   ${IfNot} ${FileExists} "$INSTDIR\installer-variants\universal.marker"
     StrCpy $MeetilyBackend "bundled"
     DetailPrint "      Standard bundle detected — keeping bundled executable."
-  ${ElseIf} $MeetilyBackend == "cuda"
-    !insertmacro Meetily_CheckCudaCapable
-    ${If} $R8 != 1
-      DetailPrint "      CUDA override unavailable — falling back to CPU."
-      StrCpy $MeetilyBackend "cpu"
-    ${EndIf}
-  ${ElseIf} $MeetilyBackend == "vulkan"
-    !insertmacro Meetily_CheckVulkan
-    ${If} $R6 != 1
-      DetailPrint "      Vulkan override unavailable — falling back to CPU."
-      StrCpy $MeetilyBackend "cpu"
-    ${EndIf}
-  ${ElseIf} $MeetilyBackend == ""
-    !insertmacro Meetily_CheckCudaCapable
-    ${If} $R8 == 1
-      StrCpy $MeetilyBackend "cuda"
+  ${Else}
+    ${If} $R0 == "auto"
+      DeleteRegValue HKCU "${MANUPRODUCTKEY}" "${PROTOCOL_BACKEND_VALUE}"
+      DetailPrint "      Cleared the saved backend choice."
+      StrCpy $R0 ""
+    ${ElseIf} $R0 == "vulkan"
+    ${OrIf} $R0 == "cpu"
+      WriteRegStr HKCU "${MANUPRODUCTKEY}" "${PROTOCOL_BACKEND_VALUE}" "$R0"
+      DetailPrint "      Saved backend choice: $R0"
+    ${ElseIf} $R0 != ""
+      DetailPrint "      Unknown backend override — using CPU for this install."
+      StrCpy $R0 "cpu"
     ${Else}
+      ReadRegStr $R0 HKCU "${MANUPRODUCTKEY}" "${PROTOCOL_BACKEND_VALUE}"
+      ${If} $R0 == "vulkan"
+      ${OrIf} $R0 == "cpu"
+        DetailPrint "      Using the saved backend choice: $R0"
+      ${Else}
+        StrCpy $R0 ""
+      ${EndIf}
+    ${EndIf}
+
+    ${If} $R0 == "cpu"
+      StrCpy $MeetilyBackend "cpu"
+    ${Else}
+      ; Automatic choice and an explicit Vulkan request both need a usable device.
       !insertmacro Meetily_CheckVulkan
       ${If} $R6 == 1
         StrCpy $MeetilyBackend "vulkan"
       ${Else}
+        ${If} $R0 == "vulkan"
+          DetailPrint "      Vulkan override unavailable — falling back to CPU."
+        ${EndIf}
         StrCpy $MeetilyBackend "cpu"
       ${EndIf}
     ${EndIf}
-  ${ElseIf} $MeetilyBackend != "cpu"
-    DetailPrint "      Unknown backend override — falling back to CPU."
-    StrCpy $MeetilyBackend "cpu"
   ${EndIf}
 
-  ; Invalid, unavailable, or missing variants always degrade safely to CPU.
-  ${If} $MeetilyBackend == "bundled"
-    StrCpy $R5 ""
-  ${ElseIf} $MeetilyBackend == "cuda"
-    StrCpy $R5 "$INSTDIR\installer-variants\protocol-cuda.exe"
-  ${ElseIf} $MeetilyBackend == "vulkan"
+  ${If} $MeetilyBackend == "vulkan"
     StrCpy $R5 "$INSTDIR\installer-variants\protocol-vulkan.exe"
-  ${Else}
-    StrCpy $MeetilyBackend "cpu"
-    StrCpy $R5 "$INSTDIR\installer-variants\protocol-cpu.exe"
-  ${EndIf}
-  ${If} $MeetilyBackend != "bundled"
-  ${AndIfNot} ${FileExists} "$R5"
-    DetailPrint "      Requested backend binary missing — falling back to CPU."
-    StrCpy $MeetilyBackend "cpu"
-    StrCpy $R5 "$INSTDIR\installer-variants\protocol-cpu.exe"
-  ${EndIf}
-
-  ${If} $MeetilyBackend != "bundled"
-    DetailPrint "      Selected transcription backend: $MeetilyBackend"
-    CopyFiles /SILENT "$R5" "$INSTDIR\protocol.selected.exe"
-    ${If} ${FileExists} "$INSTDIR\protocol.selected.exe"
-      Delete "$INSTDIR\${MAINBINARYNAME}.exe"
-      Rename "$INSTDIR\protocol.selected.exe" "$INSTDIR\${MAINBINARYNAME}.exe"
+    ${IfNot} ${FileExists} "$R5"
+      DetailPrint "      Vulkan build missing — keeping the CPU build."
+      StrCpy $MeetilyBackend "cpu"
     ${Else}
-      DetailPrint "      Backend replacement failed — keeping bundled executable."
-      StrCpy $MeetilyBackend "bundled"
+      CopyFiles /SILENT "$R5" "$INSTDIR\protocol.selected.exe"
+      ${If} ${FileExists} "$INSTDIR\protocol.selected.exe"
+        Delete "$INSTDIR\${MAINBINARYNAME}.exe"
+        Rename "$INSTDIR\protocol.selected.exe" "$INSTDIR\${MAINBINARYNAME}.exe"
+      ${Else}
+        DetailPrint "      Backend replacement failed — keeping the CPU build."
+        StrCpy $MeetilyBackend "cpu"
+      ${EndIf}
     ${EndIf}
   ${EndIf}
-
-  StrCpy $R3 "$MeetilyBackend"
-  ${If} $MeetilyBackend == "vulkan"
-    StrCpy $R3 "Vulkan"
-  ${ElseIf} $MeetilyBackend == "cpu"
-    StrCpy $R3 "CPU"
-  ${ElseIf} $MeetilyBackend == "bundled"
-    StrCpy $R3 "the bundled backend"
-  ${EndIf}
-  ${If} $MeetilyCudaState == "no-driver"
-    StrCpy $MeetilyCudaNotice "NVIDIA graphics were detected, but a compatible driver was not found. Install NVIDIA driver ${MEETILY_MIN_NVIDIA_DRIVER} or newer, then rerun setup to enable CUDA. Protocol selected $R3 for now."
-  ${ElseIf} $MeetilyCudaState == "old-driver"
-    StrCpy $MeetilyCudaNotice "The installed NVIDIA driver is too old for Protocol CUDA. Update to NVIDIA driver ${MEETILY_MIN_NVIDIA_DRIVER} or newer, then rerun setup. Protocol selected $R3 for now."
-  ${ElseIf} $MeetilyCudaState == "query-failed"
-    StrCpy $MeetilyCudaNotice "NVIDIA graphics were detected, but setup could not verify CUDA support. Update or reinstall the NVIDIA driver, then rerun setup. Protocol selected $R3 for now."
-  ${EndIf}
-  ${If} $MeetilyCudaNotice != ""
-    DetailPrint "      NOTICE: $MeetilyCudaNotice"
-  ${EndIf}
+  DetailPrint "      Selected transcription backend: $MeetilyBackend"
 
   CreateDirectory "$INSTDIR\data"
   FileOpen $R4 "$INSTDIR\data\selected-backend.txt" w
   FileWrite $R4 "$MeetilyBackend$\r$\n"
   FileClose $R4
-  ${If} $MeetilyProgressToken != ""
-    WriteRegStr HKCU "Software\meetily\InstallerProgress\$MeetilyProgressToken" "Backend" "$MeetilyBackend"
-    WriteRegStr HKCU "Software\meetily\InstallerProgress\$MeetilyProgressToken" "CudaNotice" "$MeetilyCudaNotice"
-  ${EndIf}
 
   RMDir /r "$INSTDIR\installer-variants"
 !macroend
@@ -374,7 +230,7 @@ Var MeetilyCudaNotice
   DetailPrint " Runtime setup"
   DetailPrint "────────────────────────────────────────"
 
-  DetailPrint "[1/4] Visual C++ 2015–2022 (x64)…"
+  DetailPrint "[1/3] Visual C++ 2015–2022 (x64)…"
   !insertmacro MeetilyReportProgress 80
   !insertmacro Meetily_CheckVcredist
   ${If} $R9 == 0
@@ -384,26 +240,16 @@ Var MeetilyCudaNotice
     DetailPrint "      Already installed — skipped."
   ${EndIf}
 
-  DetailPrint "[2/4] Common local AI runtime…"
-  !insertmacro MeetilyReportProgress 85
+  DetailPrint "[2/3] Common local AI runtime…"
+  !insertmacro MeetilyReportProgress 86
   !insertmacro Meetily_InstallCommonRuntime
 
-  DetailPrint "[3/4] Selecting CUDA, Vulkan, or CPU…"
-  !insertmacro MeetilyReportProgress 90
+  DetailPrint "[3/3] Selecting Vulkan or CPU…"
+  !insertmacro MeetilyReportProgress 92
   !insertmacro Meetily_SelectBackend
-
-  DetailPrint "[4/4] Backend runtime…"
-  !insertmacro MeetilyReportProgress 94
-  ${If} $MeetilyBackend == "cuda"
-    !insertmacro Meetily_InstallCudaRuntime
-    DetailPrint "      NVIDIA CUDA enabled."
-  ${ElseIf} $MeetilyBackend == "bundled"
-    ; Harmless for CPU/Vulkan bundles and required for legacy CUDA bundles.
-    !insertmacro Meetily_InstallCudaRuntime
-    DetailPrint "      Bundled backend runtime installed."
-  ${ElseIf} $MeetilyBackend == "vulkan"
-    DetailPrint "      Vulkan enabled (AMD / Intel / compatible NVIDIA)."
-  ${Else}
+  ${If} $MeetilyBackend == "vulkan"
+    DetailPrint "      Vulkan enabled (AMD / Intel / NVIDIA)."
+  ${ElseIf} $MeetilyBackend == "cpu"
     DetailPrint "      CPU mode enabled — maximum compatibility."
   ${EndIf}
 

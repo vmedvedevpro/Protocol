@@ -31,20 +31,11 @@ ManifestDPIAwareness PerMonitorV2
 ${StrCase}
 ${StrLoc}
 
-!define MEETILY_PROGRESS_MESSAGE 0x84D1
-
-; The frameless bootstrapper passes a unique token and polls this per-user key.
-; The native NSIS progress control supplies continuous progress when available;
-; these milestones keep status truthful even while a runtime installer owns the
-; foreground work and the NSIS bar is temporarily stationary.
+; The native NSIS progress control supplies continuous progress between file
+; operations; these milestones keep the percent label truthful while a runtime
+; installer owns the foreground work and the NSIS bar is temporarily stationary.
 !macro MeetilyReportProgress Percent
   StrCpy $MeetilyReportedProgress ${Percent}
-  ${If} $UpdateMode = 1
-    SendMessage $HWNDPARENT ${MEETILY_PROGRESS_MESSAGE} ${Percent} 0
-  ${EndIf}
-  ${If} $MeetilyProgressToken != ""
-    WriteRegDWORD HKCU "Software\meetily\InstallerProgress\$MeetilyProgressToken" "Percent" ${Percent}
-  ${EndIf}
 !macroend
 
 {{#if installer_hooks}}
@@ -72,9 +63,6 @@ ${StrLoc}
 !define OUTFILE "{{out_file}}"
 !define ARCH "{{arch}}"
 !define ADDITIONALPLUGINSPATH "{{additional_plugins_path}}"
-!if /FileExists "${NSISDIR}\Plugins\x86-unicode\MeetilyProgress.dll"
-  !define MEETILY_HAS_PROGRESS_PLUGIN
-!endif
 !define ALLOWDOWNGRADES "{{allow_downgrades}}"
 !define DISPLAYLANGUAGESELECTOR "{{display_language_selector}}"
 !define INSTALLWEBVIEW2MODE "{{install_webview2_mode}}"
@@ -100,7 +88,6 @@ Var UpdateMode
 Var NoShortcutMode
 Var WixMode
 Var OldMainBinaryName
-Var MeetilyProgressToken
 Var MeetilyReportedProgress
 Var MeetilyInstallProgress
 Var MeetilyDisplayedProgress
@@ -204,7 +191,7 @@ VIAddVersionKey "ProductVersion" "${VERSION}"
 
 !define MUI_WELCOMEPAGE_TITLE "Welcome to Protocol"
 !define MUI_WELCOMEPAGE_TITLE_3LINES
-!define MUI_WELCOMEPAGE_TEXT "Private meeting capture, transcription, and summaries — entirely on your PC.$\r$\n$\r$\nSetup will install Protocol and local runtimes (WebView2, Visual C++, CUDA libraries).$\r$\n$\r$\nNothing is uploaded. Click Next to continue."
+!define MUI_WELCOMEPAGE_TEXT "Private meeting capture, transcription, and summaries — entirely on your PC.$\r$\n$\r$\nSetup will install Protocol and its local runtimes (WebView2 and Visual C++).$\r$\n$\r$\nNothing is uploaded. Click Next to continue."
 
 !define MUI_FINISHPAGE_TITLE "You're all set"
 !define MUI_FINISHPAGE_TITLE_3LINES
@@ -263,10 +250,10 @@ Function MeetilyWelcomePageShow
   Pop $R1
   SetCtlColors $R1 A8B3C7 0A0C10
 
-  ${NSD_CreateGroupBox} 0 96u 100% 62u "  ONE INSTALLER, THREE BACKENDS  "
+  ${NSD_CreateGroupBox} 0 96u 100% 62u "  ONE INSTALLER, TWO BACKENDS  "
   Pop $R1
   SetCtlColors $R1 7DD3FC 0A0C10
-  ${NSD_CreateLabel} 14u 116u -14u 12u "NVIDIA CUDA    |    AMD / Intel / NVIDIA Vulkan    |    CPU fallback"
+  ${NSD_CreateLabel} 14u 116u -14u 12u "Vulkan GPU (AMD / Intel / NVIDIA)    |    CPU fallback"
   Pop $R1
   SetCtlColors $R1 E2E8F0 0A0C10
   ${NSD_CreateLabel} 14u 136u -14u 12u "Setup detects compatible hardware automatically."
@@ -440,7 +427,7 @@ Function MeetilyDarkenInstFiles
   ${If} $R1 != 0
     StrCpy $MeetilyInstallProgress $R1
     ${If} $UpdateMode = 1
-      ; Match the current bootstrapper's blue progress treatment.
+      ; Updates use a blue bar so they read differently from a first install.
       SendMessage $R1 ${PBM_SETBARCOLOR} 0 0xF7884B
     ${Else}
       SendMessage $R1 ${PBM_SETBARCOLOR} 0 0xBFD42D
@@ -467,22 +454,9 @@ Function MeetilyDarkenInstFiles
   IntCmp $R1 0 +2 0 0
     ShowWindow $R1 ${SW_HIDE}
 
-  ${If} $UpdateMode = 1
-    ; The install thread blocks inside large File opcodes. This native UI-thread
-    ; observer converts each current-file extraction percentage into byte-
-    ; weighted overall progress and leaves status control 1006 unchanged.
-    !ifdef MEETILY_HAS_PROGRESS_PLUGIN
-      MeetilyProgress::Start
-    !else
-      StrCpy $MeetilyDisplayedProgress 0
-      Call MeetilyRefreshInstallProgress
-      nsDialogs::CreateTimer MeetilyRefreshInstallProgress 150
-    !endif
-  ${Else}
-    StrCpy $MeetilyDisplayedProgress 0
-    Call MeetilyRefreshInstallProgress
-    nsDialogs::CreateTimer MeetilyRefreshInstallProgress 150
-  ${EndIf}
+  StrCpy $MeetilyDisplayedProgress 0
+  Call MeetilyRefreshInstallProgress
+  nsDialogs::CreateTimer MeetilyRefreshInstallProgress 150
 
   ; There is nowhere to navigate while files are being installed. Keep only
   ; Cancel visible, then reveal Next once .onInstSuccess runs.
@@ -505,11 +479,6 @@ Function MeetilyRefreshInstallProgress
   ${If} $MeetilyInstallProgress == ""
     Goto meetily_progress_done
   ${EndIf}
-  !ifdef MEETILY_HAS_PROGRESS_PLUGIN
-    ${If} $UpdateMode = 1
-      Goto meetily_progress_done
-    ${EndIf}
-  !endif
 
   SendMessage $MeetilyInstallProgress ${PBM_GETRANGE} 1 0 $R1
   SendMessage $MeetilyInstallProgress ${PBM_GETRANGE} 0 0 $R2
@@ -593,11 +562,11 @@ Function MeetilyDirPageShow
   ${NSD_OnClick} $MeetilyDirBrowse MeetilyDirBrowseClick
   System::Call 'uxtheme::SetWindowTheme(p$MeetilyDirBrowse, w"DarkMode_Explorer", p0)'
 
-  ${NSD_CreateLabel} 0 78u 100% 24u "Approx. 810 MB required for the app, models bundle hooks, and GPU runtimes. WebView2 may add a little more on first run."
+  ${NSD_CreateLabel} 0 78u 100% 24u "About 300 MB for the app and its local runtimes. Transcription and summary models are downloaded later, inside Protocol."
   Pop $MeetilyDirHint
   SetCtlColors $MeetilyDirHint 5A6578 0A0C10
 
-  ${NSD_CreateLabel} 0 110u 100% 36u "After files copy, setup quietly ensures WebView2, Visual C++, and CUDA libraries. An NVIDIA GPU is used automatically when a driver is present."
+  ${NSD_CreateLabel} 0 110u 100% 36u "After files copy, setup quietly ensures WebView2 and Visual C++, then picks the Vulkan GPU build when your graphics driver supports it, otherwise the CPU build."
   Pop $0
   SetCtlColors $0 A8B3C7 0A0C10
 
@@ -976,8 +945,6 @@ FunctionEnd
 {{/each}}
 
 Function .onInit
-  StrCpy $MeetilyProgressToken ""
-  ${GetOptions} $CMDLINE "/PROGRESSTOKEN=" $MeetilyProgressToken
   ${GetOptions} $CMDLINE "/P" $PassiveMode
   ${IfNot} ${Errors}
     StrCpy $PassiveMode 1
