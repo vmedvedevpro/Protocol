@@ -55,7 +55,7 @@ Everything below comes from upstream and works as it does there.
 | Starting recordings | [#6](https://github.com/vmedvedevpro/Protocol/issues/6) Discord detection, [#7](https://github.com/vmedvedevpro/Protocol/issues/7) Google Calendar via iCal |
 | Using meetings elsewhere | [#8](https://github.com/vmedvedevpro/Protocol/issues/8) read-only MCP server |
 | Optional | [#9](https://github.com/vmedvedevpro/Protocol/issues/9) labels by device, [#10](https://github.com/vmedvedevpro/Protocol/issues/10) local-network-only mode, [#11](https://github.com/vmedvedevpro/Protocol/issues/11) archive encryption |
-| Fork cleanup | [#12](https://github.com/vmedvedevpro/Protocol/issues/12) executable name, [#13](https://github.com/vmedvedevpro/Protocol/issues/13) icon, [#14](https://github.com/vmedvedevpro/Protocol/issues/14) dead analytics, [#15](https://github.com/vmedvedevpro/Protocol/issues/15) CI, [#16](https://github.com/vmedvedevpro/Protocol/issues/16) upstream docs |
+| Fork cleanup | [#12](https://github.com/vmedvedevpro/Protocol/issues/12) executable name, [#13](https://github.com/vmedvedevpro/Protocol/issues/13) icon, [#15](https://github.com/vmedvedevpro/Protocol/issues/15) CI, [#16](https://github.com/vmedvedevpro/Protocol/issues/16) upstream docs |
 
 ## Privacy
 

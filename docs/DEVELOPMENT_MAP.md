@@ -316,8 +316,12 @@ so the native `analytics` module with its 25 IPC commands, the `posthog-rs`
 dependency, the meeting-end report in `stop_recording` (which read the model
 settings only to send them), and the frontend `lib/analytics.ts` helper,
 `AnalyticsProvider` and their call sites were removed without changing what
-the app does. An `analytics.json` plugin store left by an earlier install stays
-on disk, but nothing reads or writes it. After the change,
+the app does. The `analytics.json` plugin store that earlier builds wrote
+(meeting totals, the last meeting date, per-day meeting counts, and the opt-in
+flags) stays in the plugin-store folder, `%APPDATA%\io.github.vmedvedevpro.protocol`
+on Windows. It never left the machine and nothing reads or writes it; the app
+does not delete it, and `PRIVACY_POLICY.md` tells users it can be deleted
+safely. After the change,
 `cargo check --locked -p meetily --features vulkan --all-targets` passes with
 no new warnings, `cargo test -p meetily --lib --features vulkan -- --test-threads=1`
 passes 377 tests (379 before, minus the two analytics property tests; 10 stay

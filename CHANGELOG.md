@@ -17,8 +17,10 @@ issue and PR numbers refer to
   signing in the Windows packaging script, release verifier, and workflows.
 - Remove the inactive PostHog analytics: the native `analytics` module and its
   IPC commands, the `posthog-rs` dependency, and the frontend tracking calls and
-  provider. It never sent events; an `analytics.json` store left by an earlier
-  install is no longer read or written.
+  provider. It never sent events. The local `analytics.json` that earlier
+  versions wrote (meeting totals, the last meeting date, per-day meeting counts,
+  and the opt-in flags) is no longer read or written and can be deleted safely;
+  `PRIVACY_POLICY.md` says where it is.
 - Point About, onboarding, crash reports, and the CUDA setup prompt at this
   repository.
 
