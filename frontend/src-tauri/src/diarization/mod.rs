@@ -563,13 +563,6 @@ pub async fn diarization_models_available() -> Result<bool, String> {
     Ok(models_available())
 }
 
-/// The writable folder where a user can drop their own models to override the
-/// bundled ones (also the download target).
-#[tauri::command]
-pub async fn diarization_model_directory() -> Result<String, String> {
-    Ok(diarization_user_model_dir().to_string_lossy().to_string())
-}
-
 /// Status report of the diarization subsystem.
 #[derive(Debug, Clone, Serialize)]
 pub struct DiarizationEngineStatus {
@@ -583,11 +576,6 @@ pub struct DiarizationEngineStatus {
     pub pyannote_threshold: f32,
     pub nemotron_download_size: u64,
     pub pyannote_download_size: u64,
-}
-
-#[tauri::command]
-pub async fn get_diarization_engine() -> Result<String, String> {
-    Ok(get_active_engine())
 }
 
 #[tauri::command]
@@ -674,17 +662,6 @@ pub async fn open_diarization_model_directory() -> Result<(), String> {
             .map_err(|e| e.to_string())?;
     }
     Ok(())
-}
-
-/// Total size of the diarization model download, in bytes.
-#[tauri::command]
-pub async fn diarization_download_size() -> Result<u64, String> {
-    let engine = get_active_engine();
-    if engine.eq_ignore_ascii_case("nemotron") {
-        Ok(download::nemotron_download_bytes())
-    } else {
-        Ok(download::total_download_bytes())
-    }
 }
 
 /// Download the diarization models.
