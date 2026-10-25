@@ -651,6 +651,12 @@ impl ParakeetEngine {
         }
 
         let mut total_downloaded: u64 = already_downloaded;
+        // Hashing a kept file runs on a blocking thread and polls this between
+        // 1 MiB reads, so Cancel does not wait for hundreds of megabytes.
+        let cancel_flag = || {
+            let token = cancellation.clone();
+            move || token.is_cancelled()
+        };
 
         // Timing for speed calculation
         let download_start_time = Instant::now();
@@ -681,7 +687,7 @@ impl ParakeetEngine {
             if existing_size == expected_size {
                 // A complete file left by an earlier attempt or an older build
                 // is hashed once rather than trusted for its size.
-                match model_integrity::ensure_verified(pinned, &file_path).await {
+                match model_integrity::ensure_verified_cancellable(pinned, &file_path, cancel_flag()).await {
                     Ok(()) => {
                         log::info!(
                             "Skipping verified file: {} ({:.2} MB)",
@@ -690,6 +696,7 @@ impl ParakeetEngine {
                         );
                         continue;
                     }
+                    Err(_) if cancellation.is_cancelled() => return Err(anyhow!(DOWNLOAD_CANCELLED_MESSAGE)),
                     Err(error) => {
                         log::warn!("{}; downloading it again", error);
                         total_downloaded = total_downloaded.saturating_sub(existing_size);
@@ -735,9 +742,12 @@ impl ParakeetEngine {
             // The hash covers the whole file, so a resumed transfer first reads
             // back the bytes it keeps.
             let mut check = if resuming {
-                model_integrity::Check::resume(pinned, &file_path)
-                    .await
-                    .map_err(|e| anyhow!("Failed to read partial {}: {}", filename, e))?
+                match model_integrity::Check::resume(pinned, &file_path, cancel_flag()).await {
+                    Ok(check) => check,
+                    // The partial file is untouched and stays for the next resume.
+                    Err(_) if cancellation.is_cancelled() => return Err(anyhow!(DOWNLOAD_CANCELLED_MESSAGE)),
+                    Err(e) => return Err(anyhow!("Failed to read partial {}: {}", filename, e)),
+                }
             } else {
                 model_integrity::Check::new(pinned)
             };
@@ -1038,6 +1048,40 @@ mod tests {
             engine.available_models.read().await[model].status,
             ModelStatus::Error(_)
         ));
+    }
+
+    #[tokio::test]
+    async fn cancel_stops_hashing_a_kept_file_at_once() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let model = "parakeet-tdt-0.6b-v3-int8";
+        let model_dir = temp.path().join("parakeet").join(model);
+        std::fs::create_dir_all(&model_dir).expect("model directory");
+        // A complete encoder left by an older build, never verified: 650 MB
+        // to hash before the download would move on (and fail: it is zeros).
+        let encoder = model_integrity::find(ParakeetEngine::pinned_model(model).unwrap().1, "encoder-model.int8.onnx")
+            .unwrap();
+        let path = model_dir.join(encoder.file);
+        std::fs::File::create(&path).unwrap().set_len(encoder.size).unwrap();
+        let engine = Arc::new(ParakeetEngine::new_with_models_dir(Some(temp.path().to_path_buf())).unwrap());
+        engine.discover_models().await.unwrap();
+
+        let download = tokio::spawn({
+            let engine = engine.clone();
+            async move { engine.download_model_detailed(model, None).await }
+        });
+        while !matches!(engine.available_models.read().await[model].status, ModelStatus::Downloading { .. }) {
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+        engine.cancel_download(model).await.unwrap();
+        let error = timeout(Duration::from_secs(1), download)
+            .await
+            .expect("the download stops within a second")
+            .unwrap()
+            .unwrap_err();
+        assert_eq!(error.to_string(), DOWNLOAD_CANCELLED_MESSAGE);
+        // Neither deleted as a mismatch nor marked as verified.
+        assert_eq!(std::fs::metadata(&path).unwrap().len(), encoder.size);
+        assert!(!model_dir.join("encoder-model.int8.onnx.verified").exists());
     }
 
     #[tokio::test]

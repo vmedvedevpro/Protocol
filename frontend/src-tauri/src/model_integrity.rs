@@ -193,6 +193,9 @@ pub enum IntegrityError {
     /// The content does not match the pin. The file was deleted, unless
     /// `undeleted` holds the error that kept it on disk.
     Mismatch { file: &'static str, detail: String, undeleted: Option<String> },
+    /// Hashing stopped because the download that asked for it was cancelled;
+    /// the file is kept and not marked.
+    Cancelled { file: &'static str },
 }
 
 impl fmt::Display for IntegrityError {
@@ -220,6 +223,7 @@ impl fmt::Display for IntegrityError {
                 f,
                 "{file} failed its integrity check and could not be deleted ({error}): {detail}. Close any program that has it open, then download it again."
             ),
+            Self::Cancelled { file } => write!(f, "Checking {file} stopped: its download was cancelled"),
         }
     }
 }
@@ -240,11 +244,17 @@ impl Check {
 
     /// Continues a download whose first bytes are already in `path`. They are
     /// hashed once here, off the async runtime, so only the rest streams in.
-    pub async fn resume(pinned: &'static Pinned, path: &Path) -> Result<Self> {
+    /// `cancelled` is polled between 1 MiB reads: re-reading gigabytes must
+    /// not hold up Cancel (see [`IntegrityError::Cancelled`]).
+    pub async fn resume(
+        pinned: &'static Pinned,
+        path: &Path,
+        cancelled: impl Fn() -> bool + Send + 'static,
+    ) -> Result<Self> {
         let path = path.to_path_buf();
         tokio::task::spawn_blocking(move || {
             let mut check = Self::new(pinned);
-            check.read(&path)?;
+            check.read(&path, &cancelled)?;
             Ok(check)
         })
         .await?
@@ -274,12 +284,15 @@ impl Check {
         Err(discard(self.pinned, path, self.bytes, &actual).into())
     }
 
-    fn read(&mut self, path: &Path) -> Result<()> {
+    fn read(&mut self, path: &Path, cancelled: &dyn Fn() -> bool) -> Result<()> {
         use std::io::Read;
         let mut file = std::fs::File::open(path)?;
         // Heap buffer: this runs on a blocking thread, but keep it off any stack.
         let mut buffer = vec![0u8; 1 << 20];
         loop {
+            if cancelled() {
+                return Err(IntegrityError::Cancelled { file: self.pinned.file }.into());
+            }
             let read = file.read(&mut buffer)?;
             if read == 0 {
                 return Ok(());
@@ -315,6 +328,10 @@ fn discard(pinned: &'static Pinned, path: &Path, bytes: u64, sha256: &str) -> In
 /// a full-size file that does not match is deleted; a file of another size is
 /// refused with [`IntegrityError::WrongSize`] and kept.
 pub async fn verify_file(pinned: &'static Pinned, path: &Path) -> Result<()> {
+    verify(pinned, path, || false).await
+}
+
+async fn verify(pinned: &'static Pinned, path: &Path, cancelled: impl Fn() -> bool + Send + 'static) -> Result<()> {
     let path = path.to_path_buf();
     tokio::task::spawn_blocking(move || {
         let wrong_size = |size| IntegrityError::WrongSize { file: pinned.file, size, expected: pinned.size };
@@ -323,7 +340,7 @@ pub async fn verify_file(pinned: &'static Pinned, path: &Path) -> Result<()> {
             return Err(wrong_size(size).into());
         }
         let mut check = Check::new(pinned);
-        check.read(&path)?;
+        check.read(&path, &cancelled)?;
         if check.bytes != pinned.size {
             // The file shrank while it was read: a download has taken it over.
             return Err(wrong_size(check.bytes).into());
@@ -408,11 +425,21 @@ pub fn rejection(pinned: &Pinned, path: &Path) -> Option<String> {
 /// marked, or deleted when it does not match. A file of another size is
 /// refused and kept (see [`verify_file`]).
 pub async fn ensure_verified(pinned: &'static Pinned, path: &Path) -> Result<()> {
+    ensure_verified_cancellable(pinned, path, || false).await
+}
+
+/// [`ensure_verified`] for a download that can be cancelled while it checks a
+/// file it already has: `cancelled` is polled between 1 MiB reads.
+pub async fn ensure_verified_cancellable(
+    pinned: &'static Pinned,
+    path: &Path,
+    cancelled: impl Fn() -> bool + Send + 'static,
+) -> Result<()> {
     if is_marked(pinned, path) {
         return Ok(());
     }
     log::info!("Checking {} against its pinned SHA-256 before first use", path.display());
-    verify_file(pinned, path).await?;
+    verify(pinned, path, cancelled).await?;
     mark_verified(pinned, path);
     Ok(())
 }
@@ -519,18 +546,50 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("hello.txt");
         std::fs::write(&path, b"he").unwrap();
-        let mut check = Check::resume(&HELLO, &path).await.unwrap();
+        let mut check = Check::resume(&HELLO, &path, || false).await.unwrap();
         check.update(b"llo").unwrap();
         std::fs::write(&path, b"hello").unwrap();
         check.finish(&path).unwrap();
 
         // A damaged prefix fails even though the streamed tail is right.
         std::fs::write(&path, b"HE").unwrap();
-        let mut check = Check::resume(&HELLO, &path).await.unwrap();
+        let mut check = Check::resume(&HELLO, &path, || false).await.unwrap();
         check.update(b"llo").unwrap();
         std::fs::write(&path, b"HEllo").unwrap();
         assert!(check.finish(&path).is_err());
         assert!(!path.exists());
+    }
+
+    #[tokio::test]
+    async fn cancelling_stops_hashing_between_reads_and_keeps_the_file() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("model.bin");
+        // Three 1 MiB reads; a full-size file whose hash does not match.
+        let content = vec![7u8; 3 << 20];
+        std::fs::write(&path, &content).unwrap();
+        let pinned: &'static Pinned =
+            Box::leak(Box::new(Pinned { file: "model.bin", size: content.len() as u64, sha256: HELLO.sha256 }));
+        // Cancel arrives while the first megabyte is hashed.
+        let cancel_after_one_read = || {
+            let polls = Arc::new(AtomicUsize::new(0));
+            let seen = polls.clone();
+            (move || polls.fetch_add(1, Ordering::SeqCst) >= 1, seen)
+        };
+
+        let (cancelled, polls) = cancel_after_one_read();
+        let error = ensure_verified_cancellable(pinned, &path, cancelled).await.unwrap_err();
+        assert!(matches!(error.downcast_ref(), Some(IntegrityError::Cancelled { .. })), "{error}");
+        assert_eq!(polls.load(Ordering::SeqCst), 2, "stopped after one read");
+        // Neither deleted as a mismatch nor marked as verified.
+        assert!(path.exists());
+        assert!(!marker_path(&path).exists());
+
+        let (cancelled, _) = cancel_after_one_read();
+        let error = Check::resume(pinned, &path, cancelled).await.err().expect("cancelled");
+        assert!(matches!(error.downcast_ref(), Some(IntegrityError::Cancelled { .. })), "{error}");
+        assert!(path.exists());
     }
 
     #[tokio::test]
@@ -654,7 +713,11 @@ mod tests {
         let future = ensure_verified(&HELLO, &path);
         assert!(std::mem::size_of_val(&future) < 4096);
         future.await.unwrap();
-        let resume = Check::resume(&HELLO, &path);
+        let flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let cancelled = move || flag.load(std::sync::atomic::Ordering::Acquire);
+        let future = ensure_verified_cancellable(&HELLO, &path, cancelled.clone());
+        assert!(std::mem::size_of_val(&future) < 4096);
+        let resume = Check::resume(&HELLO, &path, cancelled);
         assert!(std::mem::size_of_val(&resume) < 4096);
     }
 }

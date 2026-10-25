@@ -118,6 +118,15 @@ struct DownloadControl {
     notify: Notify,
 }
 
+impl DownloadControl {
+    /// The cancel check for hashing on a blocking thread, which cannot wait on
+    /// `notify`. `cancel_download` waits only seconds for the download to end.
+    fn cancel_flag(self: &Arc<Self>) -> impl Fn() -> bool + Send + 'static {
+        let control = self.clone();
+        move || control.cancelled.load(Ordering::Acquire)
+    }
+}
+
 pub struct ModelManager {
     /// Directory where models are stored
     models_dir: PathBuf,
@@ -486,23 +495,25 @@ impl ModelManager {
                 // size; one that does not match is deleted and downloaded again.
                 let verified = metadata.len() == model_def.size_bytes
                     && self.validate_gguf_file(&file_path).await.is_ok()
-                    && match model_integrity::ensure_verified(pinned, &file_path).await {
+                    && match model_integrity::ensure_verified_cancellable(pinned, &file_path, control.cancel_flag()).await {
                         Ok(()) => true,
-                        Err(error)
-                            if matches!(
-                                error.downcast_ref(),
-                                Some(IntegrityError::Mismatch { undeleted: Some(_), .. })
-                            ) =>
-                        {
+                        Err(error) => match error.downcast_ref() {
+                            Some(IntegrityError::Cancelled { .. }) => {
+                                self.finish_cancelled_download(model_name, &control, &file_path, model_def.size_mb)
+                                    .await;
+                                return Err(anyhow!("CANCELLED: Download cancelled by user"));
+                            }
                             // The file is still there, so a resume would start
                             // past its end: report why instead.
-                            self.fail_download(model_name, &control, error.to_string()).await;
-                            return Err(error);
-                        }
-                        Err(error) => {
-                            log::warn!("{}; downloading it again", error);
-                            false
-                        }
+                            Some(IntegrityError::Mismatch { undeleted: Some(_), .. }) => {
+                                self.fail_download(model_name, &control, error.to_string()).await;
+                                return Err(error);
+                            }
+                            _ => {
+                                log::warn!("{}; downloading it again", error);
+                                false
+                            }
+                        },
                     };
                 if verified {
                     log::info!(
@@ -672,8 +683,13 @@ impl ModelManager {
         // The hash covers the whole file, so a resumed transfer first reads back
         // the bytes it keeps.
         let mut integrity = if resuming {
-            match model_integrity::Check::resume(pinned, &file_path).await {
+            match model_integrity::Check::resume(pinned, &file_path, control.cancel_flag()).await {
                 Ok(check) => check,
+                Err(error) if matches!(error.downcast_ref(), Some(IntegrityError::Cancelled { .. })) => {
+                    // The partial file is untouched and stays for the next resume.
+                    self.finish_cancelled_download(model_name, &control, &file_path, model_def.size_mb).await;
+                    return Err(anyhow!("CANCELLED: Download cancelled by user"));
+                }
                 Err(error) => {
                     self.fail_download(model_name, &control, format!("Failed to read partial model file: {}", error)).await;
                     return Err(anyhow!("Failed to read partial model file: {}", error));
@@ -1205,5 +1221,38 @@ mod tests {
 
         std::fs::write(&path, b"GGUF model").unwrap();
         manager.verify_before_load(&model.name, pinned, &path).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn cancel_stops_hashing_a_kept_model_at_once() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let manager = Arc::new(ModelManager::new_with_models_dir(Some(temp.path().to_path_buf())).unwrap());
+        manager.init().await.unwrap();
+        let model = get_model_by_name("qwen3.5:2b").expect("model");
+        let path = temp.path().join(&model.gguf_file);
+        // A complete file left by an older build, never verified: 1.2 GB to
+        // hash before the download would move on (and fail: it is zeros).
+        let mut file = std::fs::File::create(&path).unwrap();
+        std::io::Write::write_all(&mut file, b"GGUF").unwrap();
+        file.set_len(model.size_bytes).unwrap();
+        drop(file);
+
+        let download = tokio::spawn({
+            let manager = manager.clone();
+            let name = model.name.clone();
+            async move { manager.download_model_detailed(&name, None).await }
+        });
+        while !matches!(manager.get_model_info(&model.name).await.unwrap().status, ModelStatus::Downloading { .. }) {
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+        let started = std::time::Instant::now();
+        // Fails with "Timed out cancelling model download" after 5 s.
+        manager.cancel_download(&model.name).await.unwrap();
+        assert!(started.elapsed() < Duration::from_secs(1), "{:?}", started.elapsed());
+        let error = download.await.unwrap().unwrap_err().to_string();
+        assert!(error.starts_with("CANCELLED:"), "{error}");
+        // Neither deleted as a mismatch nor marked as verified.
+        assert_eq!(std::fs::metadata(&path).unwrap().len(), model.size_bytes);
+        assert!(!temp.path().join(format!("{}.verified", model.gguf_file)).exists());
     }
 }
