@@ -2573,8 +2573,8 @@ require_sync::<tauri_runtime_wry::Wry<()>>();
 "
 )]
 pub struct Wry<T: UserEvent> {
-  // Invalidate dispatch before context/native teardown can reenter. Keep this
-  // field before event_loop, and do not move event_loop out on Windows.
+  // Invalidate dispatch before native teardown can reenter. Keep this field
+  // before event_loop, and do not move event_loop out on Windows.
   #[cfg(windows)]
   _window_target: Arc<WindowsWindowTarget<T>>,
   context: Context<T>,
@@ -3180,8 +3180,9 @@ impl<T: UserEvent> Runtime<T> for Wry<T> {
   fn run<F: FnMut(RunEvent<T>) + 'static>(self, callback: F) {
     #[cfg(windows)]
     {
-      // Tao's consuming run drops a moved-out event_loop first on unwind.
-      // run_return keeps Wry intact, so its target expires before native teardown.
+      // Tao's consuming run moves event_loop out of Wry, so an unwind could destroy
+      // it before the target owner. run_return keeps event_loop in Wry, behind
+      // the owner, so the target expires before native teardown.
       std::process::exit(self.run_return(callback));
     }
 

@@ -320,8 +320,8 @@ fn concurrent_runtime(runtime: Wry<()>, drops: Arc<AtomicUsize>) {
           assert_eq!(format!("{:?}", handle.available_monitors().unwrap()), expected);
           let _ = handle.primary_monitor();
           let _ = handle.monitor_from_point(0.0, 0.0);
-          // WindowDispatch already marshals to the UI thread. Its Windows Tao
-          // MonitorHandle is an isize, not another event-loop/Rc owner.
+          // WindowDispatch already marshals to the UI thread, and its replies
+          // carry converted Monitor values, not another event-loop/Rc owner.
           window.dispatcher.current_monitor().unwrap();
           window.dispatcher.primary_monitor().unwrap();
           window.dispatcher.monitor_from_point(0.0, 0.0).unwrap();

@@ -41,8 +41,11 @@ handle lifetime extension in PR 15411 or change Tao's internal `Rc` to `Arc`.
 
 `Wry` owns one strong `Arc<WindowsWindowTarget<T>>`. Its payload owns the Tao
 target cloned at initialization, on the event-loop creation thread. `Wry` remains
-neither Send nor Sync. The target field precedes both context and event_loop, so
-dispatch expires before either context or native event-loop teardown can reenter.
+neither Send nor Sync. The target field precedes event_loop, so dispatch expires
+before native event-loop teardown can reenter. It also precedes context, so in
+never-run and run_iteration destruction dispatch expires before the context is
+torn down; `run`/`run_return` instead hand the context to Tao, which drops it
+while the owner and the native loop are still alive (see below).
 
 Every cloned Windows context contains only a private `std::sync::Weak` to that
 payload. Context/dispatcher/runtime-handle cloning and destruction on workers
@@ -75,10 +78,11 @@ does not provide or extend the lifetime of an HWND.
 
 Windows `run` calls the existing `run_return`, then exits the process with its
 returned code. It still does not return normally. This deliberately runs Wry's
-field destructors before process exit; upstream's consuming Tao run could exit
-without dropping the remaining context. More importantly, callback/setup panic
-now unwinds an intact Wry instead of destroying a moved-out native event_loop
-before the target owner. Panics are not swallowed.
+field destructors before process exit; upstream's consuming Tao run moves
+event_loop out of Wry and can exit without dropping it. More importantly, a
+callback/setup panic now unwinds with event_loop still inside Wry, behind the
+target owner, instead of destroying a moved-out native event_loop before the
+owner. Panics are not swallowed.
 
 `run_return` moves the context into the event handler. Tao drops that handler
 when its loop ends (`reset_runner`, also before resuming a callback panic), while
@@ -105,14 +109,20 @@ queued onto a possibly stopped loop.
 - Existing WindowsStore/WebContext sharing, public low-level context surfaces,
   and the borrowed window-handle API are outside this target-ownership fix. This
   is not a soundness certification of the entire upstream runtime.
-- The event-loop monitor handlers are upstream code since 2.12 and unwrap their
-  reply send, so a caller that discarded its receiver would panic the UI thread.
-  Upstream getters always wait for the reply, so the public API cannot reach this;
-  the 2.11.4 regression for a discarded receiver was removed with the patch's own
-  messages.
-- WindowDispatch monitor getters marshal through WindowMessage. Their Windows
-  Tao MonitorHandle payload is only an isize (tao 0.37.2,
-  src/platform_impl/windows/monitor.rs:90), not an EventLoopWindowTarget or Rc.
+- Inherited upstream panic paths (not reached by Protocol's code): the
+  event-loop reply handlers (monitors, cursor position) unwrap their reply send,
+  so a message carrying an already dropped receiver panics the UI thread. The
+  typed getters always wait for the reply; only raw senders
+  (`WryHandle::send_event`, the public `Context::proxy`) could deliver such a
+  message. On the worker side, upstream's `WryHandle::monitor_from_point` unwraps
+  its reply, so a shutdown race that discards the queued message panics the
+  calling thread (the 2.11.4 patch returned `None`; `create_tao_window` already
+  had the same pattern). Protocol queries monitors through window dispatchers,
+  which return an error instead. The 2.11.4 regression for a discarded receiver
+  was removed with the patch's own messages.
+- WindowDispatch monitor getters marshal through WindowMessage, and their replies
+  already carry converted `Monitor` values, not Tao handles or an
+  EventLoopWindowTarget.
 - The application source, audio pipeline, minibar polling, and Tao are unmodified.
   History of the 2.11.4 patch: a full CUDA/custom-protocol application build
   passed; the reporting user tried that patched build, said it worked fine so far,
@@ -146,6 +156,10 @@ The pages send messages in asynchronous batches through an in-process custom
 protocol, never the network. Incognito profiles live under the isolated test
 target dir. These are synthetic windows, not recordings of user audio.
 Three compile-fail doctests cover target privacy and Wry's !Send/!Sync properties.
+
+Not covered: worker-side `create_window`/`create_webview`, which 2.12 makes
+wait for the UI thread's reply, across owner expiry, and a lost
+`monitor_from_point` reply.
 
 These are short deterministic lifecycle/traffic tests, not a multi-hour race
 proof or an end-to-end Meetily recording test. They require a Windows desktop
@@ -230,7 +244,12 @@ line endings, which Git converts in a Windows checkout).
 The 2.11.4 patch also had independent read-only reviews, which found no new
 blocker in the bounded target-ownership fix; their concern about WindowDispatch
 monitor payload ownership was resolved by checking Tao's Windows isize-only
-handle. The 2.12.3 port has not had a separate independent review.
+handle. An independent read-only review of the 2.12.3 port (2026-10-26) found
+no defect: no worker-side path reaches the Tao target, tauri 2.12.5 and the
+plugins use only `Wry`, `WryHandle`, `create_tao_window`, raw `send_event` and
+`wry_plugin`, and the owner still expires before the native loop in every exit
+and unwind path. Its notes are reflected above (inherited panic paths, test
+gaps).
 
 Remove this override only after an upstream release provides equivalent
 thread-affine target ownership, safe Windows display handles, and unwind-safe
