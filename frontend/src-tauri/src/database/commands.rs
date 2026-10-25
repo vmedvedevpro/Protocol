@@ -43,45 +43,6 @@ pub async fn select_legacy_database_path(app: AppHandle) -> Result<Option<String
     }
 }
 
-/// Detect legacy database from a selected path (root repo, backend folder, or db file)
-#[tauri::command]
-pub async fn detect_legacy_database(selected_path: String) -> Result<Option<String>, String> {
-    let path = PathBuf::from(&selected_path);
-
-    info!("Detecting legacy database from path: {}", selected_path);
-
-    // Case 1: User selected the .db file directly
-    if path.is_file() {
-        if let Some(extension) = path.extension() {
-            if extension == "db" {
-                info!("Direct .db file selected: {}", selected_path);
-                return Ok(Some(selected_path));
-            }
-        }
-    }
-
-    // Case 2: User selected directory containing meeting_minutes.db
-    if path.is_dir() {
-        let direct_db = path.join("meeting_minutes.db");
-        if direct_db.exists() && direct_db.is_file() {
-            let db_path = direct_db.to_string_lossy().to_string();
-            info!("Found database in selected directory: {}", db_path);
-            return Ok(Some(db_path));
-        }
-
-        // Case 3: User selected root repo (check backend subdirectory)
-        let backend_db = path.join("backend").join("meeting_minutes.db");
-        if backend_db.exists() && backend_db.is_file() {
-            let db_path = backend_db.to_string_lossy().to_string();
-            info!("Found database in backend subdirectory: {}", db_path);
-            return Ok(Some(db_path));
-        }
-    }
-
-    info!("No legacy database found at path: {}", selected_path);
-    Ok(None)
-}
-
 /// Check for legacy database in the default app data directory
 #[tauri::command]
 pub async fn check_default_legacy_database(app: AppHandle) -> Result<Option<String>, String> {

@@ -870,7 +870,6 @@ pub fn run() {
             // Database import commands
             database::commands::check_first_launch,
             database::commands::select_legacy_database_path,
-            database::commands::detect_legacy_database,
             database::commands::check_default_legacy_database,
             database::commands::check_homebrew_database,
             database::commands::import_and_initialize_database,
