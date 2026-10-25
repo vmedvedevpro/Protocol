@@ -74,11 +74,15 @@ async function main() {
   }
 
   if (option('prerelease') !== 'true') {
-    const response = await fetch(UPDATER_ENDPOINT, { redirect: 'follow' });
-    const latest = response.ok ? await response.json() : null;
-    if (latest?.version !== version) {
-      problems.push(`${UPDATER_ENDPOINT} serves ${latest?.version ?? `HTTP ${response.status}`}: mark this release as Latest`);
+    // /releases/latest can lag the publish by a little.
+    let served;
+    for (let attempt = 1; attempt <= 5; attempt += 1) {
+      const response = await fetch(UPDATER_ENDPOINT, { redirect: 'follow' });
+      served = response.ok ? (await response.json()).version : `HTTP ${response.status}`;
+      if (served === version) break;
+      await new Promise((done) => setTimeout(done, 30_000));
     }
+    if (served !== version) problems.push(`${UPDATER_ENDPOINT} serves ${served}: mark this release as Latest`);
   }
 
   for (const problem of problems) console.error(problem);

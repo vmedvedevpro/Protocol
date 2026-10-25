@@ -1,0 +1,35 @@
+name: Release published
+
+# After the owner publishes a draft: downloads every asset anonymously, checks
+# SHA256SUMS.txt, latest.json and the updater signatures, and for a stable
+# release that /releases/latest/download/latest.json now serves it. A failure
+# means installed apps may get a broken update: mark the release as a
+# prerelease (takes it off /releases/latest) and see WORKFLOWS_OVERVIEW.md.
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    if: github.repository == 'vmedvedevpro/Protocol'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+      - name: Check the public release
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+          PRERELEASE: ${{ github.event.release.prerelease }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/published"
+          node scripts/release/check-published-release.mjs --tag "$TAG" --dir "$RUNNER_TEMP/published" --prerelease "$PRERELEASE"

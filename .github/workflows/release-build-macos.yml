@@ -1,0 +1,277 @@
+name: Release build (macOS)
+
+# Called by release.yml. Builds the Apple Silicon DMG and the updater bundle
+# (Protocol.app.tar.gz), ad-hoc signed and not notarized, tests and verifies
+# them, and uploads the release-macos artifact. No secrets, read-only token.
+on:
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
+      # false until #31 puts the updater configuration into tauri.conf.json;
+      # dry runs then add a throwaway one, so the updater bundle is still built.
+      updater-configured:
+        required: true
+        type: boolean
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  MACOSX_DEPLOYMENT_TARGET: '14.2'
+  TARGET: aarch64-apple-darwin
+  NEXT_TELEMETRY_DISABLED: '1'
+  PNPM_CONFIG_ENABLE_GLOBAL_VIRTUAL_STORE: 'false'
+
+jobs:
+  macos:
+    runs-on: macos-15
+    timeout-minutes: 90
+    env:
+      VERSION: ${{ inputs.version }}
+    steps:
+      - name: Check out with Unix line endings
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+        with:
+          version: 11.9.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - name: Check the version and the migrations this build embeds
+        run: |
+          node scripts/release/check-version-files.mjs "$VERSION"
+          node scripts/release/check-migration-checksums.mjs --source worktree --platform unix
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c
+        with:
+          toolchain: 1.99.1
+          targets: aarch64-apple-darwin
+      - uses: swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
+        with:
+          workspaces: '. -> target'
+          key: macos-aarch64-release-v1
+      - name: Build llama-helper with Metal
+        run: |
+          set -euo pipefail
+          if ! brew list --versions openssl@3 >/dev/null; then
+            brew install openssl@3
+          fi
+          OPENSSL_PREFIX=$(brew --prefix openssl@3)
+          test -f "$OPENSSL_PREFIX/include/openssl/err.h"
+          export OPENSSL_DIR="$OPENSSL_PREFIX"
+          export OPENSSL_ROOT_DIR="$OPENSSL_PREFIX"
+          export CMAKE_PREFIX_PATH="$OPENSSL_PREFIX"
+          export CPPFLAGS="-I$OPENSSL_PREFIX/include"
+          export CFLAGS="-I$OPENSSL_PREFIX/include"
+          export CXXFLAGS="-I$OPENSSL_PREFIX/include"
+          export LDFLAGS="-L$OPENSSL_PREFIX/lib"
+          export PKG_CONFIG_PATH="$OPENSSL_PREFIX/lib/pkgconfig"
+          cargo build --release --locked --package llama-helper --target "$TARGET" --features metal
+          mkdir -p frontend/src-tauri/binaries
+          cp "target/$TARGET/release/llama-helper" "frontend/src-tauri/binaries/llama-helper-$TARGET"
+          chmod +x "frontend/src-tauri/binaries/llama-helper-$TARGET"
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+      # tauri build signs updater bundles and fails without a private key once
+      # updater artifacts are on. The key is a throwaway: release.yml signs the
+      # final file again. --no-sign is no way out, it also skips the ad-hoc
+      # signature the app needs.
+      - name: Build the DMG and the updater bundle
+        working-directory: frontend
+        env:
+          UPDATER_CONFIGURED: ${{ inputs.updater-configured }}
+        run: |
+          set -euo pipefail
+          key="$RUNNER_TEMP/build.key"
+          node node_modules/@tauri-apps/cli/tauri.js signer generate --ci -w "$key"
+          export TAURI_SIGNING_PRIVATE_KEY="$key"
+          config=()
+          if [[ "$UPDATER_CONFIGURED" != true ]]; then
+            echo "::warning::tauri.conf.json has no updater configuration (#31); this build adds a throwaway one"
+            node -e 'const fs = require("fs"); fs.writeFileSync(process.argv[1], JSON.stringify({ bundle: { createUpdaterArtifacts: true }, plugins: { updater: { pubkey: fs.readFileSync(process.argv[2], "utf8").trim() } } }))' \
+              "$RUNNER_TEMP/updater.conf.json" "$key.pub"
+            config=(--config "$RUNNER_TEMP/updater.conf.json")
+          fi
+          # ${config[@]+...}: macOS bash 3.2 treats an empty array as unset under set -u.
+          pnpm exec tauri build --ci --target "$TARGET" --bundles app,dmg ${config[@]+"${config[@]}"} -- --locked
+      - name: Test the native code
+        run: cargo test --release --locked -p protocol --lib --target "$TARGET" -- --test-threads=1
+      - name: Verify the bundle and start the app
+        run: |
+          set -euo pipefail
+          assert_macos_compatible() {
+            local binary="$1"
+            local min_os
+            min_os=$(xcrun vtool -arch arm64 -show-build "$binary" 2>/dev/null \
+              | awk '$1 == "minos" { print $2; exit }' || true)
+            if [[ -z "$min_os" ]]; then
+              min_os=$(otool -arch arm64 -l "$binary" | awk '
+                $1 == "cmd" && $2 == "LC_VERSION_MIN_MACOSX" { legacy = 1; next }
+                legacy && $1 == "version" { print $2; exit }
+              ')
+            fi
+            if [[ -z "$min_os" ]]; then
+              echo "Could not determine the Mach-O deployment target: $binary"
+              exit 1
+            fi
+            python3 - "$binary" "$min_os" <<'PY'
+          import sys
+
+          binary, version = sys.argv[1:]
+          parts = tuple(int(part) for part in version.split("."))
+          padded = (parts + (0, 0, 0))[:3]
+          if padded > (14, 2, 0):
+              raise SystemExit(f"{binary} requires macOS {version}, later than 14.2")
+          print(f"{binary}: Mach-O minimum macOS {version}")
+          PY
+          }
+
+          BUNDLE_DIR="target/$TARGET/release/bundle"
+          DMG_PATH=$(find "$BUNDLE_DIR/dmg" -maxdepth 1 -name "*.dmg" -type f -print -quit)
+          UPDATER_PATH="$BUNDLE_DIR/macos/Protocol.app.tar.gz"
+          test -n "$DMG_PATH" || { echo "The DMG was not produced."; exit 1; }
+          test -s "$UPDATER_PATH" || { echo "The updater bundle was not produced: $UPDATER_PATH"; exit 1; }
+          tar -tzf "$UPDATER_PATH" | grep -q '^Protocol.app/Contents/MacOS/protocol$'
+
+          MOUNT_POINT="$RUNNER_TEMP/protocol-dmg"
+          mkdir -p "$MOUNT_POINT"
+          hdiutil attach "$DMG_PATH" -nobrowse -readonly -mountpoint "$MOUNT_POINT"
+          trap 'hdiutil detach "$MOUNT_POINT" >/dev/null 2>&1 || true' EXIT
+
+          APP_PATH=$(find "$MOUNT_POINT" -maxdepth 1 -name "*.app" -type d -print -quit)
+          test -n "$APP_PATH" || { echo "The DMG does not contain an app bundle."; exit 1; }
+          APP_BINARY="$APP_PATH/Contents/MacOS/protocol"
+          test -x "$APP_BINARY" || { echo "App executable not found: $APP_BINARY"; exit 1; }
+          file "$APP_BINARY" | grep -q "arm64"
+          assert_macos_compatible "$APP_BINARY"
+
+          # The shipped helper entry point: a read-only permission query.
+          python3 - "$APP_BINARY" <<'PY'
+          import subprocess, sys
+          result = subprocess.run([sys.argv[1], "--audio-capture-status"],
+                                  capture_output=True, text=True, timeout=5, check=True)
+          assert result.stdout.strip() in {"0", "1", "2"}, repr(result.stdout)
+          print("Packaged Audio Capture status helper returned:", result.stdout.strip())
+          PY
+
+          for sidecar in "$APP_PATH/Contents/MacOS/llama-helper" "$APP_PATH/Contents/MacOS/ffmpeg"; do
+            test -x "$sidecar" || { echo "Missing executable sidecar: $sidecar"; exit 1; }
+            file "$sidecar" | grep -q "arm64"
+            assert_macos_compatible "$sidecar"
+          done
+
+          "$APP_PATH/Contents/MacOS/ffmpeg" -version
+          FFMPEG_TEST="$RUNNER_TEMP/ffmpeg-smoke.m4a"
+          "$APP_PATH/Contents/MacOS/ffmpeg" -f lavfi -i "anullsrc=r=48000:cl=mono" -t 0.25 -c:a aac -y "$FFMPEG_TEST"
+          test -s "$FFMPEG_TEST"
+          FFMPEG_DECODED="$RUNNER_TEMP/ffmpeg-smoke.f32"
+          "$APP_PATH/Contents/MacOS/ffmpeg" -v error -i "$FFMPEG_TEST" -f f32le -acodec pcm_f32le -y "$FFMPEG_DECODED"
+          test -s "$FFMPEG_DECODED"
+
+          LLAMA_OUTPUT=$(printf '%s\n' '{"type":"ping"}' '{"type":"shutdown"}' | "$APP_PATH/Contents/MacOS/llama-helper")
+          echo "$LLAMA_OUTPUT"
+          grep -q '"type":"pong"' <<< "$LLAMA_OUTPUT"
+          grep -q '"type":"goodbye"' <<< "$LLAMA_OUTPUT"
+
+          test -f "$APP_PATH/Contents/Resources/icon.icns"
+          test -f "$APP_PATH/Contents/Resources/templates/standard_meeting.json"
+          for name in segmentation-3.0-fp16.onnx wespeaker-resnet34-LM.onnx xvec_transform.npz parakeet-rs-LICENSE.txt THIRD_PARTY_MODELS.txt; do
+            test -f "$APP_PATH/Contents/Resources/resources/diarization/$name"
+          done
+
+          INFO_PLIST="$APP_PATH/Contents/Info.plist"
+          test -n "$(/usr/libexec/PlistBuddy -c 'Print :NSMicrophoneUsageDescription' "$INFO_PLIST")"
+          test -n "$(/usr/libexec/PlistBuddy -c 'Print :NSAudioCaptureUsageDescription' "$INFO_PLIST")"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$INFO_PLIST")" = "14.2"
+
+          ENTITLEMENTS_PATH="$RUNNER_TEMP/protocol-entitlements.plist"
+          codesign -d --entitlements :- "$APP_PATH" > "$ENTITLEMENTS_PATH"
+          python3 - "$ENTITLEMENTS_PATH" <<'PY'
+          import plistlib
+          import sys
+
+          with open(sys.argv[1], "rb") as entitlements_file:
+              actual = plistlib.load(entitlements_file)
+          expected = {"com.apple.security.device.audio-input": True}
+          if actual != expected:
+              raise SystemExit(f"Unexpected entitlements: {actual!r}")
+          PY
+          codesign --verify --deep --strict "$APP_PATH"
+
+          INSTALLED_APP="$RUNNER_TEMP/Applications/$(basename "$APP_PATH")"
+          mkdir -p "$RUNNER_TEMP/Applications"
+          ditto "$APP_PATH" "$INSTALLED_APP"
+          hdiutil detach "$MOUNT_POINT"
+          trap - EXIT
+
+          launch() {
+            local log="$1" seconds="$2"
+            RUST_BACKTRACE=1 RUST_LOG=info "$INSTALLED_APP/Contents/MacOS/protocol" >"$log" 2>&1 &
+            local pid=$!
+            sleep "$seconds"
+            if ! kill -0 "$pid" >/dev/null 2>&1; then
+              wait "$pid" || true
+              cat "$log"
+              echo "Protocol exited during startup."
+              exit 1
+            fi
+            kill -TERM "$pid" >/dev/null 2>&1 || true
+            sleep 2
+            kill -KILL "$pid" >/dev/null 2>&1 || true
+            wait "$pid" >/dev/null 2>&1 || true
+          }
+
+          FIRST_LOG="$RUNNER_TEMP/protocol-launch.log"
+          launch "$FIRST_LOG" 20
+          for milestone in \
+            "Application setup complete" \
+            "Fresh database initialized successfully" \
+            "Successfully persisted onboarding status to disk" \
+            "Hardware acceleration support: enabled"; do
+            grep -q "$milestone" "$FIRST_LOG" || { cat "$FIRST_LOG"; echo "Missing startup milestone: $milestone"; exit 1; }
+          done
+          DATA_ROOT="$HOME/Library/Application Support/vmedvedevpro/Protocol"
+          test -f "$DATA_ROOT/meeting_minutes.sqlite"
+          test ! -e "$INSTALLED_APP/Contents/MacOS/data"
+          codesign --verify --deep --strict "$INSTALLED_APP"
+
+          SECOND_LOG="$RUNNER_TEMP/protocol-second-launch.log"
+          launch "$SECOND_LOG" 10
+          if grep -Eiq "thread .* panicked|fatal runtime error|dyld: Library not loaded|Abort trap|Segmentation fault" "$SECOND_LOG"; then
+            cat "$SECOND_LOG"
+            echo "Protocol logged a fatal error during the second launch."
+            exit 1
+          fi
+          grep -q "Application setup complete" "$SECOND_LOG"
+          grep -q "Database initialized successfully" "$SECOND_LOG"
+          codesign --verify --deep --strict "$INSTALLED_APP"
+
+          mkdir -p dist
+          cp "$DMG_PATH" dist/protocol-macos-arm64.dmg
+          cp "$UPDATER_PATH" dist/protocol-macos-arm64.app.tar.gz
+          node scripts/release/write-sha256sums.mjs dist
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-macos
+          path: |
+            dist/protocol-macos-arm64.dmg
+            dist/protocol-macos-arm64.app.tar.gz
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: logs-macos
+          path: ${{ runner.temp }}/protocol-*launch.log
+          if-no-files-found: ignore
+          retention-days: 14
