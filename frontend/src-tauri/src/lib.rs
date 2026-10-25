@@ -815,7 +815,6 @@ pub fn run() {
             live_assistant::ask_live_assistant,
             live_assistant::ask_person,
             live_assistant::api_ask_meeting,
-            live_assistant::ollama_embed,
             // Built-in AI commands
             summary::summary_engine::commands::builtin_ai_list_models,
             summary::summary_engine::commands::builtin_ai_get_model_info,
