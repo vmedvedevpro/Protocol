@@ -165,8 +165,9 @@ plus a minibar-only `core:window:allow-start-dragging` capability. Container-onl
 
 ### Windows runtime ownership
 
-The workspace pins a vendored `tauri-runtime-wry` 2.11.4 through the root
-`Cargo.toml`. A v0.2.12 long-recording crash matched the upstream Windows
+The workspace pins a vendored `tauri-runtime-wry` 2.12.3 through the root
+`Cargo.toml` (the patch was first written for 2.11.4 and ported with the
+Tauri 2.12 update). A v0.2.12 long-recording crash matched the upstream Windows
 `Rc<EventLoopRunner>` clone/drop race: ordinary background IPC traffic can
 corrupt the event-loop reference count. This is not fixed by slowing the
 minibar timer, changing transcription models, or replacing Tao's `Rc` with
@@ -174,11 +175,15 @@ an `Arc` while ignoring thread-affine destruction.
 
 The Windows patch keeps the strong target owner inside the non-Send `Wry`
 runtime; cloned contexts hold private atomic weak references. Only UI-thread
-dispatch upgrades them, monitor queries are routed to that thread, and the
-owner expires before native-loop destruction, including panic unwinding.
-Windows display handles borrow no data. Non-Windows behavior is unchanged.
-Windows runtime `tracing` is deliberately rejected because its separate
-`ActiveTraceSpanStore` still contains another cross-thread `Rc`.
+dispatch upgrades them, monitor queries are routed to that thread (upstream
+does this itself since 2.12), and the owner expires before native-loop
+destruction, including panic unwinding.
+Windows display handles borrow no data. Non-Windows behavior is unchanged,
+except that a lost reply to a runtime-handle monitor or cursor query is an
+error or is dropped instead of a panic, on every platform (upstream's 2.12 code
+for these queries is shared). Windows runtime `tracing` is deliberately
+rejected because its separate `ActiveTraceSpanStore` still contains another
+cross-thread `Rc`.
 
 See `vendor/tauri-runtime-wry/PATCH.md` for provenance, regression commands,
 scope, and removal criteria. Do not remove this override on a version bump
@@ -803,11 +808,29 @@ uninstall leave a running Meetily or Meetily – Actually Free alone, except
 during the one-time upgrade from a pre-#12 install described below. The
 uninstall hook stops only the process whose image path is this install's
 `protocol.exe` (a Toolhelp snapshot plus `QueryFullProcessImageNameW`, not
-`taskkill /IM`). Tauri's running-app check (`CheckIfAppIsRunning` in
-`installer.nsi`, before install and uninstall) still matches the image name
-`protocol.exe` among the current user's processes: it also finds a Protocol dev
-build or a Labs install, asks in an interactive run, and closes them without
-asking in passive (`/P`, how the bootstrapper runs the engine) and silent runs.
+`taskkill /IM`), and it does so without asking. Tauri's running-app check
+(`CheckIfAppIsRunning` in `installer.nsi`, before install and uninstall) is
+path-based as well since tauri-bundler 2.10 (#33): it registers
+`$INSTDIR\protocol.exe` with Windows Restart Manager and shuts down only the
+processes using that file, so a Protocol dev build or a Labs install elsewhere
+keeps running. Before install it asks in an interactive run and closes the app
+without asking in passive (`/P`, how the bootstrapper runs the engine) and
+silent runs. Uninstall runs the hook before the check, so the check normally
+finds nothing there: even an interactive uninstall terminates a running
+Protocol at once, with no prompt and no end-session request, and a recording in
+progress ends as it would in a crash. The template must pass the full path and
+include `Win\RestartManager.nsh`, which the bundler's `utils.nsh` needs. Setup
+also leaves a build running from another folder under the same identifier (a
+dev build or a local build from before #33), and if that build has
+`tauri-plugin-single-instance` 2.3.7 the new build cannot reach it: 2.5.4
+forwards the launch in a message 2.3.7 ignores and then exits, so nothing
+opens; close such a build first. One exception applies on the first upgrade over an install
+that already has `protocol.exe` but was built before #33: when setup runs that
+install's old uninstaller (the default choice of an interactive upgrade or
+downgrade, and a passive run over the same version), its check, built with
+CLI 2.11, still matches `protocol.exe` by name, so it also finds a dev build or
+a Labs install elsewhere, asking first in an interactive run and closing it
+without asking in a passive one.
 
 The first setup over a pre-#12 install, one that still has `meetily.exe`, is a
 one-time transition that the installer does not special-case:

@@ -73,9 +73,18 @@ fn assert_expired(handle: &WryHandle<()>) {
     handle.cursor_position(),
     Err(Error::EventLoopClosed)
   ));
-  assert!(handle.primary_monitor().is_none());
-  assert!(handle.monitor_from_point(0.0, 0.0).is_none());
-  assert!(handle.available_monitors().is_empty());
+  assert!(matches!(
+    handle.primary_monitor(),
+    Err(Error::EventLoopClosed)
+  ));
+  assert!(matches!(
+    handle.monitor_from_point(0.0, 0.0),
+    Err(Error::EventLoopClosed)
+  ));
+  assert!(matches!(
+    handle.available_monitors(),
+    Err(Error::EventLoopClosed)
+  ));
   assert!(matches!(
     handle.display_handle().unwrap().as_raw(),
     raw_window_handle::RawDisplayHandle::Windows(_)
@@ -169,6 +178,22 @@ fn run_scenario(scenario: &str) {
       drop(runtime);
     }
     "iterations" => {
+      runtime
+        .context
+        .plugins
+        .lock()
+        .unwrap()
+        .push(Box::new(ReplyDropper));
+      // A worker waiting for a reply the loop discards gets an error, not a panic.
+      let lost = handle.clone();
+      let worker = thread::spawn(move || lost.monitor_from_point(LOST_REPLY_X, 0.0));
+      while !worker.is_finished() {
+        runtime.run_iteration(|_| {});
+      }
+      assert!(matches!(
+        worker.join().unwrap(),
+        Err(Error::FailedToReceiveMessage)
+      ));
       for _ in 0..3 {
         runtime.run_iteration(|_| {});
         assert!(weak.upgrade().is_some());
@@ -258,6 +283,37 @@ impl Plugin<()> for QueryObserver {
   }
 }
 
+// The point marks the one query ReplyDropper discards. Dropping the message
+// drops its reply sender unanswered, as a loop that closes with it still queued.
+const LOST_REPLY_X: f64 = -12_345.0;
+
+struct ReplyDropper;
+
+impl Plugin<()> for ReplyDropper {
+  fn on_event(
+    &mut self,
+    event: &Event<Message<()>>,
+    _event_loop: &EventLoopWindowTarget<Message<()>>,
+    _proxy: &TaoEventLoopProxy<Message<()>>,
+    _control_flow: &mut ControlFlow,
+    _context: EventLoopIterationContext<'_, ()>,
+    _web_context: &WebContextStore,
+  ) -> bool {
+    matches!(
+      event,
+      Event::UserEvent(Message::EventLoopWindowTarget(
+        EventLoopWindowTargetMessage::MonitorFromPoint(_, (x, _))
+      )) if *x == LOST_REPLY_X
+    )
+  }
+}
+
+fn dropped_receiver<R>() -> Sender<R> {
+  let (tx, rx) = channel();
+  drop(rx);
+  tx
+}
+
 fn concurrent_runtime(runtime: Wry<()>, drops: Arc<AtomicUsize>) {
   let queries = Arc::new(AtomicUsize::new(0));
   runtime
@@ -276,22 +332,27 @@ fn concurrent_runtime(runtime: Wry<()>, drops: Arc<AtomicUsize>) {
     )
     .unwrap();
   let handle = runtime.handle();
-  // A caller discarding its monitor reply must not panic the UI thread.
-  let (tx, rx) = channel();
-  drop(rx);
-  send_user_message(
-    &handle.context,
-    Message::EventLoopWindowTarget(EventLoopWindowTargetMessage::AvailableMonitors(tx)),
-  )
-  .unwrap();
+  // A reply to a receiver that is already gone must not panic the UI thread. On
+  // this thread send_user_message handles each message inline.
+  for message in [
+    EventLoopWindowTargetMessage::CursorPosition(dropped_receiver()),
+    EventLoopWindowTargetMessage::PrimaryMonitor(dropped_receiver()),
+    EventLoopWindowTargetMessage::MonitorFromPoint(dropped_receiver(), (0.0, 0.0)),
+    EventLoopWindowTargetMessage::AvailableMonitors(dropped_receiver()),
+  ] {
+    handle
+      .context
+      .send_user_message(Message::EventLoopWindowTarget(message))
+      .unwrap();
+  }
   let expected = format!("{:?}", runtime.available_monitors());
-  assert_eq!(format!("{:?}", handle.available_monitors()), expected);
+  assert_eq!(format!("{:?}", handle.available_monitors().unwrap()), expected);
   assert_eq!(
-    format!("{:?}", handle.primary_monitor()),
+    format!("{:?}", handle.primary_monitor().unwrap()),
     format!("{:?}", runtime.primary_monitor())
   );
   assert_eq!(
-    format!("{:?}", handle.monitor_from_point(0.0, 0.0)),
+    format!("{:?}", handle.monitor_from_point(0.0, 0.0).unwrap()),
     format!("{:?}", runtime.monitor_from_point(0.0, 0.0))
   );
 
@@ -316,11 +377,11 @@ fn concurrent_runtime(runtime: Wry<()>, drops: Arc<AtomicUsize>) {
           drop(handle.context.clone());
         }
         for _ in 0..8 {
-          assert_eq!(format!("{:?}", handle.available_monitors()), expected);
-          let _ = handle.primary_monitor();
-          let _ = handle.monitor_from_point(0.0, 0.0);
-          // WindowDispatch already marshals to the UI thread. Its Windows Tao
-          // MonitorHandle is an isize, not another event-loop/Rc owner.
+          assert_eq!(format!("{:?}", handle.available_monitors().unwrap()), expected);
+          handle.primary_monitor().unwrap();
+          handle.monitor_from_point(0.0, 0.0).unwrap();
+          // WindowDispatch already marshals to the UI thread, and its replies
+          // carry converted Monitor values, not another event-loop/Rc owner.
           window.dispatcher.current_monitor().unwrap();
           window.dispatcher.primary_monitor().unwrap();
           window.dispatcher.monitor_from_point(0.0, 0.0).unwrap();

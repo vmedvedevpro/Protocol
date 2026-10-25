@@ -1,33 +1,53 @@
 # Windows Event-Loop Target Ownership
 
-This directory vendors the published `tauri-runtime-wry` 2.11.4 crate, not an
+This directory vendors the published `tauri-runtime-wry` 2.12.3 crate, not an
 upstream development branch.
 
 ## Provenance
 
-- Registry archive: `tauri-runtime-wry-2.11.4.crate`
-- SHA-256: `4e6fac707727b7a2f48e4ded90976324267371073edbb415ffb73bb0458d203f`
-- Upstream commit: `ca90b46b2e2cbbc981dae1b809f4af4343fe0558`
+- Registry archive: `tauri-runtime-wry-2.12.3.crate`
+- SHA-256: `e1aa9d8b7a120f879f44fdc1053f7b7dbf416bf0bbc6a72b714dec46b782b52f`
+- Upstream commit: `993038c49185307dfc895ab7657d77ca0d5ed7c7`
 - Upstream directory: `crates/tauri-runtime-wry`
-- `LICENSE_APACHE-2.0`, `LICENSE_MIT`, and `.cargo_vcs_info.json` are unchanged.
+- `LICENSE-APACHE-2.0`, `LICENSE-MIT`, and `.cargo_vcs_info.json` are unchanged.
 
-Related upstream reports:
+The patch was first written against 2.11.4 (v0.2.14) and ported to 2.12.3 for
+the Tauri 2.12 update (#33). Upstream had not fixed the race by then (checked
+2026-10-26):
 
-- https://github.com/tauri-apps/tauri/issues/15408
-- https://github.com/tauri-apps/tauri/issues/15793
-- https://github.com/tauri-apps/tauri/issues/15785
-- https://github.com/tauri-apps/tauri/pull/15411
-- https://github.com/tauri-apps/tao/pull/1290
+- https://github.com/tauri-apps/tauri/issues/15408 (open)
+- https://github.com/tauri-apps/tauri/issues/15793 (closed as a duplicate of 15408)
+- https://github.com/tauri-apps/tauri/issues/15785 (open)
+- https://github.com/tauri-apps/tauri/pull/15411 (open, not merged)
+- https://github.com/tauri-apps/tao/pull/1290 (closed without merging)
 
 The local patch is Windows-only. It must not adopt the cross-platform raw display
 handle lifetime extension in PR 15411 or change Tao's internal `Rc` to `Arc`.
+
+### What 2.12 changed under the patch
+
+- Upstream PR 15630 routes the runtime handle's monitor queries
+  (`primary_monitor`, `monitor_from_point`, `available_monitors`) to the
+  event-loop thread on every platform and makes them return `Result`. The 2.11.4
+  patch had added Windows-only messages for the same purpose; they are dropped,
+  and the upstream messages are used instead. Upstream's versions panic on a
+  lost reply in two places, which the patch changes back to the 2.11.4
+  behavior (see the ownership contract).
+- Upstream PR 14805 moved the unsafe `Send`/`Sync` implementations from
+  `DispatcherMainThreadContext` to `Context`. The patch's safety comments moved
+  with them.
+- `send_user_message` became a `Context` method, and `run`/`run_return` now move
+  the `Context` into the event handler instead of borrowing `Wry`.
 
 ## Ownership Contract
 
 `Wry` owns one strong `Arc<WindowsWindowTarget<T>>`. Its payload owns the Tao
 target cloned at initialization, on the event-loop creation thread. `Wry` remains
-neither Send nor Sync. The target field precedes both context and event_loop, so
-dispatch expires before either context or native event-loop teardown can reenter.
+neither Send nor Sync. The target field precedes event_loop, so dispatch expires
+before native event-loop teardown can reenter. It also precedes context, so in
+never-run and run_iteration destruction dispatch expires before the context is
+torn down; `run`/`run_return` instead hand the context to Tao, which drops it
+while the owner and the native loop are still alive (see below).
 
 Every cloned Windows context contains only a private `std::sync::Weak` to that
 payload. Context/dispatcher/runtime-handle cloning and destruction on workers
@@ -36,18 +56,26 @@ Final weak deallocation on a worker cannot run the already-destroyed payload's
 destructor. The existing unsafe context Send/Sync implementations are retained;
 no new unsafe implementations or raw access were introduced.
 
-The sole production upgrade is in `send_user_message`, after comparing the
-current Rust ThreadId to the event-loop creation ThreadId. The upgraded Arc is
-local to synchronous dispatch and cannot escape through a public field/accessor.
-The worker branch only reads atomic liveness metadata and sends a proxy message.
-The metadata check is not a shutdown barrier: an in-flight send can race loop
-closure and remains subject to the existing proxy/channel error behavior.
+The sole production upgrade is in `Context::send_user_message`, after comparing
+the current Rust ThreadId to the event-loop creation ThreadId. The upgraded Arc
+is local to synchronous dispatch and cannot escape through a public
+field/accessor. The worker branch only reads atomic liveness metadata and sends a
+proxy message. The metadata check is not a shutdown barrier: an in-flight send
+can race loop closure and remains subject to the existing proxy/channel error
+behavior.
 
-Windows runtime-handle monitor queries now dispatch to the event-loop thread and
-return owned `Monitor` values. Closed/disconnected replies map to None or an empty
-list because the 2.11.3 runtime trait has no error return for these methods. A
-discarded new event-loop monitor receiver does not panic the event loop. Wry's
-own monitor and cursor queries borrow its event_loop directly.
+Runtime-handle monitor queries go to the event-loop thread through upstream's
+messages and return owned `Monitor` values. After owner destruction they fail
+with `EventLoopClosed`; a reply lost when the loop closes maps to
+`FailedToReceiveMessage`. Upstream's `WryHandle::monitor_from_point` unwraps
+that reply instead; the patch maps it like the other queries, as the 2.11.4
+patch returned `None`. The event-loop handlers answering the three monitor
+queries and `cursor_position` ignore a failed reply send, as the 2.11.4
+patch's monitor handlers did, so a raw sender (`WryHandle::send_event`, the
+public `Context::proxy`) whose receiver is gone cannot panic the UI thread.
+Both changes are in code that upstream shares across platforms, so they apply
+on every platform. Wry's own monitor and cursor queries borrow its event_loop
+directly (`Wry::window_target`).
 
 `DisplayHandle::windows()` is a safe, pointer-free constructor from the locked
 raw-window-handle 0.6.2 dependency. It remains valid after Wry is destroyed and
@@ -58,24 +86,31 @@ does not provide or extend the lifetime of an HWND.
 
 Windows `run` calls the existing `run_return`, then exits the process with its
 returned code. It still does not return normally. This deliberately runs Wry's
-field destructors before process exit; upstream's consuming Tao run could exit
-without dropping the remaining context. More importantly, callback/setup panic
-now unwinds an intact Wry instead of destroying a moved-out native event_loop
-before the target owner. Panics are not swallowed.
+field destructors before process exit; upstream's consuming Tao run moves
+event_loop out of Wry and can exit without dropping it. More importantly, a
+callback/setup panic now unwinds with event_loop still inside Wry, behind the
+target owner, instead of destroying a moved-out native event_loop before the
+owner. Panics are not swallowed.
 
-The same field order handles never-run destruction and run_return. run_iteration
-does not revoke the owner: the runtime remains usable between iterations. No
-target is leaked, and no destructor is queued onto a possibly stopped loop.
+`run_return` moves the context into the event handler. Tao drops that handler
+when its loop ends (`reset_runner`, also before resuming a callback panic), while
+the target owner and the native loop still exist; Wry's remaining fields then
+drop in declaration order, target owner first. The same field order handles
+never-run destruction. run_iteration does not revoke the owner: the runtime
+remains usable between iterations. No target is leaked, and no destructor is
+queued onto a possibly stopped loop.
 
 ## Scope And Limitations
 
-- Non-Windows ownership, monitor calls, display handles, and run behavior remain
-  unchanged. This patch does not fix X11/Wayland display connection lifetimes.
+- Non-Windows ownership, display handles, and run behavior remain unchanged.
+  Non-Windows monitor calls differ from upstream only in the two lost-reply
+  paths above, which return an error or drop the reply instead of panicking.
+  This patch does not fix X11/Wayland display connection lifetimes.
 - Windows runtime `tracing` is rejected at compile time. ActiveTraceSpanStore
   still contains another Rc cloned through the Send context. Enabling tracing
   requires a separate ownership fix, not removal of this guard. Application use
   of the tracing crate is distinct from tauri/tauri-runtime-wry's tracing feature.
-- A worker monitor query now requires a pumping event loop. Never join a worker
+- A worker monitor query requires a pumping event loop. Never join a worker
   waiting for such a query from the UI thread, or call it before starting the
   loop and synchronously wait on that worker. Main-thread queries remain inline.
 - Routed tasks/getters fail closed after owner destruction. Raw public event
@@ -84,16 +119,21 @@ target is leaked, and no destructor is queued onto a possibly stopped loop.
 - Existing WindowsStore/WebContext sharing, public low-level context surfaces,
   and the borrowed window-handle API are outside this target-ownership fix. This
   is not a soundness certification of the entire upstream runtime.
-- WindowDispatch monitor getters already marshal through WindowMessage. Their
-  Windows Tao MonitorHandle payload is only an isize (tao 0.35.2,
-  src/platform_impl/windows/monitor.rs:89-90), not an EventLoopWindowTarget or Rc.
-  Their existing sender unwrap behavior is unchanged; cancelled-receiver testing
-  applies to the newly added event-loop monitor messages, not all upstream getters.
+- Inherited upstream panic paths outside the monitor queries are unchanged (not
+  reached by Protocol's code): the other reply handlers (window, webview, window
+  and webview creation) unwrap their reply send, which only a raw sender with a
+  dropped receiver could fail, and on
+  the worker side `create_tao_window`, `WebviewDispatch::reparent` and
+  `cookies_for_url` unwrap a reply that a closing loop discards.
+- WindowDispatch monitor getters marshal through WindowMessage, and their replies
+  already carry converted `Monitor` values, not Tao handles or an
+  EventLoopWindowTarget.
 - The application source, audio pipeline, minibar polling, and Tao are unmodified.
-  A full CUDA/custom-protocol application build passed. The reporting user later
-  tried that patched build and said it worked fine so far, then authorized the
-  v0.2.14 release. Trial duration is unconfirmed; no completed multi-hour recording
-  soak is claimed. Long-duration field validation remains outstanding.
+  History of the 2.11.4 patch: a full CUDA/custom-protocol application build
+  passed; the reporting user tried that patched build, said it worked fine so far,
+  and authorized the v0.2.14 release. Trial duration is unconfirmed; no completed
+  multi-hour recording soak is claimed for either version. Long-duration field
+  validation remains outstanding.
 
 ## Regression Tests
 
@@ -108,17 +148,27 @@ that the weak target has expired while the native message target still exists.
 Worker-held real WryHandle/Context/DetachedWindow clones survive runtime teardown.
 This tests the actual runtime ownership, not just an Arc/Weak stand-in.
 
-Scenarios cover never-run queued tasks; repeated run_iteration; four concurrent
-clone/drop workers with native hidden-window teardown; all three worker monitor
-queries observed on the UI thread; worker WindowDispatch monitor getters; nested
-inline dispatch (including panic with an upgraded owner in scope); dropped new
-monitor receivers; run_return and consuming run setup-panic unwinding; normal run
-process exit; 500 real hidden-WebView2 IPC messages; and a two-WebView stress case
-with 50,000 IPC messages and five million background webview clones/drops.
+Scenarios cover never-run queued tasks; repeated run_iteration, after a worker
+`monitor_from_point` whose message a test plugin discards unanswered (it must
+return `FailedToReceiveMessage`); four concurrent clone/drop workers with
+native hidden-window teardown, after replies to already dropped receivers from
+all four event-loop query handlers; all three worker monitor queries succeeding
+and observed on the UI thread; worker WindowDispatch monitor getters; nested
+inline dispatch (including panic with an upgraded owner in scope); run_return
+and consuming run setup-panic unwinding; normal run process exit; 500 real
+hidden-WebView2 IPC messages; and a two-WebView stress case with 50,000 IPC
+messages and five million background webview clones/drops. After owner
+destruction every routed handle query, including the three monitor queries,
+must fail with `EventLoopClosed`.
 The pages send messages in asynchronous batches through an in-process custom
 protocol, never the network. Incognito profiles live under the isolated test
 target dir. These are synthetic windows, not recordings of user audio.
 Three compile-fail doctests cover target privacy and Wry's !Send/!Sync properties.
+
+Not covered: worker-side `create_window`/`create_webview`, which 2.12 makes
+wait for the UI thread's reply, across owner expiry. The lost
+`monitor_from_point` reply is produced by the test plugin, not by an actual
+shutdown race.
 
 These are short deterministic lifecycle/traffic tests, not a multi-hour race
 proof or an end-to-end Meetily recording test. They require a Windows desktop
@@ -138,6 +188,11 @@ vendor\tauri-runtime-wry\check-windows.cmd test --offline --locked --release -p 
 vendor\tauri-runtime-wry\check-windows.cmd test --offline --locked --release -p tauri-runtime-wry --features devtools --doc
 cargo tree --offline --locked -i tauri-runtime-wry -e features
 ```
+
+`check-windows.cmd` calls `cargo` from `PATH`. In a shell started before the
+Rust toolchain was installed, run the same cargo arguments through the
+machine's native-environment helper with `CARGO_TARGET_DIR` set to this
+directory's `target`.
 
 Use the separate release lib/doc commands above. An aggregate `test --release`
 without devtools passes the native tests but fails rustdoc's crate checking with
@@ -177,33 +232,42 @@ workspace member so package-only feature tests can use that same lock; explicit
 default-members preserve the original application/helper build selection.
 Root Cargo.lock removes this package's source/checksum and records its existing
 optional tracing edge plus wry's existing optional tracing edge, as required by
-Cargo's workspace-member feature resolution. No package/version is added or
-updated and this does not enable runtime tracing in the app. The vendor's
-published Cargo.lock is preserved as upstream provenance and is not the
-application workspace lockfile.
+Cargo's workspace-member feature resolution. This does not enable runtime
+tracing in the app. The vendor's published Cargo.lock is preserved as upstream
+provenance and is not the application workspace lockfile.
 
-## Local Verification And Review
+## Local Verification
 
-Verified on Windows x64 with rustc/Cargo 1.97.1 and the VS 2022 Build Tools
-vcvars64 environment. Package checks, nine native scenarios in debug and
-release/app-feature configurations, and three compile-fail doctests passed.
-The Windows tracing negative check reached and failed at the explicit guard.
-The app's cuda/custom-protocol dependency tree resolves this vendored package
-with no runtime tracing enabled. All 21 other upstream files, including both
-licenses and manifests, were hash-checked byte-identical to the cached source;
-the archive itself matches the SHA-256 above.
+2.12.3 port, verified 2026-10-26 on Windows x64 with rustc/Cargo 1.99.1 and the
+VS 2022 Build Tools vcvars64 environment: the package check (also with
+`common-controls-v6,macos-private-api`), the nine native scenarios in debug,
+release, and release with the app's features and the manifest above, and the
+three compile-fail doctests (debug, and release with devtools) passed. The
+Windows tracing negative check failed at the explicit guard. The app's
+dependency tree resolves this vendored package with the `common-controls-v6`,
+`dbus`, `macos-private-api`, and `x11` features and no runtime tracing. Every
+file other than `src/lib.rs` and the added `src/windows_tests.rs`, `PATCH.md`,
+and `check-windows.cmd` matches the registry archive above (compared ignoring
+line endings, which Git converts in a Windows checkout).
 
-Independent read-only reviews found no new blocker in the bounded
-target-ownership fix. Its conditional concern about WindowDispatch monitor
-payload ownership was resolved by checking Tao's Windows isize-only handle;
-worker window-monitor and inline-panic regressions were added. Remaining
-notes concern the preexisting getter cancellation/unsafe surfaces documented
-above, not a new target Rc or display-lifetime issue.
+After the non-panicking monitor reply paths were restored (2026-10-26, same
+toolchain), the whole list above ran again with the same results, now including
+the lost-reply and dropped-receiver checks. With upstream's `unwrap` put back,
+the debug run fails: in `monitor_from_point` the `iterations` scenario panics
+with `RecvError`, and in the cursor-position handler the `concurrent` scenario
+panics with `SendError`.
 
-The complete Meetily binary also built successfully using
-`cargo build --offline --locked -p meetily --release --bin meetily --features cuda,custom-protocol`.
-TypeScript and whitespace checks passed. No installed app was replaced and no
-release was published during this verification.
+The 2.11.4 patch also had independent read-only reviews, which found no new
+blocker in the bounded target-ownership fix; their concern about WindowDispatch
+monitor payload ownership was resolved by checking Tao's Windows isize-only
+handle. An independent read-only review of the 2.12.3 port (2026-10-26) found
+no defect: no worker-side path reaches the Tao target, tauri 2.12.5 and the
+plugins use only `Wry`, `WryHandle`, `create_tao_window`, raw `send_event` and
+`wry_plugin`, and the owner still expires before the native loop in every exit
+and unwind path. Its notes are reflected above (inherited panic paths, test
+gaps). The pull-request review that followed it pointed out that the port had
+taken upstream's panicking monitor reply paths in place of the 2.11.4 patch's;
+they were restored, with regression checks.
 
 Remove this override only after an upstream release provides equivalent
 thread-affine target ownership, safe Windows display handles, and unwind-safe
