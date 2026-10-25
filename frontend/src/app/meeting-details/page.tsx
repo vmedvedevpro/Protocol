@@ -4,13 +4,12 @@ import { useState, useEffect, useCallback, useRef, Suspense } from "react";
 import { Transcript, Summary } from "@/types";
 import PageContent from "./page-content";
 import { useRouter, useSearchParams } from "next/navigation";
-import Analytics from "@/lib/analytics";
 import { invoke } from "@tauri-apps/api/core";
 import { PostCallHandoffCard } from "@/components/PostCallHandoffCard";
 import { Spinner } from "@/components/ui/spinner";
 import { useConfig } from "@/contexts/ConfigContext";
 import { usePaginatedTranscripts } from "@/hooks/usePaginatedTranscripts";
-import { shouldSetUpAutoSummary } from "@/lib/meeting-summary-policy";
+import { keepsSavedSummaryModel, shouldSetUpAutoSummary } from "@/lib/meeting-summary-policy";
 
 interface MeetingDetailsResponse {
   id: string;
@@ -97,7 +96,7 @@ function MeetingDetailsContent() {
       if (!isCurrentSetup()) return;
 
       // If DB already has a model, use it (never override!)
-      if (currentConfig && currentConfig.model) {
+      if (keepsSavedSummaryModel(currentConfig)) {
         console.log('Using existing model from DB:', currentConfig.model);
         setShouldAutoGenerate(true);
         setHasCheckedAutoGen(true);
@@ -213,7 +212,6 @@ function MeetingDetailsContent() {
       console.warn('No valid meeting ID in URL - meetingId:', meetingId);
       setError("No meeting selected");
       setIsLoading(false);
-      Analytics.trackPageView('meeting_details');
       return;
     }
 

@@ -10,6 +10,12 @@ phone-home behavior**. There is no account, no sign-in, and no usage tracking.
 The app does not automatically send your audio, transcripts, summaries, crash
 reports, or usage data to the author or anyone else.
 
+Earlier versions kept a local file, `analytics.json`, with the total number of
+meetings, the date and time of the last one, a count of meetings per day, and
+the analytics opt-in flags (always off). The file never leaves your machine, and
+the current version neither reads nor writes it, but a copy left by an earlier
+version may still be on disk (see [Your control](#your-control)).
+
 ## Where your data lives
 
 - **Audio recordings, transcripts, summaries, and settings** are stored **locally**
@@ -23,9 +29,9 @@ reports, or usage data to the author or anyone else.
 Data leaves your machine only when **you** choose an action that sends it:
 
 - If you select a **cloud AI provider** (Claude, OpenAI, Groq, OpenRouter, or a
-  custom endpoint) or the **Claude Code CLI**, the transcript text you summarize
-  or ask about is sent to that provider under **your** account, subject to
-  **their** privacy policy and data-retention terms.
+  custom endpoint), the transcript text you summarize or ask about is sent to
+  that provider under **your** account, subject to **their** privacy policy and
+  data-retention terms.
 - If you select a **cloud transcription provider**, your audio is sent to that
   provider.
 - **Model downloads** contact Hugging Face and, for some models, GitHub release
@@ -49,6 +55,11 @@ keeps meeting content on your device.
 
 Delete a meeting in the app and its data is removed locally. Uninstalling the app
 and deleting its data and recordings folders removes everything.
+
+Deleting meetings does not change the counts in a leftover `analytics.json`. On
+Windows the file is `%APPDATA%\io.github.vmedvedevpro.protocol\analytics.json`;
+on macOS it is in `~/Library/Application Support/io.github.vmedvedevpro.protocol/`.
+Nothing in the app uses it, so you can delete it safely at any time.
 
 ## Contact
 

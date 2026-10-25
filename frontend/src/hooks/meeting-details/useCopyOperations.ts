@@ -6,7 +6,6 @@
 import { useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { toast } from 'sonner';
-import Analytics from '@/lib/analytics';
 import { exportSummaryAs, type ExportFormat } from '@/lib/exportSummary';
 import { completeSummaryMarkdown, parseSummaryData } from '@/lib/summary-markdown';
 import { displayTitle } from '@/lib/meeting-titles';
@@ -86,11 +85,10 @@ export function useCopyOperations({ meeting, meetingTitle, aiSummary }: UseCopyO
       }
       await navigator.clipboard.writeText(document([['Transcript', body]]));
       toast.success('Transcript copied');
-      await Analytics.trackCopy('transcript', { meeting_id: meeting.id }).catch(() => undefined);
     } catch (error) {
       toast.error('Could not copy the transcript', { description: message(error) });
     }
-  }, [transcriptBody, document, meeting.id]);
+  }, [transcriptBody, document]);
 
   const handleCopySummary = useCallback(async () => {
     try {
@@ -101,11 +99,10 @@ export function useCopyOperations({ meeting, meetingTitle, aiSummary }: UseCopyO
       }
       await navigator.clipboard.writeText(document([['Summary', body]]));
       toast.success('Summary copied');
-      await Analytics.trackCopy('summary', { meeting_id: meeting.id }).catch(() => undefined);
     } catch (error) {
       toast.error('Could not copy the summary', { description: message(error) });
     }
-  }, [summaryBody, document, meeting.id]);
+  }, [summaryBody, document]);
 
   const handleExportMeeting = useCallback(
     async (content: MeetingExportContent, format: MeetingExportFormat, linkStyle: LinkStyle = 'generic'): Promise<boolean> => {
@@ -144,7 +141,6 @@ export function useCopyOperations({ meeting, meetingTitle, aiSummary }: UseCopyO
           if (!saved) return false;
           toast.success(`Exported as ${format === 'markdown' ? 'Markdown' : format.toUpperCase()}`);
         }
-        await Analytics.trackFeatureUsed(`export_meeting_${content}_${format}`).catch(() => undefined);
         return true;
       } catch (error) {
         toast.error('Export failed', { description: message(error) });
