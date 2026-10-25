@@ -273,7 +273,11 @@ deleted" and "Nothing was deleted".
   server sent a file of the wrong size. Nothing was deleted". Hashing a kept
   partial or a complete file already on disk (`ensure_verified_cancellable`)
   polls the download's cancel flag between 1 MiB reads, so Cancel ends it at
-  once (the summary `cancel_download` waits only 5 s).
+  once (the summary `cancel_download` waits only 5 s). Progress reported while
+  bytes stream in stops at 99% (Whisper, summary and Parakeet callbacks and
+  statuses, diarization events); 100% and the "Download completed" log line
+  follow a matching hash, and a mismatch logs only the failure. Diarization
+  sends 100% only with its final "done" event.
 - Startup (`discover_models`, `scan_models`) checks only exact pinned sizes. A
   file that failed and could not be deleted (held open by another program
   without delete sharing) gets a `<file>.rejected` marker tied to its size and
@@ -298,12 +302,22 @@ deleted" and "Nothing was deleted".
     status is internally tagged, so its error is the struct variant
     `Error { message }`, `{ type: 'error', message }` in `BuiltInModelStatus`.
     `BuiltInModelManager.tsx` lists the models again after a download error
-    event and shows that message.
+    event and shows that message. Its callers show the reason without logging
+    it, so `generate_with_builtin` logs every refused check with the model name:
+    an error for a mismatch (deleted or not), a warning for a file refused and
+    kept (still downloading, partial, unreadable).
   - Recording start then says the model failed its integrity check, and whether
     it was deleted, instead of "still downloading": `model_unavailable_message`
     in `recording_commands.rs` for native starts, and `modelIntegrityMessage`
     (`recording-start-errors.ts`) for the Record button, which loads the model
     itself in `prefetchSttModel`.
+- UI text: the raw message carries two 64-character hashes. Every place that
+  shows it uses `[overflow-wrap:anywhere]`: the import and retranscribe dialogs,
+  the Ask AI error in `ChatThread.tsx`, the built-in model card, the optional
+  model downloads and the onboarding download step. `break-words` is not enough
+  in a dialog: its content is a grid item, and `overflow-wrap: break-word` does
+  not lower the min-content width that sizes the grid track. The download toast
+  replaces integrity messages with fixed text.
 
 Tests: `model_integrity::tests` (hash and size mismatch, a file of another size
 kept, a file that cannot be deleted reported and rejected, oversize refusal,
@@ -318,15 +332,22 @@ the summary tests `the_live_assistant_keeps_a_partial_or_downloading_model`,
 `the_model_list_serializes_after_a_failed_download`, catalog/pin consistency for
 Whisper, Parakeet, GGUF and Nemotron, `tests/download-progress/errors.test.ts`,
 `tests/download-progress/builtin-manager.test.tsx` (an error status shows its
-message and Retry) and `tests/lib/recording-start-errors.test.ts`. The
+message, wrapped, and Retry) and `tests/lib/recording-start-errors.test.ts`. The
 delete-failure tests hold the file open without `FILE_SHARE_DELETE` and run on
-Windows only.
+Windows only. Whisper and summary downloads take their URL, pin and HTTP client
+through an internal `download_pinned`, so
+`a_download_reports_100_percent_only_after_the_file_matched` and
+`a_download_that_fails_its_check_never_reports_100_percent` (one pair per
+engine) download a small file from `model_integrity::testing::serve_once` and
+follow the progress callback. `progress_of_unchecked_bytes_stays_below_100_percent`
+(diarization) and `a_deleted_model_is_logged_as_an_error_and_a_kept_one_as_a_warning`
+(summary client) cover the event percent and the log level.
 The ignored `model_integrity::tests::small_pinned_files_match_what_their_sources_serve`
 streams five small pinned files (about 0.3 MB) from Hugging Face and GitHub;
-run it with `--ignored` when changing a pin. Limits: the engine download paths
-are not exercised against a server (their URLs are not injectable), Pyannote
-copies in the user folder are still not hashed at load, and Nemotron is still
-hashed on every load by `nemotron.rs`.
+run it with `--ignored` when changing a pin. Limits: the Parakeet and
+diarization download paths are not exercised against a server (their URLs and
+pins are not injectable), Pyannote copies in the user folder are still not
+hashed at load, and Nemotron is still hashed on every load by `nemotron.rs`.
 
 ## 5. Acceleration and packaging are separate from ASR selection
 

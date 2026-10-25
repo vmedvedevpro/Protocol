@@ -611,7 +611,8 @@ Integrity checks:
   deleted"), or says it "could not be deleted" with the OS error. A server that
   announces another length is refused before anything is written ("Nothing was
   deleted"). The shared download toast shows each of these as "Integrity check
-  failed" with the matching outcome.
+  failed" with the matching outcome. Progress stays below 100% while bytes
+  arrive; 100% and "Download completed" follow a matching hash.
 - **Startup.** Discovery checks only the exact pinned size, so startup never
   reads gigabytes. A file that failed and could not be deleted carries a
   `<file>.rejected` marker, and discovery does not list it as installed.
@@ -625,6 +626,8 @@ Integrity checks:
   written. The built-in summary path, which the live assistant reaches without
   a readiness check, also refuses while the model is downloading, and after a
   deletion marks the model failed, with the reason, so Settings offers it again.
+  It logs every refusal with the model name, as an error when the content did
+  not match.
 - Diarization keeps its own checks: downloads go to `.part`, are verified and
   then renamed; Nemotron is hashed before every load (`nemotron.rs`); bundled
   or manually placed Pyannote files are not hashed at load.
