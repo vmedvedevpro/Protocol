@@ -733,8 +733,10 @@ Protocol releases one Windows file, `protocol-windows-x64-setup.exe` (#15):
 Tauri's NSIS installer built from this template and these hooks. People run it
 directly and get its own pages; the in-app updater that #31 adds runs the same
 file with `/P /UPDATE`. A newer setup run over an existing install upgrades it in
-place. The frameless bootstrapper and the NSIS overall-progress plugin that
-upstream wrapped around the installer were removed in #15.
+place. The frameless bootstrapper, the NSIS overall-progress plugin and the
+install page's percentage timer that upstream wrapped around the installer were
+removed in #15. The timer ran on the UI thread and used the registers and the
+stack that the install section shares, so it could corrupt them mid-install.
 
 ### Setup path
 
@@ -837,11 +839,12 @@ installer-only and is removed with the staged variants after selection.
 
 With `/UPDATE` the installer uses `Protocol Setup`, `Updating Protocol`, and
 `Updating app files` instead of the setup wording, and a blue progress bar. Keep
-the verbose NSIS extraction log collapsed, preserve the stock MUI header font
-metrics so title/subtitle rectangles do not overlap at scaled DPI, and show a
-monotonic overall percentage in the header (a timer reads NSIS's own progress
-bar; runtime phases report milestones). Setup-only pages and all
-hardware/runtime decisions are shared with the normal installer.
+the verbose NSIS extraction log collapsed and preserve the stock MUI header font
+metrics so title/subtitle rectangles do not overlap at scaled DPI. Progress is
+NSIS's own bar; do not add timers (`nsDialogs::CreateTimer`) to the install page,
+since their callbacks share `$0`–`$R9` and the stack with the running section.
+Setup-only pages and all hardware/runtime decisions are shared with the normal
+installer.
 Every install/update rewrites uninstall-key `DisplayVersion`, then broadcasts a
 shell/settings change notification. Without that notification, an Installed
 Apps window left open during an update can continue showing the previous

@@ -231,7 +231,6 @@ Var MeetilyBackend
   DetailPrint "────────────────────────────────────────"
 
   DetailPrint "[1/3] Visual C++ 2015–2022 (x64)…"
-  !insertmacro MeetilyReportProgress 80
   !insertmacro Meetily_CheckVcredist
   ${If} $R9 == 0
     DetailPrint "      Not found — installing quietly…"
@@ -241,11 +240,9 @@ Var MeetilyBackend
   ${EndIf}
 
   DetailPrint "[2/3] Common local AI runtime…"
-  !insertmacro MeetilyReportProgress 86
   !insertmacro Meetily_InstallCommonRuntime
 
   DetailPrint "[3/3] Selecting Vulkan or CPU…"
-  !insertmacro MeetilyReportProgress 92
   !insertmacro Meetily_SelectBackend
   ${If} $MeetilyBackend == "vulkan"
     DetailPrint "      Vulkan enabled (AMD / Intel / NVIDIA)."
@@ -255,7 +252,6 @@ Var MeetilyBackend
 
   DetailPrint ""
   DetailPrint "Runtime setup finished."
-  !insertmacro MeetilyReportProgress 98
   DetailPrint "────────────────────────────────────────"
 !macroend
 

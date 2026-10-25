@@ -31,13 +31,6 @@ ManifestDPIAwareness PerMonitorV2
 ${StrCase}
 ${StrLoc}
 
-; The native NSIS progress control supplies continuous progress between file
-; operations; these milestones keep the percent label truthful while a runtime
-; installer owns the foreground work and the NSIS bar is temporarily stationary.
-!macro MeetilyReportProgress Percent
-  StrCpy $MeetilyReportedProgress ${Percent}
-!macroend
-
 {{#if installer_hooks}}
 !include "{{installer_hooks}}"
 {{/if}}
@@ -88,9 +81,6 @@ Var UpdateMode
 Var NoShortcutMode
 Var WixMode
 Var OldMainBinaryName
-Var MeetilyReportedProgress
-Var MeetilyInstallProgress
-Var MeetilyDisplayedProgress
 
 Name "${PRODUCTNAME}"
 BrandingText "Protocol"
@@ -425,7 +415,6 @@ Function MeetilyDarkenInstFiles
   ; Progress bar → teal on dark track
   GetDlgItem $R1 $R0 1004
   ${If} $R1 != 0
-    StrCpy $MeetilyInstallProgress $R1
     ${If} $UpdateMode = 1
       ; Updates use a blue bar so they read differently from a first install.
       SendMessage $R1 ${PBM_SETBARCOLOR} 0 0xF7884B
@@ -454,10 +443,6 @@ Function MeetilyDarkenInstFiles
   IntCmp $R1 0 +2 0 0
     ShowWindow $R1 ${SW_HIDE}
 
-  StrCpy $MeetilyDisplayedProgress 0
-  Call MeetilyRefreshInstallProgress
-  nsDialogs::CreateTimer MeetilyRefreshInstallProgress 150
-
   ; There is nowhere to navigate while files are being installed. Keep only
   ; Cancel visible, then reveal Next once .onInstSuccess runs.
   GetDlgItem $R1 $HWNDPARENT 1
@@ -467,56 +452,6 @@ Function MeetilyDarkenInstFiles
   IntCmp $R1 0 +2 0 0
     ShowWindow $R1 ${SW_HIDE}
 
-  Pop $R1
-  Pop $R0
-FunctionEnd
-
-Function MeetilyRefreshInstallProgress
-  Push $R0
-  Push $R1
-  Push $R2
-  Push $R3
-  ${If} $MeetilyInstallProgress == ""
-    Goto meetily_progress_done
-  ${EndIf}
-
-  SendMessage $MeetilyInstallProgress ${PBM_GETRANGE} 1 0 $R1
-  SendMessage $MeetilyInstallProgress ${PBM_GETRANGE} 0 0 $R2
-  SendMessage $MeetilyInstallProgress ${PBM_GETPOS} 0 0 $R0
-  ${If} $R2 > $R1
-    IntOp $R0 $R0 - $R1
-    IntOp $R0 $R0 * 100
-    IntOp $R3 $R2 - $R1
-    IntOp $R0 $R0 / $R3
-  ${Else}
-    StrCpy $R0 0
-  ${EndIf}
-  ${If} $R0 > 100
-    StrCpy $R0 100
-  ${ElseIf} $R0 < 0
-    StrCpy $R0 0
-  ${EndIf}
-  ${If} $MeetilyReportedProgress > $R0
-    StrCpy $R0 $MeetilyReportedProgress
-  ${EndIf}
-  ${If} $R0 > $MeetilyDisplayedProgress
-    IntOp $R2 $R0 - $MeetilyDisplayedProgress
-    ${If} $R2 > 6
-      IntOp $MeetilyDisplayedProgress $MeetilyDisplayedProgress + 2
-    ${Else}
-      StrCpy $MeetilyDisplayedProgress $R0
-    ${EndIf}
-  ${EndIf}
-
-  GetDlgItem $R1 $HWNDPARENT 1038
-  ${If} $UpdateMode = 1
-    SendMessage $R1 ${WM_SETTEXT} 0 "STR:Updating app files to version ${VERSION}  |  $MeetilyDisplayedProgress% complete"
-  ${Else}
-    SendMessage $R1 ${WM_SETTEXT} 0 "STR:Copying files and setting up local runtimes  |  $MeetilyDisplayedProgress% complete"
-  ${EndIf}
-  meetily_progress_done:
-  Pop $R3
-  Pop $R2
   Pop $R1
   Pop $R0
 FunctionEnd
@@ -1001,9 +936,6 @@ FunctionEnd
 
 
 Section EarlyChecks
-  StrCpy $MeetilyReportedProgress 0
-  StrCpy $MeetilyDisplayedProgress 0
-  !insertmacro MeetilyReportProgress 1
   ; Abort silent installer if downgrades is disabled
   !if "${ALLOWDOWNGRADES}" == "false"
   ${If} ${Silent}
@@ -1023,7 +955,6 @@ Section EarlyChecks
 SectionEnd
 
 Section WebView2
-  !insertmacro MeetilyReportProgress 3
   ; Check if Webview2 is already installed and skip this section
   ${If} ${RunningX64}
     ReadRegStr $4 HKLM "SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\${WEBVIEW2APPGUID}" "pv"
@@ -1113,11 +1044,9 @@ Section WebView2
       ${EndIf}
     !endif
   ${EndIf}
-  !insertmacro MeetilyReportProgress 10
 SectionEnd
 
 Section Install
-  !insertmacro MeetilyReportProgress 12
   SetOutPath $INSTDIR
 
   !ifmacrodef NSIS_HOOK_PREINSTALL
@@ -1141,7 +1070,6 @@ Section Install
   {{#each binaries}}
     File /a "/oname={{this}}" "{{no-escape @key}}"
   {{/each}}
-  !insertmacro MeetilyReportProgress 72
 
   ; Create file associations
   {{#each file_associations as |association| ~}}
@@ -1221,8 +1149,6 @@ Section Install
     Call CreateOrUpdateDesktopShortcut
   ${EndIf}
 
-  !insertmacro MeetilyReportProgress 78
-
   !ifmacrodef NSIS_HOOK_POSTINSTALL
     !insertmacro NSIS_HOOK_POSTINSTALL
   !endif
@@ -1234,10 +1160,6 @@ Section Install
     GetDlgItem $R1 $HWNDPARENT 1
     ShowWindow $R1 ${SW_SHOW}
   ${EndIf}
-  !insertmacro MeetilyReportProgress 100
-  StrCpy $MeetilyDisplayedProgress 100
-  Call MeetilyRefreshInstallProgress
-  nsDialogs::KillTimer MeetilyRefreshInstallProgress
 
   ; Auto close this page for passive mode. In-app updates are visible even in
   ; passive mode, so leave the completed state onscreen briefly instead of
@@ -1251,8 +1173,6 @@ Section Install
 SectionEnd
 
 Function .onInstSuccess
-  nsDialogs::KillTimer MeetilyRefreshInstallProgress
-
   ; All shortcut choices are final now, including the interactive finish-page
   ; desktop option. Refresh Explorer/Search without resetting the icon cache.
   System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0x0000, p 0, p 0)'
@@ -1267,10 +1187,6 @@ Function .onInstSuccess
       nsis_tauri_utils::RunAsUser "$INSTDIR\${MAINBINARYNAME}.exe" "$R0"
     ${EndIf}
   ${EndIf}
-FunctionEnd
-
-Function .onInstFailed
-  nsDialogs::KillTimer MeetilyRefreshInstallProgress
 FunctionEnd
 
 Function un.onInit
