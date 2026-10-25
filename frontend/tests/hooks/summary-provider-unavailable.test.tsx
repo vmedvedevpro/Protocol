@@ -66,7 +66,9 @@ test('a saved provider that is no longer offered loads as no provider selected',
   expect(config.summaryMaxTokens).toBe(4096);
 });
 
-test('generating without a provider asks for one and opens Model Settings', async () => {
+// tests/meeting-details/summary-provider-prompt.test.tsx checks that the
+// meeting page wires onOpenModelSettings to its Model Settings dialog.
+test('generating without a provider asks for one and calls onOpenModelSettings', async () => {
   let started = true;
   await act(async () => { started = await summary.handleGenerateSummary(''); });
   expect(started).toBe(false);

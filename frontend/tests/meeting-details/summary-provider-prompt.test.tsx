@@ -150,6 +150,15 @@ beforeEach(() => {
 });
 afterEach(async () => { await act(async () => root?.unmount()); });
 
+test('the provider prompt opens the Model Settings dialog of the meeting page', async () => {
+  await render();
+  expect(pageText()).not.toContain('Model settings form');
+  await act(async () => button('Generate summary').props.onClick());
+  expect(prompts()).toHaveLength(1);
+  expect(pageText()).toContain('Model settings form');
+  expect(calls).not.toContain('api_get_meeting_transcripts');
+});
+
 test('a refused auto-summary does not start when a provider is selected but not saved', async () => {
   await render();
   await act(async () => armAutoSummary());
@@ -182,4 +191,5 @@ test('a refused regeneration keeps the dialog, the Edited badge and the replace 
   expect(pageText()).toContain('Regenerating replaces those edits.');
   expect(pageText()).toContain('Edited');
   expect(button('Replace and regenerate')).toBeDefined();
+  expect(pageText()).toContain('Model settings form');
 });

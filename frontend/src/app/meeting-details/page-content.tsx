@@ -518,6 +518,7 @@ export default function PageContent({
             modelConfig={modelConfig}
             setModelConfig={setModelConfig}
             onSaveModelConfig={handleSaveModelConfig}
+            openModelSettingsRef={openModelSettingsRef}
             templates={templates.availableTemplates}
             selectedTemplate={templates.selectedTemplate}
             onTemplateSelect={templates.handleTemplateSelection}
