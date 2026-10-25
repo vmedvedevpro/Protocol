@@ -33,10 +33,8 @@ macro_rules! perf_trace {
 // Re-export async logging macros for external use (removed due to macro conflicts)
 
 // Declare audio module
-pub mod analytics;
 pub mod api;
 pub mod audio;
-pub mod claude_cli;
 pub mod config;
 pub mod console_utils;
 pub mod crash_report;
@@ -318,8 +316,6 @@ async fn is_audio_level_monitoring() -> bool {
     audio::simple_level_monitor::is_monitoring()
 }
 
-// Analytics commands are now handled by analytics::commands module
-
 // Whisper commands are now handled by whisper_engine::commands module
 
 #[tauri::command]
@@ -506,6 +502,7 @@ pub fn run() {
             // data from the OS app-data dir into the install-local root. Runs
             // BEFORE model/DB init so migrated models + history are picked up.
             crate::paths::migrate_legacy_data(&_app.handle());
+            crate::paths::remove_claude_cli_working_dir();
 
             // Meeting detection: load persisted settings and start the monitor
             // if the user enabled it (default off).
@@ -629,31 +626,6 @@ pub fn run() {
             diarization::voice_profiles::list_voice_profiles,
             diarization::voice_profiles::delete_voice_profile,
             save_transcript,
-            analytics::commands::init_analytics,
-            analytics::commands::disable_analytics,
-            analytics::commands::track_event,
-            analytics::commands::identify_user,
-            analytics::commands::track_meeting_started,
-            analytics::commands::track_recording_started,
-            analytics::commands::track_recording_stopped,
-            analytics::commands::track_meeting_deleted,
-            analytics::commands::track_settings_changed,
-            analytics::commands::track_feature_used,
-            analytics::commands::is_analytics_enabled,
-            analytics::commands::start_analytics_session,
-            analytics::commands::end_analytics_session,
-            analytics::commands::track_daily_active_user,
-            analytics::commands::track_user_first_launch,
-            analytics::commands::is_analytics_session_active,
-            analytics::commands::track_summary_generation_started,
-            analytics::commands::track_summary_generation_completed,
-            analytics::commands::track_summary_regenerated,
-            analytics::commands::track_model_changed,
-            analytics::commands::track_custom_prompt_used,
-            analytics::commands::track_meeting_ended,
-            analytics::commands::track_analytics_enabled,
-            analytics::commands::track_analytics_disabled,
-            analytics::commands::track_analytics_transparency_viewed,
             whisper_engine::commands::whisper_init,
             whisper_engine::commands::whisper_get_available_models,
             whisper_engine::commands::whisper_load_model,
@@ -735,11 +707,6 @@ pub fn run() {
             console_utils::show_console,
             console_utils::hide_console,
             console_utils::toggle_console,
-            claude_cli::commands::claude_cli_get_status,
-            claude_cli::commands::claude_cli_list_models,
-            claude_cli::commands::claude_cli_get_path,
-            claude_cli::commands::claude_cli_save_path,
-            claude_cli::commands::claude_cli_test_connection,
             ollama::get_ollama_models,
             ollama::pull_ollama_model,
             ollama::delete_ollama_model,

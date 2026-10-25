@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 120 120">
+  <!-- Protocol app icon: a recording dot that turns into lines of a transcript. -->
+  <rect width="120" height="120" rx="28" fill="#15171C"/>
+  <circle cx="34" cy="40" r="7" fill="#FF5A36"/>
+  <path d="M50 40 H90 M30 60 H86 M30 80 H66" stroke="#F3F2EE" stroke-width="10" stroke-linecap="round" fill="none"/>
+</svg>
