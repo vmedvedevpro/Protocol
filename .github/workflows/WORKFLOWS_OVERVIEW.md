@@ -1,361 +1,182 @@
-# GitHub Actions Workflows Overview
-
-This document provides a quick overview of all available CI/CD workflows in this repository.
-
-**Note:** Standalone workflows are manually dispatched. `build.yml` is a
-reusable `workflow_call` workflow rather than a manual entry point. There are no
-automatic push or pull-request release builds.
-
-## Workflow Files
-
-### 1. **build-devtest.yml** - DevTest Builds
-**Purpose:** Fast builds for development and testing
-
-**Key Features:**
-- Signing OFF by default (faster builds)
-- Optional signing via workflow dispatch input
-- All platforms in parallel
-- 14-day artifact retention
-
-**Triggers:**
-- Manual dispatch only
-
-**Use When:**
-- Regular development work
-- Testing features
-- Need fast feedback
-
----
-
-### 2. **build-macos.yml** - macOS Standalone Builds
-**Purpose:** Build and verify a candidate Apple Silicon/macOS 14.2+ DMG
-
-**Key Features:**
-- Apple Developer Certificate signing (optional)
-- Notarization with Apple ID
-- Signature verification
-- Functional FFmpeg and `llama-helper` checks
-- Bundle architecture, deployment-target, plist, entitlement, and resource checks
-- Installed first-launch and second-launch smoke tests
-- Post-launch signature verification to catch writes inside the app bundle
-
-**Triggers:**
-- Manual dispatch only
-
-**Use When:**
-- macOS-specific development
-- Testing Metal GPU acceleration
-- Verifying macOS-specific features
-
-**Outputs:**
-- `.dmg` installer
-- SHA-256 checksum
-- First/second-launch logs
-- Candidate run/attempt, commit, DMG digest, and signing metadata
-
-This workflow never publishes. Pass its successful run ID to
-`publish-macos.yml`, which promotes the exact candidate bytes rather than
-rebuilding from `main`.
-
-### 2b. **publish-macos.yml** - Exact Candidate Promotion
-
-**Purpose:** Publish a verified candidate as the separate non-latest macOS release
-
-The workflow requires physical macOS 14.2 signoff, a protected read-only
-Administration token for an immutable-release preflight, and a successful
-current-main `build-macos.yml` run ID. Before publication it verifies the
-canonical workflow ID, sole artifact/archive digest, run attempt, commit
-metadata, filename, checksum, physical-test DMG digest, and immutable repository
-setting. After publication it verifies immutable status, public asset digests,
-and Latest isolation.
-
-### 2c. **smoke-test-macos-release.yml** - Public DMG Verification
-
-**Purpose:** Independently download, install, launch, and verify the public DMG
-
-Run this after every macOS publication. It catches stale or incorrect assets
-that candidate-only validation cannot see. See `MACOS_RELEASE.md` for the full
-candidate, promotion, rollback, and physical-test procedure.
-
----
-
-### 3. **build-windows.yml** - Windows Standalone Builds
-**Purpose:** Build and test specifically for Windows x64
-
-**Key Features:**
-- DigiCert KeyLocker signing (cloud HSM)
-- Signs both MSI and NSIS installers
-- Signature verification with PowerShell
-- MSI installer validation
-
-**Triggers:**
-- Manual dispatch only
-
-**Use When:**
-- Windows-specific development
-- Testing CUDA/Vulkan GPU acceleration
-- Verifying Windows-specific features
-
-**Outputs:**
-- `.msi` installer
-- `.exe` NSIS installer
-
----
-
-### 4. **build-linux.yml** - Linux Standalone Builds
-**Purpose:** Build and test for Linux distributions
-
-**Key Features:**
-- Support for Ubuntu 22.04 and 24.04
-- Multiple bundle formats (DEB, AppImage, RPM)
-- AppImage compatibility fixes
-- Package verification
-
-**Triggers:**
-- Manual dispatch only
-
-**Use When:**
-- Linux-specific development
-- Testing Vulkan GPU acceleration
-- Verifying package formats
-
-**Outputs:**
-- `.deb` package (Ubuntu/Debian)
-- `.AppImage` portable
-- `.rpm` package (Fedora/RHEL)
-
----
-
-### 5. **build-test.yml** - Multi-Platform Test Builds
-**Purpose:** Test builds across all platforms with signing
-
-**Key Features:**
-- Signing ON by default
-- All platforms in parallel
-- Uses reusable `build.yml` workflow
-- 30-day artifact retention
-- Artifacts prefixed with `meetily-test-`
-
-**Triggers:**
-- Manual dispatch only
-
-**Use When:**
-- Pre-release testing
-- Verifying signing infrastructure
-- Testing across all platforms simultaneously
-
----
-
-### 6. **build.yml** - Reusable Build Workflow
-**Purpose:** Shared workflow used by other workflows
-
-**Key Features:**
-- Reusable workflow (called by others)
-- Highly configurable inputs
-- Used by `build-test.yml`
-
-**Not directly triggered** - used as a building block
-
----
-
-### 7. Production Releases
-
-Windows and macOS releases are intentionally separate. Use `build-macos.yml`
-for the candidate and `publish-macos.yml` to promote that run's exact DMG. The
-Windows universal installer uses the release process
-documented in `ARCHITECTURE.md`; do not combine them through a generic release
-path.
-
-After publishing macOS, manually run `smoke-test-macos-release.yml` against the
-public tag. It downloads the public DMG rather than reusing build-job files.
-
----
-
-### 8. **pr-main-check.yml** - Validation Check
-**Purpose:** Quick validation of version and configuration
-
-**Key Features:**
-- No builds triggered
-- Validates version format
-- Shows current branch info
-- Provides next steps guidance
-
-**Triggers:**
-- Manual dispatch only
-
-**Use When:**
-- Quick configuration check
-- Before running full builds
-
----
-
-## How to Run Workflows
-
-1. **Go to Actions tab** in GitHub repository
-2. **Select workflow** from left sidebar
-3. **Click "Run workflow"** button
-4. **Select branch** to run against
-5. **Configure options** (build type, signing, etc.)
-6. **Click "Run workflow"** to start
-7. **Monitor progress** in the Actions tab
-
----
-
-## Quick Decision Guide
-
-### "I'm developing a new feature..."
-- **Use `build-devtest.yml`** (manual dispatch)
-- Fast builds, no signing by default
-- Enable signing checkbox if needed
-
-### "I need to test macOS-specific code..."
-- **Use `build-macos.yml`** (manual dispatch)
-- Focus on macOS
-- Optional signing
-
-### "I need to test Windows-specific code..."
-- **Use `build-windows.yml`** (manual dispatch)
-- Focus on Windows
-- Optional signing
-
-### "I need to test Linux packages..."
-- **Use `build-linux.yml`** (manual dispatch)
-- Choose Ubuntu version
-- Choose bundle types
-
-### "I need signed builds for all platforms..."
-- **Use `build-test.yml`** (manual dispatch)
-- All platforms
-- Signing enabled
-- Full verification
-
-### "I'm ready to release..."
-- **macOS:** build a candidate, then pass its run ID to `publish-macos.yml`
-- **Windows:** follow the universal release process in `ARCHITECTURE.md`
-- Keep the macOS release non-latest so GitHub's Latest release stays the Windows build
-
----
-
-## Workflow Dependencies
-
-```
-build.yml (reusable)
-    |-- build-test.yml (calls build.yml)
-
-Standalone (don't use build.yml):
-    |-- build-macos.yml
-    |-- publish-macos.yml
-    |-- smoke-test-macos-release.yml
-    |-- build-windows.yml
-    |-- build-linux.yml
-    |-- build-devtest.yml
-    |-- pr-main-check.yml (validation only)
+# GitHub Actions workflows
+
+Protocol's CI checks every pull request and builds releases. Releases are built
+here, never on a developer machine: one installer per platform, with checksums,
+updater signatures and build-provenance attestations, in a **draft** release
+that the owner publishes by hand. All builds are unsigned (no Windows or Apple
+certificate yet).
+
+| Workflow | Trigger | What it does |
+| --- | --- | --- |
+| `pr-checks.yml` | pull requests, pushes to `main`, called by `release.yml` | Frontend tests, Next.js build, `tsc`; release-script tests and the migration checksum table |
+| `release.yml` | tag `v*`; manual run and pipeline pull requests as **dry runs** | Validates, runs the checks, builds all three platforms, then creates the draft (tag) or a dry-run artifact |
+| `release-build-windows.yml` | called by `release.yml` | `windows-2022`: CPU + Vulkan installer, native tests, payload check, install/start/uninstall on the runner |
+| `release-build-macos.yml` | called by `release.yml` | `macos-15`: Apple Silicon DMG and updater bundle, native tests, bundle checks, two launches |
+| `release-build-linux.yml` | called by `release.yml` | `ubuntu-22.04`: experimental AppImage and deb, start under Xvfb; native tests do not block yet |
+| `release-published.yml` | release published | Downloads the public assets anonymously and checks checksums, `latest.json`, signatures and `/releases/latest` |
+
+Everything a job decides lives in tested scripts under `scripts/release/`
+(`node --test "scripts/release/test/*.test.mjs"`), so it can be run locally the
+same way. The Windows build itself is `frontend/scripts/build-universal-windows.ps1`.
+
+## Release assets
+
+| Asset | For |
+| --- | --- |
+| `protocol-windows-x64-setup.exe` | People (the Windows download) **and** the updater: Tauri's NSIS installer, run by the updater with `/P /UPDATE` |
+| `protocol-macos-arm64.dmg` | People |
+| `protocol-macos-arm64.app.tar.gz` | The updater on macOS |
+| `protocol-linux-x86_64.AppImage` | People and the updater (experimental) |
+| `protocol_<version>_amd64.deb` | People (experimental; does not update itself) |
+| `*.sig` | Updater signatures of the three updater payloads, made with the production key |
+| `latest.json` | The updater feed: `windows-x86_64-nsis`, `windows-x86_64`, `darwin-aarch64-app`, `darwin-aarch64`, `linux-x86_64-appimage`; no deb or generic Linux entry |
+| `SHA256SUMS.txt` | `sha256sum -c` list of every other asset |
+
+Installed apps read `https://github.com/vmedvedevpro/Protocol/releases/latest/download/latest.json`,
+which only ever resolves to the published release marked **Latest**: drafts and
+prereleases are invisible to them.
+
+## Releasing a version
+
+1. **Release PR.** On a branch from `main`:
+
+   ```powershell
+   node scripts/release/bump-version.mjs 0.3.0
+   powershell -NoProfile -ExecutionPolicy Bypass -File C:\Users\User\Documents\git\Protocol\.reports\orchestration\native-env.ps1 cargo metadata --locked --format-version 1 > NUL
+   ```
+
+   This sets the version in `tauri.conf.json`, `frontend/src-tauri/Cargo.toml`,
+   `Cargo.lock` and `frontend/package.json`, and turns `## Protocol — unreleased`
+   in `CHANGELOG.md` into `## Protocol 0.3.0 — <today>` under a new, empty
+   unreleased heading. Review the section: it becomes the release notes and the
+   text the updater shows. Merge the PR.
+
+2. **Tag the merged commit and push the tag.** Fetch first, and push only this
+   tag (never `git push --tags`):
+
+   ```powershell
+   git fetch origin
+   git tag -a v0.3.0 origin/main -m "Protocol 0.3.0"
+   git push origin refs/tags/v0.3.0
+   ```
+
+   A clone with the `upstream` remote has Meetily's own `v0.3.0` and `v0.4.0`
+   tags locally, and `git tag` refuses an existing name. Remove them once and
+   stop fetching upstream tags:
+
+   ```powershell
+   git tag -d v0.3.0 v0.4.0
+   git config remote.upstream.tagOpt --no-tags
+   ```
+
+3. **The run.** `release.yml` starts on the tag. `validate` fails the run unless
+   the tag is `vX.Y.Z` or `vX.Y.Z-rc.N`, the tagged commit is on `origin/main`,
+   the four version files and a non-empty `## Protocol <version>` CHANGELOG
+   section match, the version is above every published release (an RC also
+   above earlier RCs of its version), the release is not published yet, the
+   updater configuration is complete (`createUpdaterArtifacts`, `pubkey`, the
+   endpoint above, `requireSignedVersion`), the locked tauri-cli can sign with
+   `--app-version` (2.12 or later), and the migration checksum table matches.
+   Then the frontend checks and the three build legs run (about 75–90 minutes
+   from a cold cache; Windows takes longest), and `draft` signs the updater
+   payloads with the production key, verifies the signatures against the key in
+   `tauri.conf.json`, writes `latest.json`, `SHA256SUMS.txt` and the notes,
+   attests the installers, and creates the **draft** release. Its job summary
+   links the draft.
+
+4. **Review and publish.** Read the notes, download
+   `protocol-windows-x64-setup.exe` from the draft, install it and record a
+   short meeting. Then publish with **Set as the latest release** checked, or:
+
+   ```powershell
+   gh release edit v0.3.0 --draft=false --latest
+   ```
+
+   Every installed earlier version is offered the update from this moment.
+   An RC is published as a prerelease and is never offered to installed apps.
+
+5. **Check.** `release-published.yml` runs on publish. If it fails, take the
+   release off `/releases/latest` at once (`gh release edit v0.3.0 --prerelease`)
+   and ship a fixed version.
+
+### When a tag run fails
+
+Nothing is public until the draft is published, and the updater sees only
+published releases, so a failed run leaves only the tag (and maybe a draft,
+which the next run replaces).
+
+- A transient failure (network, runner): **Re-run failed jobs** on the run.
+- A failure that needs a fix: merge the fix to `main`, then move the tag to the
+  new commit and push it again; the new run starts on its own:
+
+  ```powershell
+  git push origin :refs/tags/v0.3.0
+  git fetch origin
+  git tag -f -a v0.3.0 origin/main -m "Protocol 0.3.0"
+  git push origin refs/tags/v0.3.0
+  ```
+
+  A fix that changes the CHANGELOG section or the version needs the release PR
+  updated first, like any other fix.
+
+## Dry runs
+
+A dry run builds and checks everything a release would, signs the updater
+payloads with a throwaway key and creates no release. The release rules
+(CHANGELOG section, version order, updater configuration, tauri-cli version)
+are reported as warnings so a branch can rehearse; the version files must
+still agree. It never reaches the `release` environment or the production key.
+
+- A pull request that changes the pipeline (`release*.yml`, `pr-checks.yml`,
+  `scripts/release/`, the Windows packaging scripts and NSIS files, the Tauri
+  configs, `build.rs`) runs one automatically.
+- Any branch, once `release.yml` is on `main`:
+  `gh workflow run release.yml --ref <branch> [-f version=<the files' version>]`.
+
+Artifacts of a dry run: `release-windows`, `release-macos`, `release-linux` (the
+installers), `release-dry-run` (`latest.json`, `SHA256SUMS.txt`, the `.sig` files
+and `notes.md`), and `logs-*` (startup logs). The job summary of `preview` shows
+the checksums and the feed.
+
+## The `release` environment (owner, once)
+
+Only the `draft` job uses the environment, and it admits only tag runs. Create
+it with a tag policy and add the updater key's two secrets (PowerShell, from the
+repository root; the key pair itself is created for #31):
+
+```powershell
+gh api -X PUT repos/vmedvedevpro/Protocol/environments/release -F "deployment_branch_policy[protected_branches]=false" -F "deployment_branch_policy[custom_branch_policies]=true"
+gh api -X POST repos/vmedvedevpro/Protocol/environments/release/deployment-branch-policies -f name=v* -f type=tag
+Get-Content -Raw "$env:USERPROFILE\.tauri\protocol-updater.key" | gh secret set TAURI_SIGNING_PRIVATE_KEY --env release
+gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD --env release
 ```
 
----
+Check the policy with
+`gh api repos/vmedvedevpro/Protocol/environments/release/deployment-branch-policies`:
+it should list one policy, `v*` of type `tag`. Keep an offline copy of the key
+file and its password: losing either strands every installed copy on its
+version. No other secrets are used.
 
-## Comparison Matrix
+## Runners, caches, time
 
-| Workflow | Platforms | Default Signing | Speed | Retention | Use Case |
-|----------|-----------|----------------|-------|-----------|----------|
-| `build-devtest.yml` | All | OFF | Fast | 14 days | Development |
-| `build-macos.yml` | macOS | Optional | Medium | 30 days | macOS dev |
-| `publish-macos.yml` | macOS | Reuses candidate | Fast | N/A | Exact promotion |
-| `smoke-test-macos-release.yml` | macOS | N/A | Fast | Logs: 30 days | Public verification |
-| `build-windows.yml` | Windows | Optional | Medium | 30 days | Windows dev |
-| `build-linux.yml` | Linux | Optional | Medium | 30 days | Linux dev |
-| `build-test.yml` | All | ON | Slow | 30 days | Pre-release |
+- `windows-2022` (Visual Studio 2022; `windows-latest` moved to VS 2026),
+  `macos-15` (arm64), `ubuntu-22.04` for the Linux packages (oldest supported
+  glibc), `ubuntu-24.04` for the rest. Rust 1.99.1 in every leg.
+- Caches: Rust per leg (`swatinem/rust-cache`), the pnpm store, the LLVM 18
+  archive (Windows), the Vulkan SDK installer. Caches saved by a tag run are
+  only visible to that tag, so release runs usually start cold; pull-request
+  runs reuse their own caches.
+- Line endings are set before checkout (`core.autocrlf true` on Windows, `false`
+  elsewhere): the historical migrations' checksums depend on them, and each leg
+  checks the files it embeds against `released-migration-checksums.json`.
 
----
+## Removed upstream workflows
 
-## Artifact Naming Convention
-
-```
-meetily-{workflow}-{platform}-{target}-{version}
-```
-
-**Examples:**
-- `meetily-devtest-macOS-aarch64-apple-darwin-0.1.3`
-- `meetily-test-windows-x86_64-pc-windows-msvc-0.1.3`
-- `protocol-0.2.22-macos-aarch64`
-
----
-
-## Required Secrets
-
-Secrets depend on the selected workflow. Unsigned macOS candidates,
-`publish-macos.yml`, and the public smoke test require no Apple credentials.
-
-### macOS Publication
-
-- `MACOS_RELEASE_ADMIN_TOKEN` - Fine-grained token limited to this repository
-  with read-only Administration permission. Store it on the `macos-release`
-  environment so publication can verify immutable releases before tag creation.
-
-### macOS Signing
-
-Store these as environment secrets on the `macos-release` environment, which is
-restricted to `main`:
-
-- `APPLE_CERTIFICATE` - Developer ID certificate (base64)
-- `APPLE_CERTIFICATE_PASSWORD` - Certificate password
-- `APPLE_ID` - Apple ID email
-- `APPLE_PASSWORD` - App-specific password
-- `APPLE_TEAM_ID` - Team ID
-
-The temporary keychain password is generated per run and is not a secret input.
-
-### Windows Signing (DigiCert)
-- `SM_HOST` - DigiCert host URL
-- `SM_API_KEY` - API key
-- `SM_CLIENT_CERT_FILE_B64` - Client cert (base64)
-- `SM_CLIENT_CERT_PASSWORD` - Client cert password
-- `SM_CODE_SIGNING_CERT_SHA1_HASH` - Certificate hash
-
-### Application Configuration
-- `MEETILY_RSA_PUBLIC_KEY` - License validation public key
-- `SUPABASE_URL` - Online license verification
-- `SUPABASE_ANON_KEY` - Supabase anonymous key
-
----
-
-## Performance Tips
-
-1. **Use devtest workflow** for routine development (fastest)
-2. **Enable signing** only when necessary (adds 10-15 minutes)
-3. **Test specific platforms** when working on platform-specific code
-4. **Run full builds** (`build-test.yml`) before releases
-5. **Cache is enabled** - subsequent builds are faster
-
----
-
-## Troubleshooting
-
-### Build fails with version error (Windows MSI)
-- Ensure version in `tauri.conf.json` doesn't contain non-numeric pre-release identifiers
-- Use `0.1.3` not `0.1.2-pro-trial`
-
-### Signing fails
-- Verify all required secrets are configured
-- Check secret expiration dates
-- Review workflow logs for specific errors
-
-### Artifacts not available
-- Check build succeeded completely
-- Artifacts expire based on retention period
-- Ensure `upload-artifacts` is enabled
-
-### Workflow not appearing in Actions
-- Verify YAML syntax is valid
-- Check file is in `.github/workflows/` directory
-- Ensure file extension is `.yml` or `.yaml`
-
----
-
-## Support
-
-For issues with workflows:
-1. Check workflow logs in Actions tab
-2. Review this documentation
-3. Check `README_DEVTEST.md` for devtest-specific help
-4. Check `ACCELERATION_GUIDE.md` for GPU/performance info
+`build.yml`, `build-test.yml`, `build-windows.yml`, `build-devtest.yml`,
+`build-linux.yml`, `build-macos.yml`, `publish-macos.yml`,
+`smoke-test-macos-release.yml`, `submit-virustotal.yml`, `pr-main-check.yml` and
+their guides (`ACCELERATION_GUIDE.md`, `README_DEVTEST.md`, `MACOS_RELEASE.md`)
+were Meetily – Actually Free's release process: DigiCert and Apple signing,
+upstream asset names, a separate macOS publication, a VirusTotal upload, and
+secrets this repository does not have. `release.yml` and its legs replace them;
+the macOS bundle checks moved into `release-build-macos.yml`.
