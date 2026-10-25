@@ -15,6 +15,16 @@ function errorText(error: unknown): string {
   }
 }
 
+/**
+ * The message for a transcription model that failed to load because a file
+ * did not match its pinned checksum, or null for any other failure. A native
+ * start says the same: `model_unavailable_message` in recording_commands.rs.
+ */
+export function modelIntegrityMessage(error: unknown): string | null {
+  if (!errorText(error).includes('failed its integrity check')) return null;
+  return 'Recording cannot start: the transcription model failed its integrity check and was deleted. Download it again in Settings.';
+}
+
 /** A readable reason for a failed start, from the backend's error text. */
 export function describeStartError(error: unknown): { title: string; message: string } {
   const raw = errorText(error);
