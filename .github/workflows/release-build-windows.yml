@@ -68,6 +68,7 @@ jobs:
           path: .build-tools/clang+llvm-18.1.8-x86_64-pc-windows-msvc.tar.xz
           key: llvm-18.1.8-${{ hashFiles('frontend/scripts/bootstrap-llvm18.ps1') }}
       - name: Set up LLVM 18
+        timeout-minutes: 15
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
