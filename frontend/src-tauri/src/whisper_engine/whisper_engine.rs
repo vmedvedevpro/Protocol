@@ -11,6 +11,7 @@ use reqwest::Client;
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
 use crate::config::WHISPER_MODEL_CATALOG;
+use crate::model_integrity;
 use super::acceleration::{whisper_context_acceleration_for, WhisperCompiledBackend};
 
 const MAX_INITIAL_PROMPT_TOKENS: usize = 224;
@@ -194,15 +195,17 @@ impl WhisperEngine {
 
         for &(name, filename, size_mb, accuracy, speed, description) in model_configs {
             let model_path = models_dir.join(filename);
+            // Startup checks the exact pinned size only; the SHA-256 is checked
+            // on download and before the first load (see crate::model_integrity).
+            let pinned_size = model_integrity::whisper_model(name).map(|pinned| pinned.size);
             let status = if model_path.exists() {
-                // Check if file size is reasonable (at least 1MB for a valid model)
                 match std::fs::metadata(&model_path) {
                     Ok(metadata) => {
                         let file_size_bytes = metadata.len();
                         let file_size_mb = file_size_bytes / (1024 * 1024);
                         let expected_min_size_mb = (size_mb as f64 * 0.9) as u64; // Allow 90% of expected size as minimum for more accurate corruption detection
 
-                        if file_size_mb >= expected_min_size_mb && file_size_mb > 1 {
+                        if Some(file_size_bytes) == pinned_size {
                             // File size looks good, but let's also check if it's a valid GGML file
                             match self.validate_model_file(&model_path).await {
                                 Ok(_) => ModelStatus::Available,
@@ -276,7 +279,28 @@ impl WhisperEngine {
         Ok(models)
     }
     
+    /// Hashes a model installed before SHA-256 pinning, or changed since its
+    /// download, once before whisper.cpp parses it. A mismatch deletes the file
+    /// and leaves the reason in the model status until the next discovery.
+    async fn verify_before_load(&self, model_name: &str) -> Result<()> {
+        let model_path = match self.available_models.read().await.get(model_name) {
+            Some(info) if matches!(info.status, ModelStatus::Available) => info.path.clone(),
+            // load_model reports every other status.
+            _ => return Ok(()),
+        };
+        let pinned = model_integrity::whisper_model(model_name)
+            .ok_or_else(|| anyhow!("Model {} has no pinned checksum", model_name))?;
+        if let Err(error) = model_integrity::ensure_verified(pinned, &model_path).await {
+            if let Some(model_info) = self.available_models.write().await.get_mut(model_name) {
+                model_info.status = ModelStatus::Error(error.to_string());
+            }
+            return Err(error);
+        }
+        Ok(())
+    }
+
     pub async fn load_model(&self, model_name: &str) -> Result<()> {
+        self.verify_before_load(model_name).await?;
         let models = self.available_models.read().await;
         let model_info = models.get(model_name)
             .ok_or_else(|| anyhow!("Model {} not found", model_name))?;
@@ -893,6 +917,7 @@ impl WhisperEngine {
                 } else {
                     log::warn!("File '{}' does not exist, nothing to delete", model_info.path.display());
                 }
+                model_integrity::clear_mark(&model_info.path);
 
                 // Update model status to Missing
                 {
@@ -915,6 +940,7 @@ impl WhisperEngine {
                 } else {
                     log::warn!("File '{}' does not exist, nothing to delete", model_info.path.display());
                 }
+                model_integrity::clear_mark(&model_info.path);
 
                 // Update model status to Missing
                 {
@@ -956,34 +982,18 @@ impl WhisperEngine {
             *cancel_flag = None;
         }
 
-        // Official ggerganov/whisper.cpp model URLs from Hugging Face
-        let model_url = match model_name {
-            // Standard f16 models
-            "tiny" => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin",
-            "base" => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin",
-            "small" => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin",
-            "medium" => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.bin",
-            "large-v3-turbo" => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin",
-            "large-v3" => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3.bin",
-
-            // Q5_1 quantized models
-            "tiny-q5_1" => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny-q5_1.bin",
-            "base-q5_1" => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base-q5_1.bin",
-            "small-q5_1" => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-q5_1.bin",
-
-            // Q5_0 quantized models
-            "medium-q5_0" => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium-q5_0.bin",
-            "large-v3-turbo-q5_0" => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin",
-            "large-v3-q5_0" => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-q5_0.bin",
-
-            _ => return Err(anyhow!("Unsupported model: {}", model_name))
+        // A pinned commit of ggerganov/whisper.cpp on Hugging Face, and the
+        // size and SHA-256 of each file there: see `crate::model_integrity`.
+        let Some(pinned) = model_integrity::whisper_model(model_name) else {
+            let mut active = self.active_downloads.write().await;
+            active.remove(model_name);
+            return Err(anyhow!("Unsupported model: {}", model_name));
         };
+        let model_url = format!("{}/{}", model_integrity::WHISPER_BASE, pinned.file);
         
         log::info!("Model URL for {}: {}", model_name, model_url);
         
-        // Generate correct filename - all models follow ggml-{model_name}.bin pattern
-        let filename = format!("ggml-{}.bin", model_name);
-        let file_path = self.models_dir.join(&filename);
+        let file_path = self.models_dir.join(pinned.file);
         
         log::info!("Downloading to file path: {}", file_path.display());
         
@@ -1005,7 +1015,7 @@ impl WhisperEngine {
         let client = Client::new();
         
         log::info!("Sending GET request to: {}", model_url);
-        let response = client.get(model_url).send().await
+        let response = client.get(&model_url).send().await
             .map_err(|e| anyhow!("Failed to start download: {}", e))?;
         
         log::info!("Received response with status: {}", response.status());
@@ -1021,8 +1031,16 @@ impl WhisperEngine {
         
         if total_size == 0 {
             log::warn!("Content length is 0 or unknown - download may not show accurate progress");
+        } else if total_size != pinned.size {
+            let error = anyhow!(
+                "{} failed its integrity check: the server sent {} bytes, expected {}",
+                pinned.file, total_size, pinned.size
+            );
+            return Err(self.fail_download(model_name, error).await);
         }
         
+        // The file is rewritten in place; its old marker must not outlive it.
+        model_integrity::clear_mark(&file_path);
         let mut file = fs::File::create(&file_path).await
             .map_err(|e| anyhow!("Failed to create file: {}", e))?;
         
@@ -1035,6 +1053,7 @@ impl WhisperEngine {
         use futures_util::StreamExt;
         let mut stream = response.bytes_stream();
         let mut downloaded = 0u64;
+        let mut integrity = model_integrity::Check::new(pinned);
         let mut last_progress_report = 0u8;
         let mut last_report_time = std::time::Instant::now();
 
@@ -1059,6 +1078,11 @@ impl WhisperEngine {
             let chunk = chunk_result
                 .map_err(|e| anyhow!("Failed to read chunk: {}", e))?;
 
+            if let Err(error) = integrity.update(&chunk) {
+                drop(file);
+                let _ = fs::remove_file(&file_path).await;
+                return Err(self.fail_download(model_name, error).await);
+            }
             file.write_all(&chunk).await
                 .map_err(|e| anyhow!("Failed to write chunk to file: {}", e))?;
 
@@ -1099,7 +1123,17 @@ impl WhisperEngine {
 
         log::info!("Streaming download completed: {} bytes", downloaded);
         
-        // Ensure 100% progress is always reported
+        file.flush().await
+            .map_err(|e| anyhow!("Failed to flush file: {}", e))?;
+        // Close the file before its marker records its modification time.
+        drop(file);
+        if let Err(error) = integrity.finish(&file_path) {
+            log::error!("{}", error);
+            return Err(self.fail_download(model_name, error).await);
+        }
+        model_integrity::mark_verified(pinned, &file_path);
+
+        // Report 100% only after the file matched its pin
         {
             let mut models = self.available_models.write().await;
             if let Some(model_info) = models.get_mut(model_name) {
@@ -1110,9 +1144,6 @@ impl WhisperEngine {
         if let Some(ref callback) = progress_callback {
             callback(100);
         }
-        
-        file.flush().await
-            .map_err(|e| anyhow!("Failed to flush file: {}", e))?;
         
         log::info!("Download completed for model: {}", model_name);
         
@@ -1132,6 +1163,15 @@ impl WhisperEngine {
         }
 
         Ok(())
+    }
+    
+    /// Ends a failed download so the model shows the reason and can be retried.
+    async fn fail_download(&self, model_name: &str, error: anyhow::Error) -> anyhow::Error {
+        if let Some(model_info) = self.available_models.write().await.get_mut(model_name) {
+            model_info.status = ModelStatus::Error(error.to_string());
+        }
+        self.active_downloads.write().await.remove(model_name);
+        error
     }
     
     pub async fn cancel_download(&self, model_name: &str) -> Result<()> {
@@ -1171,5 +1211,46 @@ impl WhisperEngine {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_catalog_model_is_pinned() {
+        for &(name, filename, ..) in WHISPER_MODEL_CATALOG {
+            let pinned = model_integrity::whisper_model(name)
+                .unwrap_or_else(|| panic!("{name} has no pinned checksum"));
+            assert_eq!(pinned.file, filename);
+        }
+    }
+
+    #[tokio::test]
+    async fn load_deletes_a_model_that_does_not_match_its_pin() {
+        let dir = tempfile::tempdir().unwrap();
+        let engine = WhisperEngine::new_with_models_dir(Some(dir.path().to_path_buf())).unwrap();
+        let pinned = model_integrity::whisper_model("tiny-q5_1").unwrap();
+        let path = dir.path().join(pinned.file);
+        // The exact size and a GGML header pass the startup check; the content
+        // is still not the pinned file.
+        let mut file = std::fs::File::create(&path).unwrap();
+        std::io::Write::write_all(&mut file, b"ggml").unwrap();
+        file.set_len(pinned.size).unwrap();
+        drop(file);
+
+        engine.discover_models().await.unwrap();
+        assert!(matches!(
+            engine.available_models.read().await["tiny-q5_1"].status,
+            ModelStatus::Available
+        ));
+        let error = engine.load_model("tiny-q5_1").await.unwrap_err().to_string();
+        assert!(error.contains("failed its integrity check and was deleted"), "{error}");
+        assert!(!path.exists());
+        assert!(matches!(
+            engine.available_models.read().await["tiny-q5_1"].status,
+            ModelStatus::Error(_)
+        ));
     }
 }
