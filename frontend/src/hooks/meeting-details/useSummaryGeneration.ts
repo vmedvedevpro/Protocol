@@ -890,8 +890,9 @@ export function useSummaryGeneration({
     });
   }, [meeting.id, fetchAllTranscripts, buildSummaryTranscriptPayload, processSummary, modelConfig, isModelConfigLoading, selectedTemplate, onOpenModelSettings]);
 
-  // Public API: Regenerate summary from the current saved transcript
-  const handleRegenerateSummary = useCallback(async (customPrompt = '') => {
+  // Public API: Regenerate summary from the current saved transcript.
+  // Resolves true only when the backend accepted a run.
+  const handleRegenerateSummary = useCallback(async (customPrompt = ''): Promise<boolean> => {
     const requestMeetingId = meeting.id;
     const requestGeneration = ++summaryRequestGenerationRef.current;
     const isCurrentRequest = () =>
@@ -899,26 +900,26 @@ export function useSummaryGeneration({
       summaryRequestGenerationRef.current === requestGeneration;
     if (!modelConfig.provider) {
       askForSummaryProvider(onOpenModelSettings);
-      return;
+      return false;
     }
     setSummaryStatus('regenerating');
     setSummaryError(null);
 
     const allTranscripts = await fetchAllTranscripts(meeting.id);
-    if (!isCurrentRequest()) return;
+    if (!isCurrentRequest()) return false;
 
     if (!allTranscripts.length) {
       console.error('No transcripts available for regeneration');
       setSummaryStatus('idle');
       toast.error('No transcripts available for summary regeneration');
-      return;
+      return false;
     }
 
     if (modelConfig.provider === 'ollama') {
       try {
         const endpoint = modelConfig.ollamaEndpoint || null;
         const models = await invokeTauri('get_ollama_models', { endpoint }) as any[];
-        if (!isCurrentRequest()) return;
+        if (!isCurrentRequest()) return false;
 
         const selectedModelAvailable = models?.some((model) =>
           model?.name === modelConfig.model || model?.id === modelConfig.model
@@ -934,10 +935,10 @@ export function useSummaryGeneration({
             duration: 6000,
           });
           onOpenModelSettings?.();
-          return;
+          return false;
         }
       } catch (error) {
-        if (!isCurrentRequest()) return;
+        if (!isCurrentRequest()) return false;
         const errorMessage = error instanceof Error ? error.message : String(error);
         setSummaryStatus('error');
         setSummaryError(errorMessage);
@@ -945,11 +946,11 @@ export function useSummaryGeneration({
           description: errorMessage,
           duration: 5000,
         });
-        return;
+        return false;
       }
     }
 
-    await processSummary({
+    return processSummary({
       ...buildSummaryTranscriptPayload(allTranscripts),
       customPrompt,
       isRegeneration: true,

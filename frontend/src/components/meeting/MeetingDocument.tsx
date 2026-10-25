@@ -64,7 +64,8 @@ export interface MeetingDocumentProps {
   summaryError: string | null;
   statusMessage: (status: SummaryStatus) => string;
   onGenerate: () => void;
-  onRegenerate: (instructions: string) => Promise<void>;
+  /** Resolves true when a run started; false when it was refused before one did. */
+  onRegenerate: (instructions: string) => Promise<boolean>;
   onStop: () => void;
   hasTranscript: boolean;
   transcript: TranscriptLine[];
@@ -296,7 +297,9 @@ function NotesTab({
     setRegenerating(true);
     try {
       await summarySaver.flush();
-      await onRegenerate(instructions.trim());
+      // A refused run (no provider, a model or transcript check) replaced
+      // nothing: keep the dialog, the Edited badge and the replace warning.
+      if (!(await onRegenerate(instructions.trim()))) return;
       setUserEdited(false);
       setRegenerateOpen(false);
     } finally {

@@ -510,9 +510,7 @@ export default function PageContent({
             summaryError={summaryGeneration.summaryError}
             statusMessage={summaryGeneration.getSummaryStatusMessage}
             onGenerate={() => void summaryGeneration.handleGenerateSummary('')}
-            onRegenerate={async (instructions) => {
-              await summaryGeneration.handleRegenerateSummary(instructions);
-            }}
+            onRegenerate={summaryGeneration.handleRegenerateSummary}
             onStop={summaryGeneration.handleStopGeneration}
             hasTranscript={hasTranscript}
             transcript={transcriptSegments}

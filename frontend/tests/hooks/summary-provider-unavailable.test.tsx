@@ -79,7 +79,9 @@ test('generating without a provider asks for one and opens Model Settings', asyn
 });
 
 test('regenerating without a provider asks for one before touching the saved summary', async () => {
-  await act(async () => { await summary.handleRegenerateSummary(''); });
+  let started = true;
+  await act(async () => { started = await summary.handleRegenerateSummary(''); });
+  expect(started).toBe(false);
   expect(errors).toHaveLength(1);
   expect(errors[0][0]).toBe('Choose a summary provider');
   expect(settingsOpened).toBe(1);

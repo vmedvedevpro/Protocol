@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { act, create, ReactTestRenderer } from 'react-test-renderer';
+import { act, create, ReactTestInstance, ReactTestRenderer } from 'react-test-renderer';
 import { afterEach, beforeEach, expect, mock, test } from 'bun:test';
 
 // The meeting page with a settings row saved for a provider the app no longer
@@ -119,32 +119,40 @@ function ConfigProbe() {
 }
 // Stands in for app/meeting-details/page.tsx: auto-summary is armed once after
 // a recording and disarmed through onAutoGenerateComplete.
-function MeetingPage(_: { tick?: number }) {
+type PageProps = { summary?: any; edited?: boolean; tick?: number };
+function MeetingPage({ summary = null, edited = false }: PageProps) {
   const [armed, setArmed] = useState(false);
   armAutoSummary = () => setArmed(true);
   return (
     <PageContent
       meeting={meeting}
-      summaryData={null}
+      summaryData={summary}
+      summaryUserEdited={edited}
       isPostCallRecording
       shouldAutoGenerate={armed}
       onAutoGenerateComplete={() => setArmed(false)}
     />
   );
 }
-const tree = (tick = 0) => <ConfigProvider><ConfigProbe /><MeetingPage tick={tick} /></ConfigProvider>;
+const tree = (props: PageProps = {}) => <ConfigProvider><ConfigProbe /><MeetingPage {...props} /></ConfigProvider>;
 const prompts = () => toasts.filter((toast) => toast.message === 'Choose a summary provider');
+const textOf = (node: ReactTestInstance | string): string => (typeof node === 'string' ? node : node.children.map(textOf).join(''));
+const button = (label: string) => root!.root.find((node) => node.type === 'button' && textOf(node).trim() === label);
+const pageText = () => textOf(root!.root);
 
 let root: ReactTestRenderer | undefined;
-beforeEach(async () => {
+async function render(props: PageProps = {}) {
+  await act(async () => { root = create(tree(props)); });
+}
+beforeEach(() => {
   calls = []; toasts = [];
   sessionStorage.clear();
-  await act(async () => { root = create(tree()); });
-  await act(async () => armAutoSummary());
 });
 afterEach(async () => { await act(async () => root?.unmount()); });
 
 test('a refused auto-summary does not start when a provider is selected but not saved', async () => {
+  await render();
+  await act(async () => armAutoSummary());
   expect(prompts()).toHaveLength(1);
   // What Model Settings does on a provider change, before Save.
   await act(async () => setModelConfig((prev) => ({ ...prev, provider: 'claude', model: 'claude-3-5-sonnet-latest' })));
@@ -154,9 +162,24 @@ test('a refused auto-summary does not start when a provider is selected but not 
 });
 
 test('re-renders after the refusal add no prompt and no summary call', async () => {
-  for (let tick = 1; tick <= 5; tick++) await act(async () => root!.update(tree(tick)));
+  await render();
+  await act(async () => armAutoSummary());
+  for (let tick = 1; tick <= 5; tick++) await act(async () => root!.update(tree({ tick })));
   expect(prompts()).toHaveLength(1);
   expect(prompts()[0].options.id).toBe('choose-summary-provider');
   expect(calls).not.toContain('api_get_meeting_transcripts');
   expect(calls).not.toContain('api_process_transcript');
+});
+
+test('a refused regeneration keeps the dialog, the Edited badge and the replace warning', async () => {
+  await render({ summary: { markdown: '## Summary\n- Ship on Friday, as edited by hand' }, edited: true });
+  expect(pageText()).toContain('Edited');
+  await act(async () => button('Regenerate').props.onClick());
+  await act(async () => button('Replace and regenerate').props.onClick());
+  expect(prompts()).toHaveLength(1);
+  expect(calls).not.toContain('api_process_transcript');
+  expect(pageText()).toContain('Regenerate the summary');
+  expect(pageText()).toContain('Regenerating replaces those edits.');
+  expect(pageText()).toContain('Edited');
+  expect(button('Replace and regenerate')).toBeDefined();
 });
