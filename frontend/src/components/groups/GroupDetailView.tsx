@@ -255,7 +255,7 @@ export function GroupDetailView({ groupId }: { groupId: string }) {
               </>
             ) : (
               <>
-                <span className="text-af-text-3">No regular time. Meetily suggests one after a few meetings at the same time, or you can set it.</span>
+                <span className="text-af-text-3">No regular time. Protocol suggests one after a few meetings at the same time, or you can set it.</span>
                 <button
                   type="button"
                   onClick={() => openGroupEditor({ groupId })}

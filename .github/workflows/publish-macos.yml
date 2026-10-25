@@ -125,7 +125,7 @@ jobs:
           ARTIFACT_ID=$(jq -r '.artifacts[0].id' <<< "$ARTIFACTS_JSON")
           ARTIFACT_DIGEST=$(jq -r '.artifacts[0].digest' <<< "$ARTIFACTS_JSON")
           test "$(jq -r '.artifacts[0].expired' <<< "$ARTIFACTS_JSON")" = "false"
-          [[ "$ARTIFACT_NAME" =~ ^meetily-actually-free-[0-9]+\.[0-9]+\.[0-9]+-macos-aarch64$ ]]
+          [[ "$ARTIFACT_NAME" =~ ^protocol-[0-9]+\.[0-9]+\.[0-9]+-macos-aarch64$ ]]
           [[ "$ARTIFACT_ID" =~ ^[0-9]+$ ]]
           [[ "$ARTIFACT_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
 
@@ -188,7 +188,7 @@ jobs:
           test "$RUN_ATTEMPT" = "$CANDIDATE_RUN_ATTEMPT"
           test "$NOTARIZED" = "true" || test "$NOTARIZED" = "false"
           [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]
-          test "$(basename "$DMG_PATH")" = "Meetily-Actually-Free_${VERSION}_aarch64.dmg"
+          test "$(basename "$DMG_PATH")" = "Protocol_${VERSION}_aarch64.dmg"
           test "$(awk '{print $2}' "$SUM_PATH")" = "$(basename "$DMG_PATH")"
           DMG_SHA256=$(sha256sum "$DMG_PATH" | awk '{print $1}')
           test "$(awk '{print $1}' "$SUM_PATH")" = "$DMG_SHA256"
@@ -254,9 +254,9 @@ jobs:
         shell: bash
         run: |
           {
-            echo "## Meetily for macOS"
+            echo "## Protocol for macOS"
             echo
-            echo "Meetily - Actually Free is a privacy-first meeting assistant with local recording, transcription, and summarization."
+            echo "Protocol is a local-first meeting recorder with on-device transcription, speaker labels, and summaries."
             echo
             echo "### Requirements"
             echo
@@ -265,9 +265,9 @@ jobs:
             echo
             echo "### Install"
             echo
-            echo "1. Download \`Meetily-Actually-Free_${VERSION}_aarch64.dmg\`."
-            echo "2. Open it and drag Meetily - Actually Free to Applications."
-            echo "3. Open Meetily from Applications."
+            echo "1. Download \`Protocol_${VERSION}_aarch64.dmg\`."
+            echo "2. Open it and drag Protocol to Applications."
+            echo "3. Open Protocol from Applications."
             if [[ "$NOTARIZED" != "true" ]]; then
               echo
               echo "> **First launch:** This release is not Apple-notarized. Control-click the app in Applications, choose **Open**, then confirm **Open** when macOS prompts you."
@@ -332,7 +332,7 @@ jobs:
             "repos/$GITHUB_REPOSITORY/releases" \
             -f "tag_name=$RELEASE_TAG" \
             -f "target_commitish=$TARGET_COMMIT" \
-            -f "name=Meetily - Actually Free v${VERSION} for macOS" \
+            -f "name=Protocol v${VERSION} for macOS" \
             -f "body=$(cat release-notes-macos.md)" \
             -F draft=true \
             -F "prerelease=$PREVIEW" \

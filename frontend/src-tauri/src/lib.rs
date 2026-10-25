@@ -35,7 +35,6 @@ macro_rules! perf_trace {
 // Declare audio module
 pub mod analytics;
 pub mod api;
-pub mod app_update;
 pub mod audio;
 pub mod claude_cli;
 pub mod config;
@@ -80,25 +79,6 @@ static RECORDING_FLAG: AtomicBool = AtomicBool::new(false);
 // Frontend overwrites on startup from OS locale (en if English, else auto).
 static LANGUAGE_PREFERENCE: std::sync::LazyLock<StdMutex<String>> =
     std::sync::LazyLock::new(|| StdMutex::new("en".to_string()));
-
-#[tauri::command]
-fn get_check_updates_on_launch() -> bool {
-    std::fs::read_to_string(paths::install_data_root().join("check-updates-on-launch.txt"))
-        .map(|value| matches!(value.trim().to_ascii_lowercase().as_str(), "yes" | "true" | "1"))
-        .unwrap_or(false)
-}
-
-#[tauri::command]
-fn set_check_updates_on_launch(enabled: bool) -> Result<(), String> {
-    let data_root = paths::install_data_root();
-    std::fs::create_dir_all(&data_root)
-        .map_err(|error| format!("Failed to create app data directory: {error}"))?;
-    std::fs::write(
-        data_root.join("check-updates-on-launch.txt"),
-        if enabled { "yes\n" } else { "no\n" },
-    )
-    .map_err(|error| format!("Failed to save update preference: {error}"))
-}
 
 #[derive(Debug, Deserialize)]
 struct RecordingArgs {
@@ -477,9 +457,6 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
-        .plugin(tauri_plugin_process::init())
-        .manage(app_update::UpdateDownloadState::default())
         .manage(whisper_engine::parallel_commands::ParallelProcessorState::new())
         .manage(Arc::new(RwLock::new(
             None::<notifications::manager::NotificationManager<tauri::Wry>>,
@@ -724,16 +701,9 @@ pub fn run() {
             whisper_engine::parallel_commands::prepare_audio_chunks,
             whisper_engine::parallel_commands::test_parallel_processing_setup,
             get_audio_devices,
-            get_check_updates_on_launch,
-            set_check_updates_on_launch,
-            app_update::download_app_update,
-            app_update::cancel_app_update_download,
-            app_update::install_downloaded_app_update,
             crash_report::get_pending_crash_report,
             crash_report::create_crash_report_zip,
             crash_report::dismiss_pending_crash_report,
-            crash_report::prepare_for_app_restart,
-            crash_report::resume_crash_session,
             trigger_microphone_permission,
             onnx_runtime::check_transcription_runtime,
             start_recording_with_devices,

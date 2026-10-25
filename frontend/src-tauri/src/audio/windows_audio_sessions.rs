@@ -129,7 +129,7 @@ pub fn start_monitoring<R: Runtime>(app: AppHandle<R>, captured_device: String) 
             let warning = AudioRouteWarning {
                 title: "Check Zoom's speaker output".to_string(),
                 message: format!(
-                    "Meetily is capturing \"{}\". Windows reports an active Zoom session and sound on \"{}\". If Zoom is missing from the recording, change Zoom's Speaker to the captured device, or stop recording and select Zoom's output under Settings > Recording > System Audio.",
+                    "Protocol is capturing \"{}\". Windows reports an active Zoom session and sound on \"{}\". If Zoom is missing from the recording, change Zoom's Speaker to the captured device, or stop recording and select Zoom's output under Settings > Recording > System Audio.",
                     captured_device, route.device_name
                 ),
             };

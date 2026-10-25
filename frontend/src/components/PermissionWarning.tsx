@@ -36,18 +36,18 @@ export function PermissionWarning({
     );
 
   const title = !hasMicrophone && !hasSystemAudio
-    ? 'Meetily can’t hear your microphone or computer audio'
+    ? 'Protocol can’t hear your microphone or computer audio'
     : !hasMicrophone
-      ? 'Meetily can’t hear your microphone'
-      : 'Meetily can’t record computer audio';
+      ? 'Protocol can’t hear your microphone'
+      : 'Protocol can’t record computer audio';
 
   // What to do on macOS depends on what TCC reports; 'granted' with no output
   // device needs no permission advice.
   const macOSSystemAudioHint = {
-    denied: ' Audio Capture is turned off for Meetily. Turn it on in System Settings, then check again.',
-    not_determined: ' macOS hasn’t confirmed access yet. Click Check again and allow Meetily to record system audio. If you already allowed it, restart Meetily or play some audio and check again.',
+    denied: ' Audio Capture is turned off for Protocol. Turn it on in System Settings, then check again.',
+    not_determined: ' macOS hasn’t confirmed access yet. Click Check again and allow Protocol to record system audio. If you already allowed it, restart Protocol or play some audio and check again.',
     granted: '',
-    unknown: ' On macOS, allow Audio Capture for Meetily, play some audio, then check again. Restart Meetily if it stays silent.',
+    unknown: ' On macOS, allow Audio Capture for Protocol, play some audio, then check again. Restart Protocol if it stays silent.',
   }[systemAudioPermission];
 
   return (
@@ -57,7 +57,7 @@ export function PermissionWarning({
       <AlertDescription className="space-y-2 text-af-text-2">
         {!hasMicrophone && (
           <p>
-            No microphone was found. Check that one is connected, that Meetily is allowed to use it in your system settings, and that no other
+            No microphone was found. Check that one is connected, that Protocol is allowed to use it in your system settings, and that no other
             app has taken it over.
           </p>
         )}

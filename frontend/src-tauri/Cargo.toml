@@ -1,9 +1,9 @@
 [package]
 name = "meetily"
 version = "0.2.22"
-description = "Meetily - Actually Free: privacy-first AI meeting assistant"
-authors = ["TylerBuza"]
-repository = "https://github.com/TylerBuza/Meetily-ActuallyFree"
+description = "Protocol: a local-first meeting recorder and transcriber"
+authors = ["vmedvedevpro"]
+repository = "https://github.com/vmedvedevpro/Protocol"
 edition = "2021"
 rust-version = "1.77.2"
 
@@ -159,14 +159,12 @@ tauri-plugin-fs = "2.5.1"
 tauri-plugin-dialog = "2.7.2"
 tauri-plugin-store = "2.4.4"
 tauri-plugin-notification = "2.3.3"
-tauri-plugin-updater = "2.10.1"
-tauri-plugin-process = "2.3.1"
 
 # Desktop-only single instance guard
 [target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
 tauri-plugin-single-instance = "=2.3.7"
 
-# Windows-only: native toast notifications attributed to Meetily (not PowerShell).
+# Windows-only: native toast notifications attributed to Protocol (not PowerShell).
 # tauri-winrt-notification is already used transitively by tauri-plugin-notification;
 # winreg registers our AppUserModelID so the toast shows our name + icon.
 [target.'cfg(windows)'.dependencies]

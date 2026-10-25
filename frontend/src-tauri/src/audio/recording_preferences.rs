@@ -6,9 +6,9 @@
 //!
 //! | OS      | Default location                                  |
 //! |---------|---------------------------------------------------|
-//! | Windows | `%USERPROFILE%\Music\meetily-recordings`           |
-//! | macOS   | `~/Movies/meetily-recordings`                      |
-//! | Linux   | `~/Videos/meetily-recordings` (or Documents)       |
+//! | Windows | `%USERPROFILE%\Music\protocol-recordings`           |
+//! | macOS   | `~/Movies/protocol-recordings`                      |
+//! | Linux   | `~/Videos/protocol-recordings` (or Documents)       |
 //!
 //! Layout is `<folder>/<sanitized meeting name>/audio.mp4`, alongside
 //! `metadata.json` and `transcripts.json`.
@@ -145,36 +145,36 @@ impl Default for RecordingPreferences {
 pub fn get_default_recordings_folder() -> PathBuf {
     #[cfg(target_os = "windows")]
     {
-        // Windows: %USERPROFILE%\Music\meetily-recordings
+        // Windows: %USERPROFILE%\Music\protocol-recordings
         if let Some(music_dir) = dirs::audio_dir() {
-            music_dir.join("meetily-recordings")
+            music_dir.join("protocol-recordings")
         } else {
             // Fallback to Documents if Music folder is not available
             dirs::document_dir()
                 .unwrap_or_else(|| PathBuf::from("."))
-                .join("meetily-recordings")
+                .join("protocol-recordings")
         }
     }
 
     #[cfg(target_os = "macos")]
     {
-        // macOS: ~/Movies/meetily-recordings
+        // macOS: ~/Movies/protocol-recordings
         if let Some(movies_dir) = dirs::video_dir() {
-            movies_dir.join("meetily-recordings")
+            movies_dir.join("protocol-recordings")
         } else {
             // Fallback to Documents if Movies folder is not available
             dirs::document_dir()
                 .unwrap_or_else(|| PathBuf::from("."))
-                .join("meetily-recordings")
+                .join("protocol-recordings")
         }
     }
 
     #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     {
-        // Linux/Others: ~/Documents/meetily-recordings
+        // Linux/Others: ~/Documents/protocol-recordings
         dirs::document_dir()
             .unwrap_or_else(|| PathBuf::from("."))
-            .join("meetily-recordings")
+            .join("protocol-recordings")
     }
 }
 
@@ -257,7 +257,7 @@ fn reject_path_inside_bundle(path: &Path, bundle_root: &Path) -> Result<()> {
 
     if candidate == bundle || candidate.starts_with(&bundle) {
         return Err(anyhow!(
-            "The recordings folder cannot be inside the Meetily app bundle. Choose a folder in Movies, Music, Documents, or another writable location."
+            "The recordings folder cannot be inside the Protocol app bundle. Choose a folder in Movies, Music, Documents, or another writable location."
         ));
     }
 

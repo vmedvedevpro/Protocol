@@ -151,7 +151,7 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
   useEffect(() => {
     invoke('is_recording').catch((error) => {
       console.error('Tauri initialization error:', error);
-      toast.error('Recording is unavailable', { description: 'Restart Meetily. If this keeps happening, check the logs.' });
+      toast.error('Recording is unavailable', { description: 'Restart Protocol. If this keeps happening, check the logs.' });
     });
   }, []);
 

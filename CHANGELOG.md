@@ -1,5 +1,23 @@
 # Changelog
 
+## Protocol — unreleased
+
+Protocol is forked from Meetily – Actually Free at upstream commit `3130d16`
+(source version 0.2.22). Every section below this one is upstream history; its
+issue and PR numbers refer to
+[TylerBuza/Meetily-ActuallyFree](https://github.com/TylerBuza/Meetily-ActuallyFree).
+
+- Rename the app to **Protocol** with its own identifier
+  (`io.github.vmedvedevpro.protocol`), install folder, fallback data folder,
+  recordings folder, installer registry key, and Windows notification identity,
+  so it runs beside an installed Meetily or Meetily – Actually Free without
+  sharing data, settings, or the single-instance lock.
+- Remove the in-app updater: the updater and process plugins, update checks,
+  the onboarding update question, the tray and About update actions, and updater
+  signing in the Windows packaging script, release verifier, and workflows.
+- Point About, onboarding, crash reports, and the CUDA setup prompt at this
+  repository.
+
 ## Unreleased
 
 - macOS stability candidate (0.2.22, not yet published): fix idle tap startup,

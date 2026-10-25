@@ -505,7 +505,7 @@ fn explain_cli_error(detail: &str) -> String {
     }
     if lower.contains("unknown option") {
         return format!(
-            "This Claude Code CLI is too old for Meetily ({}). Run `claude update`, then try again.",
+            "This Claude Code CLI is too old for Protocol ({}). Run `claude update`, then try again.",
             detail
         );
     }

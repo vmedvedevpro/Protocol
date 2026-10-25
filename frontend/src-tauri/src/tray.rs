@@ -27,7 +27,7 @@ pub fn create_tray<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
         // the menu and never the app. Reserve left-click for "open the window"
         // and leave the menu on right-click, which is what people expect.
         .show_menu_on_left_click(false)
-        .tooltip("Meetily - Actually Free")
+        .tooltip("Protocol")
         .icon(app.default_window_icon().unwrap().clone())
         .on_menu_event(|app, event| handle_menu_event(app, event.id.as_ref()))
         .on_tray_icon_event(|tray, event| {
@@ -64,7 +64,6 @@ fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, item_id: &str) {
                 let _ = window.eval("window.location.assign('/settings')");
             }
         }
-        "check_updates" => check_updates_handler(app),
         "quit" => app.exit(0),
         _ => {}
     }
@@ -203,15 +202,6 @@ fn stop_recording_handler<R: Runtime>(app: &AppHandle<R>) {
             }
         }
     });
-}
-
-fn check_updates_handler<R: Runtime>(app: &AppHandle<R>) {
-    focus_main_window(app);
-    if let Some(window) = app.get_webview_window("main") {
-        let _ = window.eval(
-            "window.dispatchEvent(new CustomEvent('check-updates-from-tray'))"
-        );
-    }
 }
 
 pub fn update_tray_menu<R: Runtime>(app: &AppHandle<R>) {
@@ -386,18 +376,10 @@ fn build_menu<R: Runtime>(
         }
     }
 
-    builder = builder
+    builder
         .item(&PredefinedMenuItem::separator(app)?)
         .item(&MenuItemBuilder::with_id("open_window", "Open Main Window").build(app)?)
-        .item(&MenuItemBuilder::with_id("settings", "Settings").build(app)?);
-
-    #[cfg(not(target_os = "macos"))]
-    {
-        builder = builder
-            .item(&MenuItemBuilder::with_id("check_updates", "Check for Updates").build(app)?);
-    }
-
-    builder
+        .item(&MenuItemBuilder::with_id("settings", "Settings").build(app)?)
         .item(&PredefinedMenuItem::separator(app)?)
         .item(&MenuItemBuilder::with_id("quit", "Quit").build(app)?)
         .build()

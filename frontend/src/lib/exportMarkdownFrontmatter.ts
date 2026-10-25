@@ -58,7 +58,7 @@ export function buildFrontmatter(input: FrontmatterInput): string {
     }
   }
   lines.push('tags:');
-  lines.push('  - meetily');
+  lines.push('  - protocol');
   lines.push('---');
   return lines.join('\n');
 }

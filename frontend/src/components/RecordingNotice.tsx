@@ -70,7 +70,7 @@ export function RecordingNotice({ onAcknowledged }: { onAcknowledged: () => void
         <div className="space-y-3 text-sm text-af-text-2">
           <p>Tell everyone involved that they are being recorded before you start, and obtain any consent required by applicable law.</p>
           <p>Recording laws vary by location and situation. You are responsible for following the laws and workplace policies that apply to you and the participants.</p>
-          <p>Meetily does not notify participants or obtain their consent for you.</p>
+          <p>Protocol does not notify participants or obtain their consent for you.</p>
         </div>
         <label className="flex items-start gap-2 text-xs text-af-text-2">
           <Checkbox aria-label="Permanently acknowledge — don’t show this notice again" checked={remember} disabled={saving} onCheckedChange={checked => setRemember(checked === true)} />

@@ -4,7 +4,6 @@ param(
   [string]$CudaToolkit,
   [switch]$SkipFrontend,
   [switch]$AllowUnsigned,
-  [string]$UpdaterPrivateKeyPath,
   [switch]$PackageOnly,
   [switch]$BootstrapperOnly
 )
@@ -24,18 +23,6 @@ if (-not $env:DIGICERT_KEYPAIR_ALIAS -and -not $AllowUnsigned) {
 }
 if ($AllowUnsigned -and -not $env:DIGICERT_KEYPAIR_ALIAS) {
   Write-Warning "Building an explicitly unsigned local-test installer"
-}
-
-if (-not $env:TAURI_SIGNING_PRIVATE_KEY -and -not $env:TAURI_SIGNING_PRIVATE_KEY_PATH) {
-  if (-not $UpdaterPrivateKeyPath) {
-    $UpdaterPrivateKeyPath = Join-Path $repo ".build-tools\updater\meetily.key"
-  }
-  $updaterPasswordPath = Join-Path (Split-Path $UpdaterPrivateKeyPath -Parent) "meetily.password"
-  if (-not (Test-Path $UpdaterPrivateKeyPath) -or -not (Test-Path $updaterPasswordPath)) {
-    throw "Tauri updater signing key or password is missing. Generate it before building a release."
-  }
-  $env:TAURI_SIGNING_PRIVATE_KEY = Get-Content $UpdaterPrivateKeyPath -Raw
-  $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = (Get-Content $updaterPasswordPath -Raw).Trim()
 }
 
 # Import vcvars64 into this PowerShell process.
@@ -72,12 +59,11 @@ function Build-VulkanProbe([string]$Sdk) {
 
 if ($BootstrapperOnly) {
   $dist = Join-Path $repo "dist"
-  $engineOutput = Join-Path $dist "Meetily-ActuallyFree-${appVersion}-x64-universal-updater.exe"
-  $updaterSignatureOutput = "$engineOutput.sig"
-  $output = Join-Path $dist "Meetily-ActuallyFree-${appVersion}-x64-universal-setup.exe"
+  $engineOutput = Join-Path $dist "Protocol-${appVersion}-x64-universal-engine.exe"
+  $output = Join-Path $dist "Protocol-${appVersion}-x64-universal-setup.exe"
   $cpuBinary = Join-Path $repo "target\variants\cpu\release\meetily.exe"
 
-  foreach ($required in @($engineOutput, $updaterSignatureOutput, $cpuBinary)) {
+  foreach ($required in @($engineOutput, $cpuBinary)) {
     if (-not (Test-Path -LiteralPath $required)) {
       throw "Bootstrapper-only input is missing: $required"
     }
@@ -103,24 +89,9 @@ if ($BootstrapperOnly) {
   & $sign -FilePath $output
   if ($LASTEXITCODE -ne 0) { throw "Frameless installer signing failed" }
 
-  $latestPath = Join-Path $dist "latest.json"
-  if (-not (Test-Path -LiteralPath $latestPath)) {
-    throw "Updater metadata is missing: $latestPath"
-  }
-  $latestMetadata = Get-Content $latestPath -Raw | ConvertFrom-Json
-  $latestPlatform = $latestMetadata.platforms.'windows-x86_64'
-  $expectedUpdaterUrl = "https://github.com/TylerBuza/Meetily-ActuallyFree/releases/download/v${appVersion}/$(Split-Path $engineOutput -Leaf)"
-  $expectedUpdaterSignature = (Get-Content $updaterSignatureOutput -Raw).Trim()
-  if ($latestMetadata.version -ne $appVersion -or
-      $latestPlatform.url -ne $expectedUpdaterUrl -or
-      $latestPlatform.signature -ne $expectedUpdaterSignature) {
-    throw "Existing latest.json does not match the current updater engine"
-  }
   $checksums = @(
     "{0}  {1}" -f (Get-FileHash $output -Algorithm SHA256).Hash.ToLowerInvariant(), (Split-Path $output -Leaf)
     "{0}  {1}" -f (Get-FileHash $engineOutput -Algorithm SHA256).Hash.ToLowerInvariant(), (Split-Path $engineOutput -Leaf)
-    "{0}  {1}" -f (Get-FileHash $updaterSignatureOutput -Algorithm SHA256).Hash.ToLowerInvariant(), (Split-Path $updaterSignatureOutput -Leaf)
-    "{0}  latest.json" -f (Get-FileHash $latestPath -Algorithm SHA256).Hash.ToLowerInvariant()
   ) -join "`n"
   [System.IO.File]::WriteAllText(
     (Join-Path $dist "SHA256SUMS.txt"),
@@ -259,7 +230,7 @@ $env:CARGO_TARGET_DIR = $cpuTarget
 if ($LASTEXITCODE -ne 0) { throw "NSIS overall-progress plugin build failed" }
 Push-Location $frontend
 try {
-  & node "node_modules\@tauri-apps\cli\tauri.js" build --config "src-tauri\tauri.updater.conf.json" -- --no-default-features --features custom-protocol
+  & node "node_modules\@tauri-apps\cli\tauri.js" build --config "src-tauri\tauri.universal.conf.json" -- --no-default-features --features custom-protocol
   if ($LASTEXITCODE -ne 0) { throw "Universal Tauri bundle failed" }
 } finally {
   Pop-Location
@@ -268,21 +239,15 @@ try {
   Remove-Item $universalMarker -Force -ErrorAction SilentlyContinue
 }
 
-$installer = Join-Path $cpuTarget "release\bundle\nsis\Meetily - Actually Free_${appVersion}_x64-setup.exe"
+$installer = Join-Path $cpuTarget "release\bundle\nsis\Protocol_${appVersion}_x64-setup.exe"
 if (-not (Test-Path $installer)) { throw "Universal installer missing: $installer" }
 $dist = Join-Path $repo "dist"
 New-Item -ItemType Directory -Force -Path $dist | Out-Null
-$engineOutput = Join-Path $dist "Meetily-ActuallyFree-${appVersion}-x64-universal-updater.exe"
-$output = Join-Path $dist "Meetily-ActuallyFree-${appVersion}-x64-universal-setup.exe"
-Remove-Item "$output.sig" -Force -ErrorAction SilentlyContinue
+# The engine is the plain Tauri NSIS installer that the bootstrapper embeds;
+# it is kept in dist so -BootstrapperOnly can rewrap it without a rebuild.
+$engineOutput = Join-Path $dist "Protocol-${appVersion}-x64-universal-engine.exe"
+$output = Join-Path $dist "Protocol-${appVersion}-x64-universal-setup.exe"
 Copy-Item $installer $engineOutput -Force
-
-$updaterSignatureSource = "$installer.sig"
-if (-not (Test-Path $updaterSignatureSource)) { throw "Tauri updater signature was not generated" }
-
-$installerName = Split-Path $engineOutput -Leaf
-$updaterSignatureOutput = "$engineOutput.sig"
-Copy-Item $updaterSignatureSource $updaterSignatureOutput -Force
 
 & (Join-Path $PSScriptRoot "build-installer-bootstrapper.ps1") `
   -Payload $installer `
@@ -298,38 +263,9 @@ if ($LASTEXITCODE -ne 0 -or -not (Test-Path $output)) {
 & $sign -FilePath $output
 if ($LASTEXITCODE -ne 0) { throw "Frameless installer signing failed" }
 
-$signature = (Get-Content $updaterSignatureOutput -Raw).Trim()
-# Keep in-app updater notes aligned with this version's published release notes.
-# A future version without a notes file must not inherit an older release's claims.
-$notesPath = Join-Path $repo ("docs\RELEASE_V{0}.md" -f $appVersion.Replace('.', ''))
-$releaseNotes = if (Test-Path $notesPath) {
-    # Get-Content attaches PowerShell provider metadata to the string. Windows
-    # PowerShell can serialize that as an object (including filesystem details),
-    # but the updater requires notes to be plain text.
-    [System.IO.File]::ReadAllText($notesPath)
-} else { "Meetily $appVersion. See https://github.com/TylerBuza/Meetily-ActuallyFree/releases/tag/v$appVersion for release notes." }
-$latest = [ordered]@{
-  version = $appVersion
-    notes = $releaseNotes
-  pub_date = [DateTime]::UtcNow.ToString("o")
-  platforms = [ordered]@{
-    "windows-x86_64" = [ordered]@{
-      signature = $signature
-      url = "https://github.com/TylerBuza/Meetily-ActuallyFree/releases/download/v${appVersion}/${installerName}"
-    }
-  }
-}
-[System.IO.File]::WriteAllText(
-  (Join-Path $dist "latest.json"),
-  ($latest | ConvertTo-Json -Depth 5) + "`n",
-  [System.Text.UTF8Encoding]::new($false)
-)
-
 $checksums = @(
   "{0}  {1}" -f (Get-FileHash $output -Algorithm SHA256).Hash.ToLowerInvariant(), (Split-Path $output -Leaf)
   "{0}  {1}" -f (Get-FileHash $engineOutput -Algorithm SHA256).Hash.ToLowerInvariant(), (Split-Path $engineOutput -Leaf)
-  "{0}  {1}" -f (Get-FileHash $updaterSignatureOutput -Algorithm SHA256).Hash.ToLowerInvariant(), (Split-Path $updaterSignatureOutput -Leaf)
-  "{0}  latest.json" -f (Get-FileHash (Join-Path $dist "latest.json") -Algorithm SHA256).Hash.ToLowerInvariant()
 ) -join "`n"
 [System.IO.File]::WriteAllText(
   (Join-Path $dist "SHA256SUMS.txt"),
@@ -340,5 +276,5 @@ $checksums = @(
 Write-Host ""
 Write-Host "Universal installer ready: $output"
 Get-Item $output | Select-Object FullName, Length, LastWriteTime
-Get-Item $engineOutput, $updaterSignatureOutput, (Join-Path $dist "latest.json"), (Join-Path $dist "SHA256SUMS.txt") |
+Get-Item $engineOutput, (Join-Path $dist "SHA256SUMS.txt") |
   Select-Object FullName, Length, LastWriteTime

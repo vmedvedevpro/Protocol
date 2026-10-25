@@ -25,7 +25,7 @@ import { ConfigProvider, useConfig } from '@/contexts/ConfigContext'
 import { OnboardingProvider } from '@/contexts/OnboardingContext'
 import { OptionalModelDownloadsProvider } from '@/contexts/OptionalModelDownloadsContext'
 import { DownloadProgressToastProvider } from '@/components/shared/DownloadProgressToast'
-import { UpdateCheckProvider } from '@/components/UpdateCheckProvider'
+import { CudaReconfigurationNotice } from '@/components/CudaReconfigurationNotice'
 import { RecordingPostProcessingProvider } from '@/contexts/RecordingPostProcessingProvider'
 import { ImportDialogProvider } from '@/contexts/ImportDialogContext'
 import { isAudioExtension, getAudioFormatsDisplayList } from '@/constants/audioFormats'
@@ -340,7 +340,7 @@ export default function RootLayout({
 
         // In-app prompt with a one-click start action.
         toast(`${app} meeting detected`, {
-          description: 'Capture mic + system audio in Meetily.',
+          description: 'Capture mic + system audio in Protocol.',
           duration: 20000,
           action: {
             label: 'Start recording',
@@ -523,7 +523,8 @@ export default function RootLayout({
                         <TooltipProvider>
                           <AppTooltipGuard />
                           <RecordingPostProcessingProvider>
-                            <UpdateCheckProvider onboardingCompleted={onboardingCompleted}>
+                            <>
+                              <CudaReconfigurationNotice onboardingCompleted={onboardingCompleted} />
                               <ImportDialogProvider onOpen={handleOpenImportDialog}>
                                 {onboardingCompleted && !showOnboarding && <GlobalSearchDialog />}
                                 {onboardingCompleted && !showOnboarding && <RouteWarmup />}
@@ -557,7 +558,7 @@ export default function RootLayout({
                                   />
                                 )}
                               </ImportDialogProvider>
-                            </UpdateCheckProvider>
+                            </>
                           </RecordingPostProcessingProvider>
                         </TooltipProvider>
                       </SidebarProvider>

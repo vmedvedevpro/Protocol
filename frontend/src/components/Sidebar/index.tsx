@@ -331,7 +331,7 @@ const Sidebar: React.FC = () => {
             <DialogTrigger asChild>
               <button
                 type="button"
-                aria-label="About Meetily"
+                aria-label="About Protocol"
                 tabIndex={expanded ? undefined : -1}
                 aria-hidden={expanded ? undefined : true}
                 className={cn(
@@ -341,13 +341,13 @@ const Sidebar: React.FC = () => {
                 )}
               >
                 <span className="whitespace-nowrap text-base font-bold tracking-tight text-blue-500">
-                  Meetily <span className="text-blue-400/70">· Actually Free</span>
+                  Protocol
                 </span>
               </button>
             </DialogTrigger>
             <DialogContent>
               <VisuallyHidden>
-                <DialogTitle>About Meetily</DialogTitle>
+                <DialogTitle>About Protocol</DialogTitle>
               </VisuallyHidden>
               <About />
             </DialogContent>

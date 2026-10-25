@@ -426,7 +426,7 @@ fn store_shares(person_id: &str, name: &str, shares: Vec<VoiceSource>, replace: 
     let profile = build_profile(person_id.to_string(), name.to_string(), merge_shares(earlier, shares))
         .map_err(|error| Meeting(error.to_string()))?;
     if existing.is_none() && profiles.len() >= MAX_PROFILES {
-        return Err(Unavailable(format!("Meetily keeps up to {MAX_PROFILES} voices. Forget one to learn another.")));
+        return Err(Unavailable(format!("Protocol keeps up to {MAX_PROFILES} voices. Forget one to learn another.")));
     }
     let info = profile.info();
     match existing {

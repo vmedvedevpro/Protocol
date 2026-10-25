@@ -159,7 +159,7 @@ fn map_recording_start_error<R: Runtime>(app: &AppHandle<R>, error: anyhow::Erro
     crate::tray::update_tray_menu(app);
     if error.downcast_ref::<crate::onnx_runtime::InitializationError>().is_some() {
         log::error!("Transcription runtime startup failed: {error:#}");
-        format!("{}: Speech recognition could not initialize. Restart Meetily; if it continues, repair or reinstall the app.", crate::onnx_runtime::START_ERROR_CODE)
+        format!("{}: Speech recognition could not initialize. Restart Protocol; if it continues, repair or reinstall the app.", crate::onnx_runtime::START_ERROR_CODE)
     } else {
         format!("Failed to start recording: {error}")
     }
@@ -189,7 +189,7 @@ fn start_windows_audio_route_monitor<R: Runtime>(
     let warning = super::windows_audio_sessions::AudioRouteWarning {
         title: "System audio is not being captured".to_string(),
         message: format!(
-            "Meetily could not open {} for loopback capture. Your microphone is still recording; stop and restart after selecting an available output under Settings > Recording > System Audio.",
+            "Protocol could not open {} for loopback capture. Your microphone is still recording; stop and restart after selecting an available output under Settings > Recording > System Audio.",
             device
         ),
     };

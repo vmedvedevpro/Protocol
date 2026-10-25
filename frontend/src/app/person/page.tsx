@@ -147,7 +147,7 @@ function VoicePanel({ personId, first, meetingCount }: { personId: string; first
         <>
           <p className="flex items-center gap-2 text-[13px] font-medium text-af-text">
             <Fingerprint className="h-4 w-4 shrink-0 text-af-accent" />
-            Meetily knows {who === 'them' ? 'their' : `${who}'s`} voice
+            Protocol knows {who === 'them' ? 'their' : `${who}'s`} voice
           </p>
           <p className="mt-1 text-xs leading-relaxed text-af-text-3">
             {labs.voiceProfiles
@@ -171,7 +171,7 @@ function VoicePanel({ personId, first, meetingCount }: { personId: string; first
           <p className="text-[13px] leading-relaxed text-af-text-3">
             {meetingCount > 0
               ? `Learn ${who === 'them' ? 'their' : `${who}'s`} voice from their recent meetings where they spoke on the call. Later meetings then name a matching voice for you.`
-              : `Once ${who} is named in a recorded meeting, Meetily can learn their voice from it.`}
+              : `Once ${who} is named in a recorded meeting, Protocol can learn their voice from it.`}
           </p>
           <Button className="mt-3" size="sm" onClick={() => void learn()} loading={busy === 'learn'} disabled={meetingCount === 0 || busy !== null}>
             <Fingerprint />

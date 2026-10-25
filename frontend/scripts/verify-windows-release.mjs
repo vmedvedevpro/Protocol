@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { createHash, createPublicKey, verify } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { readFile, mkdtemp, rm } from 'node:fs/promises';
 import { resolve, join, basename } from 'node:path';
@@ -9,16 +9,9 @@ import { spawnSync } from 'node:child_process';
 const repo = fileURLToPath(new URL('../../', import.meta.url));
 const dist = resolve(process.argv[2] || join(repo, 'dist'));
 const config = JSON.parse(await readFile(join(repo, 'frontend/src-tauri/tauri.conf.json'), 'utf8'));
-const latest = JSON.parse(await readFile(join(dist, 'latest.json'), 'utf8'));
 const version = config.version;
-const engine = `Meetily-ActuallyFree-${version}-x64-universal-updater.exe`;
-const setup = `Meetily-ActuallyFree-${version}-x64-universal-setup.exe`;
-const platform = latest.platforms['windows-x86_64'];
-assert.equal(latest.version, version);
-assert.equal(typeof latest.notes, 'string', 'Updater notes must be plain text, not PowerShell file metadata');
-assert.deepEqual(Object.keys(latest.platforms), ['windows-x86_64']);
-assert.equal(platform.url, `https://github.com/TylerBuza/Meetily-ActuallyFree/releases/download/v${version}/${engine}`);
-assert.equal(platform.signature, (await readFile(join(dist, `${engine}.sig`), 'utf8')).trim());
+const engine = `Protocol-${version}-x64-universal-engine.exe`;
+const setup = `Protocol-${version}-x64-universal-setup.exe`;
 
 async function hash(path, algorithm = 'sha256') {
   const digest = createHash(algorithm);
@@ -27,7 +20,7 @@ async function hash(path, algorithm = 'sha256') {
 }
 
 const sums = (await readFile(join(dist, 'SHA256SUMS.txt'), 'utf8')).trim().split(/\r?\n/);
-assert.equal(sums.length, 4);
+assert.equal(sums.length, 2);
 const names = [];
 for (const line of sums) {
   const [, expected, name] = line.match(/^([a-f0-9]{64})  (.+)$/) || [];
@@ -35,25 +28,8 @@ for (const line of sums) {
   assert.equal((await hash(join(dist, name))).toString('hex'), expected, name);
   names.push(name);
 }
-assert.deepEqual(names.sort(), [setup, engine, `${engine}.sig`, 'latest.json'].sort());
-
-// Minisign ED signatures use a BLAKE2b-512 prehash and Ed25519 signatures.
-const publicLines = Buffer.from(config.plugins.updater.pubkey, 'base64').toString('utf8').trim().split(/\r?\n/);
-const publicBytes = Buffer.from(publicLines[1], 'base64');
-const signatureLines = Buffer.from(platform.signature, 'base64').toString('utf8').trim().split(/\r?\n/);
-const signature = Buffer.from(signatureLines[1], 'base64');
-assert.equal(signature.subarray(0, 2).toString(), 'ED');
-assert.deepEqual(signature.subarray(2, 10), publicBytes.subarray(2, 10));
-const key = createPublicKey({
-  key: Buffer.concat([Buffer.from('302a300506032b6570032100', 'hex'), publicBytes.subarray(10)]),
-  format: 'der', type: 'spki',
-});
-assert.ok(verify(null, await hash(join(dist, engine), 'blake2b512'), key, signature.subarray(10)), 'Updater signature mismatch');
-assert.ok(signatureLines[2].startsWith('trusted comment: '));
-assert.ok(verify(null, Buffer.concat([
-  signature.subarray(10), Buffer.from(signatureLines[2].slice('trusted comment: '.length)),
-]), key, Buffer.from(signatureLines[3], 'base64')), 'Trusted comment signature mismatch');
-console.log('Manifest, checksums, and updater cryptographic signatures verified.');
+assert.deepEqual(names.sort(), [setup, engine].sort());
+console.log('Release checksums verified.');
 
 function run(command, args) {
   const result = spawnSync(command, args, { stdio: 'inherit', timeout: 600_000 });

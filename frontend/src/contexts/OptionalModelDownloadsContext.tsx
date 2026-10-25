@@ -152,7 +152,7 @@ export function OptionalModelDownloadsProvider({ children }: { children: React.R
       const message = error instanceof Error ? error.message : String(error);
       downloaded ||= message.startsWith('Model downloaded, but could not enable it:');
       update(model, { status: downloaded ? 'activation-error' : 'error', progress: downloaded ? 100 : 0, error: message });
-      toast.error(downloaded ? 'Model downloaded, but could not enable it' : `${model === 'whisper' ? 'Whisper' : 'Nemotron'} download failed`, { description: 'You can keep using Meetily and retry from Settings.' });
+      toast.error(downloaded ? 'Model downloaded, but could not enable it' : `${model === 'whisper' ? 'Whisper' : 'Nemotron'} download failed`, { description: 'You can keep using Protocol and retry from Settings.' });
     }).finally(() => {
       active.current.delete(model);
     });

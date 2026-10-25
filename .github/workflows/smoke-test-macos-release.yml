@@ -42,7 +42,7 @@ jobs:
           [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-macos$ ]]
           VERSION="${RELEASE_TAG#v}"
           VERSION="${VERSION%-macos}"
-          DMG_NAME="Meetily-Actually-Free_${VERSION}_aarch64.dmg"
+          DMG_NAME="Protocol_${VERSION}_aarch64.dmg"
           SUM_NAME="SHA256SUMS-macos.txt"
           META_NAME="macos-release-metadata.json"
 
@@ -311,7 +311,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test -f "$HOME/Library/Application Support/Meetily/meeting_minutes.sqlite"
+          test -f "$HOME/Library/Application Support/vmedvedevpro/Protocol/meeting_minutes.sqlite"
           test ! -e "$MEETILY_APP_PATH/Contents/MacOS/data"
           codesign --verify --deep --strict --verbose=2 "$MEETILY_APP_PATH" 2>&1 \
             | tee -a "$RUNNER_TEMP/meetily-metadata.log"

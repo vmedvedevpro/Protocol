@@ -108,7 +108,6 @@ candidate, promotion, rollback, and physical-test procedure.
 **Key Features:**
 - Support for Ubuntu 22.04 and 24.04
 - Multiple bundle formats (DEB, AppImage, RPM)
-- Tauri updater signing
 - AppImage compatibility fixes
 - Package verification
 
@@ -163,7 +162,7 @@ candidate, promotion, rollback, and physical-test procedure.
 
 Windows and macOS releases are intentionally separate. Use `build-macos.yml`
 for the candidate and `publish-macos.yml` to promote that run's exact DMG. The
-Windows universal installer and updater metadata use the release process
+Windows universal installer uses the release process
 documented in `ARCHITECTURE.md`; do not combine them through a generic release
 path.
 
@@ -233,7 +232,7 @@ public tag. It downloads the public DMG rather than reusing build-job files.
 ### "I'm ready to release..."
 - **macOS:** build a candidate, then pass its run ID to `publish-macos.yml`
 - **Windows:** follow the universal release process in `ARCHITECTURE.md`
-- Keep the macOS release non-latest so the Windows updater endpoint remains stable
+- Keep the macOS release non-latest so GitHub's Latest release stays the Windows build
 
 ---
 
@@ -278,7 +277,7 @@ meetily-{workflow}-{platform}-{target}-{version}
 **Examples:**
 - `meetily-devtest-macOS-aarch64-apple-darwin-0.1.3`
 - `meetily-test-windows-x86_64-pc-windows-msvc-0.1.3`
-- `meetily-actually-free-0.2.5-macos-aarch64`
+- `protocol-0.2.22-macos-aarch64`
 
 ---
 
@@ -312,10 +311,6 @@ The temporary keychain password is generated per run and is not a secret input.
 - `SM_CLIENT_CERT_FILE_B64` - Client cert (base64)
 - `SM_CLIENT_CERT_PASSWORD` - Client cert password
 - `SM_CODE_SIGNING_CERT_SHA1_HASH` - Certificate hash
-
-### Tauri Updater (Windows/Linux release paths)
-- `TAURI_SIGNING_PRIVATE_KEY` - Ed25519 private key
-- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` - Key password
 
 ### Application Configuration
 - `MEETILY_RSA_PUBLIC_KEY` - License validation public key

@@ -60,15 +60,14 @@ When signing is enabled:
 - Verifies signatures with PowerShell
 
 ### Linux
-- Uses **Tauri updater signing** (Ed25519)
-- Signs update manifests for auto-updater
+- No signing (the in-app updater and its Ed25519 signing were removed)
 
 ## Build Artifacts
 
 Artifacts are automatically uploaded and retained for **14 days**:
 
-- **macOS**: `*.dmg`, `*.app`, `*.app.tar.gz`, `*.app.tar.gz.sig`
-- **Windows**: `*.msi`, `*.msi.sig`, `*.exe`, `*.exe.sig`
+- **macOS**: `*.dmg`, `*.app`
+- **Windows**: `*.msi`, `*.exe`
 - **Linux**: `*.deb`, `*.AppImage`, `*.rpm`
 
 ### Downloading Artifacts
@@ -129,7 +128,6 @@ Each platform uses optimal hardware acceleration:
 1. Check that all required secrets are configured:
    - `APPLE_CERTIFICATE`, `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID`
    - `SM_HOST`, `SM_API_KEY`, `SM_CODE_SIGNING_CERT_SHA1_HASH`
-   - `TAURI_SIGNING_PRIVATE_KEY`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
 2. Review workflow logs for specific error messages
 3. Try running without signing first to isolate the issue
 

@@ -17,7 +17,7 @@ REM Bundled whisper-rs bindings are Linux-shaped; Windows must generate them
 REM with the repository's pinned LLVM 18 toolchain.
 set "WHISPER_DONT_GENERATE_BINDINGS="
 REM Reassembled, working CUDA 13.3 toolkit (user-space; nvcc test compile passes)
-set "CUDA_PATH=C:\Users\tyler\Documents\BuzaMeet\.cuda_toolkit"
+set "CUDA_PATH=%REPO%\.cuda_toolkit"
 set "CUDA_TOOLKIT_ROOT_DIR=%CUDA_PATH%"
 set "CMAKE_GENERATOR=Ninja"
 set "CMAKE_CUDA_ARCHITECTURES=89"

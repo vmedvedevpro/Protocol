@@ -82,9 +82,15 @@ ${StrLoc}
 !define WEBVIEW2BOOTSTRAPPERPATH "{{webview2_bootstrapper_path}}"
 !define WEBVIEW2INSTALLERPATH "{{webview2_installer_path}}"
 !define MINIMUMWEBVIEW2VERSION "{{minimum_webview2_version}}"
-!define UNINSTKEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCTNAME}"
+; Keyed by the bundle identifier, not the generic product name, so setup never
+; treats another app called "Protocol" as an older install and runs its uninstaller.
+!define UNINSTKEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${BUNDLEID}"
 !define MANUKEY "Software\${MANUFACTURER}"
 !define MANUPRODUCTKEY "${MANUKEY}\${PRODUCTNAME}"
+; Default per-user folder name: the product name without spaces ("Protocol";
+; "Protocol-Labs-Local-Test" for tauri.labs-test.conf.json), so bundles with
+; different identities never share executables or the data folder.
+!searchreplace INSTALLDIRNAME "${PRODUCTNAME}" " " "-"
 !define UNINSTALLERSIGNCOMMAND "{{uninstaller_sign_cmd}}"
 !define ESTIMATEDSIZE "{{estimated_size}}"
 !define STARTMENUFOLDER "{{start_menu_folder}}"
@@ -100,7 +106,7 @@ Var MeetilyInstallProgress
 Var MeetilyDisplayedProgress
 
 Name "${PRODUCTNAME}"
-BrandingText "Meetily - Actually Free"
+BrandingText "Protocol"
 OutFile "${OUTFILE}"
 
 ; We don't actually use this value as default install path,
@@ -185,7 +191,7 @@ VIAddVersionKey "ProductVersion" "${VERSION}"
 !endif
 
 ; ---------------------------------------------------------------------------
-; Meetily - Actually Free — full custom dark chrome (not stock Wizard97)
+; Protocol — full custom dark chrome (not stock Wizard97)
 ; Tokens: bg #0A0C10  surface #12151C  text #E6EBF5  muted #A8B3C7  teal #2DD4BF
 ; ---------------------------------------------------------------------------
 !define MUI_BGCOLOR 0A0C10
@@ -196,22 +202,22 @@ VIAddVersionKey "ProductVersion" "${VERSION}"
 ; Hide the grey header bitmap strip separators as much as MUI allows
 !define MUI_HEADER_TRANSPARENT_TEXT
 
-!define MUI_WELCOMEPAGE_TITLE "Welcome to Meetily"
+!define MUI_WELCOMEPAGE_TITLE "Welcome to Protocol"
 !define MUI_WELCOMEPAGE_TITLE_3LINES
-!define MUI_WELCOMEPAGE_TEXT "Private meeting capture, transcription, and summaries — entirely on your PC.$\r$\n$\r$\nSetup will install Meetily and local runtimes (WebView2, Visual C++, CUDA libraries).$\r$\n$\r$\nNothing is uploaded. Click Next to continue."
+!define MUI_WELCOMEPAGE_TEXT "Private meeting capture, transcription, and summaries — entirely on your PC.$\r$\n$\r$\nSetup will install Protocol and local runtimes (WebView2, Visual C++, CUDA libraries).$\r$\n$\r$\nNothing is uploaded. Click Next to continue."
 
 !define MUI_FINISHPAGE_TITLE "You're all set"
 !define MUI_FINISHPAGE_TITLE_3LINES
-!define MUI_FINISHPAGE_TEXT "Meetily is installed.$\r$\n$\r$\nLaunch it to finish a 30-second onboarding (your name + a quick audio check). Everything stays on this machine."
+!define MUI_FINISHPAGE_TEXT "Protocol is installed.$\r$\n$\r$\nLaunch it to finish a 30-second onboarding (your name + a quick audio check). Everything stays on this machine."
 
 !define MUI_INSTFILESPAGE_FINISHHEADER_TEXT "Install complete"
-!define MUI_INSTFILESPAGE_FINISHHEADER_SUBTEXT "Meetily is ready on this PC."
+!define MUI_INSTFILESPAGE_FINISHHEADER_SUBTEXT "Protocol is ready on this PC."
 !define MUI_INSTFILESPAGE_ABORTHEADER_TEXT "Install cancelled"
 !define MUI_INSTFILESPAGE_ABORTHEADER_SUBTEXT "No changes were finished."
 
 !define MUI_CUSTOMFUNCTION_GUIINIT MeetilyGUIInit
 
-; The in-app updater should emphasize status and overall progress, not expose
+; Setup should emphasize status and overall progress, not expose
 ; NSIS's noisy extraction log as the primary interface.
 ShowInstDetails hide
 ShowUnInstDetails show
@@ -243,7 +249,7 @@ Function MeetilyWelcomePageShow
   ${EndIf}
   SetCtlColors $R0 E6EBF5 0A0C10
 
-  ${NSD_CreateLabel} 0 2u 100% 12u "MEETILY  /  LOCAL AI MEETINGS"
+  ${NSD_CreateLabel} 0 2u 100% 12u "PROTOCOL  /  LOCAL AI MEETINGS"
   Pop $R1
   SetCtlColors $R1 50D5C7 0A0C10
   SendMessage $R1 ${WM_SETFONT} $MeetilyFontBody 1
@@ -308,7 +314,7 @@ Function MeetilyGUIInit
   GetDlgItem $R0 $HWNDPARENT 1028
   IntCmp $R0 0 +3 0 0
     SetCtlColors $R0 5A6578 0A0C10
-    SendMessage $R0 ${WM_SETTEXT} 0 "STR:Meetily  ·  local AI meetings"
+    SendMessage $R0 ${WM_SETTEXT} 0 "STR:Protocol  ·  local AI meetings"
   GetDlgItem $R0 $HWNDPARENT 1035
   IntCmp $R0 0 +2 0 0
     ShowWindow $R0 ${SW_HIDE}
@@ -419,14 +425,14 @@ Function MeetilyDarkenInstFiles
   FindWindow $R0 "#32770" "" $HWNDPARENT
 
   ${If} $UpdateMode = 1
-    SendMessage $HWNDPARENT ${WM_SETTEXT} 0 "STR:Meetily - Actually Free Updater"
-    !insertmacro MUI_HEADER_TEXT "Updating Meetily" "Updating app files and refreshing local AI runtimes..."
+    SendMessage $HWNDPARENT ${WM_SETTEXT} 0 "STR:Protocol Setup"
+    !insertmacro MUI_HEADER_TEXT "Updating Protocol" "Updating app files and refreshing local AI runtimes..."
     GetDlgItem $R1 $HWNDPARENT 1028
-    SendMessage $R1 ${WM_SETTEXT} 0 "STR:Meetily updater  ·  local AI meetings"
+    SendMessage $R1 ${WM_SETTEXT} 0 "STR:Protocol  ·  local AI meetings"
     GetDlgItem $R1 $HWNDPARENT 2
     SendMessage $R1 ${WM_SETTEXT} 0 "STR:Cancel update"
   ${Else}
-    !insertmacro MUI_HEADER_TEXT "Installing Meetily" "Copying app files and preparing local AI runtimes..."
+    !insertmacro MUI_HEADER_TEXT "Installing Protocol" "Copying app files and preparing local AI runtimes..."
   ${EndIf}
 
   ; Progress bar → teal on dark track
@@ -549,7 +555,7 @@ FunctionEnd
 ; ----- Custom install-location page (no stock groupbox wizard look) -----
 Function MeetilyDirBrowseClick
   ${NSD_GetText} $MeetilyDirText $0
-  nsDialogs::SelectFolderDialog "Choose Meetily install folder" "$0"
+  nsDialogs::SelectFolderDialog "Choose Protocol install folder" "$0"
   Pop $0
   ${If} $0 != "error"
   ${AndIf} $0 != ""
@@ -567,7 +573,7 @@ Function MeetilyDirPageShow
   Pop $MeetilyDirDlg
   SetCtlColors $MeetilyDirDlg E6EBF5 0A0C10
 
-  ${NSD_CreateLabel} 0 0 100% 28u "Meetily will be installed for your Windows user account. You can change the folder below if you prefer."
+  ${NSD_CreateLabel} 0 0 100% 28u "Protocol will be installed for your Windows user account. You can change the folder below if you prefer."
   Pop $0
   SetCtlColors $0 A8B3C7 0A0C10
   SendMessage $0 ${WM_SETFONT} $MeetilyFontBody 1
@@ -628,7 +634,7 @@ Function MeetilyFinishPageShow
   Pop $R1
   SetCtlColors $R1 50D5C7 0A0C10
 
-  ${NSD_CreateLabel} 0 32u 100% 32u "Meetily is ready."
+  ${NSD_CreateLabel} 0 32u 100% 32u "Protocol is ready."
   Pop $R1
   SetCtlColors $R1 F1F5F9 0A0C10
   SendMessage $R1 ${WM_SETFONT} $MeetilyFontTitle 1
@@ -637,7 +643,7 @@ Function MeetilyFinishPageShow
   Pop $R1
   SetCtlColors $R1 A8B3C7 0A0C10
 
-  ${NSD_CreateCheckbox} 8u 128u -8u 14u "Launch Meetily now"
+  ${NSD_CreateCheckbox} 8u 128u -8u 14u "Launch Protocol now"
   Pop $MeetilyFinishLaunch
   SetCtlColors $MeetilyFinishLaunch E6EBF5 0A0C10
   ${NSD_Check} $MeetilyFinishLaunch
@@ -904,7 +910,7 @@ Var AppStartMenuFolder
 
 ; 7. Installation page (details + teal progress)
 !define MUI_PAGE_CUSTOMFUNCTION_SHOW MeetilyDarkenInstFiles
-!define MUI_PAGE_HEADER_TEXT "Installing Meetily"
+!define MUI_PAGE_HEADER_TEXT "Installing Protocol"
 !define MUI_PAGE_HEADER_SUBTEXT "Copying files and setting up local runtimes…"
 !insertmacro MUI_PAGE_INSTFILES
 
@@ -1008,7 +1014,7 @@ Function .onInit
         StrCpy $INSTDIR "$PROGRAMFILES\${PRODUCTNAME}"
       ${EndIf}
     !else if "${INSTALLMODE}" == "currentUser"
-      StrCpy $INSTDIR "$LOCALAPPDATA\Meetily-ActuallyFree"
+      StrCpy $INSTDIR "$LOCALAPPDATA\${MANUFACTURER}\${INSTALLDIRNAME}"
     !endif
 
     Call RestorePreviousInstallLocation

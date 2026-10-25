@@ -12,7 +12,6 @@ steps.
 | Minimum OS | macOS 14.2 Sonoma |
 | Public tag | `vX.Y.Z-macos` |
 | GitHub Latest | No; Windows `vX.Y.Z` stays Latest |
-| Updater manifest | None; macOS must not modify Windows `latest.json` |
 | Default signing | Ad-hoc `codesign`, not notarized |
 | Candidate workflow | `build-macos.yml` |
 | Publication workflow | `publish-macos.yml` |
@@ -20,9 +19,10 @@ steps.
 | Protected environment | `macos-release`, restricted to `main` |
 | Release mutability | Repository immutable releases enabled |
 
-The macOS release is intentionally independent from the Windows setup/updater
-pair. Never upload the DMG to the Windows release through a generic workflow,
-mark the macOS-only release Latest, or point `latest.json` at a DMG.
+The macOS release is intentionally independent from the Windows setup/engine
+pair. Never upload the DMG to the Windows release through a generic workflow or
+mark the macOS-only release Latest. Protocol has no in-app updater on any
+platform.
 
 ## Release qualification
 
@@ -77,12 +77,10 @@ Also preserve these invariants:
 
 - `Info.plist` contains microphone and Audio Capture usage descriptions.
 - `entitlements.plist` contains only entitlements the app actually uses.
-- Core data uses `~/Library/Application Support/Meetily`, Tauri plugin stores
-  use `~/Library/Application Support/com.meetily.ai`, and neither writes in the
+- Core data uses `~/Library/Application Support/vmedvedevpro/Protocol`, Tauri plugin stores
+  use `~/Library/Application Support/io.github.vmedvedevpro.protocol`, and neither writes in the
   app bundle. Recordings use Movies or the configured root.
 - The macOS backend list exposes Core Audio only.
-- The updater provider, onboarding update choice, tray, and About do not invoke
-  Tauri updater checks on macOS.
 - `audio.mp4`, `mic.mp4`, and `system.mp4` remain MP4 files; FFmpeg concat-list
   paths must escape apostrophes.
 
@@ -190,7 +188,7 @@ function Resolve-DispatchedRun {
 Dispatch the candidate and watch the exact resolved run:
 
 ```powershell
-$repo = "TylerBuza/Meetily-ActuallyFree"
+$repo = "vmedvedevpro/Protocol"
 $head = gh api "repos/$repo/git/ref/heads/main" --jq .object.sha
 if ($LASTEXITCODE -ne 0) { throw "Failed to resolve current main" }
 $dispatchStarted = [DateTimeOffset]::UtcNow
@@ -277,7 +275,7 @@ if ($candidateHead -ne $head) {
 }
 
 # Copy the lowercase SHA-256 produced on the physical test Mac with:
-# shasum -a 256 /path/to/Meetily-Actually-Free_X.Y.Z_aarch64.dmg
+# shasum -a 256 /path/to/Protocol_X.Y.Z_aarch64.dmg
 $testedDmgSha256 = "replace-with-the-physically-tested-dmg-sha256"
 if ($testedDmgSha256 -notmatch '^[0-9a-f]{64}$') {
   throw "A lowercase physical-test DMG SHA-256 is required"
@@ -339,7 +337,7 @@ After successful promotion, confirm that:
 - The canonical DMG, checksum, and `macos-release-metadata.json` are present.
 - GitHub reports the release as immutable and all API asset digests match.
 - The release is not marked Latest.
-- Windows `vX.Y.Z` and `latest.json` are unchanged.
+- Windows `vX.Y.Z` is unchanged.
 
 ## Public Artifact Verification
 
@@ -423,7 +421,7 @@ the publisher:
 13. After use, verify the installed bundle again:
 
 ```bash
-codesign --verify --deep --strict "/Applications/Meetily - Actually Free.app"
+codesign --verify --deep --strict "/Applications/Protocol.app"
 ```
 
 ## Failure Triage
@@ -442,7 +440,5 @@ codesign --verify --deep --strict "/Applications/Meetily - Actually Free.app"
   `recording_preferences.rs`.
 - **FFmpeg merge fails for a title or path:** Inspect concat escaping in
   `incremental_saver.rs` and meeting-title sanitization.
-- **About or tray tries to update on macOS:** Inspect `UpdateCheckProvider`,
-  `About`, `tray.rs`, and the onboarding update preference.
 - **Public smoke differs from the candidate:** Inspect the release target,
   uploaded assets, checksum, and exact public tag.

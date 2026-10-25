@@ -64,7 +64,7 @@ $hashHeader = Join-Path $buildDir "payload_hash.h"
 $resourceScript = Join-Path $buildDir "bootstrapper.rc"
 $resourceOutput = Join-Path $buildDir "bootstrapper.res"
 $objectOutput = Join-Path $buildDir "bootstrapper.obj"
-$intermediateOutput = Join-Path $buildDir "Meetily-ActuallyFree-$Version-setup.exe"
+$intermediateOutput = Join-Path $buildDir "Protocol-$Version-setup.exe"
 
 [System.IO.File]::WriteAllText(
   $hashHeader,

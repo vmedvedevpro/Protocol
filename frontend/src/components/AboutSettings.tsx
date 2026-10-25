@@ -6,7 +6,7 @@ import { invoke } from "@tauri-apps/api/core"
 import { Github, Shield, Cpu, Heart } from "lucide-react"
 
 /**
- * About panel for Meetily - Actually Free. Shows version, a short description,
+ * About panel for Protocol. Shows version, a short description,
  * and links to the source and privacy policy. Purely informational.
  */
 export function AboutSettings() {
@@ -27,27 +27,27 @@ export function AboutSettings() {
     invoke('open_external_url', { url }).catch((e) => console.error('Failed to open URL:', e));
   };
 
-  const REPO_URL = 'https://github.com/TylerBuza/Meetily-ActuallyFree';
-  const ORIGINAL_MEETILY_URL = 'https://github.com/Zackriya-Solutions/meeting-minutes';
-  const AUTHOR_URL = 'https://buza.dev';
+  const REPO_URL = 'https://github.com/vmedvedevpro/Protocol';
+  const ORIGINAL_MEETILY_URL = 'https://github.com/Zackriya-Solutions/meetily';
+  const ACTUALLY_FREE_URL = 'https://github.com/TylerBuza/Meetily-ActuallyFree';
 
   return (
     <div className="space-y-6">
       {/* Identity card */}
       <div className="rounded-2xl border border-af-border bg-af-panel-2/40 p-5">
         <div className="flex items-center gap-4">
-          <Image src="/logo-collapsed.png" alt="Meetily" width={56} height={56} className="h-14 w-14 shrink-0 rounded-2xl shadow-sm" />
+          <Image src="/logo-collapsed.png" alt="Protocol" width={56} height={56} className="h-14 w-14 shrink-0 rounded-2xl shadow-sm" />
           <div>
-            <h3 className="text-lg font-semibold text-af-text">Meetily · Actually Free</h3>
+            <h3 className="text-lg font-semibold text-af-text">Protocol</h3>
             <p className="text-sm text-af-text-2">
-              Version {version} · Privacy-first, on-device meeting assistant
+              Version {version} · Local-first meeting recorder and transcriber
             </p>
           </div>
         </div>
         <p className="mt-4 text-sm text-af-text-2 leading-relaxed">
-          A free, open fork of Meetily that unlocks every feature for everyone. It captures,
-          transcribes and summarizes your meetings entirely on your own machine — with GPU
-          acceleration, bring-your-own-key cloud models, and local-first data ownership.
+          Records, transcribes and summarizes your meetings on your own machine, with GPU
+          acceleration and speaker labels. Cloud models are used only when you configure them
+          with your own key. No account, no telemetry, no background update checks.
         </p>
       </div>
 
@@ -65,8 +65,8 @@ export function AboutSettings() {
         </div>
         <div className="rounded-2xl border border-af-border bg-af-panel-2/40 p-4">
           <Heart className="w-5 h-5 text-pink-500 mb-2" />
-          <div className="text-sm font-medium text-af-text">Actually free</div>
-          <div className="text-xs text-af-text-3">Every feature, no paywall</div>
+          <div className="text-sm font-medium text-af-text">Open source</div>
+          <div className="text-xs text-af-text-3">MIT licensed, no account</div>
         </div>
       </div>
 
@@ -91,7 +91,15 @@ export function AboutSettings() {
 
       <div className="text-center text-xs text-af-text-4 space-y-1">
         <p>
-          Built on the{" "}
+          Based on{" "}
+          <button
+            type="button"
+            onClick={() => openUrl(ACTUALLY_FREE_URL)}
+            className="text-af-accent hover:underline"
+          >
+            Meetily – Actually Free
+          </button>{" "}
+          and the{" "}
           <button
             type="button"
             onClick={() => openUrl(ORIGINAL_MEETILY_URL)}
@@ -100,15 +108,6 @@ export function AboutSettings() {
             open-source Meetily project
           </button>{" "}
           · MIT licensed
-        </p>
-        <p>
-          <button
-            type="button"
-            onClick={() => openUrl(AUTHOR_URL)}
-            className="text-af-accent hover:underline"
-          >
-            Meetily - Actually Free fork by Tyler Buza
-          </button>
         </p>
       </div>
     </div>

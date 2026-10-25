@@ -51,7 +51,7 @@ const state = {
     pyannote_threshold: 0.7,
   },
   recordingPrefs: {
-    save_folder: 'C:/Users/preview/Music/meetily-recordings',
+    save_folder: 'C:/Users/preview/Music/protocol-recordings',
     auto_save: true,
     file_format: 'mp4',
     preferred_mic_device: null as string | null,
@@ -354,17 +354,16 @@ function handle(cmd: string, args: Args): unknown {
     case 'get_cuda_reconfiguration_status':
       return { reconfigurationRequired: false, compiledBackend: 'cpu', setupDownloadUrl: null };
     case 'check_first_launch':
-    case 'get_check_updates_on_launch':
       return false;
     case 'get_notification_settings':
       return notificationSettings;
     case 'get_database_directory':
-      return 'C:/Users/preview/AppData/Meetily';
+      return 'C:/Users/preview/AppData/Local/vmedvedevpro/Protocol/data';
     case 'whisper_get_models_directory':
     case 'parakeet_get_models_directory':
-      return 'C:/Users/preview/AppData/Meetily/models';
+      return 'C:/Users/preview/AppData/Local/vmedvedevpro/Protocol/data/models';
     case 'get_default_recordings_folder_path':
-      return 'C:/Users/preview/Music/meetily-recordings';
+      return 'C:/Users/preview/Music/protocol-recordings';
     case 'get_ollama_models':
     case 'whisper_get_available_models':
     case 'builtin_ai_list_models':
@@ -482,7 +481,7 @@ function handle(cmd: string, args: Args): unknown {
         ...engine,
         pyannote_available: true,
         current_available: engine.active_engine === 'pyannote' || engine.nemotron_available,
-        model_dir: 'C:\\Users\\you\\AppData\\Local\\Meetily\\models\\diarization',
+        model_dir: 'C:\\Users\\you\\AppData\\Local\\vmedvedevpro\\Protocol\\data\\models\\diarization',
         nemotron_download_size: 382 * 1024 * 1024,
         pyannote_download_size: 33 * 1024 * 1024,
       };
