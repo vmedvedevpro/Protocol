@@ -871,18 +871,19 @@ Responsibility map:
 | File | macOS responsibility |
 |---|---|
 | `audio/capture/core_audio.rs` | Create the global process tap, aggregate device, stream, and audible probe |
-| `audio/permissions.rs` | Preserve legacy IPC names while routing verification to the Core Audio probe |
-| `audio/capture/backend_config.rs` | Expose only implemented backends for the current platform |
+| `audio/permissions.rs` | Keep the legacy `screen_recording` function names while routing verification to the Core Audio probe |
+| `audio/capture/backend_config.rs` | Accept only the backends implemented on the current platform |
 | `components/onboarding/steps/AudioTestStep.tsx` | Serialize the native singleton monitor and guide audible testing |
 | `hooks/usePermissionCheck.ts` | Session-scoped verification state and deduplicated manual Recheck |
-| `audio/recording_preferences.rs` | Custom-root safety and backend metadata returned to the UI |
+| `audio/recording_preferences.rs` | Custom-root safety and applying the saved backend preference |
 | `.github/workflows/build-macos.yml` | Build and verify a candidate without publishing |
 | `.github/workflows/publish-macos.yml` | Promote one exact successful candidate artifact |
 | `.github/workflows/smoke-test-macos-release.yml` | Download and verify the exact public DMG |
 
 macOS uses one implemented system-audio backend: the Core Audio global process
-tap in `audio/capture/core_audio.rs`. `AudioCaptureBackend::available_backends()`
-therefore exposes only Core Audio on macOS. The `ScreenCaptureKit` enum variant
+tap in `audio/capture/core_audio.rs`. `AudioCaptureBackend::from_string()`
+therefore accepts only Core Audio on macOS, and no command offers the UI a
+backend choice. The `ScreenCaptureKit` enum variant
 still exists for cross-platform compatibility and old settings, but it must not
 be offered as a selectable macOS backend.
 
