@@ -871,7 +871,7 @@ export function useSummaryGeneration({
             if (status.type === 'corrupted' || status.type === 'error') {
               setSummaryStatus('idle');
               const errorDesc = status.type === 'error'
-                ? status.Error || 'The model file has an error'
+                ? status.message || 'The model file has an error'
                 : 'The model file is corrupted';
               toast.error('Built-in AI model not available', {
                 description: `${errorDesc}. Please check model settings.`,

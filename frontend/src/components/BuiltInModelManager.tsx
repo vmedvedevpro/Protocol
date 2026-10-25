@@ -9,14 +9,12 @@ import { cn } from '@/lib/utils';
 import { Download, RefreshCw, BadgeAlert, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatSummaryModelSizeLabelFromMb } from '@/lib/onboarding-summary-model';
+import type { BuiltInModelStatus } from '@/lib/builtin-ai';
 
 interface ModelInfo {
   name: string;
   display_name: string;
-  status: {
-    type: 'not_downloaded' | 'downloading' | 'available' | 'incomplete' | 'corrupted' | 'error';
-    progress?: number;
-  };
+  status: BuiltInModelStatus;
   size_mb: number;
   context_size: number;
   description: string;
@@ -167,24 +165,11 @@ export function BuiltInModelManager({
             return rest;
           });
 
-          // Update model status to error locally instead of fetching from backend
-          // Backend doesn't persist error status, so fetchModels() would return not_downloaded
-          setModels((prevModels) =>
-            prevModels.map((m) =>
-              m.name === model
-                ? {
-                    ...m,
-                    status: {
-                      type: 'error',
-                      progress: 0,
-                    } as any,
-                  }
-                : m
-            )
-          );
+          // The backend recorded why: an error with its message, or a partial
+          // file to resume.
+          fetchModels();
 
           // Don't show error toast here - DownloadProgressToast already handles it
-          // Don't call fetchModels() - it would overwrite error status with not_downloaded
         }
       });
     };
@@ -459,8 +444,8 @@ export function BuiltInModelManager({
                 )}
                 {(isError || isCorrupted || isIncomplete) && (
                   <p className="mb-1 text-xs text-af-danger">
-                    {isError && typeof model.status === 'object' && 'Error' in model.status
-                      ? (model.status as any).Error
+                    {model.status.type === 'error'
+                      ? model.status.message || 'An error occurred'
                       : isCorrupted
                       ? 'File is corrupted. Retry download or delete.'
                       : isIncomplete
