@@ -819,14 +819,33 @@ an exact-size file with valid GGUF magic becomes `Available`. Progress reaching
 
 ### Branding assets
 
-`frontend/src-tauri/icon-source.png` is the canonical high-resolution logo. It
-still carries the upstream "Meetily / Actually Free" artwork until Protocol has
-its own icon.
-Tauri's icon generator produces the platform family under `src-tauri/icons/`.
-Those generated files feed every native surface through these connections:
+The Protocol mark is a recording dot that turns into lines of a transcript:
+ink `#15171C` rounded square, recording accent `#FF5A36`, lines `#F3F2EE`.
+`frontend/src-tauri/icon-source.svg` is the canonical vector;
+`icon-source.png` (and its copy `icon-1024.png`) is its 1024×1024 render.
+`icon-source-small.svg` is a simplified two-line variant drawn for 16–32 px,
+where three thin lines blur together in the tray and title bar.
+
+Regenerate the set after changing either SVG:
+
+1. Render `icon-source.svg` to a 1024×1024 PNG (`icon-source.png`) and
+   `icon-source-small.svg` to 16, 20, 24 and 32 px PNGs (any SVG renderer;
+   headless Chromium matches the browser exactly).
+2. From `frontend/`, run `pnpm tauri icon src-tauri/icon-source.png`. It writes
+   the desktop family plus `android/` and `ios/`; delete those two folders —
+   Protocol ships no mobile build.
+3. Replace `icons/32x32.png` with the 32 px small render, and rebuild
+   `icons/icon.ico` with frames 16/20/24/32 from the small renders and
+   48/64/128/256 from the master, so the tray and taskbar get the legible
+   variant.
+4. Downscale the master into `public/logo.png` (512), `logo-collapsed.png`
+   (256), `icon_128x128.png` and `icon_32x32@2x.png` (64), and build
+   `src/app/favicon.ico` (16/32 small, 48 master).
+
+The generated files feed every native surface through these connections:
 
 ```text
-icon-source.png
+icon-source.svg -> icon-source.png (+ icon-source-small.svg for 16-32 px)
   -> icons/icon.ico  -> Windows app/taskbar + NSIS + bootstrapper executable
   -> icons/icon.png  -> native Windows notifications
   -> default app icon -> system tray (tray.rs)
