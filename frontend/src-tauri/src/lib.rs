@@ -763,9 +763,7 @@ pub fn run() {
             notifications::commands::get_notification_settings,
             notifications::commands::set_notification_settings,
             notifications::commands::show_simple_notification,
-            // Screen Recording permission commands
-            audio::permissions::check_screen_recording_permission_command,
-            audio::permissions::request_screen_recording_permission_command,
+            // System audio (Audio Capture) permission commands
             audio::permissions::trigger_system_audio_permission_command,
             audio::permissions::get_system_audio_permission_status,
             // Database import commands
