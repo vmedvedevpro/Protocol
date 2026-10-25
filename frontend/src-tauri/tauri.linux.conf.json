@@ -1,0 +1,12 @@
+{
+  "bundle": {
+    "targets": [
+      "appimage",
+      "deb"
+    ],
+    "resources": [
+      "templates/*.json",
+      "resources/diarization/*"
+    ]
+  }
+}
