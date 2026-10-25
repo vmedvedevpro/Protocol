@@ -2,7 +2,7 @@
 """
 Meeting Transcript Database Injector
 
-Injects CSV-based transcript data into the Meetily SQLite database,
+Injects CSV-based transcript data into the Protocol SQLite database,
 creating meeting entries identical to those from normal recordings.
 
 Usage:
@@ -27,19 +27,30 @@ from pathlib import Path
 
 
 def get_default_db_path() -> Path:
-    """Get the default database path based on the platform."""
+    """Get the database path of an installed Protocol build on this platform.
+
+    Mirrors install_data_root() in frontend/src-tauri/src/paths.rs. A portable
+    build keeps its data next to wherever its exe was unpacked, which this
+    script cannot know; it needs --db.
+    """
     system = platform.system()
 
-    if system == "Darwin":  # macOS
-        base_path = Path.home() / "Library" / "Application Support" / "Meetily"
+    if system == "Darwin":  # macOS: always the OS data dir, outside the bundle
+        base_path = Path.home() / "Library" / "Application Support" / "vmedvedevpro" / "Protocol"
     elif system == "Windows":
-        appdata = os.environ.get("APPDATA", "")
-        if appdata:
-            base_path = Path(appdata) / "Meetily"
+        # The per-user installer puts the exe in %LOCALAPPDATA%/vmedvedevpro/Protocol,
+        # which is writable, so the app keeps its data in the data folder beside it.
+        localappdata = os.environ.get("LOCALAPPDATA", "")
+        if localappdata:
+            base_path = Path(localappdata) / "vmedvedevpro" / "Protocol" / "data"
         else:
-            base_path = Path.home() / "AppData" / "Roaming" / "Meetily"
-    else:  # Linux and others
-        base_path = Path.home() / ".config" / "Meetily"
+            base_path = Path.home() / "AppData" / "Local" / "vmedvedevpro" / "Protocol" / "data"
+    else:  # Linux and others: a system-wide install cannot write beside its exe
+        xdg_data_home = os.environ.get("XDG_DATA_HOME", "")
+        if xdg_data_home:
+            base_path = Path(xdg_data_home) / "vmedvedevpro" / "Protocol"
+        else:
+            base_path = Path.home() / ".local" / "share" / "vmedvedevpro" / "Protocol"
 
     return base_path / "meeting_minutes.sqlite"
 
@@ -227,9 +238,9 @@ def verify_injection(db_path: str, meeting_id: str) -> dict:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Inject CSV transcript data into Meetily database",
+        description="Inject CSV transcript data into the Protocol database",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
+        epilog=f"""
 CSV Format (minimal - just 'text' column required):
   text
   "Hello everyone, let's start the meeting."
@@ -238,6 +249,11 @@ CSV Format (minimal - just 'text' column required):
 Example usage:
   python inject_transcript.py --csv transcript.csv --title "Team Standup"
   python inject_transcript.py --csv data.csv --db ~/custom/path.sqlite
+
+Default database (installed Protocol build):
+  {get_default_db_path()}
+A portable build keeps meeting_minutes.sqlite in the data folder next to
+its exe, which this script cannot find: pass --db for portable builds.
         """
     )
 
@@ -250,7 +266,8 @@ Example usage:
     parser.add_argument(
         '--db', '-d',
         default=None,
-        help='Database path (auto-detects platform default if not specified)'
+        help="Database path (defaults to an installed Protocol build's database; "
+             "required for portable builds)"
     )
 
     parser.add_argument(
@@ -281,7 +298,10 @@ Example usage:
 
     if not db_path.exists():
         print(f"Error: Database not found at {db_path}", file=sys.stderr)
-        print("Make sure Meetily has been run at least once to create the database.", file=sys.stderr)
+        print("Make sure Protocol has been run at least once to create the database.", file=sys.stderr)
+        if not args.db:
+            print("A portable build keeps meeting_minutes.sqlite in the data folder next to "
+                  "its exe; pass that path with --db.", file=sys.stderr)
         sys.exit(1)
 
     # Resolve CSV path
@@ -344,7 +364,7 @@ Example usage:
     except Exception as e:
         print(f"Warning: Verification failed: {e}", file=sys.stderr)
 
-    print("\nThe meeting should now appear in the Meetily sidebar.")
+    print("\nThe meeting should now appear in the Protocol sidebar.")
 
 
 if __name__ == "__main__":
