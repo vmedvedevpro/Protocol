@@ -28,8 +28,8 @@ Data leaves your machine only when **you** choose an action that sends it:
   **their** privacy policy and data-retention terms.
 - If you select a **cloud transcription provider**, your audio is sent to that
   provider.
-- **Model downloads** contact Hugging Face and, for some models, GitHub release
-  pages. These requests carry no meeting content.
+- **Model downloads** contact Hugging Face and, to repair the bundled speaker
+  models, this repository on GitHub. These requests carry no meeting content.
 
 If Protocol detects that the previous session ended unexpectedly, it can create
 a redacted crash-report ZIP at your request. The report excludes recordings,

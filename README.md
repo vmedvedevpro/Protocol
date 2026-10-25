@@ -63,9 +63,9 @@ Recordings, transcripts, and settings stay on the machine. Nothing is sent
 anywhere unless you choose a cloud provider or the Claude Code CLI for
 summaries, which then processes that content under its own terms. Analytics
 transmission is disabled and there are no update checks. The network is used to
-download models: most come from Hugging Face, while the speaker models and a
-Parakeet fallback still come from upstream's GitHub releases
-([#1](https://github.com/vmedvedevpro/Protocol/issues/1)). See
+download models: from Hugging Face at pinned commits, and the repair download
+of the bundled speaker models from this repository. Every downloaded file is
+checked against a pinned SHA-256. See
 [PRIVACY_POLICY.md](PRIVACY_POLICY.md).
 
 ## Where data lives

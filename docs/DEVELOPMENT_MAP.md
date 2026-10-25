@@ -248,6 +248,41 @@ Whisper activation into `whisper_download_model(enablePostCall=true)` and adds
 native `uninstall_optional_model` ownership in `optional_models.rs`; see the
 updated native-activation note for locking, settings events, tests, and limits.
 
+### Model integrity
+
+`model_integrity.rs` (ported from leyvanah/Talkkeeper, MIT) owns every model
+download source: commit-pinned URLs plus the exact size and SHA-256 of each file
+for Whisper, Parakeet v2/v3 INT8, the four GGUF summary models, Pyannote/WeSpeaker
+and Nemotron. Its module comment records how the hashes were obtained (Hugging
+Face tree API at the pinned commit, small files downloaded and hashed). The
+Parakeet GitHub mirror is gone; the Pyannote repair download takes the bundled
+files from this repository at commit `76e9939`.
+
+- Download: `Check` hashes while streaming and refuses bytes past the pinned
+  size; `Check::resume` re-reads a kept partial first (Parakeet, GGUF). Diarization
+  keeps its `.part` + rename flow on the same checker. A mismatch deletes the
+  file; the error contains "failed its integrity check", which the shared
+  download toast (`categorizeError`) shows as an integrity failure.
+- Startup (`discover_models`, `scan_models`) checks only exact pinned sizes.
+- Load: Parakeet `load_model`, Whisper `load_model` and `generate_with_builtin`
+  call `ensure_verified`. A `<file>.verified` marker (pin, size, mtime) written
+  after a verified download makes this two metadata reads; without one the file
+  is hashed once off the async runtime, so models from older builds are checked
+  on first use, not at startup. A mismatch deletes the file and fails the load;
+  recording start then says the model failed its integrity check instead of
+  "still downloading" (`model_unavailable_message` in `recording_commands.rs`).
+
+Tests: `model_integrity::tests` (hash and size mismatch, oversize refusal,
+resume, marker invalidation, future size, every URL commit-pinned), Parakeet
+and Whisper load-path tests with tampered files, catalog/pin consistency for
+Whisper, Parakeet, GGUF and Nemotron, and `tests/download-progress/errors.test.ts`.
+The ignored `model_integrity::tests::small_pinned_files_match_what_their_sources_serve`
+streams five small pinned files (about 0.3 MB) from Hugging Face and GitHub;
+run it with `--ignored` when changing a pin. Limits: the engine download paths
+are not exercised against a server (their URLs are not injectable), Pyannote
+copies in the user folder are still not hashed at load, and Nemotron is still
+hashed on every load by `nemotron.rs`.
+
 ## 5. Acceleration and packaging are separate from ASR selection
 
 Windows Nemotron uses the pinned shared ONNX Runtime/DirectML integration, with
