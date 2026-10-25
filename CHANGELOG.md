@@ -15,8 +15,38 @@ issue and PR numbers refer to
 - Remove the in-app updater: the updater and process plugins, update checks,
   the onboarding update question, the tray and About update actions, and updater
   signing in the Windows packaging script, release verifier, and workflows.
+- Remove the inactive PostHog analytics: the native `analytics` module and its
+  IPC commands, the `posthog-rs` dependency, and the frontend tracking calls and
+  provider. It never sent events. The local `analytics.json` that earlier
+  versions wrote (meeting totals, the last meeting date, per-day meeting counts,
+  and the opt-in flags) is no longer read or written and can be deleted safely;
+  `PRIVACY_POLICY.md` says where it is.
 - Point About, onboarding, crash reports, and the CUDA setup prompt at this
   repository.
+- Remove the manual Windows support-bundle script inherited from upstream: it
+  zipped the database with provider API keys, WebView storage, memory dumps, by
+  default the newest meeting recording, the computer and user names, and the
+  command lines of running app processes, and it read the old Meetily folders.
+  The in-app crash report remains the supported path.
+- Remove the Claude Code CLI summary provider, its Model Settings panel, and the
+  IPC commands that let the app choose and run a `claude` executable; summaries
+  and Ask AI use the built-in models, Ollama, or an HTTP API provider. A summary
+  provider saved as the CLI now loads as unselected: Model Settings and summary
+  generation ask you to choose another provider, and the CLI's leftover working
+  folder is deleted at startup
+  ([#19](https://github.com/vmedvedevpro/Protocol/issues/19)).
+- Import audio into the recordings folder chosen in Settings instead of always
+  the default folder, failing with the folder path when it is unusable; speaker
+  identification also looks there for recordings a meeting does not link (#29).
+- Rename the executable from `meetily.exe` to `protocol.exe` (Cargo package
+  `protocol`, installer variants `protocol-{cpu,vulkan,cuda}.exe`). Setup and
+  uninstall no longer close a running Meetily or Meetily – Actually Free,
+  except once: the first upgrade over a build that still has `meetily.exe` can
+  run that build's old uninstaller, which closes every `meetily.exe`. The
+  uninstall hook stops only the `protocol.exe` in its own install folder, but
+  Tauri's running-app check, before install and uninstall, still closes every
+  `protocol.exe` of the user by name (asking first only in an interactive run).
+  Meeting detection no longer treats Meetily as Protocol itself.
 - Remove 70 IPC commands that nothing in the app called, together with the code
   that only they used, and two frontend calls to commands that do not exist;
   every feature works as before

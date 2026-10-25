@@ -196,6 +196,82 @@ state for dialogs, including native activation events and stale-response guards.
 Live ASR and post-call ASR defaults are independent. Optional Whisper activation
 saves the **post-call** default; it must not replace the live Parakeet selection.
 
+### Audio import and the recordings folder
+
+`audio/import.rs` turns an external audio file into a new meeting:
+
+```text
+start_import_audio_command -> start_import (one import at a time, STT batch lease)
+  -> run_import
+     -> recording_preferences::configured_recordings_folder (Settings save_folder)
+     -> create_import_meeting_folder: ensure_recordings_directory, then
+        create_meeting_folder (collision-safe <title>_<timestamp>/)
+     -> copy the source to <meeting folder>/audio.<ext>
+     -> decode -> VAD -> Whisper/Parakeet with the saved glossary
+     -> meetings row with folder_path, transcripts.json, metadata.json
+```
+
+Import writes to the recordings root a recording would use (#29; before that it
+always used `get_default_recordings_folder()`). `configured_recordings_folder`
+returns the saved `RecordingPreferences.save_folder`. The default root takes its
+place when nothing is stored or the stored value no longer deserializes
+(`preferences_from_store_value`), when preferences cannot be loaded (as at
+recording start), and on macOS for a folder inside the app bundle
+(`load_recording_preferences`). Before anything is written,
+`ensure_recordings_directory` applies the Settings checks (app-bundle rejection
+on macOS, create, probe write). An unusable saved folder fails the import with
+its path in the error instead of writing to the default root, which would make
+Settings look applied while files land elsewhere. The path appears once: it is
+added only when the validation error does not already contain it. A failure in
+`create_meeting_folder` after the checks pass (for example a name too long for a
+deep folder) is a bare OS error, so the import adds the root path to it.
+
+`diarization::find_meeting_audio`, the fallback when a meeting's `folder_path`
+is missing or has no audio, searches the meeting folders of the configured root
+and of the default root, where meetings recorded before a folder change remain.
+`find_meeting_folder_audio` decides over both roots at once, so their order does
+not matter:
+
+1. A folder whose `metadata.json` `meeting_id` is the meeting's id is the
+   meeting's (import writes the id). If that folder has no audio, nothing else
+   in the roots is guessed.
+2. Otherwise the candidates are folders with the meeting's title (sanitized,
+   case-insensitive) and no other meeting's id: recordings, whose saver writes
+   `meeting_id: null`, and old folders without metadata. The one whose start is
+   closest to the meeting's `created_at` wins, within 12 hours.
+   `created_at` is the recording start for meetings saved since v0.2.12 and the
+   save time before that, hence the window.
+3. Only folders named `<title>_<UTC start>[_<n>]` are considered, so albums and
+   other folders in a broad root are ignored. The start is parsed in each format
+   the app has written: `%Y-%m-%d_%H-%M-%S`, `%Y-%m-%d_%H-%M` and
+   `%Y-%m-%d_%H-%M-%S-%3f`.
+
+The install-local data root (tray saves) stays the last resort after the roots.
+Limits: a folder without an id is not found once the meeting has been renamed,
+and two same-title meetings without ids less than 12 hours apart resolve to the
+closer start.
+
+Retranscription and checkpoint recovery work inside an existing meeting folder
+and create none. The other `get_default_recordings_folder()` callers are the
+preference default, the fallbacks when preferences cannot be loaded, the
+Settings default-folder display, and the short-take discard allow-list.
+
+Native tests: `import_meeting_folder_is_created_in_custom_recordings_folder`,
+`unusable_recordings_folder_fails_import_folder_creation`,
+`unusable_recordings_folder_error_names_the_folder_once` and
+`meeting_folder_creation_error_names_the_recordings_folder` (`import.rs`),
+`stored_recordings_folder_is_loaded` and
+`missing_or_unreadable_preferences_use_default_recordings_folder`
+(`recording_preferences.rs`), and
+`meeting_audio_lookup_prefers_the_folder_with_the_meeting_id`,
+`meeting_audio_lookup_ignores_unrelated_folders_in_a_broad_root`,
+`meeting_audio_lookup_finds_old_folder_without_metadata_by_start` and
+`meeting_folder_names_parse_every_start_format` (`diarization/mod.rs`). The
+lookup tests call `find_meeting_folder_audio` on temporary folders; the
+`created_at` query in `diarize_meeting` is not tested. The store/`AppHandle` glue in
+`configured_recordings_folder` has no test, and an import into a custom folder
+has not been checked in the running app.
+
 ## 4. Optional download ownership and UI synchronization
 
 ### October integration interfaces
@@ -287,13 +363,13 @@ beside an installed upstream build without sharing state:
 | Uninstall entry | `HKCU\…\Uninstall\io.github.vmedvedevpro.protocol` | `windows/installer.nsi` (`UNINSTKEY`) |
 | Fallback data root | OS data dir `/vmedvedevpro/Protocol` | `paths.rs` (`FALLBACK_PUBLISHER`, `FALLBACK_APP_NAME`) |
 | Default recordings folder | `protocol-recordings` | `audio/recording_preferences.rs` |
+| Cargo package and executable | `protocol`, `protocol.exe`; installer variants `protocol-{cpu,vulkan,cuda}.exe`, `protocol-vulkan-probe.exe` | `src-tauri/Cargo.toml`, `build-universal-windows.ps1`, `windows/installer-hooks.nsh` |
 
 The identifier also keys the single-instance lock, WebView storage, plugin
 stores, and the legacy `app_data_dir` migration in `paths.rs`; under the old
 identifier a first run would copy an installed upstream build's models and
-database. Internal names stay upstream-compatible to keep merges cheap: the
-`meetily` crate and `meetily.exe`, `MEETILY_*` environment variables, and
-localStorage/event keys.
+database. Internal names stay upstream-compatible to keep merges cheap:
+`MEETILY_*` environment variables and localStorage/event keys.
 
 There is no in-app updater. `tauri-plugin-updater`, `tauri-plugin-process`,
 `app_update.rs`, the update dialog/provider, the tray item, and the onboarding
@@ -310,6 +386,74 @@ regenerated by cargo and no longer carries the updater or its rustls/reqwest
 (install folder, uninstall key, post-uninstall hook) were checked with makensis
 3.11 on a stub script; the full universal installer, which needs the CUDA
 toolkit, has not been built or installed.
+
+There is no analytics code either (#14). The PostHog client was never created,
+so the native `analytics` module with its 25 IPC commands, the `posthog-rs`
+dependency, the meeting-end report in `stop_recording` (which read the model
+settings only to send them), and the frontend `lib/analytics.ts` helper,
+`AnalyticsProvider` and their call sites were removed without changing what
+the app does. The `analytics.json` plugin store that earlier builds wrote
+(meeting totals, the last meeting date, per-day meeting counts, and the opt-in
+flags) stays in the plugin-store folder, `%APPDATA%\io.github.vmedvedevpro.protocol`
+on Windows. It never left the machine and nothing reads or writes it; the app
+does not delete it, and `PRIVACY_POLICY.md` tells users it can be deleted
+safely. After the change,
+`cargo check --locked -p meetily --features vulkan --all-targets` passes with
+no new warnings, `cargo test -p meetily --lib --features vulkan -- --test-threads=1`
+passes 377 tests (379 before, minus the two analytics property tests; 10 stay
+ignored), and `next build`, `tsc --noEmit` and 33 of 34 isolated frontend test
+files pass, with the same Russian-locale `meeting-titles` failure as above.
+
+The Claude Code CLI summary provider was removed
+([#19](https://github.com/vmedvedevpro/Protocol/issues/19)), so no IPC command
+runs an executable chosen by the user any more. A settings row saved with it
+still loads: `api.rs::read_model_config` returns any provider that
+`LLMProvider::from_str` rejects as `provider: ''` and `model: ''` with no API
+key, and `ConfigContext` keeps that instead of its Ollama default. Model Settings
+then shows **Select provider** with Save disabled; Generate and Regenerate show
+**Choose a summary provider** and open the meeting page's Model Settings dialog
+(`openModelSettingsRef`, set by `MeetingDocument`). After a recording,
+`keepsSavedSummaryModel` arms auto-summary for such a row; the refusal, like any
+attempt that starts no run, disarms it, so re-renders and a provider selected but
+not saved start nothing. A refused regeneration keeps its dialog and the Edited
+state. Migration `20260914000000_add_claude_cli_path.sql` and the
+`settings.claudeCliPath` column stay because sqlx refuses to start without an
+applied migration; nothing reads or writes the column. The provider's working
+folder `<data root>/claude-cli` is deleted at startup
+(`paths::remove_claude_cli_working_dir`, best effort). Tests: native
+`api::model_config_tests`, `live_assistant::assistant_model_tests` and
+`paths::retired_dir_tests`; frontend
+`tests/hooks/summary-provider-unavailable.test.tsx`,
+`tests/meeting-details/summary-provider-prompt.test.tsx` and
+`tests/lib/meeting-summary-policy.test.ts`. Details:
+[ARCHITECTURE.md, Summary providers](../ARCHITECTURE.md#summary-providers).
+
+The executable was renamed from upstream's `meetily.exe` to `protocol.exe`
+(#12): the Cargo package and binary are `protocol`, and with no `mainBinaryName`
+in `tauri.conf.json` Tauri takes the main binary name from Cargo, so
+`tauri dev`, `tauri build` (`${MAINBINARYNAME}` in `installer.nsi`), and the
+macOS `Contents/MacOS/protocol` follow it. Meeting detection
+(`is_self_process`) and per-app capture treat `protocol` and `protocol-*` as
+the app itself and Meetily as another app; the macOS console runs
+`log stream --process protocol`. The uninstall hook stops only
+`$INSTDIR\protocol.exe`, matched by image path; Tauri's `CheckIfAppIsRunning`
+still matches `protocol.exe` by name (see `ARCHITECTURE.md`, also for the
+one-time upgrade from a pre-#12 install). Checks run for
+the change: `cargo check --locked -p protocol --features vulkan --all-targets`;
+`cargo test -p protocol --lib --features vulkan -- --test-threads=1` (379
+passed, 10 ignored); makensis 3.11 on a stub that inserts every hook (only the
+existing line-continuation warning); the hook's process stop run from a 32-bit
+NSIS stub against 64-bit processes (only the copy under `$INSTDIR` stopped);
+`bootstrapper.cpp` with `/W4`; and a debug, Vulkan, unsigned
+`tauri build --bundles nsis` installed silently into a temp folder and
+uninstalled, with stand-in processes: a running `meetily.exe` survived install
+and uninstall, the installed `protocol.exe` was stopped, and a second
+`protocol.exe` elsewhere was stopped by Tauri's check. The universal installer
+(CUDA toolkit) and `verify-windows-release.mjs` (7-Zip, universal payload) were
+not run. Before staging, `build-universal-windows.ps1` deletes the `*.exe` an
+earlier build left in the gitignored `installer-variants` folder, so a
+checkout's pre-rename `meetily-*.exe` are not signed and packaged; that cleanup
+was tested on temporary folders, not in a full universal build.
 
 ## 6. Tests, qualification, and historical notes
 
@@ -415,7 +559,7 @@ pnpm run build
 
 Native tests containing `live_nemotron` cover timeline attribution, retained tail,
 history bounds, and the resampled observer clock. With the project's native build
-prerequisites configured, use `cargo test -p meetily --lib live_nemotron` and the
+prerequisites configured, use `cargo test -p protocol --lib live_nemotron` and the
 appropriate platform feature flags. Windows qualification uses release binaries
 and the packaged shared runtime; local `.build-tools/` scripts are environment-
 specific conveniences, not substitutes for documenting prerequisites/results.

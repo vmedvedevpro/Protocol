@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { invoke as invokeTauri } from '@tauri-apps/api/core';
 import { toast } from 'sonner';
-import Analytics from '@/lib/analytics';
 
 export function useTemplates() {
   const [availableTemplates, setAvailableTemplates] = useState<Array<{
@@ -38,7 +37,6 @@ export function useTemplates() {
       templateJson,
     }) as string;
     await refreshTemplates();
-    Analytics.trackFeatureUsed('template_saved');
     return savedId;
   }, [refreshTemplates]);
 
@@ -46,7 +44,6 @@ export function useTemplates() {
   const deleteCustomTemplate = useCallback(async (templateId: string) => {
     await invokeTauri('api_delete_custom_template', { templateId });
     await refreshTemplates();
-    Analytics.trackFeatureUsed('template_deleted');
     if (selectedTemplate === templateId) setSelectedTemplate('standard_meeting');
   }, [refreshTemplates, selectedTemplate]);
 
@@ -64,7 +61,6 @@ export function useTemplates() {
     toast.success('Template selected', {
       description: `Using "${templateName}" template for summary generation`,
     });
-    Analytics.trackFeatureUsed('template_selected');
   }, []);
 
   return {

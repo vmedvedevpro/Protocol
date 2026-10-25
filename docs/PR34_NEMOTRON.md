@@ -57,7 +57,7 @@ The real-model test is explicitly ignored unless invoked with a pinned model:
 MEETILY_NEMOTRON_MODEL=<path to nemotron3_diar_v3.onnx>
 MEETILY_NEMOTRON_WAV=<optional synthetic/public test WAV>
 MEETILY_NEMOTRON_EXPECTED=<optional voice/start/end JSON turn annotations>
-cargo test --release -p meetily --no-default-features --features custom-protocol --lib real_model_silence_and_optional_speech -- --ignored --nocapture
+cargo test --release -p protocol --no-default-features --features custom-protocol --lib real_model_silence_and_optional_speech -- --ignored --nocapture
 ```
 
 Missing required model configuration fails that test rather than silently passing.

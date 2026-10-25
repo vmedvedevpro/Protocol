@@ -9,7 +9,6 @@ import { motion } from 'framer-motion';
 import { invoke } from '@tauri-apps/api/core';
 import { toast } from 'sonner';
 import type { Summary, Transcript, TranscriptSegmentData } from '@/types';
-import Analytics from '@/lib/analytics';
 import { useSidebar } from '@/components/Sidebar/SidebarProvider';
 import { useConfig } from '@/contexts/ConfigContext';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
@@ -40,7 +39,9 @@ import { cn } from '@/lib/utils';
 import { displaySpeaker, speakerColorIndexMap, speakerKey } from '@/utils/speakerUtils';
 
 // Page remounts join the same backend-start attempt. Only accepted attempts are
-// persisted in sessionStorage below; failed preflight attempts remain retryable.
+// persisted in sessionStorage below. An attempt that starts no run (no provider,
+// a failed model or transcript check, a rejected request) still ends
+// auto-summary on this page; the next summary starts from Generate.
 const autoSummaryInFlight = new Map<string, Promise<boolean>>();
 const NOTES_WIDTH_KEY = 'af-meeting-notes-width';
 const TRANSCRIPT_MIN = 340;
@@ -117,10 +118,6 @@ export default function PageContent({
   const [textMode, setTextMode] = useState<'clean' | 'verbatim'>('clean');
 
   useEffect(() => setTitle(displayTitle(meeting.title, meeting.created_at)), [meeting.title, meeting.created_at]);
-
-  useEffect(() => {
-    Analytics.trackPageView('meeting_details');
-  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -220,7 +217,6 @@ export default function PageContent({
         apiKey: config.apiKey ?? null,
         ollamaEndpoint: config.ollamaEndpoint ?? null,
         summaryMaxTokens: config.summaryMaxTokens ?? null,
-        claudeCliPath: config.claudeCliPath ?? null,
       });
       const { emit } = await import('@tauri-apps/api/event');
       await emit('model-config-updated', config);
@@ -261,10 +257,11 @@ export default function PageContent({
         } finally {
           if (autoSummaryInFlight.get(meeting.id) === attempt) autoSummaryInFlight.delete(meeting.id);
         }
-        if (accepted) {
-          sessionStorage.setItem(key, 'started');
-          onAutoGenerateComplete?.();
-        }
+        if (accepted) sessionStorage.setItem(key, 'started');
+        // Disarm after a refusal too. Left armed, every re-render re-ran the
+        // attempt (one more toast each time), and a provider only selected in
+        // Model Settings, not saved, started a summary by itself.
+        onAutoGenerateComplete?.();
         return;
       }
       await summaryGeneration.handleGenerateSummary('');
@@ -508,9 +505,7 @@ export default function PageContent({
             summaryError={summaryGeneration.summaryError}
             statusMessage={summaryGeneration.getSummaryStatusMessage}
             onGenerate={() => void summaryGeneration.handleGenerateSummary('')}
-            onRegenerate={async (instructions) => {
-              await summaryGeneration.handleRegenerateSummary(instructions);
-            }}
+            onRegenerate={summaryGeneration.handleRegenerateSummary}
             onStop={summaryGeneration.handleStopGeneration}
             hasTranscript={hasTranscript}
             transcript={transcriptSegments}
@@ -518,6 +513,7 @@ export default function PageContent({
             modelConfig={modelConfig}
             setModelConfig={setModelConfig}
             onSaveModelConfig={handleSaveModelConfig}
+            openModelSettingsRef={openModelSettingsRef}
             templates={templates.availableTemplates}
             selectedTemplate={templates.selectedTemplate}
             onTemplateSelect={templates.handleTemplateSelection}

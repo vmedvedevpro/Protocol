@@ -8,7 +8,7 @@
  * action section, its items move into the action list (see
  * lib/action-item-sync) so nothing is shown twice.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { toast } from 'sonner';
 import {
@@ -64,7 +64,8 @@ export interface MeetingDocumentProps {
   summaryError: string | null;
   statusMessage: (status: SummaryStatus) => string;
   onGenerate: () => void;
-  onRegenerate: (instructions: string) => Promise<void>;
+  /** Resolves true when a run started; false when it was refused before one did. */
+  onRegenerate: (instructions: string) => Promise<boolean>;
   onStop: () => void;
   hasTranscript: boolean;
   transcript: TranscriptLine[];
@@ -72,6 +73,8 @@ export interface MeetingDocumentProps {
   modelConfig: ModelConfig;
   setModelConfig: (config: ModelConfig | ((prev: ModelConfig) => ModelConfig)) => void;
   onSaveModelConfig: (config?: ModelConfig) => Promise<void>;
+  /** Set to a function that opens the summary model dialog while this document is mounted. */
+  openModelSettingsRef?: MutableRefObject<(() => void) | null>;
   templates: Array<{ id: string; name: string; description: string }>;
   selectedTemplate: string;
   onTemplateSelect: (id: string, name: string) => void;
@@ -153,6 +156,7 @@ function NotesTab({
   modelConfig,
   setModelConfig,
   onSaveModelConfig,
+  openModelSettingsRef,
   templates,
   selectedTemplate,
   onTemplateSelect,
@@ -254,6 +258,15 @@ function NotesTab({
   const [language, setLanguage] = useState<string | null>(null);
   const [languageOpen, setLanguageOpen] = useState(false);
   const [modelOpen, setModelOpen] = useState(false);
+  // The summary hook asks for Model Settings through the page's ref (no
+  // provider, a missing model); on the meeting page they live in this dialog.
+  useEffect(() => {
+    if (!openModelSettingsRef) return;
+    openModelSettingsRef.current = () => setModelOpen(true);
+    return () => {
+      openModelSettingsRef.current = null;
+    };
+  }, [openModelSettingsRef]);
   useEffect(() => {
     let cancelled = false;
     void readMeetingSummaryLanguage(meetingId)
@@ -296,7 +309,9 @@ function NotesTab({
     setRegenerating(true);
     try {
       await summarySaver.flush();
-      await onRegenerate(instructions.trim());
+      // A refused run (no provider, a model or transcript check) replaced
+      // nothing: keep the dialog, the Edited badge and the replace warning.
+      if (!(await onRegenerate(instructions.trim()))) return;
       setUserEdited(false);
       setRegenerateOpen(false);
     } finally {

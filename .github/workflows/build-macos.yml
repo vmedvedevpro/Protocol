@@ -170,7 +170,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cargo test --release -p meetily --lib --target "$TARGET" -- --test-threads=1
+          cargo test --release -p protocol --lib --target "$TARGET" -- --test-threads=1
 
       - name: Verify Apple Silicon bundle
         id: artifact
@@ -226,7 +226,7 @@ jobs:
             exit 1
           fi
 
-          APP_BINARY="$APP_PATH/Contents/MacOS/meetily"
+          APP_BINARY="$APP_PATH/Contents/MacOS/protocol"
           if [[ ! -x "$APP_BINARY" ]]; then
             echo "App executable not found: $APP_BINARY"
             exit 1
@@ -318,7 +318,7 @@ jobs:
           hdiutil detach "$MOUNT_POINT"
           trap - EXIT
 
-          APP_BINARY="$INSTALLED_APP/Contents/MacOS/meetily"
+          APP_BINARY="$INSTALLED_APP/Contents/MacOS/protocol"
           LOG_PATH="$RUNNER_TEMP/meetily-launch.log"
           RUST_BACKTRACE=1 RUST_LOG=info "$APP_BINARY" >"$LOG_PATH" 2>&1 &
           APP_PID=$!
