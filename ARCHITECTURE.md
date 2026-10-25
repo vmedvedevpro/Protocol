@@ -269,8 +269,10 @@ count, rounded memory size, source-relative panic file/line details, and a
 panic-location fingerprint. It
 never includes ordinary logs, recordings, checkpoints, transcript/summary data,
 meeting identity, SQLite/WebView/settings storage, credentials, usernames,
-hostnames, or device names. Do not replace it with the much broader manual
-`scripts/collect-meetily-crash-diagnostics.bat` support bundle.
+hostnames, or device names. It is the only supported crash-reporting path. The
+manual support-bundle script inherited from upstream was removed because it
+zipped the SQLite database (provider API keys are stored there in plaintext),
+WebView storage, and memory dumps; do not add a broader collector back.
 
 ---
 

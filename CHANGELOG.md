@@ -17,6 +17,10 @@ issue and PR numbers refer to
   signing in the Windows packaging script, release verifier, and workflows.
 - Point About, onboarding, crash reports, and the CUDA setup prompt at this
   repository.
+- Remove the manual Windows support-bundle script inherited from upstream: it
+  zipped the database with provider API keys, WebView storage, and memory dumps,
+  and read the old Meetily folders. The in-app crash report remains the
+  supported path.
 
 ## Unreleased
 
