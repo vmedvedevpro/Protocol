@@ -2719,7 +2719,8 @@ impl<T: UserEvent> RuntimeHandle<T> for WryHandle<T> {
       .send_user_message(Message::EventLoopWindowTarget(
         EventLoopWindowTargetMessage::MonitorFromPoint(tx, (x, y)),
       ))?;
-    Ok(rx.recv().unwrap())
+    // The loop drops a queued message, and its sender, when it closes first.
+    rx.recv().map_err(|_| Error::FailedToReceiveMessage)
   }
 
   fn available_monitors(&self) -> Result<Vec<Monitor>> {
@@ -4142,40 +4143,36 @@ fn handle_user_message<T: UserEvent>(
     }
 
     Message::UserEvent(_) => (),
+    // A raw sender (send_event, Context::proxy) can deliver these replies to a
+    // receiver that is already gone; that must not panic the UI thread.
     Message::EventLoopWindowTarget(message) => match message {
       EventLoopWindowTargetMessage::CursorPosition(sender) => {
         let pos = event_loop
           .cursor_position()
           .map_err(|_| Error::FailedToSendMessage);
-        sender.send(pos).unwrap();
+        let _ = sender.send(pos);
       }
       EventLoopWindowTargetMessage::PrimaryMonitor(sender) => {
-        sender
-          .send(
-            event_loop
-              .primary_monitor()
-              .map(|m| MonitorHandleWrapper(m).into()),
-          )
-          .unwrap();
+        let _ = sender.send(
+          event_loop
+            .primary_monitor()
+            .map(|m| MonitorHandleWrapper(m).into()),
+        );
       }
       EventLoopWindowTargetMessage::MonitorFromPoint(sender, (x, y)) => {
-        sender
-          .send(
-            event_loop
-              .monitor_from_point(x, y)
-              .map(|m| MonitorHandleWrapper(m).into()),
-          )
-          .unwrap();
+        let _ = sender.send(
+          event_loop
+            .monitor_from_point(x, y)
+            .map(|m| MonitorHandleWrapper(m).into()),
+        );
       }
       EventLoopWindowTargetMessage::AvailableMonitors(sender) => {
-        sender
-          .send(
-            event_loop
-              .available_monitors()
-              .map(|m| MonitorHandleWrapper(m).into())
-              .collect(),
-          )
-          .unwrap();
+        let _ = sender.send(
+          event_loop
+            .available_monitors()
+            .map(|m| MonitorHandleWrapper(m).into())
+            .collect(),
+        );
       }
       EventLoopWindowTargetMessage::SetTheme(theme) => {
         event_loop.set_theme(to_tao_theme(theme));

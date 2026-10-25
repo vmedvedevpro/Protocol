@@ -178,9 +178,12 @@ runtime; cloned contexts hold private atomic weak references. Only UI-thread
 dispatch upgrades them, monitor queries are routed to that thread (upstream
 does this itself since 2.12), and the owner expires before native-loop
 destruction, including panic unwinding.
-Windows display handles borrow no data. Non-Windows behavior is unchanged.
-Windows runtime `tracing` is deliberately rejected because its separate
-`ActiveTraceSpanStore` still contains another cross-thread `Rc`.
+Windows display handles borrow no data. Non-Windows behavior is unchanged,
+except that a lost reply to a runtime-handle monitor or cursor query is an
+error or is dropped instead of a panic, on every platform (upstream's 2.12 code
+for these queries is shared). Windows runtime `tracing` is deliberately
+rejected because its separate `ActiveTraceSpanStore` still contains another
+cross-thread `Rc`.
 
 See `vendor/tauri-runtime-wry/PATCH.md` for provenance, regression commands,
 scope, and removal criteria. Do not remove this override on a version bump
