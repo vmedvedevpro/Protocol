@@ -792,10 +792,6 @@ pub fn run() {
             audio::recording_preferences::select_recording_folder,
             audio::recording_preferences::get_recordable_apps,
             audio::recording_preferences::select_custom_app_executable,
-            audio::recording_preferences::get_available_audio_backends,
-            audio::recording_preferences::get_current_audio_backend,
-            audio::recording_preferences::set_audio_backend,
-            audio::recording_preferences::get_audio_backend_info,
             // Language preference commands
             set_language_preference,
             // Notification system commands
