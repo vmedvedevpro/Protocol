@@ -6,7 +6,7 @@
 //! toast when it believes the app is *installed*. It explicitly skips the AUMID
 //! when the running exe sits in a directory ending with `target\debug` or
 //! `target\release` (see the plugin's `desktop.rs`). This portable fork ships
-//! and runs `target\release\meetily.exe`, so the plugin never sets an AUMID and
+//! and runs `target\release\protocol.exe`, so the plugin never sets an AUMID and
 //! Windows falls back to attributing every toast to PowerShell's AUMID — which
 //! is why the meeting-detected toast reads "Windows PowerShell".
 //!

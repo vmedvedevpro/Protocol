@@ -700,7 +700,7 @@ build-universal-windows.ps1
   -> user runs the frameless bootstrapper
   -> bootstrapper extracts + SHA-256 verifies the engine in %TEMP%
   -> engine runs in passive mode with its stock window forced hidden
-  -> bootstrapper shows completion and launches meetily.exe
+  -> bootstrapper shows completion and launches protocol.exe
 ```
 
 Relevant files:
@@ -749,10 +749,43 @@ offers, and overwrites, their folder.
 
 Backend selection still belongs to `installer-hooks.nsh`; do not reimplement it
 in the bootstrapper. The universal package stages three app executables and the
-hook chooses CUDA, Vulkan, or CPU, then installs the chosen variant as the
-canonical `meetily.exe`. The executable keeps the upstream name for now, so the
-running-app check and the uninstall hook's `taskkill /IM meetily.exe` stop every
-`meetily.exe`, including upstream Meetily and a Protocol dev build (#12).
+hook chooses CUDA, Vulkan, or CPU, then installs the chosen variant
+(`protocol-{cpu,vulkan,cuda}.exe`) as the canonical `protocol.exe`. The
+executable no longer shares upstream's `meetily.exe` name (#12), so setup and
+uninstall leave a running Meetily or Meetily – Actually Free alone, except
+during the one-time upgrade from a pre-#12 install described below. The
+uninstall hook stops only the process whose image path is this install's
+`protocol.exe` (a Toolhelp snapshot plus `QueryFullProcessImageNameW`, not
+`taskkill /IM`). Tauri's running-app check (`CheckIfAppIsRunning` in
+`installer.nsi`, before install and uninstall) still matches the image name
+`protocol.exe` among the current user's processes: it also finds a Protocol dev
+build or a Labs install, asks in an interactive run, and closes them without
+asking in passive (`/P`, how the bootstrapper runs the engine) and silent runs.
+
+The first setup over a pre-#12 install, one that still has `meetily.exe`, is a
+one-time transition that the installer does not special-case:
+
+- Setup runs the old install's own uninstaller after the default choice of an
+  interactive upgrade or downgrade ("Uninstall before installing") and in a
+  passive run over the same version, which is how the bootstrapper runs the
+  engine. That old uninstaller still runs `taskkill /IM meetily.exe /F` and
+  `CheckIfAppIsRunning "meetily.exe"`, so it force-stops every `meetily.exe` of
+  the user, including a separately installed Meetily or Meetily – Actually
+  Free. Close Meetily too before this upgrade. The check that setup runs after
+  the old uninstaller looks for `protocol.exe`, so it misses a `meetily.exe`
+  that uninstaller left behind.
+- When no uninstall step runs (for example a passive run over another version,
+  or an interactive run without the uninstall choice), nothing closes the old
+  install's running `meetily.exe`, because the hook and the check look only for
+  `protocol.exe`. The template's `MainBinaryName` cleanup then cannot delete
+  the locked `meetily.exe`, does not report it, and records `protocol.exe`, so
+  no later setup or uninstaller removes the leftover file. Close the old
+  Protocol before upgrading and delete a leftover `meetily.exe` from the
+  install folder by hand.
+- If an interactive run without an uninstall step ends with the
+  desktop-shortcut box unticked, an existing desktop `Protocol.lnk` keeps
+  pointing at `meetily.exe`. The uninstaller removes only shortcuts that target
+  `protocol.exe`, so delete that one by hand.
 
 CUDA selection also distinguishes missing or outdated NVIDIA drivers from a PC
 with no NVIDIA display adapter. The hook checks PCI display-class metadata so a
@@ -773,7 +806,7 @@ That action opens the fork's GitHub releases page rather than a versioned asset,
 because not every version has a published universal setup.
 
 Vulkan selection requires the 64-bit system loader and runs the staged x64
-`meetily-vulkan-probe.exe`, which applies GGML's device-selection policy and
+`protocol-vulkan-probe.exe`, which applies GGML's device-selection policy and
 requires every selected device to provide Vulkan 1.2, a compute queue, 16-bit
 storage support, and successful logical-device creation. This follows modern
 Intel/AMD DCH discovery without a fragile registry scan. Do not
@@ -910,7 +943,7 @@ it is Tauri's bundle identifier, the installer shortcut AUMID, and the explicit
 process AUMID (`notifications/native_windows.rs`) set before any windows are
 created. Changing it detaches the app from upstream Meetily's single-instance
 lock, WebView storage, and plugin stores. Setup runs recreate Start Menu
-shortcuts (and any existing desktop shortcut) with `meetily.exe,0` as the
+shortcuts (and any existing desktop shortcut) with `protocol.exe,0` as the
 explicit icon source, then call `SHChangeNotify`; application startup must not
 replace those installer-owned shortcuts with PNG-backed WScript shortcuts.
 

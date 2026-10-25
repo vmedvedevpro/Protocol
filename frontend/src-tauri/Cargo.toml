@@ -1,5 +1,5 @@
 [package]
-name = "meetily"
+name = "protocol"
 version = "0.2.22"
 description = "Protocol: a local-first meeting recorder and transcriber"
 authors = ["vmedvedevpro"]

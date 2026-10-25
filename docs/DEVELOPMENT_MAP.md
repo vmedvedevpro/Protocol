@@ -363,13 +363,13 @@ beside an installed upstream build without sharing state:
 | Uninstall entry | `HKCU\…\Uninstall\io.github.vmedvedevpro.protocol` | `windows/installer.nsi` (`UNINSTKEY`) |
 | Fallback data root | OS data dir `/vmedvedevpro/Protocol` | `paths.rs` (`FALLBACK_PUBLISHER`, `FALLBACK_APP_NAME`) |
 | Default recordings folder | `protocol-recordings` | `audio/recording_preferences.rs` |
+| Cargo package and executable | `protocol`, `protocol.exe`; installer variants `protocol-{cpu,vulkan,cuda}.exe`, `protocol-vulkan-probe.exe` | `src-tauri/Cargo.toml`, `build-universal-windows.ps1`, `windows/installer-hooks.nsh` |
 
 The identifier also keys the single-instance lock, WebView storage, plugin
 stores, and the legacy `app_data_dir` migration in `paths.rs`; under the old
 identifier a first run would copy an installed upstream build's models and
-database. Internal names stay upstream-compatible to keep merges cheap: the
-`meetily` crate and `meetily.exe`, `MEETILY_*` environment variables, and
-localStorage/event keys.
+database. Internal names stay upstream-compatible to keep merges cheap:
+`MEETILY_*` environment variables and localStorage/event keys.
 
 There is no in-app updater. `tauri-plugin-updater`, `tauri-plugin-process`,
 `app_update.rs`, the update dialog/provider, the tray item, and the onboarding
@@ -427,6 +427,33 @@ folder `<data root>/claude-cli` is deleted at startup
 `tests/meeting-details/summary-provider-prompt.test.tsx` and
 `tests/lib/meeting-summary-policy.test.ts`. Details:
 [ARCHITECTURE.md, Summary providers](../ARCHITECTURE.md#summary-providers).
+
+The executable was renamed from upstream's `meetily.exe` to `protocol.exe`
+(#12): the Cargo package and binary are `protocol`, and with no `mainBinaryName`
+in `tauri.conf.json` Tauri takes the main binary name from Cargo, so
+`tauri dev`, `tauri build` (`${MAINBINARYNAME}` in `installer.nsi`), and the
+macOS `Contents/MacOS/protocol` follow it. Meeting detection
+(`is_self_process`) and per-app capture treat `protocol` and `protocol-*` as
+the app itself and Meetily as another app; the macOS console runs
+`log stream --process protocol`. The uninstall hook stops only
+`$INSTDIR\protocol.exe`, matched by image path; Tauri's `CheckIfAppIsRunning`
+still matches `protocol.exe` by name (see `ARCHITECTURE.md`, also for the
+one-time upgrade from a pre-#12 install). Checks run for
+the change: `cargo check --locked -p protocol --features vulkan --all-targets`;
+`cargo test -p protocol --lib --features vulkan -- --test-threads=1` (379
+passed, 10 ignored); makensis 3.11 on a stub that inserts every hook (only the
+existing line-continuation warning); the hook's process stop run from a 32-bit
+NSIS stub against 64-bit processes (only the copy under `$INSTDIR` stopped);
+`bootstrapper.cpp` with `/W4`; and a debug, Vulkan, unsigned
+`tauri build --bundles nsis` installed silently into a temp folder and
+uninstalled, with stand-in processes: a running `meetily.exe` survived install
+and uninstall, the installed `protocol.exe` was stopped, and a second
+`protocol.exe` elsewhere was stopped by Tauri's check. The universal installer
+(CUDA toolkit) and `verify-windows-release.mjs` (7-Zip, universal payload) were
+not run. Before staging, `build-universal-windows.ps1` deletes the `*.exe` an
+earlier build left in the gitignored `installer-variants` folder, so a
+checkout's pre-rename `meetily-*.exe` are not signed and packaged; that cleanup
+was tested on temporary folders, not in a full universal build.
 
 ## 6. Tests, qualification, and historical notes
 
@@ -532,7 +559,7 @@ pnpm run build
 
 Native tests containing `live_nemotron` cover timeline attribution, retained tail,
 history bounds, and the resampled observer clock. With the project's native build
-prerequisites configured, use `cargo test -p meetily --lib live_nemotron` and the
+prerequisites configured, use `cargo test -p protocol --lib live_nemotron` and the
 appropriate platform feature flags. Windows qualification uses release binaries
 and the packaged shared runtime; local `.build-tools/` scripts are environment-
 specific conveniences, not substitutes for documenting prerequisites/results.

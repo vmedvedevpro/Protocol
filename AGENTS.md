@@ -24,9 +24,10 @@ planned work is tracked in [GitHub issues](https://github.com/vmedvedevpro/Proto
 
 ## Fork conventions
 
-- Keep upstream internal names so upstream merges stay small: the `meetily` crate
-  and `meetily.exe` (until #12), `MEETILY_*` variables, storage and event keys.
-  Rebrand only what identifies the product to its users.
+- Keep upstream internal names so upstream merges stay small: `MEETILY_*`
+  variables, storage and event keys. Rebrand only what identifies the product to
+  its users. The Cargo package and executable are `protocol` (`protocol.exe`,
+  `cargo test -p protocol`); the library crate stays `app_lib`.
 - Sample data is not branding: leave example names in tests, fixtures, and
   placeholders as upstream wrote them.
 - Put new features in new modules and keep edits to upstream files minimal. Keep

@@ -38,6 +38,15 @@ issue and PR numbers refer to
 - Import audio into the recordings folder chosen in Settings instead of always
   the default folder, failing with the folder path when it is unusable; speaker
   identification also looks there for recordings a meeting does not link (#29).
+- Rename the executable from `meetily.exe` to `protocol.exe` (Cargo package
+  `protocol`, installer variants `protocol-{cpu,vulkan,cuda}.exe`). Setup and
+  uninstall no longer close a running Meetily or Meetily – Actually Free,
+  except once: the first upgrade over a build that still has `meetily.exe` can
+  run that build's old uninstaller, which closes every `meetily.exe`. The
+  uninstall hook stops only the `protocol.exe` in its own install folder, but
+  Tauri's running-app check, before install and uninstall, still closes every
+  `protocol.exe` of the user by name (asking first only in an interactive run).
+  Meeting detection no longer treats Meetily as Protocol itself.
 
 ## Unreleased
 

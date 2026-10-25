@@ -665,9 +665,9 @@ jobs:
         run: |
           $profile = "${{ steps.build-profile.outputs.profile }}"
           $profileFlag = if ($profile -eq "release") { "--release" } else { $null }
-          cargo build $profileFlag --target x86_64-pc-windows-msvc -p meetily --bin meetily --no-default-features --features vulkan,custom-protocol
+          cargo build $profileFlag --target x86_64-pc-windows-msvc -p protocol --bin protocol --no-default-features --features vulkan,custom-protocol
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & "frontend/scripts/build-nsis-progress-plugin.ps1" -ProgressMainBinary "target/x86_64-pc-windows-msvc/$profile/meetily.exe"
+          & "frontend/scripts/build-nsis-progress-plugin.ps1" -ProgressMainBinary "target/x86_64-pc-windows-msvc/$profile/protocol.exe"
 
       - name: Cache FFmpeg binary
         uses: actions/cache@v4

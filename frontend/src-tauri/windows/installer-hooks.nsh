@@ -219,7 +219,7 @@ Var MeetilyCudaNotice
   ${EndIf}
   ${If} $R6 == 1
     StrCpy $R6 0
-    StrCpy $R4 "$INSTDIR\installer-variants\meetily-vulkan-probe.exe"
+    StrCpy $R4 "$INSTDIR\installer-variants\protocol-vulkan-probe.exe"
     ${If} ${FileExists} "$R4"
       nsExec::ExecToStack /TIMEOUT=15000 '"$R4"'
       Pop $R3
@@ -251,7 +251,7 @@ Var MeetilyCudaNotice
   ${EnableX64FSRedirection}
 !macroend
 
-; Pick and install the canonical meetily.exe. Optional command-line override:
+; Pick and install the canonical protocol.exe. Optional command-line override:
 ;   /BACKEND=cuda | /BACKEND=vulkan | /BACKEND=cpu
 !macro Meetily_SelectBackend
   StrCpy $MeetilyBackend ""
@@ -298,26 +298,26 @@ Var MeetilyCudaNotice
   ${If} $MeetilyBackend == "bundled"
     StrCpy $R5 ""
   ${ElseIf} $MeetilyBackend == "cuda"
-    StrCpy $R5 "$INSTDIR\installer-variants\meetily-cuda.exe"
+    StrCpy $R5 "$INSTDIR\installer-variants\protocol-cuda.exe"
   ${ElseIf} $MeetilyBackend == "vulkan"
-    StrCpy $R5 "$INSTDIR\installer-variants\meetily-vulkan.exe"
+    StrCpy $R5 "$INSTDIR\installer-variants\protocol-vulkan.exe"
   ${Else}
     StrCpy $MeetilyBackend "cpu"
-    StrCpy $R5 "$INSTDIR\installer-variants\meetily-cpu.exe"
+    StrCpy $R5 "$INSTDIR\installer-variants\protocol-cpu.exe"
   ${EndIf}
   ${If} $MeetilyBackend != "bundled"
   ${AndIfNot} ${FileExists} "$R5"
     DetailPrint "      Requested backend binary missing — falling back to CPU."
     StrCpy $MeetilyBackend "cpu"
-    StrCpy $R5 "$INSTDIR\installer-variants\meetily-cpu.exe"
+    StrCpy $R5 "$INSTDIR\installer-variants\protocol-cpu.exe"
   ${EndIf}
 
   ${If} $MeetilyBackend != "bundled"
     DetailPrint "      Selected transcription backend: $MeetilyBackend"
-    CopyFiles /SILENT "$R5" "$INSTDIR\meetily.selected.exe"
-    ${If} ${FileExists} "$INSTDIR\meetily.selected.exe"
+    CopyFiles /SILENT "$R5" "$INSTDIR\protocol.selected.exe"
+    ${If} ${FileExists} "$INSTDIR\protocol.selected.exe"
       Delete "$INSTDIR\${MAINBINARYNAME}.exe"
-      Rename "$INSTDIR\meetily.selected.exe" "$INSTDIR\${MAINBINARYNAME}.exe"
+      Rename "$INSTDIR\protocol.selected.exe" "$INSTDIR\${MAINBINARYNAME}.exe"
     ${Else}
       DetailPrint "      Backend replacement failed — keeping bundled executable."
       StrCpy $MeetilyBackend "bundled"
@@ -413,10 +413,50 @@ Var MeetilyCudaNotice
   DetailPrint "────────────────────────────────────────"
 !macroend
 
+; Stops processes started from this install's own executable. The macro matches
+; the full image path, not the image name, so it skips other programs with the
+; same file name, a Protocol dev build, and another Protocol install (Labs).
+; That does not keep them running: uninstall then runs Tauri's
+; CheckIfAppIsRunning (installer.nsi), as install does, and that check stops
+; every protocol.exe of the current user by image name, asking first in an
+; interactive run and without asking in passive (/P) and silent (/S) runs.
+; The 32-bit stub reads a 64-bit process's path through
+; QueryFullProcessImageNameW, which needs only limited query access.
+!macro Protocol_StopInstalledApp
+  StrCpy $R1 "$INSTDIR\${MAINBINARYNAME}.exe"
+  ; TH32CS_SNAPPROCESS
+  System::Call 'kernel32::CreateToolhelp32Snapshot(i 2, i 0) p.R2'
+  ${If} $R2 P<> -1
+    ; PROCESSENTRY32W; &l4 fills dwSize with the structure size.
+    System::Call '*(&l4, i, i, p, i, i, i, i, i, &w260) p.R3'
+    System::Call 'kernel32::Process32FirstW(p R2, p R3) i.R4'
+    ${DoWhile} $R4 <> 0
+      System::Call '*$R3(i, i, i .R5, p, i, i, i, i, i, &w260 .R6)'
+      ${If} $R6 == "${MAINBINARYNAME}.exe"
+        ; PROCESS_TERMINATE | PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE
+        System::Call 'kernel32::OpenProcess(i 0x101001, i 0, i R5) p.R7'
+        ${If} $R7 P<> 0
+          System::Call 'kernel32::QueryFullProcessImageNameW(p R7, i 0, w .R8, *i ${NSIS_MAX_STRLEN}) i.R9'
+          ${If} $R9 <> 0
+          ${AndIf} $R8 == $R1
+            DetailPrint "      Stopping $R8 (process $R5)."
+            System::Call 'kernel32::TerminateProcess(p R7, i 1)'
+            ; Wait so the uninstaller can delete the executable and sidecars.
+            System::Call 'kernel32::WaitForSingleObject(p R7, i 5000)'
+          ${EndIf}
+          System::Call 'kernel32::CloseHandle(p R7)'
+        ${EndIf}
+      ${EndIf}
+      System::Call 'kernel32::Process32NextW(p R2, p R3) i.R4'
+    ${Loop}
+    System::Free $R3
+    System::Call 'kernel32::CloseHandle(p R2)'
+  ${EndIf}
+!macroend
+
 !macro NSIS_HOOK_PREUNINSTALL
   DetailPrint "Stopping Protocol if it is still running…"
-  nsExec::ExecToLog 'taskkill /IM meetily.exe /F'
-  Pop $0
+  !insertmacro Protocol_StopInstalledApp
 !macroend
 
 !macro NSIS_HOOK_POSTUNINSTALL

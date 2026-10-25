@@ -39,10 +39,15 @@ Everything below comes from upstream and works as it does there.
   (`io.github.vmedvedevpro.protocol`), install folder, data folders, recordings
   folder, and Windows notification identity are all separate, so Protocol runs
   beside an installed Meetily or Meetily – Actually Free without sharing data,
-  settings, or the single-instance lock. The executable is still `meetily.exe`,
-  so installing, upgrading, or uninstalling Protocol with its setup closes every
-  running `meetily.exe` without asking: upstream Meetily and a Protocol dev build
-  alike ([#12](https://github.com/vmedvedevpro/Protocol/issues/12)).
+  settings, or the single-instance lock. The executable is `protocol.exe`, so
+  installing, upgrading, or uninstalling Protocol leaves a running Meetily
+  alone, with one exception: the first upgrade over a Protocol build that still
+  has `meetily.exe` can run that build's old uninstaller, which closes every
+  running `meetily.exe`. Close Meetily too before that upgrade (see
+  [ARCHITECTURE.md](ARCHITECTURE.md#8-windows-installer-and-onboarding)).
+  Setup and uninstall still close any other running `protocol.exe` of your
+  user, such as a dev build or a Labs install: they ask first in an
+  interactive run and close it without asking in passive and silent runs.
 - **No updater.** There is no in-app updater and no update check. To update,
   pull the source and rebuild.
 - **No Claude Code CLI provider.** No IPC command runs an executable you chose
