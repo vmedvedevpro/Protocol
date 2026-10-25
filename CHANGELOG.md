@@ -15,6 +15,10 @@ issue and PR numbers refer to
 - Remove the in-app updater: the updater and process plugins, update checks,
   the onboarding update question, the tray and About update actions, and updater
   signing in the Windows packaging script, release verifier, and workflows.
+- Remove the inactive PostHog analytics: the native `analytics` module and its
+  IPC commands, the `posthog-rs` dependency, and the frontend tracking calls and
+  provider. It never sent events; an `analytics.json` store left by an earlier
+  install is no longer read or written.
 - Point About, onboarding, crash reports, and the CUDA setup prompt at this
   repository.
 
