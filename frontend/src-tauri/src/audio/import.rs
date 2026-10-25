@@ -774,14 +774,27 @@ async fn create_meeting_with_transcripts(
 /// of falling back to the default root, so imported audio never lands outside
 /// the folder Settings shows.
 fn create_import_meeting_folder(recordings_folder: &PathBuf, title: &str) -> Result<PathBuf> {
-    ensure_recordings_directory(recordings_folder).map_err(|error| {
+    ensure_recordings_directory(recordings_folder)
+        .map_err(|error| unavailable_recordings_folder(recordings_folder, error))?;
+    // These errors are bare OS errors, such as a name too long for a deep folder.
+    create_meeting_folder(recordings_folder, title, false).map_err(|error| {
         anyhow!(
-            "Recordings folder {} is unavailable: {}",
+            "Could not create the meeting folder in {}: {}",
             recordings_folder.display(),
             error
         )
-    })?;
-    create_meeting_folder(recordings_folder, title, false)
+    })
+}
+
+/// Names the folder in an unusable-folder error unless the validation error
+/// already does, as the not-a-directory and write-probe errors do.
+fn unavailable_recordings_folder(recordings_folder: &Path, error: anyhow::Error) -> anyhow::Error {
+    let folder = recordings_folder.display().to_string();
+    if error.to_string().contains(&folder) {
+        anyhow!("Recordings folder is unavailable: {}", error)
+    } else {
+        anyhow!("Recordings folder {} is unavailable: {}", folder, error)
+    }
 }
 
 fn is_import_title_manual(title: &str, source: &Path) -> bool {
@@ -1098,6 +1111,32 @@ mod tests {
 
         assert!(error.to_string().contains("recordings.txt"), "{error}");
         assert!(not_a_folder.is_file());
+    }
+
+    #[test]
+    fn unusable_recordings_folder_error_names_the_folder_once() {
+        let folder = PathBuf::from(r"D:\Rec");
+        let probe_error = anyhow!("Recording directory is not writable ({}): Access is denied.", folder.display());
+        let bare_error = anyhow!("The system cannot find the path specified.");
+
+        for error in [probe_error, bare_error] {
+            let message = unavailable_recordings_folder(&folder, error).to_string();
+            assert_eq!(message.matches(r"D:\Rec").count(), 1, "{message}");
+        }
+    }
+
+    #[test]
+    fn meeting_folder_creation_error_names_the_recordings_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        let recordings = dir.path().join("recordings");
+        // A name longer than file systems allow passes the folder checks and then
+        // fails in `create_dir` with a bare OS error.
+        let title = "a".repeat(300);
+
+        let error = create_import_meeting_folder(&recordings, &title).unwrap_err().to_string();
+
+        assert!(error.contains(&recordings.display().to_string()), "{error}");
+        assert!(recordings.is_dir());
     }
 
     #[test]
