@@ -220,7 +220,6 @@ export default function PageContent({
         apiKey: config.apiKey ?? null,
         ollamaEndpoint: config.ollamaEndpoint ?? null,
         summaryMaxTokens: config.summaryMaxTokens ?? null,
-        claudeCliPath: config.claudeCliPath ?? null,
       });
       const { emit } = await import('@tauri-apps/api/event');
       await emit('model-config-updated', config);
