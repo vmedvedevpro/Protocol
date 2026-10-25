@@ -759,10 +759,14 @@ during the one-time upgrade from a pre-#12 install described below. The
 uninstall hook stops only the process whose image path is this install's
 `protocol.exe` (a Toolhelp snapshot plus `QueryFullProcessImageNameW`, not
 `taskkill /IM`). Tauri's running-app check (`CheckIfAppIsRunning` in
-`installer.nsi`, before install and uninstall) still matches the image name
-`protocol.exe` among the current user's processes: it also finds a Protocol dev
-build or a Labs install, asks in an interactive run, and closes them without
-asking in passive (`/P`, how the bootstrapper runs the engine) and silent runs.
+`installer.nsi`, before install and uninstall) is path-based as well since
+tauri-bundler 2.10 (#33): it registers `$INSTDIR\protocol.exe` with Windows
+Restart Manager and shuts down only the processes using that file, so a
+Protocol dev build or a Labs install elsewhere keeps running. It asks in an
+interactive run and closes the app without asking in passive (`/P`, how the
+bootstrapper runs the engine) and silent runs. The template must pass the full
+path and include `Win\RestartManager.nsh`, which the bundler's `utils.nsh`
+needs.
 
 The first setup over a pre-#12 install, one that still has `meetily.exe`, is a
 one-time transition that the installer does not special-case:

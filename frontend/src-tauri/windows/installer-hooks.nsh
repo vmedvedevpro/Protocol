@@ -416,11 +416,11 @@ Var MeetilyCudaNotice
 ; Stops processes started from this install's own executable. The macro matches
 ; the full image path, not the image name, so it skips other programs with the
 ; same file name, a Protocol dev build, and another Protocol install (Labs).
-; That does not keep them running: uninstall then runs Tauri's
-; CheckIfAppIsRunning (installer.nsi), as install does, and that check stops
-; every protocol.exe of the current user by image name, asking first in an
-; interactive run and without asking in passive (/P) and silent (/S) runs.
-; The 32-bit stub reads a 64-bit process's path through
+; Uninstall then runs Tauri's CheckIfAppIsRunning (installer.nsi), as install
+; does. Since tauri-bundler 2.10 that check is path-based as well: Restart
+; Manager shuts down only the processes using this install's executable, asking
+; first in an interactive run and without asking in passive (/P) and silent
+; (/S) runs. The 32-bit stub reads a 64-bit process's path through
 ; QueryFullProcessImageNameW, which needs only limited query access.
 !macro Protocol_StopInstalledApp
   StrCpy $R1 "$INSTDIR\${MAINBINARYNAME}.exe"
