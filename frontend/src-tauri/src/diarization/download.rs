@@ -41,6 +41,12 @@ fn emit<R: Runtime>(app: &AppHandle<R>, p: DownloadProgress) {
     let _ = app.emit("diarization-download-progress", p);
 }
 
+/// Overall progress while a file has not been checked yet. It stays below
+/// 100%, which only the final "done" event reports.
+fn unchecked_percent(bytes: u64, total_bytes: u64) -> f32 {
+    ((bytes as f32 / total_bytes as f32) * 100.0).min(99.0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -76,6 +82,14 @@ mod tests {
         // Prevent the 64 KiB inline buffer that caused _alloca_probe stack overflow.
         assert!(std::mem::size_of_val(&future) < 4096, "Checksum buffer leaked onto async stack");
         future.await.unwrap();
+    }
+
+    #[test]
+    fn progress_of_unchecked_bytes_stays_below_100_percent() {
+        let total = total_download_bytes();
+        // The last bytes of the last file, while they stream and are verified.
+        assert_eq!(unchecked_percent(total, total), 99.0);
+        assert!((unchecked_percent(total / 4, total) - 25.0).abs() < 0.01);
     }
 
     #[test]
@@ -266,7 +280,6 @@ async fn download_single_file<R: Runtime>(
 
         if last_emit.elapsed().as_millis() >= 100 {
             last_emit = std::time::Instant::now();
-            let overall = ((completed_bytes + written) as f32 / total_bytes as f32) * 100.0;
             emit(
                 app,
                 DownloadProgress {
@@ -275,7 +288,7 @@ async fn download_single_file<R: Runtime>(
                     file_count,
                     downloaded: written,
                     total: content_len,
-                    percent: overall.min(100.0),
+                    percent: unchecked_percent(completed_bytes + written, total_bytes),
                     status: "downloading".into(),
                     message: None,
                 },
@@ -297,7 +310,7 @@ async fn download_single_file<R: Runtime>(
             file_count,
             downloaded: written,
             total: content_len,
-            percent: ((completed_bytes + written) as f32 / total_bytes as f32) * 100.0,
+            percent: unchecked_percent(completed_bytes + written, total_bytes),
             status: "verifying".into(),
             message: None,
         },

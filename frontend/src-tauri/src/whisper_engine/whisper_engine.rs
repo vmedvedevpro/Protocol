@@ -973,6 +973,25 @@ impl WhisperEngine {
     pub async fn download_model(&self, model_name: &str, progress_callback: Option<Box<dyn Fn(u8) + Send>>) -> Result<()> {
         log::info!("Starting download for model: {}", model_name);
 
+        // A pinned commit of ggerganov/whisper.cpp on Hugging Face, and the
+        // size and SHA-256 of each file there: see `crate::model_integrity`.
+        let Some(pinned) = model_integrity::whisper_model(model_name) else {
+            return Err(anyhow!("Unsupported model: {}", model_name));
+        };
+        let model_url = format!("{}/{}", model_integrity::WHISPER_BASE, pinned.file);
+        self.download_pinned(model_name, pinned, &model_url, Client::new(), progress_callback).await
+    }
+
+    /// Downloads `model_url` as the file `pinned` of `model_name`. Tests pass
+    /// a local URL, their own pin and a client without the system proxy.
+    async fn download_pinned(
+        &self,
+        model_name: &str,
+        pinned: &'static model_integrity::Pinned,
+        model_url: &str,
+        client: Client,
+        progress_callback: Option<Box<dyn Fn(u8) + Send>>,
+    ) -> Result<()> {
         // Check if download is already in progress for this model
         {
             let active = self.active_downloads.read().await;
@@ -994,15 +1013,6 @@ impl WhisperEngine {
             *cancel_flag = None;
         }
 
-        // A pinned commit of ggerganov/whisper.cpp on Hugging Face, and the
-        // size and SHA-256 of each file there: see `crate::model_integrity`.
-        let Some(pinned) = model_integrity::whisper_model(model_name) else {
-            let mut active = self.active_downloads.write().await;
-            active.remove(model_name);
-            return Err(anyhow!("Unsupported model: {}", model_name));
-        };
-        let model_url = format!("{}/{}", model_integrity::WHISPER_BASE, pinned.file);
-        
         log::info!("Model URL for {}: {}", model_name, model_url);
         
         let file_path = self.models_dir.join(pinned.file);
@@ -1023,11 +1033,8 @@ impl WhisperEngine {
             }
         }
         
-        log::info!("Creating HTTP client and starting request...");
-        let client = Client::new();
-        
         log::info!("Sending GET request to: {}", model_url);
-        let response = client.get(&model_url).send().await
+        let response = client.get(model_url).send().await
             .map_err(|e| anyhow!("Failed to start download: {}", e))?;
         
         log::info!("Received response with status: {}", response.status());
@@ -1102,16 +1109,17 @@ impl WhisperEngine {
 
             downloaded += chunk.len() as u64;
 
-            // Calculate progress
+            // Calculate progress. It stops at 99% here: 100% is reported only
+            // once the file has matched its pin, after the loop.
             let progress = if total_size > 0 {
-                ((downloaded as f64 / total_size as f64) * 100.0) as u8
+                ((downloaded as f64 / total_size as f64) * 100.0).min(99.0) as u8
             } else {
                 0
             };
 
             // Report progress every 1% or every 2 seconds for better UI responsiveness
             let time_since_last_report = last_report_time.elapsed().as_secs();
-            if progress >= last_progress_report + 1 || progress == 100 || time_since_last_report >= 2 {
+            if progress >= last_progress_report + 1 || time_since_last_report >= 2 {
                 log::info!("Download progress: {}% ({:.1} MB / {:.1} MB)",
                          progress,
                          downloaded as f64 / (1024.0 * 1024.0),
@@ -1135,7 +1143,7 @@ impl WhisperEngine {
             }
         }
 
-        log::info!("Streaming download completed: {} bytes", downloaded);
+        log::info!("Received {} bytes; comparing their SHA-256 with the pin", downloaded);
         
         file.flush().await
             .map_err(|e| anyhow!("Failed to flush file: {}", e))?;
@@ -1239,6 +1247,53 @@ mod tests {
                 .unwrap_or_else(|| panic!("{name} has no pinned checksum"));
             assert_eq!(pinned.file, filename);
         }
+    }
+
+    /// Downloads `body` from a local server against `pinned`. Each progress
+    /// report comes with whether the file had been marked verified by then.
+    async fn download_locally(
+        dir: &std::path::Path,
+        pinned: &'static model_integrity::Pinned,
+        body: Vec<u8>,
+    ) -> (Result<()>, Vec<(u8, bool)>) {
+        let engine = WhisperEngine::new_with_models_dir(Some(dir.to_path_buf())).unwrap();
+        let marker = dir.join(format!("{}.verified", pinned.file));
+        let reports = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let callback: Box<dyn Fn(u8) + Send> = {
+            let reports = reports.clone();
+            Box::new(move |progress| reports.lock().unwrap().push((progress, marker.exists())))
+        };
+        let url = model_integrity::testing::serve_once(body).await;
+        let client = Client::builder().no_proxy().build().unwrap();
+        let result = engine.download_pinned("test", pinned, &url, client, Some(callback)).await;
+        let reports = reports.lock().unwrap().clone();
+        (result, reports)
+    }
+
+    #[tokio::test]
+    async fn a_download_reports_100_percent_only_after_the_file_matched() {
+        let dir = tempfile::tempdir().unwrap();
+        let body: Vec<u8> = (0..300_000u32).map(|i| (i % 251) as u8).collect();
+        let pinned = model_integrity::testing::pin_of("ggml-test.bin", &body);
+        let (result, reports) = download_locally(dir.path(), pinned, body).await;
+        result.unwrap();
+        // The stream's reports stay below 100%; the only 100% follows the marker.
+        let (last, streamed) = reports.split_last().unwrap();
+        assert_eq!(*last, (100, true), "{reports:?}");
+        assert!(streamed.iter().all(|&(progress, _)| progress < 100), "{reports:?}");
+    }
+
+    #[tokio::test]
+    async fn a_download_that_fails_its_check_never_reports_100_percent() {
+        let dir = tempfile::tempdir().unwrap();
+        // The pinned size, other content.
+        let pinned = model_integrity::testing::pin_of("ggml-test.bin", &[8u8; 300_000]);
+        let (result, reports) = download_locally(dir.path(), pinned, vec![7u8; 300_000]).await;
+        let error = result.unwrap_err().to_string();
+        assert!(error.contains("failed its integrity check and was deleted"), "{error}");
+        assert!(!dir.path().join("ggml-test.bin").exists());
+        assert!(!reports.is_empty(), "the stream reported no progress");
+        assert!(reports.iter().all(|&(progress, _)| progress < 100), "{reports:?}");
     }
 
     #[tokio::test]

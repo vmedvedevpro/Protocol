@@ -444,6 +444,48 @@ pub async fn ensure_verified_cancellable(
     Ok(())
 }
 
+/// For download tests that run without the network: a pin for given bytes,
+/// and a local server that sends them once.
+#[cfg(test)]
+pub(crate) mod testing {
+    use super::Pinned;
+    use sha2::{Digest, Sha256};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    /// A pin that `bytes` match, stored as `file`.
+    pub fn pin_of(file: &'static str, bytes: &[u8]) -> &'static Pinned {
+        Box::leak(Box::new(Pinned {
+            file,
+            size: bytes.len() as u64,
+            sha256: Box::leak(format!("{:x}", Sha256::digest(bytes)).into_boxed_str()),
+        }))
+    }
+
+    /// Answers one HTTP request on a local port with `body`; returns the URL.
+    pub async fn serve_once(body: Vec<u8>) -> String {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/model", listener.local_addr().unwrap());
+        tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut request = Vec::new();
+            let mut buffer = [0; 1024];
+            while !request.windows(4).any(|part| part == b"\r\n\r\n") {
+                match stream.read(&mut buffer).await {
+                    Ok(0) | Err(_) => return,
+                    Ok(read) => request.extend_from_slice(&buffer[..read]),
+                }
+            }
+            let head = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            );
+            let _ = stream.write_all(head.as_bytes()).await;
+            let _ = stream.write_all(&body).await;
+        });
+        url
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

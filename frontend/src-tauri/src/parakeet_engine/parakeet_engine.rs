@@ -836,11 +836,12 @@ impl ParakeetEngine {
                     last_report_time = Instant::now();
                     bytes_since_last_report = 0;
                     if let Some(ref callback) = progress_callback {
-                        callback(DownloadProgress::new(
-                            total_downloaded,
-                            total_size_bytes,
-                            speed_mbps,
-                        ));
+                        // At most 99%, like the status: the last chunk of the
+                        // last file arrives before that file is checked.
+                        callback(DownloadProgress {
+                            percent: overall_progress,
+                            ..DownloadProgress::new(total_downloaded, total_size_bytes, speed_mbps)
+                        });
                     }
                     if let Some(model) = self.available_models.write().await.get_mut(model_name)
                     {

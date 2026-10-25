@@ -16,7 +16,7 @@ use tokio::io::{AsyncWriteExt, BufWriter};
 use tokio::sync::{Notify, RwLock};
 use tokio::time::timeout;
 
-use super::models::{get_available_models, get_model_by_name};
+use super::models::{get_available_models, get_model_by_name, ModelDef};
 use crate::model_integrity::{self, IntegrityError, Pinned};
 
 // ============================================================================
@@ -452,6 +452,29 @@ impl ModelManager {
     ) -> Result<()> {
         log::info!("Starting download for model: {}", model_name);
 
+        // Get model definition
+        let Some(model_def) = get_model_by_name(model_name) else {
+            return Err(anyhow!("Unknown model: {}", model_name));
+        };
+        // The exact size and SHA-256 of the file at the pinned URL.
+        let Some((_, pinned)) = model_integrity::summary_model(&model_def.gguf_file) else {
+            return Err(anyhow!("{} has no pinned checksum", model_def.gguf_file));
+        };
+        self.download_pinned(model_name, &model_def, pinned, Client::builder(), progress_callback)
+            .await
+    }
+
+    /// Downloads `model_def` as the file `pinned`, with `client` set up here
+    /// for large files. Tests pass a local URL in `model_def`, their own pin
+    /// and a builder without the system proxy.
+    async fn download_pinned(
+        &self,
+        model_name: &str,
+        model_def: &ModelDef,
+        pinned: &'static Pinned,
+        client: reqwest::ClientBuilder,
+        progress_callback: Option<Box<dyn Fn(DownloadProgress) + Send>>,
+    ) -> Result<()> {
         // Reserve atomically. A read-then-write check lets two simultaneous UI
         // invokes both pass before either inserts its reservation.
         let control = Arc::new(DownloadControl {
@@ -466,20 +489,6 @@ impl ModelManager {
             }
             controls.insert(model_name.to_string(), control.clone());
         }
-
-        // Get model definition
-        let model_def = match get_model_by_name(model_name) {
-            Some(model) => model,
-            None => {
-                self.release_download(model_name, &control).await;
-                return Err(anyhow!("Unknown model: {}", model_name));
-            }
-        };
-        // The exact size and SHA-256 of the file at the pinned URL.
-        let Some((_, pinned)) = model_integrity::summary_model(&model_def.gguf_file) else {
-            self.release_download(model_name, &control).await;
-            return Err(anyhow!("{} has no pinned checksum", model_def.gguf_file));
-        };
 
         // Update status to downloading
         {
@@ -603,7 +612,7 @@ impl ModelManager {
         };
 
         // Download the file with optimized client settings
-        let client = match Client::builder()
+        let client = match client
             .tcp_nodelay(true) // Disable Nagle's algorithm for faster streaming
             .pool_max_idle_per_host(1) // Keep connection alive
             .timeout(Duration::from_secs(3600)) // 1 hour timeout for large files
@@ -829,10 +838,11 @@ impl ModelManager {
             downloaded += chunk_len;
             bytes_since_last_report += chunk_len;
 
-            // Calculate progress
+            // Calculate progress. It stops at 99% here: 100% is reported only
+            // once the file has matched its pin, below.
             let progress_percent = if total_size > 0 {
                 let exact_percent = (downloaded as f64 / total_size as f64) * 100.0;
-                exact_percent.min(100.0) as u8
+                exact_percent.min(99.0) as u8
             } else {
                 0
             };
@@ -840,7 +850,7 @@ impl ModelManager {
             let elapsed_since_report = last_report_time.elapsed();
             let is_download_complete = downloaded >= total_size;
             let should_report = progress_percent > last_progress_percent
-                || is_download_complete  // Force report on completion
+                || is_download_complete  // Force a report of the last bytes
                 || elapsed_since_report.as_millis() >= 500;
 
             if should_report {
@@ -868,15 +878,16 @@ impl ModelManager {
                 {
                     let mut models = self.available_models.write().await;
                     if let Some(model_info) = models.get_mut(model_name) {
-                        model_info.status = ModelStatus::Downloading {
-                            progress: if is_download_complete { 100 } else { progress_percent }
-                        };
+                        model_info.status = ModelStatus::Downloading { progress: progress_percent };
                     }
                 }
 
                 // Call progress callback with detailed info
                 if let Some(ref callback) = progress_callback {
-                    callback(DownloadProgress::new(downloaded, total_size, speed_mbps));
+                    callback(DownloadProgress {
+                        percent: progress_percent,
+                        ..DownloadProgress::new(downloaded, total_size, speed_mbps)
+                    });
                 }
 
                 last_progress_percent = progress_percent;
@@ -923,19 +934,6 @@ impl ModelManager {
             ));
         }
 
-        log::info!("Download completed for model: {}", model_name);
-
-        {
-            let mut models = self.available_models.write().await;
-            if let Some(model_info) = models.get_mut(model_name) {
-                model_info.status = ModelStatus::Downloading { progress: 100 };
-            }
-        }
-
-        if let Some(ref callback) = progress_callback {
-            callback(DownloadProgress::new(total_size, total_size, 0.0));
-        }
-
         if control.cancelled.load(Ordering::Acquire) {
             self.finish_cancelled_download(model_name, &control, &file_path, model_def.size_mb).await;
             return Err(anyhow!("CANCELLED: Download cancelled by user"));
@@ -970,6 +968,20 @@ impl ModelManager {
             return Err(error);
         }
         model_integrity::mark_verified(pinned, &file_path);
+
+        // Completion and 100% are reported only now that the file matched.
+        log::info!("Download completed for model: {}", model_name);
+
+        {
+            let mut models = self.available_models.write().await;
+            if let Some(model_info) = models.get_mut(model_name) {
+                model_info.status = ModelStatus::Downloading { progress: 100 };
+            }
+        }
+
+        if let Some(ref callback) = progress_callback {
+            callback(DownloadProgress::new(final_size, final_size, 0.0));
+        }
 
         // Commit completion while ownership is still held. Cancellation is
         // either observed here or rejected after the control is removed.
@@ -1161,12 +1173,71 @@ mod tests {
 
     /// Stands in for a GGUF pin, so a test hashes bytes rather than gigabytes.
     fn small_pin(content: &[u8]) -> &'static Pinned {
-        use sha2::{Digest, Sha256};
-        Box::leak(Box::new(Pinned {
-            file: "model.gguf",
-            size: content.len() as u64,
-            sha256: Box::leak(format!("{:x}", Sha256::digest(content)).into_boxed_str()),
-        }))
+        model_integrity::testing::pin_of("model.gguf", content)
+    }
+
+    /// Downloads `body` from a local server as the file of `pinned`, for the
+    /// model `qwen3.5:2b`. Each progress report comes with whether the file
+    /// had been marked verified by then.
+    async fn download_locally(
+        manager: &ModelManager,
+        pinned: &'static Pinned,
+        body: Vec<u8>,
+    ) -> (Result<()>, Vec<(u8, bool)>) {
+        let mut model = get_model_by_name("qwen3.5:2b").expect("model");
+        model.gguf_file = pinned.file.to_string();
+        model.size_bytes = pinned.size;
+        model.download_url = model_integrity::testing::serve_once(body).await;
+        let marker = manager.models_dir.join(format!("{}.verified", pinned.file));
+        let reports = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let callback: Box<dyn Fn(DownloadProgress) + Send> = {
+            let reports = reports.clone();
+            Box::new(move |progress| reports.lock().unwrap().push((progress.percent, marker.exists())))
+        };
+        let client = Client::builder().no_proxy();
+        let result = manager.download_pinned(&model.name, &model, pinned, client, Some(callback)).await;
+        let reports = reports.lock().unwrap().clone();
+        (result, reports)
+    }
+
+    #[tokio::test]
+    async fn a_download_reports_100_percent_only_after_the_file_matched() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let manager = ModelManager::new_with_models_dir(Some(temp.path().to_path_buf())).unwrap();
+        manager.init().await.unwrap();
+        let mut body = b"GGUF".to_vec();
+        body.extend((0..300_000u32).map(|i| (i % 251) as u8));
+
+        let (result, reports) = download_locally(&manager, small_pin(&body), body).await;
+        result.unwrap();
+        // The stream's reports stay below 100%; the only 100% follows the marker.
+        let (last, streamed) = reports.split_last().unwrap();
+        assert_eq!(*last, (100, true), "{reports:?}");
+        assert!(streamed.iter().all(|&(percent, _)| percent < 100), "{reports:?}");
+        assert_eq!(manager.get_model_info("qwen3.5:2b").await.unwrap().status, ModelStatus::Available);
+    }
+
+    #[tokio::test]
+    async fn a_download_that_fails_its_check_never_reports_100_percent() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let manager = ModelManager::new_with_models_dir(Some(temp.path().to_path_buf())).unwrap();
+        manager.init().await.unwrap();
+        let mut body = b"GGUF".to_vec();
+        body.resize(300_000, 7);
+        // The pinned size, other content.
+        let mut pinned_content = body.clone();
+        pinned_content[150_000] = 8;
+
+        let (result, reports) = download_locally(&manager, small_pin(&pinned_content), body).await;
+        let error = result.unwrap_err().to_string();
+        assert!(error.contains("failed its integrity check and was deleted"), "{error}");
+        assert!(!temp.path().join("model.gguf").exists());
+        assert!(!reports.is_empty(), "the stream reported no progress");
+        assert!(reports.iter().all(|&(percent, _)| percent < 100), "{reports:?}");
+        assert!(matches!(
+            manager.get_model_info("qwen3.5:2b").await.unwrap().status,
+            ModelStatus::Error { .. }
+        ));
     }
 
     async fn start_download(manager: &ModelManager, model_name: &str) -> Arc<DownloadControl> {
