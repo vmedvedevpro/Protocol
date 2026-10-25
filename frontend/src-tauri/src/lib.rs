@@ -639,11 +639,7 @@ pub fn run() {
             audio::recording_commands::get_transcript_history,
             audio::recording_commands::get_recording_meeting_name,
             // Device monitoring commands (AirPods/Bluetooth disconnect/reconnect)
-            audio::recording_commands::poll_audio_device_events,
-            audio::recording_commands::get_reconnection_status,
             audio::recording_commands::attempt_device_reconnect,
-            // Playback device detection (Bluetooth warning)
-            audio::recording_commands::get_active_audio_output,
             // Audio recovery commands (for transcript recovery feature)
             audio::incremental_saver::recover_audio_from_checkpoints,
             audio::incremental_saver::cleanup_checkpoints,

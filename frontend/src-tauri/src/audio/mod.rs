@@ -35,7 +35,6 @@ pub mod hardware_detector;
 pub mod async_logger;
 pub mod batch_processor;
 pub mod device_monitor;  // NEW: Device disconnect/reconnect monitoring
-pub mod playback_monitor; // NEW: Playback device detection for BT warnings
 #[cfg(target_os = "windows")]
 pub mod windows_audio_sessions;
 
