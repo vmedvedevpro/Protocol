@@ -16,10 +16,12 @@ import {
 /**
  * A saved provider the app no longer offers loads as no provider (''); see
  * api_get_model_config. Ask for another one instead of starting a summary the
- * backend would reject.
+ * backend would reject. The fixed id makes a repeated prompt replace the
+ * visible toast instead of stacking another one.
  */
 function askForSummaryProvider(onOpenModelSettings?: () => void) {
   toast.error('Choose a summary provider', {
+    id: 'choose-summary-provider',
     description: 'The provider saved earlier is no longer available. Pick another one in Model Settings.',
     duration: 7000,
   });

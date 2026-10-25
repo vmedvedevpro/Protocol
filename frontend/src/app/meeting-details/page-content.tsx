@@ -40,7 +40,9 @@ import { cn } from '@/lib/utils';
 import { displaySpeaker, speakerColorIndexMap, speakerKey } from '@/utils/speakerUtils';
 
 // Page remounts join the same backend-start attempt. Only accepted attempts are
-// persisted in sessionStorage below; failed preflight attempts remain retryable.
+// persisted in sessionStorage below. An attempt that starts no run (no provider,
+// a failed model or transcript check, a rejected request) still ends
+// auto-summary on this page; the next summary starts from Generate.
 const autoSummaryInFlight = new Map<string, Promise<boolean>>();
 const NOTES_WIDTH_KEY = 'af-meeting-notes-width';
 const TRANSCRIPT_MIN = 340;
@@ -260,10 +262,11 @@ export default function PageContent({
         } finally {
           if (autoSummaryInFlight.get(meeting.id) === attempt) autoSummaryInFlight.delete(meeting.id);
         }
-        if (accepted) {
-          sessionStorage.setItem(key, 'started');
-          onAutoGenerateComplete?.();
-        }
+        if (accepted) sessionStorage.setItem(key, 'started');
+        // Disarm after a refusal too. Left armed, every re-render re-ran the
+        // attempt (one more toast each time), and a provider only selected in
+        // Model Settings, not saved, started a summary by itself.
+        onAutoGenerateComplete?.();
         return;
       }
       await summaryGeneration.handleGenerateSummary('');
