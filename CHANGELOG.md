@@ -18,7 +18,8 @@ issue and PR numbers refer to
 - Point About, onboarding, crash reports, and the CUDA setup prompt at this
   repository.
 - Remove 70 IPC commands that nothing in the app called, together with the code
-  that only they used; every feature works as before
+  that only they used, and two frontend calls to commands that do not exist;
+  every feature works as before
   ([#3](https://github.com/vmedvedevpro/Protocol/issues/3)).
   - `read_audio_file`, `save_transcript`, `diarize_recording`, `ollama_embed`,
     `detect_legacy_database`, `get_ollama_model_context`, and
@@ -65,6 +66,10 @@ issue and PR numbers refer to
     `is_import_in_progress_command`, `check_screen_recording_permission_command`,
     `request_screen_recording_permission_command`,
     `select_legacy_database_path`, and `reset_onboarding_status_cmd`.
+  - Calls to unregistered commands, which could only fail with "Command not
+    found": `api_get_auto_generate_setting`, which the Model Settings view sent
+    on every mount for a switch that was already hidden (Auto Summary keeps its
+    own setting), and the unused `builtin_ai_get_models_directory` wrapper.
 
 ## Unreleased
 
