@@ -15,6 +15,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::model_manager::ModelManager;
 use super::models;
+use crate::model_integrity::IntegrityError;
 use super::sidecar::SidecarManager;
 
 // ============================================================================
@@ -116,6 +117,16 @@ fn get_cached_model_path(app_data_dir: &PathBuf, model_name: &str) -> Result<Pat
     Ok(model_path)
 }
 
+/// How to log a model refused before loading: an error when its content did
+/// not match the pin, so it was deleted or should have been; a warning when it
+/// was refused and kept (still downloading, partial, unreadable).
+fn refusal_level(error: &anyhow::Error) -> log::Level {
+    match error.downcast_ref() {
+        Some(IntegrityError::Mismatch { .. }) => log::Level::Error,
+        _ => log::Level::Warn,
+    }
+}
+
 // ============================================================================
 // Public API
 // ============================================================================
@@ -157,10 +168,16 @@ pub async fn generate_with_builtin(
     // llama.cpp parses this file: hash it once if no download has verified it.
     let (_, pinned) = crate::model_integrity::summary_model(&model_def.gguf_file)
         .ok_or_else(|| anyhow!("{} has no pinned checksum", model_def.gguf_file))?;
-    match ModelManager::registered() {
-        Some(manager) => manager.verify_before_load(model_name, pinned, &model_path).await?,
+    let checked = match ModelManager::registered() {
+        Some(manager) => manager.verify_before_load(model_name, pinned, &model_path).await,
         // Downloads run in the manager, so without one none is running.
-        None => crate::model_integrity::ensure_verified(pinned, &model_path).await?,
+        None => crate::model_integrity::ensure_verified(pinned, &model_path).await,
+    };
+    if let Err(error) = checked {
+        // Summaries and assistant questions only show the reason to the user;
+        // every one of them passes here, so the log keeps it too.
+        log::log!(refusal_level(&error), "Built-in AI model {} was not loaded: {}", model_name, error);
+        return Err(error);
     }
 
     // Apply model-specific chat template
@@ -314,6 +331,20 @@ pub async fn is_sidecar_healthy() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_deleted_model_is_logged_as_an_error_and_a_kept_one_as_a_warning() {
+        let mismatch = |undeleted| {
+            anyhow::Error::from(IntegrityError::Mismatch { file: "model.gguf", detail: "its SHA-256 is …".into(), undeleted })
+        };
+        assert_eq!(refusal_level(&mismatch(None)), log::Level::Error);
+        assert_eq!(refusal_level(&mismatch(Some("in use".into()))), log::Level::Error);
+
+        let partial = IntegrityError::WrongSize { file: "model.gguf", size: 1, expected: 2 };
+        assert_eq!(refusal_level(&partial.into()), log::Level::Warn);
+        let downloading = anyhow!("Gemma 3 1B (Fast) is still downloading. Wait for the download to finish in Settings.");
+        assert_eq!(refusal_level(&downloading), log::Level::Warn);
+    }
 
     #[test]
     fn test_request_serialization() {
