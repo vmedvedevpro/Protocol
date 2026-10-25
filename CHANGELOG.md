@@ -120,7 +120,9 @@ issue and PR numbers refer to
   security advisory GHSA-w28w-mhc8-qvjv. The Windows crash fix in the bundled
   `tauri-runtime-wry` is carried over to 2.12.3. The Windows installer is built
   with NSIS 3.13, and setup and uninstall now close a running Protocol only when
-  it runs from the folder being installed or removed
+  it runs from the folder being installed or removed, except once: the first
+  upgrade over an earlier build with `protocol.exe` can run that build's old
+  uninstaller, whose check still finds every `protocol.exe` by name
   ([#33](https://github.com/vmedvedevpro/Protocol/issues/33)).
 
 ## Unreleased

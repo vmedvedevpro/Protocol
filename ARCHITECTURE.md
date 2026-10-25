@@ -816,7 +816,18 @@ silent runs. Uninstall runs the hook before the check, so the check normally
 finds nothing there: even an interactive uninstall terminates a running
 Protocol at once, with no prompt and no end-session request, and a recording in
 progress ends as it would in a crash. The template must pass the full path and
-include `Win\RestartManager.nsh`, which the bundler's `utils.nsh` needs.
+include `Win\RestartManager.nsh`, which the bundler's `utils.nsh` needs. Setup
+also leaves a build running from another folder under the same identifier (a
+dev build or a local build from before #33), and if that build has
+`tauri-plugin-single-instance` 2.3.7 the new build cannot reach it: 2.5.4
+forwards the launch in a message 2.3.7 ignores and then exits, so nothing
+opens; close such a build first. One exception applies on the first upgrade over an install
+that already has `protocol.exe` but was built before #33: when setup runs that
+install's old uninstaller (the default choice of an interactive upgrade or
+downgrade, and a passive run over the same version), its check, built with
+CLI 2.11, still matches `protocol.exe` by name, so it also finds a dev build or
+a Labs install elsewhere, asking first in an interactive run and closing it
+without asking in a passive one.
 
 The first setup over a pre-#12 install, one that still has `meetily.exe`, is a
 one-time transition that the installer does not special-case:
