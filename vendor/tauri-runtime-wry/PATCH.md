@@ -30,7 +30,9 @@ handle lifetime extension in PR 15411 or change Tao's internal `Rc` to `Arc`.
   (`primary_monitor`, `monitor_from_point`, `available_monitors`) to the
   event-loop thread on every platform and makes them return `Result`. The 2.11.4
   patch had added Windows-only messages for the same purpose; they are dropped,
-  and the upstream messages are used instead.
+  and the upstream messages are used instead. Upstream's versions panic on a
+  lost reply in two places, which the patch changes back to the 2.11.4
+  behavior (see the ownership contract).
 - Upstream PR 14805 moved the unsafe `Send`/`Sync` implementations from
   `DispatcherMainThreadContext` to `Context`. The patch's safety comments moved
   with them.
@@ -65,9 +67,15 @@ behavior.
 Runtime-handle monitor queries go to the event-loop thread through upstream's
 messages and return owned `Monitor` values. After owner destruction they fail
 with `EventLoopClosed`; a reply lost when the loop closes maps to
-`FailedToReceiveMessage`, except in upstream's `WryHandle::monitor_from_point`,
-which unwraps its reply. Wry's own monitor and cursor queries borrow its
-event_loop directly (`Wry::window_target`).
+`FailedToReceiveMessage`. Upstream's `WryHandle::monitor_from_point` unwraps
+that reply instead; the patch maps it like the other queries, as the 2.11.4
+patch returned `None`. The event-loop handlers answering the three monitor
+queries and `cursor_position` ignore a failed reply send, as the 2.11.4
+patch's monitor handlers did, so a raw sender (`WryHandle::send_event`, the
+public `Context::proxy`) whose receiver is gone cannot panic the UI thread.
+Both changes are in code that upstream shares across platforms, so they apply
+on every platform. Wry's own monitor and cursor queries borrow its event_loop
+directly (`Wry::window_target`).
 
 `DisplayHandle::windows()` is a safe, pointer-free constructor from the locked
 raw-window-handle 0.6.2 dependency. It remains valid after Wry is destroyed and
@@ -94,8 +102,10 @@ queued onto a possibly stopped loop.
 
 ## Scope And Limitations
 
-- Non-Windows ownership, monitor calls, display handles, and run behavior remain
-  unchanged. This patch does not fix X11/Wayland display connection lifetimes.
+- Non-Windows ownership, display handles, and run behavior remain unchanged.
+  Non-Windows monitor calls differ from upstream only in the two lost-reply
+  paths above, which return an error or drop the reply instead of panicking.
+  This patch does not fix X11/Wayland display connection lifetimes.
 - Windows runtime `tracing` is rejected at compile time. ActiveTraceSpanStore
   still contains another Rc cloned through the Send context. Enabling tracing
   requires a separate ownership fix, not removal of this guard. Application use
@@ -109,17 +119,12 @@ queued onto a possibly stopped loop.
 - Existing WindowsStore/WebContext sharing, public low-level context surfaces,
   and the borrowed window-handle API are outside this target-ownership fix. This
   is not a soundness certification of the entire upstream runtime.
-- Inherited upstream panic paths (not reached by Protocol's code): the
-  event-loop reply handlers (monitors, cursor position) unwrap their reply send,
-  so a message carrying an already dropped receiver panics the UI thread. The
-  typed getters always wait for the reply; only raw senders
-  (`WryHandle::send_event`, the public `Context::proxy`) could deliver such a
-  message. On the worker side, upstream's `WryHandle::monitor_from_point` unwraps
-  its reply, so a shutdown race that discards the queued message panics the
-  calling thread (the 2.11.4 patch returned `None`; `create_tao_window` already
-  had the same pattern). Protocol queries monitors through window dispatchers,
-  which return an error instead. The 2.11.4 regression for a discarded receiver
-  was removed with the patch's own messages.
+- Inherited upstream panic paths outside the monitor queries are unchanged (not
+  reached by Protocol's code): the other reply handlers (window, webview, window
+  and webview creation) unwrap their reply send, which only a raw sender with a
+  dropped receiver could fail, and on
+  the worker side `create_tao_window`, `WebviewDispatch::reparent` and
+  `cookies_for_url` unwrap a reply that a closing loop discards.
 - WindowDispatch monitor getters marshal through WindowMessage, and their replies
   already carry converted `Monitor` values, not Tao handles or an
   EventLoopWindowTarget.
@@ -143,9 +148,12 @@ that the weak target has expired while the native message target still exists.
 Worker-held real WryHandle/Context/DetachedWindow clones survive runtime teardown.
 This tests the actual runtime ownership, not just an Arc/Weak stand-in.
 
-Scenarios cover never-run queued tasks; repeated run_iteration; four concurrent
-clone/drop workers with native hidden-window teardown; all three worker monitor
-queries observed on the UI thread; worker WindowDispatch monitor getters; nested
+Scenarios cover never-run queued tasks; repeated run_iteration, after a worker
+`monitor_from_point` whose message a test plugin discards unanswered (it must
+return `FailedToReceiveMessage`); four concurrent clone/drop workers with
+native hidden-window teardown, after replies to already dropped receivers from
+all four event-loop query handlers; all three worker monitor queries succeeding
+and observed on the UI thread; worker WindowDispatch monitor getters; nested
 inline dispatch (including panic with an upgraded owner in scope); run_return
 and consuming run setup-panic unwinding; normal run process exit; 500 real
 hidden-WebView2 IPC messages; and a two-WebView stress case with 50,000 IPC
@@ -158,8 +166,9 @@ target dir. These are synthetic windows, not recordings of user audio.
 Three compile-fail doctests cover target privacy and Wry's !Send/!Sync properties.
 
 Not covered: worker-side `create_window`/`create_webview`, which 2.12 makes
-wait for the UI thread's reply, across owner expiry, and a lost
-`monitor_from_point` reply.
+wait for the UI thread's reply, across owner expiry. The lost
+`monitor_from_point` reply is produced by the test plugin, not by an actual
+shutdown race.
 
 These are short deterministic lifecycle/traffic tests, not a multi-hour race
 proof or an end-to-end Meetily recording test. They require a Windows desktop
@@ -241,6 +250,13 @@ file other than `src/lib.rs` and the added `src/windows_tests.rs`, `PATCH.md`,
 and `check-windows.cmd` matches the registry archive above (compared ignoring
 line endings, which Git converts in a Windows checkout).
 
+After the non-panicking monitor reply paths were restored (2026-10-26, same
+toolchain), the whole list above ran again with the same results, now including
+the lost-reply and dropped-receiver checks. With upstream's `unwrap` put back,
+the debug run fails: in `monitor_from_point` the `iterations` scenario panics
+with `RecvError`, and in the cursor-position handler the `concurrent` scenario
+panics with `SendError`.
+
 The 2.11.4 patch also had independent read-only reviews, which found no new
 blocker in the bounded target-ownership fix; their concern about WindowDispatch
 monitor payload ownership was resolved by checking Tao's Windows isize-only
@@ -249,7 +265,9 @@ no defect: no worker-side path reaches the Tao target, tauri 2.12.5 and the
 plugins use only `Wry`, `WryHandle`, `create_tao_window`, raw `send_event` and
 `wry_plugin`, and the owner still expires before the native loop in every exit
 and unwind path. Its notes are reflected above (inherited panic paths, test
-gaps).
+gaps). The pull-request review that followed it pointed out that the port had
+taken upstream's panicking monitor reply paths in place of the 2.11.4 patch's;
+they were restored, with regression checks.
 
 Remove this override only after an upstream release provides equivalent
 thread-affine target ownership, safe Windows display handles, and unwind-safe
