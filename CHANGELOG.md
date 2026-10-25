@@ -17,6 +17,9 @@ issue and PR numbers refer to
   signing in the Windows packaging script, release verifier, and workflows.
 - Point About, onboarding, crash reports, and the CUDA setup prompt at this
   repository.
+- Import audio into the recordings folder chosen in Settings instead of always
+  the default folder, failing with the folder path when it is unusable; speaker
+  identification also looks there for recordings a meeting does not link (#29).
 
 ## Unreleased
 

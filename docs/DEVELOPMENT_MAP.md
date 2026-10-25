@@ -196,6 +196,51 @@ state for dialogs, including native activation events and stale-response guards.
 Live ASR and post-call ASR defaults are independent. Optional Whisper activation
 saves the **post-call** default; it must not replace the live Parakeet selection.
 
+### Audio import and the recordings folder
+
+`audio/import.rs` turns an external audio file into a new meeting:
+
+```text
+start_import_audio_command -> start_import (one import at a time, STT batch lease)
+  -> run_import
+     -> recording_preferences::configured_recordings_folder (Settings save_folder)
+     -> create_import_meeting_folder: ensure_recordings_directory, then
+        create_meeting_folder (collision-safe <title>_<timestamp>/)
+     -> copy the source to <meeting folder>/audio.<ext>
+     -> decode -> VAD -> Whisper/Parakeet with the saved glossary
+     -> meetings row with folder_path, transcripts.json, metadata.json
+```
+
+Import writes to the recordings root a recording would use (#29; before that it
+always used `get_default_recordings_folder()`). `configured_recordings_folder`
+returns the saved `RecordingPreferences.save_folder`. The default root takes its
+place when nothing is stored or the stored value no longer deserializes
+(`preferences_from_store_value`), when preferences cannot be loaded (as at
+recording start), and on macOS for a folder inside the app bundle
+(`load_recording_preferences`). Before anything is written,
+`ensure_recordings_directory` applies the Settings checks (app-bundle rejection
+on macOS, create, probe write). An unusable saved folder fails the import with
+its path in the error instead of writing to the default root, which would make
+Settings look applied while files land elsewhere.
+
+`diarization::find_meeting_audio`, the fallback when a meeting's `folder_path`
+is missing or has no audio, matches the title in the configured root and then
+in the default root, where meetings recorded before a folder change remain.
+Retranscription and checkpoint recovery work inside an existing meeting folder
+and create none. The other `get_default_recordings_folder()` callers are the
+preference default, the fallbacks when preferences cannot be loaded, the
+Settings default-folder display, and the short-take discard allow-list.
+
+Native tests: `import_meeting_folder_is_created_in_custom_recordings_folder` and
+`unusable_recordings_folder_fails_import_folder_creation` (`import.rs`),
+`stored_recordings_folder_is_loaded` and
+`missing_or_unreadable_preferences_use_default_recordings_folder`
+(`recording_preferences.rs`), and
+`meeting_audio_lookup_searches_configured_then_default_recordings_root`
+(`diarization/mod.rs`). The store/`AppHandle` glue in
+`configured_recordings_folder` has no test, and an import into a custom folder
+has not been checked in the running app.
+
 ## 4. Optional download ownership and UI synchronization
 
 ### October integration interfaces
