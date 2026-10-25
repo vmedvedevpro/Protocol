@@ -36,6 +36,9 @@ test('an error status shows its message and offers Retry', async () => {
   models = [qwen({ type: 'error', message })];
   await act(async () => { root = create(<BuiltInModelManager selectedModel="" onModelSelect={() => {}} />); });
   expect(textOf(root.root)).toContain(message);
+  // Real messages carry 64-character hashes, which have no break opportunity.
+  const text = root.root.find((node) => node.type === 'p' && textOf(node) === message);
+  expect(text.props.className).toContain('[overflow-wrap:anywhere]');
   expect(button('Retry')).toHaveLength(1);
   await act(async () => button('Retry')[0].props.onClick({ stopPropagation: () => {} }));
   expect(commands).toContain('builtin_ai_download_model');

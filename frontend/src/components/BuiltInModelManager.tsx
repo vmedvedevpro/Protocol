@@ -443,7 +443,7 @@ export function BuiltInModelManager({
                   <p className="mb-1">{model.description}</p>
                 )}
                 {(isError || isCorrupted || isIncomplete) && (
-                  <p className="mb-1 text-xs text-af-danger">
+                  <p className="mb-1 text-xs text-af-danger [overflow-wrap:anywhere]">
                     {model.status.type === 'error'
                       ? model.status.message || 'An error occurred'
                       : isCorrupted

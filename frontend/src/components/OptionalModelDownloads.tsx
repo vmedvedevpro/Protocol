@@ -57,7 +57,7 @@ export function OptionalModelDownloads({ activeOnly = false, allowUninstall = fa
               )}
             </div>
             {job.status === 'downloading' && <Progress value={job.progress} aria-label={`${model} download progress`} />}
-            {job.error && <p role="alert" className="text-xs text-af-danger">{job.error}</p>}
+            {job.error && <p role="alert" className="text-xs text-af-danger [overflow-wrap:anywhere]">{job.error}</p>}
           </div>
         );
       })}
