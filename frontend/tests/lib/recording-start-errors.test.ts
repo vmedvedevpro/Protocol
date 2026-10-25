@@ -11,6 +11,13 @@ describe('modelIntegrityMessage', () => {
     expect(modelIntegrityMessage(new Error(error))).not.toBeNull();
   });
 
+  test('says when the failed file could not be deleted', () => {
+    const error = 'Failed to load Whisper model: ggml-base.bin failed its integrity check and could not be deleted (Access is denied. (os error 5)): its SHA-256 is 00, expected 60ed. Close any program that has it open, then download it again.';
+    expect(modelIntegrityMessage(error)).toBe(
+      'Recording cannot start: the transcription model failed its integrity check and could not be deleted. Close any program that has it open, then download it again in Settings.',
+    );
+  });
+
   test('leaves other load failures to the generic message', () => {
     expect(modelIntegrityMessage('Model parakeet-tdt-0.6b-v3-int8 is not available')).toBeNull();
     expect(modelIntegrityMessage('encoder-model.int8.onnx is not fully downloaded: it has 3 of 652183999 bytes.')).toBeNull();

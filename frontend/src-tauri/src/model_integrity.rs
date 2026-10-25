@@ -187,12 +187,19 @@ pub enum IntegrityError {
     /// A file on disk has another size than its pin. It is kept: it may be a
     /// partial download waiting to resume, or one being written right now.
     WrongSize { file: &'static str, size: u64, expected: u64 },
-    /// The content does not match the pin, so the file was deleted.
-    Mismatch { file: &'static str, detail: String },
+    /// The server announced another length than the pin. Raised before
+    /// anything is written, so no file was touched.
+    ServerSize { file: &'static str, size: u64, expected: u64 },
+    /// The content does not match the pin. The file was deleted, unless
+    /// `undeleted` holds the error that kept it on disk.
+    Mismatch { file: &'static str, detail: String, undeleted: Option<String> },
 }
 
 impl fmt::Display for IntegrityError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // The UI tells the outcomes apart by "was deleted", "could not be
+        // deleted" and "Nothing was deleted" (DownloadProgressToast.tsx,
+        // recording_commands.rs).
         match self {
             Self::WrongSize { file, size, expected } if size < expected => write!(
                 f,
@@ -202,9 +209,17 @@ impl fmt::Display for IntegrityError {
                 f,
                 "{file} is larger than its pinned size: it has {size} bytes, expected {expected}. Download it again."
             ),
-            Self::Mismatch { file, detail } => {
+            Self::ServerSize { file, size, expected } => write!(
+                f,
+                "{file} failed its integrity check: the server sent a file of {size} bytes, expected {expected}. Nothing was deleted; retry the download."
+            ),
+            Self::Mismatch { file, detail, undeleted: None } => {
                 write!(f, "{file} failed its integrity check and was deleted: {detail}. Download it again.")
             }
+            Self::Mismatch { file, detail, undeleted: Some(error) } => write!(
+                f,
+                "{file} failed its integrity check and could not be deleted ({error}): {detail}. Close any program that has it open, then download it again."
+            ),
         }
     }
 }
@@ -274,16 +289,26 @@ impl Check {
     }
 }
 
-/// Deletes `path` and its marker and describes why.
+/// Deletes `path` and its marker and describes why. A file that cannot be
+/// deleted (another process holds it open without delete sharing) gets a
+/// rejection marker instead, so discovery does not list it as installed.
 fn discard(pinned: &'static Pinned, path: &Path, bytes: u64, sha256: &str) -> IntegrityError {
-    let _ = std::fs::remove_file(path);
+    let undeleted = match std::fs::remove_file(path) {
+        Ok(()) => None,
+        // Gone already, for example deleted by a concurrent check.
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => Some(error.to_string()),
+    };
     clear_mark(path);
+    if undeleted.is_some() {
+        reject(pinned, path);
+    }
     let detail = if bytes == pinned.size {
         format!("its SHA-256 is {}, expected {}", sha256, pinned.sha256)
     } else {
         format!("it has {} bytes, expected {}", bytes, pinned.size)
     };
-    IntegrityError::Mismatch { file: pinned.file, detail }
+    IntegrityError::Mismatch { file: pinned.file, detail, undeleted }
 }
 
 /// Hashes a file already on disk against its pin, off the async runtime. Only
@@ -311,8 +336,16 @@ pub async fn verify_file(pinned: &'static Pinned, path: &Path) -> Result<()> {
 // --- Verification markers ---------------------------------------------------
 
 fn marker_path(path: &Path) -> PathBuf {
+    sibling(path, ".verified")
+}
+
+fn rejection_path(path: &Path) -> PathBuf {
+    sibling(path, ".rejected")
+}
+
+fn sibling(path: &Path, suffix: &str) -> PathBuf {
     let mut name = path.file_name().unwrap_or_default().to_os_string();
-    name.push(".verified");
+    name.push(suffix);
     path.with_file_name(name)
 }
 
@@ -336,14 +369,38 @@ pub fn mark_verified(pinned: &Pinned, path: &Path) {
     }
 }
 
-/// Removes the marker of `path`, for code that deletes or rewrites the file.
+/// Removes the markers of `path`, for code that deletes or rewrites the file.
 pub fn clear_mark(path: &Path) {
     let _ = std::fs::remove_file(marker_path(path));
+    let _ = std::fs::remove_file(rejection_path(path));
 }
 
 fn is_marked(pinned: &Pinned, path: &Path) -> bool {
     marker_line(pinned, path)
         .is_some_and(|line| std::fs::read_to_string(marker_path(path)).is_ok_and(|found| found == line))
+}
+
+/// Records that `path` failed its check but is still on disk. The marker is
+/// tied to the file like a verification marker, so rewriting the file lifts it.
+fn reject(pinned: &Pinned, path: &Path) {
+    let written = marker_line(pinned, path).map(|line| std::fs::write(rejection_path(path), line));
+    if !matches!(written, Some(Ok(()))) {
+        log::warn!("Could not record that {} failed its integrity check", path.display());
+    }
+}
+
+/// The reason to show instead of "installed" for a file that has its pinned
+/// size but failed its check earlier and could not be deleted. Discovery,
+/// which compares sizes only, would otherwise list it as available again.
+pub fn rejection(pinned: &Pinned, path: &Path) -> Option<String> {
+    let line = marker_line(pinned, path)?;
+    let found = std::fs::read_to_string(rejection_path(path)).ok()?;
+    (found == line).then(|| {
+        format!(
+            "{} failed its integrity check and could not be deleted. Close any program that has it open, then download it again.",
+            pinned.file
+        )
+    })
 }
 
 /// Makes sure `path` is the pinned file before native code parses it. A file
@@ -499,6 +556,42 @@ mod tests {
         let error = verify_file(&HELLO, &path).await.unwrap_err();
         assert!(matches!(error.downcast_ref(), Some(IntegrityError::Mismatch { .. })), "{error}");
         assert!(!path.exists());
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn a_mismatch_that_cannot_be_deleted_says_so_and_stays_rejected() {
+        use std::os::windows::fs::OpenOptionsExt;
+        const FILE_SHARE_READ: u32 = 1;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("hello.txt");
+        std::fs::write(&path, b"jello").unwrap();
+        // Another program holds the file open without delete sharing.
+        let holder = std::fs::OpenOptions::new().read(true).share_mode(FILE_SHARE_READ).open(&path).unwrap();
+
+        let error = ensure_verified(&HELLO, &path).await.unwrap_err();
+        assert!(
+            matches!(error.downcast_ref(), Some(IntegrityError::Mismatch { undeleted: Some(_), .. })),
+            "{error}"
+        );
+        assert!(error.to_string().contains("failed its integrity check and could not be deleted ("), "{error}");
+        assert!(!error.to_string().contains("was deleted"), "{error}");
+        assert!(path.exists());
+        // Discovery sees the full size; the rejection keeps it from listing the file.
+        assert!(rejection(&HELLO, &path).unwrap().contains("could not be deleted"));
+
+        drop(holder);
+        let error = ensure_verified(&HELLO, &path).await.unwrap_err().to_string();
+        assert!(error.contains("failed its integrity check and was deleted"), "{error}");
+        assert!(!path.exists());
+        assert!(!rejection_path(&path).exists());
+    }
+
+    #[test]
+    fn a_wrong_length_from_the_server_says_nothing_was_deleted() {
+        let error = IntegrityError::ServerSize { file: "hello.txt", size: 12, expected: 5 }.to_string();
+        assert!(error.contains("failed its integrity check: the server sent a file of 12 bytes, expected 5"), "{error}");
+        assert!(error.contains("Nothing was deleted"), "{error}");
     }
 
     #[tokio::test]

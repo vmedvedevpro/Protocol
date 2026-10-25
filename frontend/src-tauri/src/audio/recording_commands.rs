@@ -156,10 +156,14 @@ fn install_capture_warning_callback<R: Runtime>(
 }
 
 /// The recording-start toast for a transcription model that is not ready.
+/// The Record button shows the same text (`modelIntegrityMessage` in
+/// recording-start-errors.ts).
 fn model_unavailable_message(validation_error: &str) -> &'static str {
     // `model_integrity` deletes a file that does not match its pin; waiting
     // would not bring it back.
-    if validation_error.contains("failed its integrity check") {
+    if validation_error.contains("failed its integrity check and could not be deleted") {
+        "Recording cannot start: the transcription model failed its integrity check and could not be deleted. Close any program that has it open, then download it again in Settings."
+    } else if validation_error.contains("failed its integrity check") {
         "Recording cannot start: the transcription model failed its integrity check and was deleted. Download it again in Settings."
     } else {
         "Recording cannot start: Transcription model is still downloading. Please wait for the download to complete."
@@ -1341,7 +1345,10 @@ mod model_unavailable_tests {
     #[test]
     fn an_integrity_failure_is_not_reported_as_a_download_in_progress() {
         let error = "Failed to load Parakeet model: vocab.txt failed its integrity check and was deleted: it has 4 bytes, expected 9384. Download it again.";
-        assert!(model_unavailable_message(error).contains("failed its integrity check"));
+        assert!(model_unavailable_message(error).contains("failed its integrity check and was deleted"));
+        let undeleted = "Failed to load Parakeet model: vocab.txt failed its integrity check and could not be deleted (Access is denied. (os error 5)): it has 4 bytes, expected 9384. Close any program that has it open, then download it again.";
+        let message = model_unavailable_message(undeleted);
+        assert!(message.contains("could not be deleted") && !message.contains("was deleted"), "{message}");
         assert!(model_unavailable_message("Model is currently downloading").contains("still downloading"));
     }
 }

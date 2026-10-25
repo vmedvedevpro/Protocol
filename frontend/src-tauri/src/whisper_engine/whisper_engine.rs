@@ -197,7 +197,8 @@ impl WhisperEngine {
             let model_path = models_dir.join(filename);
             // Startup checks the exact pinned size only; the SHA-256 is checked
             // on download and before the first load (see crate::model_integrity).
-            let pinned_size = model_integrity::whisper_model(name).map(|pinned| pinned.size);
+            let pinned = model_integrity::whisper_model(name);
+            let pinned_size = pinned.map(|pinned| pinned.size);
             let status = if model_path.exists() {
                 match std::fs::metadata(&model_path) {
                     Ok(metadata) => {
@@ -205,7 +206,13 @@ impl WhisperEngine {
                         let file_size_mb = file_size_bytes / (1024 * 1024);
                         let expected_min_size_mb = (size_mb as f64 * 0.9) as u64; // Allow 90% of expected size as minimum for more accurate corruption detection
 
-                        if Some(file_size_bytes) == pinned_size {
+                        // A file that failed its check but could not be deleted
+                        // still has the pinned size.
+                        let rejection = pinned.and_then(|pinned| model_integrity::rejection(pinned, &model_path));
+                        if let Some(reason) = rejection {
+                            log::warn!("{}", reason);
+                            ModelStatus::Error(reason)
+                        } else if Some(file_size_bytes) == pinned_size {
                             // File size looks good, but let's also check if it's a valid GGML file
                             match self.validate_model_file(&model_path).await {
                                 Ok(_) => ModelStatus::Available,
@@ -1037,10 +1044,12 @@ impl WhisperEngine {
         if total_size == 0 {
             log::warn!("Content length is 0 or unknown - download may not show accurate progress");
         } else if total_size != pinned.size {
-            let error = anyhow!(
-                "{} failed its integrity check: the server sent {} bytes, expected {}",
-                pinned.file, total_size, pinned.size
-            );
+            // Refused before the file is created, so any existing copy stays.
+            let error = anyhow::Error::from(model_integrity::IntegrityError::ServerSize {
+                file: pinned.file,
+                size: total_size,
+                expected: pinned.size,
+            });
             return Err(self.fail_download(model_name, error).await);
         }
         
@@ -1257,5 +1266,33 @@ mod tests {
             engine.available_models.read().await["tiny-q5_1"].status,
             ModelStatus::Error(_)
         ));
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn discovery_does_not_list_a_failed_model_that_could_not_be_deleted() {
+        use std::os::windows::fs::OpenOptionsExt;
+        const FILE_SHARE_READ: u32 = 1;
+        let dir = tempfile::tempdir().unwrap();
+        let engine = WhisperEngine::new_with_models_dir(Some(dir.path().to_path_buf())).unwrap();
+        let pinned = model_integrity::whisper_model("tiny-q5_1").unwrap();
+        let path = dir.path().join(pinned.file);
+        let mut file = std::fs::File::create(&path).unwrap();
+        std::io::Write::write_all(&mut file, b"ggml").unwrap();
+        file.set_len(pinned.size).unwrap();
+        drop(file);
+        engine.discover_models().await.unwrap();
+
+        // Another program holds the file open without delete sharing.
+        let holder = std::fs::OpenOptions::new().read(true).share_mode(FILE_SHARE_READ).open(&path).unwrap();
+        let error = engine.load_model("tiny-q5_1").await.unwrap_err().to_string();
+        assert!(error.contains("failed its integrity check and could not be deleted"), "{error}");
+        drop(holder);
+        assert!(path.exists());
+
+        // The file still has the pinned size and a GGML header.
+        engine.discover_models().await.unwrap();
+        let status = engine.available_models.read().await["tiny-q5_1"].status.clone();
+        assert!(matches!(&status, ModelStatus::Error(reason) if reason.contains("could not be deleted")), "{status:?}");
     }
 }

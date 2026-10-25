@@ -244,8 +244,8 @@ impl ParakeetEngine {
                     // Validate model by checking file sizes
                     match self.validate_model_directory(&model_path).await {
                         Ok(_) => ModelStatus::Available,
-                        Err(_) => {
-                            log::warn!("Model directory {} appears corrupted", name);
+                        Err(error) => {
+                            log::warn!("Model directory {} appears corrupted: {}", name, error);
                             // Calculate total size of existing files
                             let mut total_size = 0u64;
                             for file in required_files {
@@ -312,6 +312,10 @@ impl ParakeetEngine {
                     actual_size,
                     pinned.size
                 ));
+            }
+            // Failed its check earlier but could not be deleted.
+            if let Some(reason) = model_integrity::rejection(pinned, &file_path) {
+                return Err(anyhow!(reason));
             }
         }
 

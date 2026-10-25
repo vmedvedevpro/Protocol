@@ -21,7 +21,11 @@ function errorText(error: unknown): string {
  * start says the same: `model_unavailable_message` in recording_commands.rs.
  */
 export function modelIntegrityMessage(error: unknown): string | null {
-  if (!errorText(error).includes('failed its integrity check')) return null;
+  const text = errorText(error);
+  if (text.includes('failed its integrity check and could not be deleted')) {
+    return 'Recording cannot start: the transcription model failed its integrity check and could not be deleted. Close any program that has it open, then download it again in Settings.';
+  }
+  if (!text.includes('failed its integrity check')) return null;
   return 'Recording cannot start: the transcription model failed its integrity check and was deleted. Download it again in Settings.';
 }
 

@@ -253,7 +253,17 @@ impl ModelManager {
                             model_def.size_bytes
                         );
 
-                        if file_size_bytes == model_def.size_bytes {
+                        // A file that failed its check but could not be deleted
+                        // still has the pinned size.
+                        let rejection = model_integrity::summary_model(&model_def.gguf_file)
+                            .and_then(|(_, pinned)| model_integrity::rejection(pinned, &model_path));
+                        if let Some(reason) = rejection {
+                            log::warn!("Model '{}': CORRUPTED ({})", model_def.name, reason);
+                            ModelStatus::Corrupted {
+                                file_size: file_size_mb,
+                                expected_min_size: model_def.size_mb,
+                            }
+                        } else if file_size_bytes == model_def.size_bytes {
                             match self.validate_gguf_file(&model_path).await {
                                 Ok(()) => {
                                     log::info!("Model '{}': AVAILABLE", model_def.name);
@@ -387,12 +397,19 @@ impl ModelManager {
         let Err(error) = model_integrity::ensure_verified(pinned, path).await else {
             return Ok(());
         };
-        if matches!(error.downcast_ref(), Some(IntegrityError::Mismatch { .. })) {
+        if let Some(IntegrityError::Mismatch { undeleted, .. }) = error.downcast_ref() {
             // A download that started meanwhile owns the status.
             let controls = self.download_controls.read().await;
             if !controls.contains_key(model_name) {
                 if let Some(info) = self.available_models.write().await.get_mut(model_name) {
-                    info.status = ModelStatus::NotDownloaded;
+                    info.status = match undeleted {
+                        None => ModelStatus::NotDownloaded,
+                        // Still on disk: offer Retry and Delete, as a scan would.
+                        Some(_) => ModelStatus::Corrupted {
+                            file_size: pinned.size / (1024 * 1024),
+                            expected_min_size: info.size_mb,
+                        },
+                    };
                 }
             }
         }
@@ -471,6 +488,17 @@ impl ModelManager {
                     && self.validate_gguf_file(&file_path).await.is_ok()
                     && match model_integrity::ensure_verified(pinned, &file_path).await {
                         Ok(()) => true,
+                        Err(error)
+                            if matches!(
+                                error.downcast_ref(),
+                                Some(IntegrityError::Mismatch { undeleted: Some(_), .. })
+                            ) =>
+                        {
+                            // The file is still there, so a resume would start
+                            // past its end: report why instead.
+                            self.fail_download(model_name, &control, error.to_string()).await;
+                            return Err(error);
+                        }
                         Err(error) => {
                             log::warn!("{}; downloading it again", error);
                             false
@@ -628,12 +656,10 @@ impl ModelManager {
             }
             let length = response.content_length().unwrap_or(0);
             if length > 0 && length != pinned.size {
-                let message = format!(
-                    "{} failed its integrity check: the server sent {} bytes, expected {}",
-                    pinned.file, length, pinned.size
-                );
-                self.fail_download(model_name, &control, message.clone()).await;
-                return Err(anyhow!(message));
+                // Nothing has been written yet; a kept partial stays for resume.
+                let error = IntegrityError::ServerSize { file: pinned.file, size: length, expected: pinned.size };
+                self.fail_download(model_name, &control, error.to_string()).await;
+                return Err(error.into());
             }
             (length, false)
         } else {
