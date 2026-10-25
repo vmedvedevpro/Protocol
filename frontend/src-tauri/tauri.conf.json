@@ -95,6 +95,7 @@
     },
     "bundle": {
         "active": true,
+        "createUpdaterArtifacts": true,
         "publisher": "vmedvedevpro",
         "targets": [
             "nsis"
@@ -135,6 +136,18 @@
                 "customLanguageFiles": {
                     "English": "./windows/English.nsh"
                 }
+            }
+        }
+    },
+    "plugins": {
+        "updater": {
+            "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDkxNjUyNkZGREFCQ0FCNzYKUldSMnE3emEveVpsa1JJeTArVmlFQVd3UWlaa3N6MzhEejZVbys3cXpibWtBZ1htNEZYQmRlR2UK",
+            "endpoints": [
+                "https://github.com/vmedvedevpro/Protocol/releases/latest/download/latest.json"
+            ],
+            "requireSignedVersion": true,
+            "windows": {
+                "installMode": "passive"
             }
         }
     }

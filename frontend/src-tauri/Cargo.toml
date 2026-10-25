@@ -162,6 +162,8 @@ tauri-plugin-notification = "2.7.0"
 # Desktop-only single instance guard
 [target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
 tauri-plugin-single-instance = "=2.5.4"
+# In-app updates from this repository's GitHub releases (src/updater/).
+tauri-plugin-updater = "2.14"
 
 # Windows-only: native toast notifications attributed to Protocol (not PowerShell).
 # tauri-winrt-notification is already used transitively by tauri-plugin-notification;
