@@ -165,8 +165,9 @@ plus a minibar-only `core:window:allow-start-dragging` capability. Container-onl
 
 ### Windows runtime ownership
 
-The workspace pins a vendored `tauri-runtime-wry` 2.11.4 through the root
-`Cargo.toml`. A v0.2.12 long-recording crash matched the upstream Windows
+The workspace pins a vendored `tauri-runtime-wry` 2.12.3 through the root
+`Cargo.toml` (the patch was first written for 2.11.4 and ported with the
+Tauri 2.12 update). A v0.2.12 long-recording crash matched the upstream Windows
 `Rc<EventLoopRunner>` clone/drop race: ordinary background IPC traffic can
 corrupt the event-loop reference count. This is not fixed by slowing the
 minibar timer, changing transcription models, or replacing Tao's `Rc` with
@@ -174,8 +175,9 @@ an `Arc` while ignoring thread-affine destruction.
 
 The Windows patch keeps the strong target owner inside the non-Send `Wry`
 runtime; cloned contexts hold private atomic weak references. Only UI-thread
-dispatch upgrades them, monitor queries are routed to that thread, and the
-owner expires before native-loop destruction, including panic unwinding.
+dispatch upgrades them, monitor queries are routed to that thread (upstream
+does this itself since 2.12), and the owner expires before native-loop
+destruction, including panic unwinding.
 Windows display handles borrow no data. Non-Windows behavior is unchanged.
 Windows runtime `tracing` is deliberately rejected because its separate
 `ActiveTraceSpanStore` still contains another cross-thread `Rc`.
