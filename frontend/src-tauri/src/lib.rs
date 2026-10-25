@@ -590,7 +590,6 @@ pub fn run() {
             whisper_engine::commands::whisper_load_model,
             whisper_engine::commands::whisper_get_current_model,
             whisper_engine::commands::whisper_is_model_loaded,
-            whisper_engine::commands::whisper_unload_model,
             whisper_engine::commands::force_unload_stt_models,
             whisper_engine::commands::force_unload_all_models,
             whisper_engine::commands::get_local_stack_status,
@@ -695,7 +694,6 @@ pub fn run() {
             diarization::open_diarization_model_directory,
             minibar::enter_compact_mode,
             minibar::exit_compact_mode,
-            minibar::is_compact_mode,
             minibar::stop_recording_from_minibar,
             api::api_get_model_config,
             api::api_save_model_config,
@@ -794,7 +792,6 @@ pub fn run() {
             audio::import::validate_audio_file_command,
             audio::import::start_import_audio_command,
             audio::import::cancel_import_command,
-            audio::import::is_import_in_progress_command,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
