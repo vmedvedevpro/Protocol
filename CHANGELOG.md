@@ -21,7 +21,8 @@ issue and PR numbers refer to
   IPC commands that let the app choose and run a `claude` executable; summaries
   and Ask AI use the built-in models, Ollama, or an HTTP API provider. A summary
   provider saved as the CLI now loads as unselected: Model Settings and summary
-  generation ask you to choose another provider
+  generation ask you to choose another provider, and the CLI's leftover working
+  folder is deleted at startup
   ([#19](https://github.com/vmedvedevpro/Protocol/issues/19)).
 
 ## Unreleased

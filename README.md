@@ -45,9 +45,11 @@ Everything below comes from upstream and works as it does there.
   alike ([#12](https://github.com/vmedvedevpro/Protocol/issues/12)).
 - **No updater.** There is no in-app updater and no update check. To update,
   pull the source and rebuild.
-- **No Claude Code CLI provider.** Summaries and Ask AI never run an external
-  program; a summary provider saved as the CLI loads as unselected, and the app
-  asks you to choose another ([#19](https://github.com/vmedvedevpro/Protocol/issues/19)).
+- **No Claude Code CLI provider.** No IPC command runs an executable you chose
+  any more; Built-in AI still starts its bundled `llama-helper`, and the Ollama
+  check may run `ollama list`. A summary provider saved as the CLI loads as
+  unselected, and the app asks you to choose another
+  ([#19](https://github.com/vmedvedevpro/Protocol/issues/19)).
 
 ## Roadmap
 

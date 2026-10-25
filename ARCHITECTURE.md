@@ -534,8 +534,10 @@ Post-call summary start uses two levels of ownership: a module-level in-flight
 promise deduplicates React remounts/StrictMode while setup is running, and
 `post-call-summary-started:<meeting>` is persisted only after
 `api_process_transcript` returns a valid process ID. Preflight, model, transcript
-fetch, or invoke failures clear the provisional claim so retry remains possible.
-Do not mark summary start before backend acceptance.
+fetch, or invoke failures clear the provisional claim and end auto-summary for
+the page (`onAutoGenerateComplete`), so neither a re-render nor a provider only
+selected in Model Settings starts it again; the next run starts from **Generate
+summary** or **Try again**. Do not mark summary start before backend acceptance.
 
 If audio saving was disabled or retained audio is unavailable, enhancement and
 diarization are impossible. The error state offers **Use live transcript**, which
@@ -589,10 +591,12 @@ so this fork doesn't consume someone else's bandwidth.
 
 Summaries and the live assistant run on the built-in GGUF models, Ollama, or an
 HTTP API provider (Claude, OpenAI, Groq, OpenRouter, Custom Server);
-`llm_client::LLMProvider` lists them, and none starts an external program.
-Protocol removed upstream's Claude Code CLI provider, which ran the user's
-`claude` executable from a path the WebView could choose
-([#19](https://github.com/vmedvedevpro/Protocol/issues/19)).
+`llm_client::LLMProvider` lists them. Protocol removed upstream's Claude Code
+CLI provider, which ran the user's `claude` executable from a path the WebView
+could choose ([#19](https://github.com/vmedvedevpro/Protocol/issues/19)). No IPC
+command runs an executable chosen by the user any more; Built-in AI still starts
+the bundled `llama-helper` sidecar, and the Ollama model check may run
+`ollama list`.
 
 Settings saved while that provider was selected still load:
 
@@ -602,21 +606,32 @@ Settings saved while that provider was selected still load:
   `provider: ''` as no provider selected: `ConfigContext` adopts it instead of
   its Ollama default, Model Settings shows **Select provider** with a hint and
   keeps Save disabled, and generating or regenerating a summary shows **Choose a
-  summary provider** without calling the backend. The hook also calls
-  `onOpenModelSettings`, but the meeting page never sets that callback, so as
-  with the Ollama and built-in model checks nothing opens by itself. The live
-  assistant answers "No AI model configured" for the same row.
+  summary provider** (one toast with a fixed id) without calling the backend.
+  The hook's `onOpenModelSettings` then opens the meeting page's Model Settings
+  dialog: `MeetingDocument` points the page's `openModelSettingsRef` at it, which
+  also serves the Ollama and built-in model checks. A refused regeneration keeps
+  the regenerate dialog, the **Edited** badge and the replace warning:
+  `handleRegenerateSummary` resolves `true` only when the backend accepted a
+  run. The live assistant answers "No AI model configured" for the same row.
 - After a recording, `keepsSavedSummaryModel` (`lib/meeting-summary-policy.ts`)
   counts such a row as configured, so the summary attempt asks for a provider.
-  The first-run gemma3:1b fallback still applies only when there is no settings
-  row or the saved provider has no model.
+  That refusal ends auto-summary for the page, like any post-call attempt that
+  starts no run; the user saves a provider and clicks **Generate summary**. The first-run gemma3:1b fallback still applies only when there is
+  no settings row or the saved provider has no model.
 - Migration `20260914000000_add_claude_cli_path.sql` stays, because sqlx refuses
   to start when an applied migration is missing. The `settings.claudeCliPath`
   column it adds is no longer read or written.
+- The provider's working folder `<data root>/claude-cli`, which held only
+  temporary system-prompt files, is deleted at startup
+  (`paths::remove_claude_cli_working_dir`). A failure is logged and does not
+  stop startup; the next start tries again.
 
-Tests: native `api::model_config_tests` and
-`live_assistant::assistant_model_tests`; frontend
-`tests/hooks/summary-provider-unavailable.test.tsx` and
+Tests: native `api::model_config_tests`, `live_assistant::assistant_model_tests`
+and `paths::retired_dir_tests`; frontend
+`tests/hooks/summary-provider-unavailable.test.tsx`,
+`tests/meeting-details/summary-provider-prompt.test.tsx` (the meeting page with
+the real ConfigContext, summary hook and MeetingDocument: auto-summary disarm,
+the Model Settings dialog, a refused regeneration) and
 `tests/lib/meeting-summary-policy.test.ts`.
 
 ---
