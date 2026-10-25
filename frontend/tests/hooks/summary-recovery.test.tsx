@@ -21,7 +21,6 @@ mock.module('@tauri-apps/api/core', () => ({ invoke: async (command:string,args:
 }}));
 mock.module('@tauri-apps/api/event', () => ({listen:async()=>()=>{}}));
 mock.module('sonner', () => ({toast:{success:(...a:any[])=>toasts.push(a),error:(...a:any[])=>toasts.push(a),info:()=>{},warning:()=>{}}}));
-mock.module('@/lib/analytics',()=>({default:{trackSummaryGenerationCompleted:async()=>{}}}));
 const {useSummaryGeneration} = await import('../../src/hooks/meeting-details/useSummaryGeneration');
 let current: ReturnType<typeof useSummaryGeneration>;
 const roots: ReactTestRenderer[]=[];

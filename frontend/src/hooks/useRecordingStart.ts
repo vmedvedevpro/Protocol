@@ -10,7 +10,6 @@ import { readPendingGroup } from '@/lib/groups';
 import { automaticTitle, beginLiveSession } from '@/lib/live-session';
 import { AUTO_START_KEY, START_RECORDING_EVENT } from '@/lib/recording-launch';
 import { beginAutomatedRecording, endAutomatedRecording, takeAutomatedStart } from '@/lib/meeting-automation';
-import Analytics from '@/lib/analytics';
 import { showRecordingNotification } from '@/lib/recordingNotification';
 import { toast } from 'sonner';
 import { describeStartError } from '@/lib/recording-start-errors';
@@ -125,7 +124,7 @@ export function useRecordingStart(
   }, []);
 
   /** Says why recording can't start yet, and offers the model setup when that's the reason. */
-  const reportModelNotReady = useCallback(async (source: StartSource) => {
+  const reportModelNotReady = useCallback(async () => {
     if (runtimeErrorRef.current) {
       setStatus(RecordingStatus.ERROR, runtimeErrorRef.current);
       return;
@@ -135,14 +134,12 @@ export function useRecordingStart(
         description: 'Recording can start once the transcription model finishes downloading.',
         duration: 5000,
       });
-      Analytics.trackButtonClick('start_recording_blocked_downloading', source);
     } else {
       toast.error('Transcription model not ready', {
         description: 'Download a transcription model (Parakeet is best for live) before recording.',
         duration: 5000,
       });
       showModal?.('modelSelector', 'Transcription model setup required');
-      Analytics.trackButtonClick('start_recording_blocked_missing', source);
     }
     setStatus(RecordingStatus.IDLE);
   }, [checkIfModelDownloading, setStatus, showModal]);
@@ -158,7 +155,7 @@ export function useRecordingStart(
     setStatus(RecordingStatus.STARTING, 'Preparing transcription model…');
     const sttReady = await prefetchSttModel();
     if (!sttReady) {
-      await reportModelNotReady(source);
+      await reportModelNotReady();
       return false;
     }
 
@@ -181,7 +178,6 @@ export function useRecordingStart(
       clearTranscripts();
       setIsMeetingActive(true);
       markRecordingStarted(startedAt);
-      Analytics.trackButtonClick('start_recording', source);
       if (call) {
         beginAutomatedRecording(call);
         toast(`Recording your ${call.app} call`, {
@@ -204,7 +200,6 @@ export function useRecordingStart(
       setStatus(RecordingStatus.ERROR, error instanceof Error ? error.message : 'Failed to start recording');
       const { title, message } = describeStartError(error);
       toast.error(title, { description: message, duration: 8000 });
-      Analytics.trackButtonClick('start_recording_error', source);
       return false;
     }
   }, [

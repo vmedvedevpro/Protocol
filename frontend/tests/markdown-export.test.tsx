@@ -10,7 +10,6 @@ mock.module('@tauri-apps/api/core', () => ({ invoke: async (_: string, args: any
   ] } }));
 mock.module('@/lib/exportSummary', () => ({ exportSummaryAs: async (_: string, text: string) => exported.push(text) }));
 mock.module('@/hooks/useUserName', () => ({ useUserName: () => 'Tyler' }));
-mock.module('@/lib/analytics', () => ({ default: { trackFeatureUsed: async () => {}, trackCopy: async () => {} } }));
 mock.module('sonner', () => ({ toast: { error: (message: string) => { throw new Error(message); }, success() {} } }));
 Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { clipboard: { writeText: async (text: string) => copied.push(text) } } });
 const { useCopyOperations } = await import('../src/hooks/meeting-details/useCopyOperations');

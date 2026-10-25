@@ -4,7 +4,6 @@
  */
 import { invoke } from '@tauri-apps/api/core';
 import { toast } from 'sonner';
-import Analytics from '@/lib/analytics';
 import { announceChange, setMeetingsGroup } from '@/lib/workspace-api';
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
@@ -49,7 +48,6 @@ export async function deleteMeetings(meetingIds: string[]): Promise<number> {
   for (const meetingId of meetingIds) {
     try {
       await invoke('api_delete_meeting', { meetingId });
-      Analytics.trackMeetingDeleted(meetingId);
       deleted += 1;
     } catch (error) {
       console.error('Failed to delete meeting', meetingId, error);

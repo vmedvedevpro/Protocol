@@ -15,8 +15,19 @@ issue and PR numbers refer to
 - Remove the in-app updater: the updater and process plugins, update checks,
   the onboarding update question, the tray and About update actions, and updater
   signing in the Windows packaging script, release verifier, and workflows.
+- Remove the inactive PostHog analytics: the native `analytics` module and its
+  IPC commands, the `posthog-rs` dependency, and the frontend tracking calls and
+  provider. It never sent events. The local `analytics.json` that earlier
+  versions wrote (meeting totals, the last meeting date, per-day meeting counts,
+  and the opt-in flags) is no longer read or written and can be deleted safely;
+  `PRIVACY_POLICY.md` says where it is.
 - Point About, onboarding, crash reports, and the CUDA setup prompt at this
   repository.
+- Remove the manual Windows support-bundle script inherited from upstream: it
+  zipped the database with provider API keys, WebView storage, memory dumps, by
+  default the newest meeting recording, the computer and user names, and the
+  command lines of running app processes, and it read the old Meetily folders.
+  The in-app crash report remains the supported path.
 - Remove the Claude Code CLI summary provider, its Model Settings panel, and the
   IPC commands that let the app choose and run a `claude` executable; summaries
   and Ask AI use the built-in models, Ollama, or an HTTP API provider. A summary

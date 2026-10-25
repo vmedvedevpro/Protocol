@@ -18,7 +18,6 @@ import { PostCallHandoffCard } from '@/components/PostCallHandoffCard';
 import { RecordingCardSlot } from '@/components/RecordingCardSlot';
 import { HomeDashboard } from '@/components/home/HomeDashboard';
 import { LiveSession } from '@/components/recording/LiveSession';
-import Analytics from '@/lib/analytics';
 import { SettingsModals } from './_components/SettingsModal';
 import { useModalState } from '@/hooks/useModalState';
 import { useRecordingStateSync } from '@/hooks/useRecordingStateSync';
@@ -52,10 +51,6 @@ export default function Home() {
   } = useTranscriptRecovery();
 
   const router = useRouter();
-
-  useEffect(() => {
-    Analytics.trackPageView('home');
-  }, []);
 
   // On startup, tidy the crash-recovery store and look for unsaved recordings.
   useEffect(() => {

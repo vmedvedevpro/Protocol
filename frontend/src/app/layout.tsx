@@ -5,7 +5,6 @@ import './icon-motion.css'
 import '@fontsource-variable/inter/wght.css'
 import dynamic from 'next/dynamic'
 import { SidebarProvider } from '@/components/Sidebar/SidebarProvider'
-import AnalyticsProvider from '@/components/AnalyticsProvider'
 import { Toaster, toast } from 'sonner'
 import { X } from 'lucide-react'
 import "sonner/dist/styles.css"
@@ -511,65 +510,63 @@ export default function RootLayout({
             />
           </>
         ) : (
-          <AnalyticsProvider>
-            <RecordingStateProvider>
-              <TranscriptProvider>
-                <ConfigProvider>
-                  <OllamaDownloadProvider>
-                    <OnboardingProvider>
-                      <WorkspaceProvider>
-                      <OptionalModelDownloadsProvider>
-                      <SidebarProvider>
-                        <TooltipProvider>
-                          <AppTooltipGuard />
-                          <RecordingPostProcessingProvider>
-                            <>
-                              <CudaReconfigurationNotice onboardingCompleted={onboardingCompleted} />
-                              <ImportDialogProvider onOpen={handleOpenImportDialog}>
-                                {onboardingCompleted && !showOnboarding && <GlobalSearchDialog />}
-                                {onboardingCompleted && !showOnboarding && <RouteWarmup />}
-                                {/* Download progress toast provider - listens for background downloads */}
-                                <DownloadProgressToastProvider />
+          <RecordingStateProvider>
+            <TranscriptProvider>
+              <ConfigProvider>
+                <OllamaDownloadProvider>
+                  <OnboardingProvider>
+                    <WorkspaceProvider>
+                    <OptionalModelDownloadsProvider>
+                    <SidebarProvider>
+                      <TooltipProvider>
+                        <AppTooltipGuard />
+                        <RecordingPostProcessingProvider>
+                          <>
+                            <CudaReconfigurationNotice onboardingCompleted={onboardingCompleted} />
+                            <ImportDialogProvider onOpen={handleOpenImportDialog}>
+                              {onboardingCompleted && !showOnboarding && <GlobalSearchDialog />}
+                              {onboardingCompleted && !showOnboarding && <RouteWarmup />}
+                              {/* Download progress toast provider - listens for background downloads */}
+                              <DownloadProgressToastProvider />
 
-                                {/* Show onboarding or main app */}
-                                {showOnboarding ? (
-                                  <OnboardingFlow onComplete={handleOnboardingComplete} />
-                                ) : (
-                                  <div className="flex min-h-0 min-w-0 h-screen overflow-hidden">
-                                    <Sidebar />
-                                    <MainContent>{children}</MainContent>
-                                    <RecordingPill />
-                                    <GroupEditorHost />
-                                    <RecordingNotice onAcknowledged={acknowledgeRecordingNotice} />
-                                  </div>
-                                )}
-                                {/* Import audio overlay and dialog */}
-                                <ImportDropOverlay visible={showDropOverlay} />
-                                <ConditionalImportDialog
-                                  showImportDialog={showImportDialog}
-                                  handleImportDialogClose={handleImportDialogClose}
-                                  importFilePath={importFilePath}
+                              {/* Show onboarding or main app */}
+                              {showOnboarding ? (
+                                <OnboardingFlow onComplete={handleOnboardingComplete} />
+                              ) : (
+                                <div className="flex min-h-0 min-w-0 h-screen overflow-hidden">
+                                  <Sidebar />
+                                  <MainContent>{children}</MainContent>
+                                  <RecordingPill />
+                                  <GroupEditorHost />
+                                  <RecordingNotice onAcknowledged={acknowledgeRecordingNotice} />
+                                </div>
+                              )}
+                              {/* Import audio overlay and dialog */}
+                              <ImportDropOverlay visible={showDropOverlay} />
+                              <ConditionalImportDialog
+                                showImportDialog={showImportDialog}
+                                handleImportDialogClose={handleImportDialogClose}
+                                importFilePath={importFilePath}
+                              />
+                              {/* Non-blocking crash report overlay */}
+                              {pendingCrashReport && (
+                                <CrashReportDialog
+                                  report={pendingCrashReport}
+                                  onResolved={() => setPendingCrashReport(null)}
                                 />
-                                {/* Non-blocking crash report overlay */}
-                                {pendingCrashReport && (
-                                  <CrashReportDialog
-                                    report={pendingCrashReport}
-                                    onResolved={() => setPendingCrashReport(null)}
-                                  />
-                                )}
-                              </ImportDialogProvider>
-                            </>
-                          </RecordingPostProcessingProvider>
-                        </TooltipProvider>
-                      </SidebarProvider>
-                      </OptionalModelDownloadsProvider>
-                      </WorkspaceProvider>
-                    </OnboardingProvider>
-                  </OllamaDownloadProvider>
-                </ConfigProvider>
-              </TranscriptProvider>
-            </RecordingStateProvider>
-          </AnalyticsProvider>
+                              )}
+                            </ImportDialogProvider>
+                          </>
+                        </RecordingPostProcessingProvider>
+                      </TooltipProvider>
+                    </SidebarProvider>
+                    </OptionalModelDownloadsProvider>
+                    </WorkspaceProvider>
+                  </OnboardingProvider>
+                </OllamaDownloadProvider>
+              </ConfigProvider>
+            </TranscriptProvider>
+          </RecordingStateProvider>
         )}
 
         {/* Minimize, maximize and close, drawn by the app on Windows. */}

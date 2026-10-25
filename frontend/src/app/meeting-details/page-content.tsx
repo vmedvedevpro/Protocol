@@ -9,7 +9,6 @@ import { motion } from 'framer-motion';
 import { invoke } from '@tauri-apps/api/core';
 import { toast } from 'sonner';
 import type { Summary, Transcript, TranscriptSegmentData } from '@/types';
-import Analytics from '@/lib/analytics';
 import { useSidebar } from '@/components/Sidebar/SidebarProvider';
 import { useConfig } from '@/contexts/ConfigContext';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
@@ -119,10 +118,6 @@ export default function PageContent({
   const [textMode, setTextMode] = useState<'clean' | 'verbatim'>('clean');
 
   useEffect(() => setTitle(displayTitle(meeting.title, meeting.created_at)), [meeting.title, meeting.created_at]);
-
-  useEffect(() => {
-    Analytics.trackPageView('meeting_details');
-  }, []);
 
   useEffect(() => {
     let cancelled = false;

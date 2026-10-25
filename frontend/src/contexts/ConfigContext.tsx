@@ -6,7 +6,6 @@ import { SelectedDevices } from '@/components/DeviceSelection';
 import { configService, ModelConfig, SummaryProvider } from '@/services/configService';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import Analytics from '@/lib/analytics';
 
 export interface OllamaModel {
   name: string;

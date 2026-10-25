@@ -269,8 +269,22 @@ count, rounded memory size, source-relative panic file/line details, and a
 panic-location fingerprint. It
 never includes ordinary logs, recordings, checkpoints, transcript/summary data,
 meeting identity, SQLite/WebView/settings storage, credentials, usernames,
-hostnames, or device names. Do not replace it with the much broader manual
-`scripts/collect-meetily-crash-diagnostics.bat` support bundle.
+hostnames, or device names. It is the only supported crash-reporting path. The
+manual support-bundle script inherited from upstream was removed because it
+zipped the SQLite database (provider API keys are stored there in plaintext),
+WebView storage, memory dumps, the newest meeting recording (copied unless
+`--no-recording` was passed), the computer and user names, and the command lines
+of running app processes; do not add a broader collector back.
+
+Nothing in the repository collects native-crash evidence (exception code,
+faulting module, stack) any more, so a native fault that is not a Rust panic
+yields only an `unexpected_exit` report. For such a crash, ask the user for the
+matching Windows Application event log entries, the WER `ReportArchive` and
+`ReportQueue` folders, dumps in `%LOCALAPPDATA%\CrashDumps` (written only when
+WER LocalDumps is enabled), and `<data>\crash.log`. The panic hook still appends
+the panic message and sanitized backtrace to that file (for an installed Windows
+build, `%LOCALAPPDATA%\vmedvedevpro\Protocol\data\crash.log`); it stays as the
+local manual-debugging file and is never added to the ZIP.
 
 ---
 
@@ -851,14 +865,33 @@ an exact-size file with valid GGUF magic becomes `Available`. Progress reaching
 
 ### Branding assets
 
-`frontend/src-tauri/icon-source.png` is the canonical high-resolution logo. It
-still carries the upstream "Meetily / Actually Free" artwork until Protocol has
-its own icon.
-Tauri's icon generator produces the platform family under `src-tauri/icons/`.
-Those generated files feed every native surface through these connections:
+The Protocol mark is a recording dot that turns into lines of a transcript:
+ink `#15171C` rounded square, recording accent `#FF5A36`, lines `#F3F2EE`.
+`frontend/src-tauri/icon-source.svg` is the canonical vector;
+`icon-source.png` (and its copy `icon-1024.png`) is its 1024×1024 render.
+`icon-source-small.svg` is a simplified two-line variant drawn for 16–32 px,
+where three thin lines blur together in the tray and title bar.
+
+Regenerate the set after changing either SVG:
+
+1. Render `icon-source.svg` to a 1024×1024 PNG (`icon-source.png`) and
+   `icon-source-small.svg` to 16, 20, 24 and 32 px PNGs (any SVG renderer;
+   headless Chromium matches the browser exactly).
+2. From `frontend/`, run `pnpm tauri icon src-tauri/icon-source.png`. It writes
+   the desktop family plus `android/` and `ios/`; delete those two folders —
+   Protocol ships no mobile build.
+3. Replace `icons/32x32.png` with the 32 px small render, and rebuild
+   `icons/icon.ico` with frames 16/20/24/32 from the small renders and
+   48/64/128/256 from the master, so the tray and taskbar get the legible
+   variant.
+4. Downscale the master into `public/logo.png` (512), `logo-collapsed.png`
+   (256), `icon_128x128.png` and `icon_32x32@2x.png` (64), and build
+   `src/app/favicon.ico` (16/32 small, 48 master).
+
+The generated files feed every native surface through these connections:
 
 ```text
-icon-source.png
+icon-source.svg -> icon-source.png (+ icon-source-small.svg for 16-32 px)
   -> icons/icon.ico  -> Windows app/taskbar + NSIS + bootstrapper executable
   -> icons/icon.png  -> native Windows notifications
   -> default app icon -> system tray (tray.rs)

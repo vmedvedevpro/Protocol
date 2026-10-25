@@ -23,7 +23,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { ChevronDown, Layers, Minimize2, Mic, Pause, Play, Square } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
-import Analytics from '@/lib/analytics';
 import { useRecordingState } from '@/contexts/RecordingStateContext';
 import { useConfig } from '@/contexts/ConfigContext';
 import { usePlatform } from '@/hooks/usePlatform';
@@ -279,12 +278,10 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
       // Recordings save under the install-local data root (same directory as the database).
       const dataDir = await invoke<string>('get_database_directory');
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-      const didStop = await invoke<boolean>('stop_recording', {
+      await invoke('stop_recording', {
         args: { save_path: `${dataDir}/recording-${timestamp}.wav` },
       });
       setIsProcessing(false);
-      if (!didStop) return;
-      Analytics.trackTranscriptionSuccess();
       // Rust emits one completion event; RecordingPostProcessingProvider saves
       // the meeting and navigates for every stop origin.
     } catch (error) {
@@ -356,7 +353,6 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
     setIsChangingMicrophoneMute(true);
     try {
       await invoke<boolean>('set_microphone_muted', { muted: !isMicrophoneMuted });
-      Analytics.trackButtonClick(isMicrophoneMuted ? 'unmute_microphone' : 'mute_microphone', 'recording_controls');
     } catch (error) {
       console.error('Failed to change microphone mute state:', error);
     } finally {
@@ -369,7 +365,6 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
     setIsChangingSystemAudioMute(true);
     try {
       await invoke<boolean>('set_system_audio_muted', { muted: !isSystemAudioMuted });
-      Analytics.trackButtonClick(isSystemAudioMuted ? 'unmute_system_audio' : 'mute_system_audio', 'recording_controls');
     } catch (error) {
       console.error('Failed to change system audio mute state:', error);
     } finally {
@@ -380,7 +375,6 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
   // Collapse to the floating compact bar; the elapsed time seeds its timer.
   const collapseToBar = useCallback(() => {
     const elapsed = Math.max(0, Math.floor(recordingState.recordingDuration ?? 0));
-    Analytics.trackButtonClick('enter_compact_mode', 'recording_controls');
     invoke('enter_compact_mode', { elapsedSeconds: elapsed }).catch((error) =>
       console.error('Failed to enter compact mode:', error)
     );
@@ -397,15 +391,11 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
 
     track(listen<string>('transcript-error', (event) => {
       const message = String(event.payload);
-      Analytics.trackTranscriptionError(message);
       setIsProcessing(false);
       onRecordingStop(false);
       onTranscriptionError?.(message);
     }));
-    track(listen<{ error?: string; userMessage?: string } | string>('transcription-error', (event) => {
-      const payload = event.payload;
-      const message = typeof payload === 'object' && payload ? payload.userMessage || payload.error || '' : String(payload);
-      Analytics.trackTranscriptionError(message);
+    track(listen('transcription-error', () => {
       setIsProcessing(false);
       onRecordingStop(false);
     }));
@@ -433,11 +423,9 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
               type="button"
               onClick={() => {
                 if (isRecording) {
-                  Analytics.trackButtonClick('stop_recording', 'recording_controls');
                   void handleStopRecording();
                   return;
                 }
-                Analytics.trackButtonClick('start_recording', 'recording_controls');
                 void handleStartRecording();
               }}
               disabled={
@@ -501,7 +489,6 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
                 <button
                   type="button"
                   onClick={() => {
-                    Analytics.trackButtonClick(isPaused ? 'resume_recording' : 'pause_recording', 'recording_controls');
                     void (isPaused ? handleResumeRecording() : handlePauseRecording());
                   }}
                   disabled={isPausing || isResuming || isStopping}
