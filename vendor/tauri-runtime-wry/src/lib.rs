@@ -16,7 +16,12 @@ use self::monitor::MonitorExt;
 use http::Request;
 #[cfg(target_os = "macos")]
 use objc2::ClassType;
-use raw_window_handle::{DisplayHandle, HasDisplayHandle, HasWindowHandle};
+#[cfg(not(windows))]
+use raw_window_handle::HasDisplayHandle;
+use raw_window_handle::{DisplayHandle, HasWindowHandle};
+
+#[cfg(all(windows, feature = "tracing"))]
+compile_error!("vendored tauri-runtime-wry: Windows runtime tracing is unsupported until ActiveTraceSpanStore has thread-affine ownership (see PATCH.md)");
 
 #[cfg(windows)]
 use tauri_runtime::webview::ScrollBarStyle;
@@ -160,6 +165,9 @@ mod webview;
 mod webview_permissions;
 mod window;
 
+#[cfg(all(test, windows))]
+mod windows_tests;
+
 pub use webview::Webview;
 use window::WindowExt as _;
 
@@ -245,7 +253,12 @@ pub struct Context<T: UserEvent> {
   webview_runtime_installed: bool,
 }
 
+// SAFETY: main-thread payload access remains main-thread-only. On Windows,
+// target clone/drop only touches atomic Weak metadata; the private target is
+// upgraded exclusively in send_user_message's owner-thread branch. Runtime
+// tracing is rejected above.
 unsafe impl<T: UserEvent> Send for Context<T> {}
+// SAFETY: same payload-access and Windows Weak invariant as the Send impl above.
 unsafe impl<T: UserEvent> Sync for Context<T> {}
 
 impl<T: UserEvent> Context<T> {
@@ -261,9 +274,26 @@ impl<T: UserEvent> Context<T> {
   }
 
   fn send_user_message(&self, message: Message<T>) -> Result<()> {
+    // Checking atomic metadata is safe off-thread; never upgrade the target there.
+    #[cfg(windows)]
+    if self.main_thread.window_target.strong_count() == 0 {
+      return Err(Error::EventLoopClosed);
+    }
+
     if current_thread().id() == self.main_thread_id {
+      #[cfg(windows)]
+      let owner = self
+        .main_thread
+        .window_target
+        .upgrade()
+        .ok_or(Error::EventLoopClosed)?;
+      #[cfg(windows)]
+      let window_target = &owner.target;
+      #[cfg(not(windows))]
+      let window_target = &self.main_thread.window_target;
+
       handle_user_message(
-        &self.main_thread.window_target,
+        window_target,
         message,
         UserMessageContext {
           window_id_map: &self.window_id_map,
@@ -450,9 +480,32 @@ impl fmt::Debug for WindowsStore {
   }
 }
 
+// The payload is never sent to a worker, including during final destruction.
+#[cfg(windows)]
+struct WindowsWindowTarget<T: UserEvent> {
+  target: EventLoopWindowTarget<Message<T>>,
+  #[cfg(test)]
+  drop_witness: windows_tests::DropWitness,
+}
+
+#[cfg_attr(
+  windows,
+  doc = "\
+The Windows target is deliberately inaccessible through this Send context.
+```compile_fail
+use tauri_runtime_wry::DispatcherMainThreadContext;
+fn extract(context: &DispatcherMainThreadContext<()>) {
+  let _ = context.window_target.upgrade();
+}
+```
+"
+)]
 #[derive(Debug, Clone)]
 pub struct DispatcherMainThreadContext<T: UserEvent> {
+  #[cfg(not(windows))]
   pub window_target: EventLoopWindowTarget<Message<T>>,
+  #[cfg(windows)]
+  window_target: Weak<WindowsWindowTarget<T>>,
   pub web_context: WebContextStore,
   // changing this to an Rc will cause frequent app crashes.
   pub windows: Arc<WindowsStore>,
@@ -2505,7 +2558,25 @@ pub trait Plugin<T: UserEvent> {
 }
 
 /// A Tauri [`Runtime`] wrapper around wry.
+#[cfg_attr(
+  windows,
+  doc = "\
+The owning runtime must not leave its event-loop thread.
+```compile_fail
+fn require_send<T: Send>() {}
+require_send::<tauri_runtime_wry::Wry<()>>();
+```
+```compile_fail
+fn require_sync<T: Sync>() {}
+require_sync::<tauri_runtime_wry::Wry<()>>();
+```
+"
+)]
 pub struct Wry<T: UserEvent> {
+  // Invalidate dispatch before context/native teardown can reenter. Keep this
+  // field before event_loop, and do not move event_loop out on Windows.
+  #[cfg(windows)]
+  _window_target: Arc<WindowsWindowTarget<T>>,
   context: Context<T>,
   event_loop: EventLoop<Message<T>>,
 }
@@ -2630,6 +2701,10 @@ impl<T: UserEvent> RuntimeHandle<T> for WryHandle<T> {
   fn display_handle(
     &self,
   ) -> std::result::Result<DisplayHandle<'_>, raw_window_handle::HandleError> {
+    // Windows display handles borrow no data, even after the runtime is gone.
+    #[cfg(windows)]
+    return Ok(DisplayHandle::windows());
+    #[cfg(not(windows))]
     self.context.main_thread.window_target.display_handle()
   }
 
@@ -2764,12 +2839,23 @@ impl<T: UserEvent> Wry<T> {
     let windows = Arc::new(WindowsStore(RefCell::new(BTreeMap::default())));
     let window_id_map = WindowIdStore::default();
 
+    #[cfg(windows)]
+    #[allow(clippy::arc_with_non_send_sync)]
+    let window_target = Arc::new(WindowsWindowTarget {
+      target: event_loop.deref().clone(),
+      #[cfg(test)]
+      drop_witness: windows_tests::DropWitness::new(),
+    });
+
     let context = Context {
       window_id_map,
       main_thread_id,
       proxy: event_loop.create_proxy(),
       main_thread: DispatcherMainThreadContext {
+        #[cfg(not(windows))]
         window_target: event_loop.deref().clone(),
+        #[cfg(windows)]
+        window_target: Arc::downgrade(&window_target),
         web_context,
         windows,
         #[cfg(feature = "tracing")]
@@ -2784,9 +2870,20 @@ impl<T: UserEvent> Wry<T> {
     };
 
     Ok(Self {
+      #[cfg(windows)]
+      _window_target: window_target,
       context,
       event_loop,
     })
+  }
+
+  // On Windows the context holds only a Weak to the target. Wry's own event
+  // loop is that target and is reachable only on the owner thread.
+  fn window_target(&self) -> &EventLoopWindowTarget<Message<T>> {
+    #[cfg(windows)]
+    return &self.event_loop;
+    #[cfg(not(windows))]
+    &self.context.main_thread.window_target
   }
 }
 
@@ -2960,27 +3057,21 @@ impl<T: UserEvent> Runtime<T> for Wry<T> {
 
   fn primary_monitor(&self) -> Option<Monitor> {
     self
-      .context
-      .main_thread
-      .window_target
+      .window_target()
       .primary_monitor()
       .map(|m| MonitorHandleWrapper(m).into())
   }
 
   fn monitor_from_point(&self, x: f64, y: f64) -> Option<Monitor> {
     self
-      .context
-      .main_thread
-      .window_target
+      .window_target()
       .monitor_from_point(x, y)
       .map(|m| MonitorHandleWrapper(m).into())
   }
 
   fn available_monitors(&self) -> Vec<Monitor> {
     self
-      .context
-      .main_thread
-      .window_target
+      .window_target()
       .available_monitors()
       .map(|m| MonitorHandleWrapper(m).into())
       .collect()
@@ -2988,9 +3079,7 @@ impl<T: UserEvent> Runtime<T> for Wry<T> {
 
   fn cursor_position(&self) -> Result<PhysicalPosition<f64>> {
     self
-      .context
-      .main_thread
-      .window_target
+      .window_target()
       .cursor_position()
       .map_err(|_| Error::FailedToGetCursorPosition)
   }
@@ -3089,8 +3178,18 @@ impl<T: UserEvent> Runtime<T> for Wry<T> {
   }
 
   fn run<F: FnMut(RunEvent<T>) + 'static>(self, callback: F) {
-    let event_handler = make_event_handler(self.context, callback);
-    self.event_loop.run(event_handler)
+    #[cfg(windows)]
+    {
+      // Tao's consuming run drops a moved-out event_loop first on unwind.
+      // run_return keeps Wry intact, so its target expires before native teardown.
+      std::process::exit(self.run_return(callback));
+    }
+
+    #[cfg(not(windows))]
+    {
+      let event_handler = make_event_handler(self.context, callback);
+      self.event_loop.run(event_handler)
+    }
   }
 
   #[cfg(not(target_os = "ios"))]

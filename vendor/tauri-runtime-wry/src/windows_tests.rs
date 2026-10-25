@@ -73,9 +73,18 @@ fn assert_expired(handle: &WryHandle<()>) {
     handle.cursor_position(),
     Err(Error::EventLoopClosed)
   ));
-  assert!(handle.primary_monitor().is_none());
-  assert!(handle.monitor_from_point(0.0, 0.0).is_none());
-  assert!(handle.available_monitors().is_empty());
+  assert!(matches!(
+    handle.primary_monitor(),
+    Err(Error::EventLoopClosed)
+  ));
+  assert!(matches!(
+    handle.monitor_from_point(0.0, 0.0),
+    Err(Error::EventLoopClosed)
+  ));
+  assert!(matches!(
+    handle.available_monitors(),
+    Err(Error::EventLoopClosed)
+  ));
   assert!(matches!(
     handle.display_handle().unwrap().as_raw(),
     raw_window_handle::RawDisplayHandle::Windows(_)
@@ -276,22 +285,14 @@ fn concurrent_runtime(runtime: Wry<()>, drops: Arc<AtomicUsize>) {
     )
     .unwrap();
   let handle = runtime.handle();
-  // A caller discarding its monitor reply must not panic the UI thread.
-  let (tx, rx) = channel();
-  drop(rx);
-  send_user_message(
-    &handle.context,
-    Message::EventLoopWindowTarget(EventLoopWindowTargetMessage::AvailableMonitors(tx)),
-  )
-  .unwrap();
   let expected = format!("{:?}", runtime.available_monitors());
-  assert_eq!(format!("{:?}", handle.available_monitors()), expected);
+  assert_eq!(format!("{:?}", handle.available_monitors().unwrap()), expected);
   assert_eq!(
-    format!("{:?}", handle.primary_monitor()),
+    format!("{:?}", handle.primary_monitor().unwrap()),
     format!("{:?}", runtime.primary_monitor())
   );
   assert_eq!(
-    format!("{:?}", handle.monitor_from_point(0.0, 0.0)),
+    format!("{:?}", handle.monitor_from_point(0.0, 0.0).unwrap()),
     format!("{:?}", runtime.monitor_from_point(0.0, 0.0))
   );
 
@@ -316,7 +317,7 @@ fn concurrent_runtime(runtime: Wry<()>, drops: Arc<AtomicUsize>) {
           drop(handle.context.clone());
         }
         for _ in 0..8 {
-          assert_eq!(format!("{:?}", handle.available_monitors()), expected);
+          assert_eq!(format!("{:?}", handle.available_monitors().unwrap()), expected);
           let _ = handle.primary_monitor();
           let _ = handle.monitor_from_point(0.0, 0.0);
           // WindowDispatch already marshals to the UI thread. Its Windows Tao
