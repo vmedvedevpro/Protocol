@@ -38,7 +38,6 @@ pub mod api;
 pub mod audio;
 pub mod claude_cli;
 pub mod config;
-pub mod console_utils;
 pub mod crash_report;
 pub mod database;
 pub mod diarization;
@@ -667,9 +666,6 @@ pub fn run() {
             audio::incremental_saver::recover_audio_from_checkpoints,
             audio::incremental_saver::cleanup_checkpoints,
             audio::incremental_saver::has_audio_checkpoints,
-            console_utils::show_console,
-            console_utils::hide_console,
-            console_utils::toggle_console,
             claude_cli::commands::claude_cli_get_status,
             claude_cli::commands::claude_cli_list_models,
             claude_cli::commands::claude_cli_get_path,
