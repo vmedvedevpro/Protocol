@@ -2,9 +2,13 @@ import React, { useState, useEffect } from "react";
 import { getVersion } from '@tauri-apps/api/app';
 import { invoke } from '@tauri-apps/api/core';
 import Image from 'next/image';
+import { useRouter } from 'next/navigation';
 import { Button } from './ui/button';
+import { DialogClose } from './ui/dialog';
 import { Github } from 'lucide-react';
 import { toast } from 'sonner';
+import { useUpdater } from '@/contexts/UpdaterContext';
+import { statusLine } from './updater/UpdateSettings';
 
 const REPO_URL = 'https://github.com/vmedvedevpro/Protocol';
 const ACTUALLY_FREE_URL = 'https://github.com/TylerBuza/Meetily-ActuallyFree';
@@ -12,6 +16,10 @@ const MEETILY_URL = 'https://github.com/Zackriya-Solutions/meetily';
 
 export function About() {
     const [currentVersion, setCurrentVersion] = useState<string>('0.0.1');
+    const router = useRouter();
+    // Status only: checks and installs live in Settings › About, so there is
+    // one place that runs them.
+    const updateStatus = useUpdater()?.status;
 
     useEffect(() => {
         // Get current version on mount
@@ -43,6 +51,20 @@ export function About() {
                 <p className="text-medium text-af-text-2 mt-1">
                     Real-time notes and summaries that never leave your machine.
                 </p>
+                {updateStatus && (
+                    <p className="mt-2 text-xs text-af-text-3">
+                        {statusLine(updateStatus)}{' '}
+                        <DialogClose asChild>
+                            <button
+                                type="button"
+                                className="text-af-accent hover:underline"
+                                onClick={() => router.push('/settings?section=about')}
+                            >
+                                Updates…
+                            </button>
+                        </DialogClose>
+                    </p>
+                )}
                 <div className="mt-3">
                     <Button
                         onClick={() => openExternal(REPO_URL)}
