@@ -47,6 +47,59 @@ issue and PR numbers refer to
   Tauri's running-app check, before install and uninstall, still closes every
   `protocol.exe` of the user by name (asking first only in an interactive run).
   Meeting detection no longer treats Meetily as Protocol itself.
+- Remove 70 IPC commands that nothing in the app called, together with the code
+  that only they used, and two frontend calls to commands that do not exist;
+  every feature works as before
+  ([#3](https://github.com/vmedvedevpro/Protocol/issues/3)).
+  - `read_audio_file`, `save_transcript`, `diarize_recording`, `ollama_embed`,
+    `detect_legacy_database`, `get_ollama_model_context`, and
+    `get_meeting_playback_audio`. All but the last accepted a path, URL, or
+    endpoint from the WebView without checks, which let it read or write any
+    file, decode any audio file, probe whether a file exists, or send requests
+    and transcript text to any server; `get_meeting_playback_audio` added a
+    meeting's audio file to the asset protocol scope.
+  - Parallel Whisper processing: `initialize_parallel_processor`,
+    `start_parallel_processing`, `pause_parallel_processing`,
+    `resume_parallel_processing`, `stop_parallel_processing`,
+    `get_parallel_processing_status`, `get_system_resources`,
+    `check_resource_constraints`, `calculate_optimal_workers`,
+    `prepare_audio_chunks`, and `test_parallel_processing_setup`.
+  - Notifications: `request_notification_permission`, `show_notification`,
+    `show_test_notification`, `is_dnd_active`, `get_system_dnd_status`,
+    `set_manual_dnd`, `set_notification_consent`, `clear_notifications`,
+    `is_notification_system_ready`, `initialize_notification_manager_manual`,
+    `test_notification_with_auto_consent`, and `get_notification_stats`.
+    Recording notifications are unchanged.
+  - Console window: `show_console`, `hide_console`, and `toggle_console`.
+  - System audio capture and monitoring: `start_system_audio_capture_command`,
+    `list_system_audio_devices_command`,
+    `check_system_audio_permissions_command`, `start_system_audio_monitoring`,
+    `stop_system_audio_monitoring`, and `get_system_audio_monitoring_status`.
+  - Audio backend selection: `get_available_audio_backends`,
+    `get_current_audio_backend`, `set_audio_backend`, and
+    `get_audio_backend_info`.
+  - The old HTTP backend: `api_get_profile`, `api_save_profile`,
+    `api_update_profile`, `test_backend_connection`, and
+    `debug_backend_connection`.
+  - Search, settings, and templates: `api_search_transcripts` (replaced by the
+    global search), `api_get_transcript_api_key`, `api_get_template_details`,
+    and `api_validate_template`.
+  - Recording and devices: `start_recording_with_devices`,
+    `is_audio_level_monitoring`, `is_recording_paused`,
+    `poll_audio_device_events`, `get_reconnection_status`, and
+    `get_active_audio_output`.
+  - Meeting detection: `start_meeting_detection` and `stop_meeting_detection`;
+    detection still starts at launch and follows its setting.
+  - Diarization: `diarization_model_directory`, `diarization_download_size`, and
+    `get_diarization_engine`.
+  - Other queries: `whisper_unload_model`, `is_compact_mode`,
+    `is_import_in_progress_command`, `check_screen_recording_permission_command`,
+    `request_screen_recording_permission_command`,
+    `select_legacy_database_path`, and `reset_onboarding_status_cmd`.
+  - Calls to unregistered commands, which could only fail with "Command not
+    found": `api_get_auto_generate_setting`, which the Model Settings view sent
+    on every mount for a switch that was already hidden (Auto Summary keeps its
+    own setting), and the unused `builtin_ai_get_models_directory` wrapper.
 
 ## Unreleased
 

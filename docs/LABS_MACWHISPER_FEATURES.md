@@ -56,7 +56,8 @@ against their conferencing apps before relying on it.
 
 ## Feature 3: audio and transcript seeking
 
-`get_meeting_playback_audio` resolves the saved mixed audio for a meeting.
+`api_get_meeting_audio` resolves the saved mixed audio for a meeting and adds
+the meeting folder to the asset scope.
 The asset protocol streams it to an HTML audio element, while a worker streams
 8 kHz mono PCM through FFmpeg to compute one approximate peak per second.
 One worker owns waveform extraction at a time; additional requests report busy.

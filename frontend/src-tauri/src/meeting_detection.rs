@@ -526,17 +526,3 @@ pub async fn set_meeting_detection_settings<R: Runtime>(
     }
     Ok(())
 }
-
-/// Manually (re)start the monitor using current settings.
-#[tauri::command]
-pub async fn start_meeting_detection<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
-    start_monitor(&app);
-    Ok(())
-}
-
-/// Manually stop the monitor.
-#[tauri::command]
-pub async fn stop_meeting_detection() -> Result<(), String> {
-    MONITOR_GENERATION.fetch_add(1, Ordering::SeqCst);
-    Ok(())
-}

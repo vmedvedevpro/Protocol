@@ -191,16 +191,6 @@ impl<R: Runtime> ConsentManager<R> {
         Ok(())
     }
 
-    /// Enable or disable Do Not Disturb mode
-    pub async fn set_dnd_mode(&self, enabled: bool) -> Result<()> {
-        let mut settings = self.load_settings().await.unwrap_or_default();
-        settings.manual_dnd_mode = enabled;
-        self.save_settings(&settings).await?;
-
-        log_info!("Set manual DND mode: {}", enabled);
-        Ok(())
-    }
-
     /// Check if notifications should be shown (considering consent, permissions, and DND)
     pub async fn should_show_notifications(&self) -> bool {
         match self.load_settings().await {

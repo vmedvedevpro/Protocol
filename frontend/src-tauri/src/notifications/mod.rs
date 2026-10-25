@@ -24,9 +24,4 @@ pub use system::SystemNotificationHandler;
 pub use commands::{
     get_notification_settings,
     set_notification_settings,
-    request_notification_permission,
-    show_notification,
-    show_test_notification,
-    is_dnd_active,
-    get_system_dnd_status,
 };

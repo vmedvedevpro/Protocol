@@ -139,10 +139,6 @@ pub async fn stop_monitoring() -> Result<()> {
     Ok(())
 }
 
-pub fn is_monitoring() -> bool {
-    IS_MONITORING.load(Ordering::SeqCst)
-}
-
 fn default_monitor_devices() -> Vec<String> {
     let mut out = Vec::new();
 

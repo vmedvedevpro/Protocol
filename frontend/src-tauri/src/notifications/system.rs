@@ -76,14 +76,6 @@ impl<R: Runtime> SystemNotificationHandler<R> {
         false
     }
 
-    /// Get the actual system DND status
-    /// Note: DND is managed through app settings, not system-level checks
-    pub async fn get_system_dnd_status(&self) -> bool {
-        // App manages DND through its own notification settings
-        // No need to check system-level DND status
-        false
-    }
-
     /// Request notification permission from the system
     pub async fn request_permission(&self) -> Result<bool> {
         log_info!("Requesting notification permission");
@@ -94,30 +86,12 @@ impl<R: Runtime> SystemNotificationHandler<R> {
         Ok(true)
     }
 
-    /// Show a test notification to verify the system is working
-    #[allow(dead_code)] // Used by show_test_notification command for manual testing
-    async fn show_test_notification(&self) -> Result<()> {
-        let test_notification = Notification::test_notification();
-        self.show_notification(test_notification).await
-    }
-
     /// Determine if we should respect DND for this notification
     fn should_respect_dnd(&self, notification: &Notification) -> bool {
         match notification.priority {
             NotificationPriority::Critical => false, // Always show critical notifications
             _ => true, // Respect DND for all other priorities
         }
-    }
-
-    /// Clear all notifications (platform-specific)
-    pub async fn clear_notifications(&self) -> Result<()> {
-        log_info!("Clearing all notifications");
-
-        // This is platform-specific and complex to implement
-        // For now, we'll just log that we attempted to clear
-        // Future enhancement can add platform-specific clearing
-
-        Ok(())
     }
 }
 

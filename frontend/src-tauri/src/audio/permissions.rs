@@ -1,6 +1,6 @@
 // macOS audio permissions handling.
 //
-// The `screen_recording` names are legacy IPC/API names. Current macOS capture
+// The `screen_recording` names are legacy API names. Current macOS capture
 // uses Audio Capture permission and a Core Audio process tap, not screen video.
 // `check_screen_recording_permission` reports platform support only; the audible
 // up-to-five-second probe below is the actual runtime verification.
@@ -79,19 +79,6 @@ pub fn ensure_screen_recording_permission() -> bool {
     }
 
     false // Permission will be granted after restart
-}
-
-/// Tauri command to check Screen Recording permission
-#[tauri::command]
-pub async fn check_screen_recording_permission_command() -> bool {
-    check_screen_recording_permission()
-}
-
-/// Tauri command to request Screen Recording permission
-#[tauri::command]
-pub async fn request_screen_recording_permission_command() -> Result<(), String> {
-    request_screen_recording_permission()
-        .map_err(|e| e.to_string())
 }
 
 /// Trigger the system-audio permission request and probe functional capture.

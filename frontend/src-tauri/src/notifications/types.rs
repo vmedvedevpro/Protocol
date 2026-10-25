@@ -186,14 +186,4 @@ impl Notification {
         .with_priority(NotificationPriority::Critical)
         .with_timeout(NotificationTimeout::Never)
     }
-
-    pub fn test_notification() -> Self {
-        Notification::new(
-            "Protocol",
-            "This is a test notification to verify the system is working correctly",
-            NotificationType::Test
-        )
-        .with_priority(NotificationPriority::Normal)
-        .with_timeout(NotificationTimeout::Seconds(5))
-    }
 }

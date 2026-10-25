@@ -285,12 +285,6 @@ pub async fn exit_compact_mode<R: Runtime>(app: AppHandle<R>) -> Result<(), Stri
     Ok(())
 }
 
-/// Whether compact mode is currently active.
-#[tauri::command]
-pub async fn is_compact_mode<R: Runtime>(app: AppHandle<R>) -> Result<bool, String> {
-    Ok(app.get_webview_window(MINIBAR_LABEL).is_some())
-}
-
 /// Stop the recording from the compact bar. Native shutdown owns both window
 /// teardown and the main-window-only post-processing completion signal.
 #[tauri::command]
