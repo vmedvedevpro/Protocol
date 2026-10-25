@@ -19,8 +19,9 @@ issue and PR numbers refer to
   repository.
 - Pin every model download to a commit and verify each file's size and SHA-256
   (#1): Whisper, Parakeet, the built-in summary models, Pyannote and Nemotron. A
-  file that does not match is deleted and the download or model load fails with
-  an integrity error. Models installed by older builds are hashed once before
+  file that does not match is deleted, or reported when it cannot be, and the
+  download or model load fails with an integrity error; a partial download is
+  kept for resume. Models installed by older builds are hashed once before
   their first load. Parakeet v3 no longer falls back to the previous fork's
   GitHub release, and the Pyannote repair download comes from this repository.
 - Ship license notices for the bundled Pyannote/WeSpeaker models

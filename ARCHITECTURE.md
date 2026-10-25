@@ -605,17 +605,26 @@ Integrity checks:
 
 - **Download.** The SHA-256 is computed while the file streams in
   (`model_integrity::Check`, bounded by the pinned size). A resumed Parakeet or
-  summary download first re-reads the bytes it keeps. A mismatch deletes the
-  file and the error says so ("… failed its integrity check and was deleted");
-  the shared download toast maps it to "Integrity check failed".
+  summary download first re-reads the bytes it keeps, and checking that kept
+  part, or a complete file already on disk, stops at once on Cancel. A mismatch
+  deletes the file and the error says so ("… failed its integrity check and was
+  deleted"), or says it "could not be deleted" with the OS error. A server that
+  announces another length is refused before anything is written ("Nothing was
+  deleted"). The shared download toast shows each of these as "Integrity check
+  failed" with the matching outcome.
 - **Startup.** Discovery checks only the exact pinned size, so startup never
-  reads gigabytes.
+  reads gigabytes. A file that failed and could not be deleted carries a
+  `<file>.rejected` marker, and discovery does not list it as installed.
 - **First load.** A successful check writes `<file>.verified` beside the model
   (pin, size, modification time). Before Parakeet, Whisper or llama.cpp parses a
   model, `ensure_verified` accepts a valid marker after two metadata reads and
   otherwise hashes the file once, off the async runtime: models installed by an
-  older build, or changed since their download. A mismatch deletes the file and
-  the load fails with the reason.
+  older build, or changed since their download. A full-size file that does not
+  match is deleted and the load fails with the reason. A file of another size
+  is refused and kept: it may be a partial download kept for resume or one being
+  written. The built-in summary path, which the live assistant reaches without
+  a readiness check, also refuses while the model is downloading, and after a
+  deletion marks the model not downloaded so Settings offers it again.
 - Diarization keeps its own checks: downloads go to `.part`, are verified and
   then renamed; Nemotron is hashed before every load (`nemotron.rs`); bundled
   or manually placed Pyannote files are not hashed at load.

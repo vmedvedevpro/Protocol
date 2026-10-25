@@ -258,30 +258,70 @@ Face tree API at the pinned commit, small files downloaded and hashed). The
 Parakeet GitHub mirror is gone; the Pyannote repair download takes the bundled
 files from this repository at commit `76e9939`.
 
+Failures are `IntegrityError` values that callers tell apart with
+`downcast_ref`: `WrongSize` (file on disk of another size, kept), `ServerSize`
+(announced length differs, nothing written), `Mismatch` (content differs;
+`undeleted` holds the OS error when the delete failed) and `Cancelled`. Errors
+cross IPC as text, so the UI matches the phrases "was deleted", "could not be
+deleted" and "Nothing was deleted".
+
 - Download: `Check` hashes while streaming and refuses bytes past the pinned
   size; `Check::resume` re-reads a kept partial first (Parakeet, GGUF). Diarization
   keeps its `.part` + rename flow on the same checker. A mismatch deletes the
-  file; the error contains "failed its integrity check", which the shared
-  download toast (`categorizeError`) shows as an integrity failure.
-- Startup (`discover_models`, `scan_models`) checks only exact pinned sizes.
+  file, or says it could not; the shared download toast (`categorizeError`)
+  shows each outcome, and a wrong `Content-Length` (Whisper, GGUF) as "the
+  server sent a file of the wrong size. Nothing was deleted". Hashing a kept
+  partial or a complete file already on disk (`ensure_verified_cancellable`)
+  polls the download's cancel flag between 1 MiB reads, so Cancel ends it at
+  once (the summary `cancel_download` waits only 5 s).
+- Startup (`discover_models`, `scan_models`) checks only exact pinned sizes. A
+  file that failed and could not be deleted (held open by another program
+  without delete sharing) gets a `<file>.rejected` marker tied to its size and
+  mtime; discovery then lists it as Error (Whisper) or Corrupted (Parakeet,
+  summary) instead of available. Rewriting or deleting the file lifts it.
 - Load: Parakeet `load_model`, Whisper `load_model` and `generate_with_builtin`
   call `ensure_verified`. A `<file>.verified` marker (pin, size, mtime) written
   after a verified download makes this two metadata reads; without one the file
   is hashed once off the async runtime, so models from older builds are checked
-  on first use, not at startup. A mismatch deletes the file and fails the load;
-  recording start then says the model failed its integrity check instead of
-  "still downloading" (`model_unavailable_message` in `recording_commands.rs`).
+  on first use, not at startup. Only a full-size file that does not match is
+  deleted; a file of another size is refused and kept, because it may be a
+  partial kept for resume or one a download is writing.
+  - Whisper and Parakeet hash only models whose status is Available, so an
+    active download (status Downloading) is never touched; they set Error only
+    for a mismatch.
+  - `generate_with_builtin` is reached without a readiness check from the live
+    assistant and the person and group questions. It goes through the
+    registered `ModelManager::verify_before_load`: it refuses while a download
+    of the model runs ("is still downloading"), and after a failed check sets
+    the cached status to NotDownloaded (deleted) or Corrupted (not deleted), so
+    Settings offers the download again.
+  - Recording start then says the model failed its integrity check, and whether
+    it was deleted, instead of "still downloading": `model_unavailable_message`
+    in `recording_commands.rs` for native starts, and `modelIntegrityMessage`
+    (`recording-start-errors.ts`) for the Record button, which loads the model
+    itself in `prefetchSttModel`.
 
-Tests: `model_integrity::tests` (hash and size mismatch, oversize refusal,
-resume, marker invalidation, future size, every URL commit-pinned), Parakeet
-and Whisper load-path tests with tampered files, catalog/pin consistency for
-Whisper, Parakeet, GGUF and Nemotron, and `tests/download-progress/errors.test.ts`.
+Tests: `model_integrity::tests` (hash and size mismatch, a file of another size
+kept, a file that cannot be deleted reported and rejected, oversize refusal,
+resume, cancellation between reads, marker invalidation, future size, every URL
+commit-pinned), Parakeet and Whisper load-path tests with tampered files,
+`discovery_does_not_list_a_failed_model_that_could_not_be_deleted` (Whisper),
+the summary tests `the_live_assistant_keeps_a_partial_or_downloading_model`,
+`a_full_size_model_that_fails_its_hash_is_deleted_and_offered_again` and
+`cancel_stops_hashing_a_kept_model_at_once` (with its Parakeet twin
+`cancel_stops_hashing_a_kept_file_at_once`), catalog/pin consistency for
+Whisper, Parakeet, GGUF and Nemotron, `tests/download-progress/errors.test.ts`
+and `tests/lib/recording-start-errors.test.ts`. The delete-failure tests hold
+the file open without `FILE_SHARE_DELETE` and run on Windows only.
 The ignored `model_integrity::tests::small_pinned_files_match_what_their_sources_serve`
 streams five small pinned files (about 0.3 MB) from Hugging Face and GitHub;
 run it with `--ignored` when changing a pin. Limits: the engine download paths
 are not exercised against a server (their URLs are not injectable), Pyannote
 copies in the user folder are still not hashed at load, and Nemotron is still
-hashed on every load by `nemotron.rs`.
+hashed on every load by `nemotron.rs`. A failed summary download records
+`ModelStatus::Error(String)`, which the internally tagged summary status cannot
+serialize, so `builtin_ai_list_models` fails until the next rescan; this
+predates the integrity work, which uses NotDownloaded and Corrupted instead.
 
 ## 5. Acceleration and packaging are separate from ASR selection
 
