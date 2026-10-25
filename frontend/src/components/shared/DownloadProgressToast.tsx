@@ -22,8 +22,14 @@ interface DownloadProgress {
 }
 
 // Categorize error messages for better user experience
-function categorizeError(error: string): string {
+export function categorizeError(error: string): string {
   const lowerError = error.toLowerCase();
+
+  // Native downloads compare every model file with a pinned SHA-256
+  // (model_integrity.rs). Checked first: the message also names a file.
+  if (lowerError.includes('integrity check')) {
+    return 'Integrity check failed - The download did not match its pinned checksum and was deleted. Please retry download';
+  }
 
   if (lowerError.includes('network') ||
     lowerError.includes('connection') ||

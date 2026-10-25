@@ -155,6 +155,17 @@ fn install_capture_warning_callback<R: Runtime>(
     });
 }
 
+/// The recording-start toast for a transcription model that is not ready.
+fn model_unavailable_message(validation_error: &str) -> &'static str {
+    // `model_integrity` deletes a file that does not match its pin; waiting
+    // would not bring it back.
+    if validation_error.contains("failed its integrity check") {
+        "Recording cannot start: the transcription model failed its integrity check and was deleted. Download it again in Settings."
+    } else {
+        "Recording cannot start: Transcription model is still downloading. Please wait for the download to complete."
+    }
+}
+
 fn map_recording_start_error<R: Runtime>(app: &AppHandle<R>, error: anyhow::Error) -> String {
     crate::tray::update_tray_menu(app);
     if error.downcast_ref::<crate::onnx_runtime::InitializationError>().is_some() {
@@ -261,7 +272,7 @@ pub async fn start_recording_with_meeting_name<R: Runtime>(
         // (download progress is already shown in top-right toast)
         let _ = app.emit("transcription-error", serde_json::json!({
             "error": validation_error,
-            "userMessage": "Recording cannot start: Transcription model is still downloading. Please wait for the download to complete.",
+            "userMessage": model_unavailable_message(&validation_error),
             "actionable": false
         }));
 
@@ -604,7 +615,7 @@ pub async fn start_recording_with_devices_and_meeting<R: Runtime>(
         // (download progress is already shown in top-right toast)
         let _ = app.emit("transcription-error", serde_json::json!({
             "error": validation_error,
-            "userMessage": "Recording cannot start: Transcription model is still downloading. Please wait for the download to complete.",
+            "userMessage": model_unavailable_message(&validation_error),
             "actionable": false
         }));
 
@@ -1320,6 +1331,18 @@ mod compact_mode_tests {
         assert!(!compact_mode_allowed(false, false));
         assert!(!compact_mode_allowed(true, true));
         assert!(!compact_mode_allowed(false, true));
+    }
+}
+
+#[cfg(test)]
+mod model_unavailable_tests {
+    use super::model_unavailable_message;
+
+    #[test]
+    fn an_integrity_failure_is_not_reported_as_a_download_in_progress() {
+        let error = "Failed to load Parakeet model: vocab.txt failed its integrity check and was deleted: it has 4 bytes, expected 9384. Download it again.";
+        assert!(model_unavailable_message(error).contains("failed its integrity check"));
+        assert!(model_unavailable_message("Model is currently downloading").contains("still downloading"));
     }
 }
 
