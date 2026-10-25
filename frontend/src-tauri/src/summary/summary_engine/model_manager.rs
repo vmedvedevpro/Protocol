@@ -2,11 +2,12 @@
 // Follows the same pattern as whisper_engine/whisper_engine.rs for consistency
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 
 use anyhow::{anyhow, Result};
+use once_cell::sync::Lazy;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -15,7 +16,8 @@ use tokio::io::{AsyncWriteExt, BufWriter};
 use tokio::sync::{Notify, RwLock};
 use tokio::time::timeout;
 
-use super::models::{get_available_models, get_model_by_name};
+use super::models::{get_available_models, get_model_by_name, ModelDef};
+use crate::model_integrity::{self, IntegrityError, Pinned};
 
 // ============================================================================
 // Model Status Types
@@ -75,8 +77,10 @@ pub enum ModelStatus {
     /// Model file is corrupted and needs redownload
     Corrupted { file_size: u64, expected_min_size: u64 },
 
-    /// Error occurred with the model
-    Error(String),
+    /// Error occurred with the model. A struct variant: the internally tagged
+    /// enum cannot serialize a newtype holding a string, and the UI reads
+    /// `{ "type": "error", "message": … }`.
+    Error { message: String },
 }
 
 /// Model information for UI display
@@ -116,6 +120,15 @@ struct DownloadControl {
     notify: Notify,
 }
 
+impl DownloadControl {
+    /// The cancel check for hashing on a blocking thread, which cannot wait on
+    /// `notify`. `cancel_download` waits only seconds for the download to end.
+    fn cancel_flag(self: &Arc<Self>) -> impl Fn() -> bool + Send + 'static {
+        let control = self.clone();
+        move || control.cancelled.load(Ordering::Acquire)
+    }
+}
+
 pub struct ModelManager {
     /// Directory where models are stored
     models_dir: PathBuf,
@@ -127,7 +140,21 @@ pub struct ModelManager {
     download_controls: Arc<RwLock<HashMap<String, Arc<DownloadControl>>>>,
 }
 
+/// The manager kept in Tauri state, for the summary client, which runs without
+/// an app handle and must still see downloads and record failed checks.
+static REGISTERED: Lazy<std::sync::RwLock<Weak<ModelManager>>> =
+    Lazy::new(|| std::sync::RwLock::new(Weak::new()));
+
 impl ModelManager {
+    /// Makes this the manager that [`ModelManager::registered`] returns.
+    pub fn register(self: &Arc<Self>) {
+        *REGISTERED.write().unwrap_or_else(|poisoned| poisoned.into_inner()) = Arc::downgrade(self);
+    }
+
+    pub fn registered() -> Option<Arc<Self>> {
+        REGISTERED.read().unwrap_or_else(|poisoned| poisoned.into_inner()).upgrade()
+    }
+
     /// Create a new model manager with default models directory
     pub fn new() -> Result<Self> {
         Self::new_with_models_dir(None)
@@ -237,7 +264,17 @@ impl ModelManager {
                             model_def.size_bytes
                         );
 
-                        if file_size_bytes == model_def.size_bytes {
+                        // A file that failed its check but could not be deleted
+                        // still has the pinned size.
+                        let rejection = model_integrity::summary_model(&model_def.gguf_file)
+                            .and_then(|(_, pinned)| model_integrity::rejection(pinned, &model_path));
+                        if let Some(reason) = rejection {
+                            log::warn!("Model '{}': CORRUPTED ({})", model_def.name, reason);
+                            ModelStatus::Corrupted {
+                                file_size: file_size_mb,
+                                expected_min_size: model_def.size_mb,
+                            }
+                        } else if file_size_bytes == model_def.size_bytes {
                             match self.validate_gguf_file(&model_path).await {
                                 Ok(()) => {
                                     log::info!("Model '{}': AVAILABLE", model_def.name);
@@ -281,7 +318,9 @@ impl ModelManager {
                             model_def.name,
                             e
                         );
-                        ModelStatus::Error(format!("Failed to read metadata: {}", e))
+                        ModelStatus::Error {
+                            message: format!("Failed to read metadata: {}", e),
+                        }
                     }
                 }
             } else {
@@ -353,6 +392,44 @@ impl ModelManager {
         }
     }
 
+    /// Checks `path`, the file of `model_name`, before llama-helper parses it.
+    /// Unlike the download, a generation request can meet a file that a
+    /// download owns: a partial kept for resume, or one being written. Such a
+    /// file is refused and kept. Only a full-size file that fails its hash is
+    /// deleted, and the status then shows why, so Settings offers the download.
+    pub async fn verify_before_load(
+        &self,
+        model_name: &str,
+        pinned: &'static Pinned,
+        path: &Path,
+    ) -> Result<()> {
+        if self.download_controls.read().await.contains_key(model_name) {
+            let name = get_model_by_name(model_name).map_or_else(|| model_name.to_string(), |m| m.display_name);
+            return Err(anyhow!("{} is still downloading. Wait for the download to finish in Settings.", name));
+        }
+        let Err(error) = model_integrity::ensure_verified(pinned, path).await else {
+            return Ok(());
+        };
+        if let Some(IntegrityError::Mismatch { undeleted, .. }) = error.downcast_ref() {
+            // A download that started meanwhile owns the status.
+            let controls = self.download_controls.read().await;
+            if !controls.contains_key(model_name) {
+                if let Some(info) = self.available_models.write().await.get_mut(model_name) {
+                    info.status = match undeleted {
+                        // Gone: the card shows the reason and offers Retry.
+                        None => ModelStatus::Error { message: error.to_string() },
+                        // Still on disk: offer Retry and Delete, as a scan would.
+                        Some(_) => ModelStatus::Corrupted {
+                            file_size: pinned.size / (1024 * 1024),
+                            expected_min_size: info.size_mb,
+                        },
+                    };
+                }
+            }
+        }
+        Err(error)
+    }
+
     /// Download a model with simple percentage callback (backward compatible)
     pub async fn download_model(
         &self,
@@ -375,6 +452,29 @@ impl ModelManager {
     ) -> Result<()> {
         log::info!("Starting download for model: {}", model_name);
 
+        // Get model definition
+        let Some(model_def) = get_model_by_name(model_name) else {
+            return Err(anyhow!("Unknown model: {}", model_name));
+        };
+        // The exact size and SHA-256 of the file at the pinned URL.
+        let Some((_, pinned)) = model_integrity::summary_model(&model_def.gguf_file) else {
+            return Err(anyhow!("{} has no pinned checksum", model_def.gguf_file));
+        };
+        self.download_pinned(model_name, &model_def, pinned, Client::builder(), progress_callback)
+            .await
+    }
+
+    /// Downloads `model_def` as the file `pinned`, with `client` set up here
+    /// for large files. Tests pass a local URL in `model_def`, their own pin
+    /// and a builder without the system proxy.
+    async fn download_pinned(
+        &self,
+        model_name: &str,
+        model_def: &ModelDef,
+        pinned: &'static Pinned,
+        client: reqwest::ClientBuilder,
+        progress_callback: Option<Box<dyn Fn(DownloadProgress) + Send>>,
+    ) -> Result<()> {
         // Reserve atomically. A read-then-write check lets two simultaneous UI
         // invokes both pass before either inserts its reservation.
         let control = Arc::new(DownloadControl {
@@ -389,15 +489,6 @@ impl ModelManager {
             }
             controls.insert(model_name.to_string(), control.clone());
         }
-
-        // Get model definition
-        let model_def = match get_model_by_name(model_name) {
-            Some(model) => model,
-            None => {
-                self.release_download(model_name, &control).await;
-                return Err(anyhow!("Unknown model: {}", model_name));
-            }
-        };
 
         // Update status to downloading
         {
@@ -414,9 +505,31 @@ impl ModelManager {
             if let Ok(metadata) = fs::metadata(&file_path).await {
                 let file_size_mb = metadata.len() / (1024 * 1024);
 
-                if metadata.len() == model_def.size_bytes
+                // A complete file is hashed once rather than trusted for its
+                // size; one that does not match is deleted and downloaded again.
+                let verified = metadata.len() == model_def.size_bytes
                     && self.validate_gguf_file(&file_path).await.is_ok()
-                {
+                    && match model_integrity::ensure_verified_cancellable(pinned, &file_path, control.cancel_flag()).await {
+                        Ok(()) => true,
+                        Err(error) => match error.downcast_ref() {
+                            Some(IntegrityError::Cancelled { .. }) => {
+                                self.finish_cancelled_download(model_name, &control, &file_path, model_def.size_mb)
+                                    .await;
+                                return Err(anyhow!("CANCELLED: Download cancelled by user"));
+                            }
+                            // The file is still there, so a resume would start
+                            // past its end: report why instead.
+                            Some(IntegrityError::Mismatch { undeleted: Some(_), .. }) => {
+                                self.fail_download(model_name, &control, error.to_string()).await;
+                                return Err(error);
+                            }
+                            _ => {
+                                log::warn!("{}; downloading it again", error);
+                                false
+                            }
+                        },
+                    };
+                if verified {
                     log::info!(
                         "Model '{}' already exists and is valid ({} MB), skipping download",
                         model_name,
@@ -457,8 +570,11 @@ impl ModelManager {
                         file_size_mb,
                         model_def.size_bytes
                     );
-                    if let Err(e) = fs::remove_file(&file_path).await {
-                        log::warn!("Failed to delete oversized model file: {}", e);
+                    // A failed integrity check has already deleted it.
+                    if file_path.exists() {
+                        if let Err(e) = fs::remove_file(&file_path).await {
+                            log::warn!("Failed to delete oversized model file: {}", e);
+                        }
                     }
                 } else {
                     // File is SMALLER than expected - likely partial download
@@ -496,7 +612,7 @@ impl ModelManager {
         };
 
         // Download the file with optimized client settings
-        let client = match Client::builder()
+        let client = match client
             .tcp_nodelay(true) // Disable Nagle's algorithm for faster streaming
             .pool_max_idle_per_host(1) // Keep connection alive
             .timeout(Duration::from_secs(3600)) // 1 hour timeout for large files
@@ -563,13 +679,41 @@ impl ModelManager {
             if existing_size > 0 {
                 log::warn!("Server doesn't support resume, starting fresh download");
             }
-            (response.content_length().unwrap_or(0), false)
+            let length = response.content_length().unwrap_or(0);
+            if length > 0 && length != pinned.size {
+                // Nothing has been written yet; a kept partial stays for resume.
+                let error = IntegrityError::ServerSize { file: pinned.file, size: length, expected: pinned.size };
+                self.fail_download(model_name, &control, error.to_string()).await;
+                return Err(error.into());
+            }
+            (length, false)
         } else {
             self.fail_download(model_name, &control, format!("Download failed with status: {}", response.status())).await;
             return Err(anyhow!("Download failed with status: {}", response.status()));
         };
 
         log::info!("Total size: {} MB", total_size / (1024 * 1024));
+
+        // The hash covers the whole file, so a resumed transfer first reads back
+        // the bytes it keeps.
+        let mut integrity = if resuming {
+            match model_integrity::Check::resume(pinned, &file_path, control.cancel_flag()).await {
+                Ok(check) => check,
+                Err(error) if matches!(error.downcast_ref(), Some(IntegrityError::Cancelled { .. })) => {
+                    // The partial file is untouched and stays for the next resume.
+                    self.finish_cancelled_download(model_name, &control, &file_path, model_def.size_mb).await;
+                    return Err(anyhow!("CANCELLED: Download cancelled by user"));
+                }
+                Err(error) => {
+                    self.fail_download(model_name, &control, format!("Failed to read partial model file: {}", error)).await;
+                    return Err(anyhow!("Failed to read partial model file: {}", error));
+                }
+            }
+        } else {
+            model_integrity::Check::new(pinned)
+        };
+        // The file is about to change; an old marker must not outlive it.
+        model_integrity::clear_mark(&file_path);
 
         // Open file for append if resuming, or create new
         let file_result = if resuming {
@@ -680,6 +824,12 @@ impl ModelManager {
                 }
             };
             let chunk_len = chunk.len() as u64;
+            if let Err(error) = integrity.update(&chunk) {
+                drop(writer);
+                let _ = fs::remove_file(&file_path).await;
+                self.fail_download(model_name, &control, error.to_string()).await;
+                return Err(error);
+            }
             if let Err(error) = writer.write_all(&chunk).await {
                 self.fail_download(model_name, &control, format!("Error writing model file: {}", error)).await;
                 return Err(anyhow!("Error writing to file: {}", error));
@@ -688,10 +838,11 @@ impl ModelManager {
             downloaded += chunk_len;
             bytes_since_last_report += chunk_len;
 
-            // Calculate progress
+            // Calculate progress. It stops at 99% here: 100% is reported only
+            // once the file has matched its pin, below.
             let progress_percent = if total_size > 0 {
                 let exact_percent = (downloaded as f64 / total_size as f64) * 100.0;
-                exact_percent.min(100.0) as u8
+                exact_percent.min(99.0) as u8
             } else {
                 0
             };
@@ -699,7 +850,7 @@ impl ModelManager {
             let elapsed_since_report = last_report_time.elapsed();
             let is_download_complete = downloaded >= total_size;
             let should_report = progress_percent > last_progress_percent
-                || is_download_complete  // Force report on completion
+                || is_download_complete  // Force a report of the last bytes
                 || elapsed_since_report.as_millis() >= 500;
 
             if should_report {
@@ -727,15 +878,16 @@ impl ModelManager {
                 {
                     let mut models = self.available_models.write().await;
                     if let Some(model_info) = models.get_mut(model_name) {
-                        model_info.status = ModelStatus::Downloading {
-                            progress: if is_download_complete { 100 } else { progress_percent }
-                        };
+                        model_info.status = ModelStatus::Downloading { progress: progress_percent };
                     }
                 }
 
                 // Call progress callback with detailed info
                 if let Some(ref callback) = progress_callback {
-                    callback(DownloadProgress::new(downloaded, total_size, speed_mbps));
+                    callback(DownloadProgress {
+                        percent: progress_percent,
+                        ..DownloadProgress::new(downloaded, total_size, speed_mbps)
+                    });
                 }
 
                 last_progress_percent = progress_percent;
@@ -782,19 +934,6 @@ impl ModelManager {
             ));
         }
 
-        log::info!("Download completed for model: {}", model_name);
-
-        {
-            let mut models = self.available_models.write().await;
-            if let Some(model_info) = models.get_mut(model_name) {
-                model_info.status = ModelStatus::Downloading { progress: 100 };
-            }
-        }
-
-        if let Some(ref callback) = progress_callback {
-            callback(DownloadProgress::new(total_size, total_size, 0.0));
-        }
-
         if control.cancelled.load(Ordering::Acquire) {
             self.finish_cancelled_download(model_name, &control, &file_path, model_def.size_mb).await;
             return Err(anyhow!("CANCELLED: Download cancelled by user"));
@@ -810,13 +949,38 @@ impl ModelManager {
             {
                 let mut models = self.available_models.write().await;
                 if let Some(model_info) = models.get_mut(model_name) {
-                    model_info.status = ModelStatus::Error(format!("Validation failed: {}", e));
+                    model_info.status = ModelStatus::Error {
+                        message: format!("Validation failed: {}", e),
+                    };
                 }
             }
 
             self.release_download(model_name, &control).await;
 
             return Err(anyhow!("File validation failed: {}", e));
+        }
+
+        // The right format is not the right file: compare the streamed SHA-256
+        // with the pin. A mismatch has deleted the file.
+        if let Err(error) = integrity.finish(&file_path) {
+            log::error!("{}", error);
+            self.fail_download(model_name, &control, error.to_string()).await;
+            return Err(error);
+        }
+        model_integrity::mark_verified(pinned, &file_path);
+
+        // Completion and 100% are reported only now that the file matched.
+        log::info!("Download completed for model: {}", model_name);
+
+        {
+            let mut models = self.available_models.write().await;
+            if let Some(model_info) = models.get_mut(model_name) {
+                model_info.status = ModelStatus::Downloading { progress: 100 };
+            }
+        }
+
+        if let Some(ref callback) = progress_callback {
+            callback(DownloadProgress::new(final_size, final_size, 0.0));
         }
 
         // Commit completion while ownership is still held. Cancellation is
@@ -878,7 +1042,7 @@ impl ModelManager {
     ) {
         let mut models = self.available_models.write().await;
         if let Some(model_info) = models.get_mut(model_name) {
-            model_info.status = ModelStatus::Error(message);
+            model_info.status = ModelStatus::Error { message };
         }
         drop(models);
         self.release_download(model_name, control).await;
@@ -951,6 +1115,7 @@ impl ModelManager {
             fs::remove_file(&file_path).await?;
             log::info!("Deleted model file: {}", file_path.display());
         }
+        model_integrity::clear_mark(&file_path);
 
         // Update status
         {
@@ -1004,5 +1169,226 @@ mod tests {
             manager.get_model_info(&model.name).await.unwrap().status,
             ModelStatus::Available
         );
+    }
+
+    /// Stands in for a GGUF pin, so a test hashes bytes rather than gigabytes.
+    fn small_pin(content: &[u8]) -> &'static Pinned {
+        model_integrity::testing::pin_of("model.gguf", content)
+    }
+
+    /// Downloads `body` from a local server as the file of `pinned`, for the
+    /// model `qwen3.5:2b`. Each progress report comes with whether the file
+    /// had been marked verified by then.
+    async fn download_locally(
+        manager: &ModelManager,
+        pinned: &'static Pinned,
+        body: Vec<u8>,
+    ) -> (Result<()>, Vec<(u8, bool)>) {
+        let mut model = get_model_by_name("qwen3.5:2b").expect("model");
+        model.gguf_file = pinned.file.to_string();
+        model.size_bytes = pinned.size;
+        model.download_url = model_integrity::testing::serve_once(body).await;
+        let marker = manager.models_dir.join(format!("{}.verified", pinned.file));
+        let reports = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let callback: Box<dyn Fn(DownloadProgress) + Send> = {
+            let reports = reports.clone();
+            Box::new(move |progress| reports.lock().unwrap().push((progress.percent, marker.exists())))
+        };
+        let client = Client::builder().no_proxy();
+        let result = manager.download_pinned(&model.name, &model, pinned, client, Some(callback)).await;
+        let reports = reports.lock().unwrap().clone();
+        (result, reports)
+    }
+
+    #[tokio::test]
+    async fn a_download_reports_100_percent_only_after_the_file_matched() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let manager = ModelManager::new_with_models_dir(Some(temp.path().to_path_buf())).unwrap();
+        manager.init().await.unwrap();
+        let mut body = b"GGUF".to_vec();
+        body.extend((0..300_000u32).map(|i| (i % 251) as u8));
+
+        let (result, reports) = download_locally(&manager, small_pin(&body), body).await;
+        result.unwrap();
+        // The stream's reports stay below 100%; the only 100% follows the marker.
+        let (last, streamed) = reports.split_last().unwrap();
+        assert_eq!(*last, (100, true), "{reports:?}");
+        assert!(streamed.iter().all(|&(percent, _)| percent < 100), "{reports:?}");
+        assert_eq!(manager.get_model_info("qwen3.5:2b").await.unwrap().status, ModelStatus::Available);
+    }
+
+    #[tokio::test]
+    async fn a_download_that_fails_its_check_never_reports_100_percent() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let manager = ModelManager::new_with_models_dir(Some(temp.path().to_path_buf())).unwrap();
+        manager.init().await.unwrap();
+        let mut body = b"GGUF".to_vec();
+        body.resize(300_000, 7);
+        // The pinned size, other content.
+        let mut pinned_content = body.clone();
+        pinned_content[150_000] = 8;
+
+        let (result, reports) = download_locally(&manager, small_pin(&pinned_content), body).await;
+        let error = result.unwrap_err().to_string();
+        assert!(error.contains("failed its integrity check and was deleted"), "{error}");
+        assert!(!temp.path().join("model.gguf").exists());
+        assert!(!reports.is_empty(), "the stream reported no progress");
+        assert!(reports.iter().all(|&(percent, _)| percent < 100), "{reports:?}");
+        assert!(matches!(
+            manager.get_model_info("qwen3.5:2b").await.unwrap().status,
+            ModelStatus::Error { .. }
+        ));
+    }
+
+    async fn start_download(manager: &ModelManager, model_name: &str) -> Arc<DownloadControl> {
+        let control = Arc::new(DownloadControl { cancelled: AtomicBool::new(false), notify: Notify::new() });
+        manager.download_controls.write().await.insert(model_name.to_string(), control.clone());
+        control
+    }
+
+    #[test]
+    fn every_status_serializes_with_its_tag_and_round_trips() {
+        use serde_json::json;
+        let statuses = [
+            (ModelStatus::NotDownloaded, json!({ "type": "not_downloaded" })),
+            (ModelStatus::Downloading { progress: 42 }, json!({ "type": "downloading", "progress": 42 })),
+            (ModelStatus::Available, json!({ "type": "available" })),
+            (
+                ModelStatus::Incomplete { file_size: 1, expected_size: 2 },
+                json!({ "type": "incomplete", "file_size": 1, "expected_size": 2 }),
+            ),
+            (
+                ModelStatus::Corrupted { file_size: 3, expected_min_size: 4 },
+                json!({ "type": "corrupted", "file_size": 3, "expected_min_size": 4 }),
+            ),
+            (
+                ModelStatus::Error { message: "Download timeout".to_string() },
+                json!({ "type": "error", "message": "Download timeout" }),
+            ),
+        ];
+        for (status, expected) in statuses {
+            // Exhaustive, so a new variant fails to compile until it is listed.
+            match status {
+                ModelStatus::NotDownloaded
+                | ModelStatus::Downloading { .. }
+                | ModelStatus::Available
+                | ModelStatus::Incomplete { .. }
+                | ModelStatus::Corrupted { .. }
+                | ModelStatus::Error { .. } => {}
+            }
+            assert_eq!(serde_json::to_value(&status).expect("serializes"), expected);
+            assert_eq!(serde_json::from_value::<ModelStatus>(expected).expect("deserializes"), status);
+        }
+    }
+
+    /// `builtin_ai_list_models` returns the cached statuses without a rescan,
+    /// so the Error a failed download leaves must reach Settings.
+    #[tokio::test]
+    async fn the_model_list_serializes_after_a_failed_download() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let manager = ModelManager::new_with_models_dir(Some(temp.path().to_path_buf())).unwrap();
+        manager.init().await.unwrap();
+        let model = get_model_by_name("qwen3.5:2b").expect("model");
+        let control = start_download(&manager, &model.name).await;
+
+        let message = "Download timeout - No data received for 30 seconds";
+        manager.fail_download(&model.name, &control, message.to_string()).await;
+
+        assert!(manager.download_controls.read().await.is_empty());
+        let listed = serde_json::to_value(manager.list_models().await).expect("Settings can list the models");
+        let failed = listed.as_array().unwrap().iter().find(|info| info["name"] == model.name).unwrap();
+        assert_eq!(failed["status"], serde_json::json!({ "type": "error", "message": message }));
+    }
+
+    /// The live assistant, person and group questions call `generate_with_builtin`
+    /// with no readiness check; it must leave a download's file alone.
+    #[tokio::test]
+    async fn the_live_assistant_keeps_a_partial_or_downloading_model() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let data_dir = temp.path().to_path_buf();
+        let models_dir = super::super::models::get_models_directory(&data_dir);
+        std::fs::create_dir_all(&models_dir).unwrap();
+        let manager = Arc::new(ModelManager::new_with_models_dir(Some(models_dir.clone())).unwrap());
+        manager.init().await.unwrap();
+        manager.register();
+        let model = get_model_by_name("qwen3.5:2b").expect("model");
+        let path = models_dir.join(&model.gguf_file);
+        // A download cancelled part-way and kept for resume.
+        std::fs::File::create(&path).unwrap().set_len(123_456).unwrap();
+
+        let ask = || super::super::client::generate_with_builtin(&data_dir, &model.name, "system", "question", None);
+        let error = ask().await.unwrap_err().to_string();
+        assert!(error.contains("is not fully downloaded: it has 123456 of"), "{error}");
+        assert_eq!(std::fs::metadata(&path).unwrap().len(), 123_456);
+
+        start_download(&manager, &model.name).await;
+        let error = ask().await.unwrap_err().to_string();
+        assert!(error.contains("is still downloading"), "{error}");
+        assert_eq!(std::fs::metadata(&path).unwrap().len(), 123_456);
+    }
+
+    #[tokio::test]
+    async fn a_full_size_model_that_fails_its_hash_is_deleted_and_offered_again() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let manager = ModelManager::new_with_models_dir(Some(temp.path().to_path_buf())).unwrap();
+        let model = get_model_by_name("qwen3.5:2b").expect("model");
+        let pinned = small_pin(b"GGUF model");
+        let path = temp.path().join(&model.gguf_file);
+        std::fs::write(&path, b"GGUF modeL").unwrap();
+        manager.init().await.unwrap();
+        manager.available_models.write().await.get_mut(&model.name).unwrap().status = ModelStatus::Available;
+
+        // While a download owns the file, even a full-size one is left alone.
+        start_download(&manager, &model.name).await;
+        let error = manager.verify_before_load(&model.name, pinned, &path).await.unwrap_err();
+        assert!(error.to_string().contains("is still downloading"), "{error}");
+        assert!(path.exists());
+        manager.download_controls.write().await.clear();
+
+        let error = manager.verify_before_load(&model.name, pinned, &path).await.unwrap_err();
+        assert!(error.to_string().contains("failed its integrity check and was deleted"), "{error}");
+        assert!(!path.exists());
+        // Settings lists the cached status, which now says why and offers Retry.
+        assert_eq!(
+            manager.get_model_info(&model.name).await.unwrap().status,
+            ModelStatus::Error { message: error.to_string() }
+        );
+        serde_json::to_string(&manager.list_models().await).expect("statuses reach the UI");
+
+        std::fs::write(&path, b"GGUF model").unwrap();
+        manager.verify_before_load(&model.name, pinned, &path).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn cancel_stops_hashing_a_kept_model_at_once() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let manager = Arc::new(ModelManager::new_with_models_dir(Some(temp.path().to_path_buf())).unwrap());
+        manager.init().await.unwrap();
+        let model = get_model_by_name("qwen3.5:2b").expect("model");
+        let path = temp.path().join(&model.gguf_file);
+        // A complete file left by an older build, never verified: 1.2 GB to
+        // hash before the download would move on (and fail: it is zeros).
+        let mut file = std::fs::File::create(&path).unwrap();
+        std::io::Write::write_all(&mut file, b"GGUF").unwrap();
+        file.set_len(model.size_bytes).unwrap();
+        drop(file);
+
+        let download = tokio::spawn({
+            let manager = manager.clone();
+            let name = model.name.clone();
+            async move { manager.download_model_detailed(&name, None).await }
+        });
+        while !matches!(manager.get_model_info(&model.name).await.unwrap().status, ModelStatus::Downloading { .. }) {
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+        let started = std::time::Instant::now();
+        // Fails with "Timed out cancelling model download" after 5 s.
+        manager.cancel_download(&model.name).await.unwrap();
+        assert!(started.elapsed() < Duration::from_secs(1), "{:?}", started.elapsed());
+        let error = download.await.unwrap().unwrap_err().to_string();
+        assert!(error.starts_with("CANCELLED:"), "{error}");
+        // Neither deleted as a mismatch nor marked as verified.
+        assert_eq!(std::fs::metadata(&path).unwrap().len(), model.size_bytes);
+        assert!(!temp.path().join(format!("{}.verified", model.gguf_file)).exists());
     }
 }

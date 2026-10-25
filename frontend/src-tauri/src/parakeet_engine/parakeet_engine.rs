@@ -1,3 +1,4 @@
+use crate::model_integrity::{self, Pinned};
 use crate::parakeet_engine::model::ParakeetModel;
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
@@ -133,47 +134,12 @@ pub struct ParakeetEngine {
 }
 
 impl ParakeetEngine {
-    fn download_base_urls(model_name: &str) -> Vec<&'static str> {
-        if model_name.contains("-v2-") {
-            vec!["https://huggingface.co/istupakov/parakeet-tdt-0.6b-v2-onnx/resolve/main"]
-        } else {
-            vec![
-                "https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/main",
-                "https://github.com/TylerBuza/Meetily-ActuallyFree/releases/download/parakeet-tdt-0.6b-v3-onnx",
-            ]
-        }
-    }
-
-    fn download_file_sizes(
-        model_name: &str,
-        quantization: &QuantizationType,
-    ) -> HashMap<&'static str, u64> {
-        match quantization {
-            QuantizationType::Int8 if model_name.contains("-v2-") => [
-                ("encoder-model.int8.onnx", 652_184_014),
-                ("decoder_joint-model.int8.onnx", 8_998_286),
-                ("nemo128.onnx", 139_764),
-                ("vocab.txt", 9_384),
-            ]
-            .into_iter()
-            .collect(),
-            QuantizationType::Int8 => [
-                ("encoder-model.int8.onnx", 652_183_999),
-                ("decoder_joint-model.int8.onnx", 18_202_004),
-                ("nemo128.onnx", 139_764),
-                ("vocab.txt", 93_939),
-            ]
-            .into_iter()
-            .collect(),
-            QuantizationType::FP32 => [
-                ("encoder-model.onnx", 41_800_000 + 2_440_000_000),
-                ("decoder_joint-model.onnx", 72_500_000),
-                ("nemo128.onnx", 140_000),
-                ("vocab.txt", 93_900),
-            ]
-            .into_iter()
-            .collect(),
-        }
+    /// The commit-pinned Hugging Face source and files of a model; see
+    /// `crate::model_integrity`. There is no mirror: another host would only be
+    /// one more party able to serve different bytes.
+    fn pinned_model(model_name: &str) -> Result<(&'static str, &'static [Pinned])> {
+        model_integrity::parakeet_model(model_name)
+            .ok_or_else(|| anyhow!("Parakeet model {} has no pinned files", model_name))
     }
 
     /// Create a new Parakeet engine with optional custom models directory
@@ -278,8 +244,8 @@ impl ParakeetEngine {
                     // Validate model by checking file sizes
                     match self.validate_model_directory(&model_path).await {
                         Ok(_) => ModelStatus::Available,
-                        Err(_) => {
-                            log::warn!("Model directory {} appears corrupted", name);
+                        Err(error) => {
+                            log::warn!("Model directory {} appears corrupted: {}", name, error);
                             // Calculate total size of existing files
                             let mut total_size = 0u64;
                             for file in required_files {
@@ -323,83 +289,69 @@ impl ParakeetEngine {
         Ok(models)
     }
 
-    /// Validate model directory by checking if all required files exist AND have valid sizes
+    /// Validate a model directory: every pinned file exists with its exact size.
+    /// This runs at startup, so hashes are left to the download and to the
+    /// check before the first load (see `crate::model_integrity`).
     async fn validate_model_directory(&self, model_dir: &PathBuf) -> Result<()> {
-        // Check if vocab.txt exists and is readable
-        let vocab_path = model_dir.join("vocab.txt");
-        if !vocab_path.exists() {
-            return Err(anyhow!("vocab.txt not found"));
-        }
-
-        // Determine which files to check based on what exists
-        let is_int8 = model_dir.join("encoder-model.int8.onnx").exists();
-        let is_fp32 = model_dir.join("encoder-model.onnx").exists();
-
-        if !is_int8 && !is_fp32 {
-            return Err(anyhow!("No ONNX model files found"));
-        }
-
-        // Check preprocessor
-        if !model_dir.join("nemo128.onnx").exists() {
-            return Err(anyhow!("Preprocessor (nemo128.onnx) not found"));
-        }
-
-        // Published model sizes prevent truncated files from being treated as
-        // loadable models. Keep minimum checks only for legacy FP32 exports.
         let model_name = model_dir
             .file_name()
             .and_then(|name| name.to_str())
             .unwrap_or_default();
-        let exact_sizes = if is_int8 {
-            Some(Self::download_file_sizes(
-                model_name,
-                &QuantizationType::Int8,
-            ))
-        } else {
-            None
-        };
-        let expected_sizes: Vec<(&str, u64)> = if let Some(ref sizes) = exact_sizes {
-            sizes.iter().map(|(name, size)| (*name, *size)).collect()
-        } else {
-            vec![
-                ("encoder-model.onnx", 2_200_000_000), // ~2.44 GB, min 2.2 GB
-                ("decoder_joint-model.onnx", 65_000_000), // ~72 MB, min 65 MB
-                ("nemo128.onnx", 100_000),             // ~140 KB, min 100 KB
-                ("vocab.txt", 5_000),                  // ~94 KB, min 5 KB
-            ]
-        };
+        let (_, pinned_files) = Self::pinned_model(model_name)?;
 
-        for (filename, expected_size) in expected_sizes {
-            let file_path = model_dir.join(filename);
-            if !file_path.exists() {
-                return Err(anyhow!("{} not found", filename));
+        for pinned in pinned_files {
+            let file_path = model_dir.join(pinned.file);
+            let actual_size = match std::fs::metadata(&file_path) {
+                Ok(metadata) => metadata.len(),
+                Err(_) => return Err(anyhow!("{} not found", pinned.file)),
+            };
+            if actual_size != pinned.size {
+                return Err(anyhow!(
+                    "{} has {} bytes (expected {})",
+                    pinned.file,
+                    actual_size,
+                    pinned.size
+                ));
             }
-
-            match std::fs::metadata(&file_path) {
-                Ok(metadata) => {
-                    let actual_size = metadata.len();
-                    let valid_size = exact_sizes.is_some() && actual_size == expected_size
-                        || exact_sizes.is_none() && actual_size >= expected_size;
-                    if !valid_size {
-                        return Err(anyhow!(
-                            "{} has {} bytes (expected {})",
-                            filename,
-                            actual_size,
-                            expected_size
-                        ));
-                    }
-                }
-                Err(e) => {
-                    return Err(anyhow!("Failed to read {} metadata: {}", filename, e));
-                }
+            // Failed its check earlier but could not be deleted.
+            if let Some(reason) = model_integrity::rejection(pinned, &file_path) {
+                return Err(anyhow!(reason));
             }
         }
 
         Ok(())
     }
 
+    /// Hashes the files of a model installed before SHA-256 pinning, or changed
+    /// since its download, once before ONNX Runtime parses them. A mismatch
+    /// deletes the file and leaves the reason in the model status until the
+    /// next discovery. Only an available model is hashed, so a download
+    /// (status Downloading) is never touched; a file whose size changed since
+    /// discovery is refused and kept, and its status left to the download.
+    async fn verify_before_load(&self, model_name: &str) -> Result<()> {
+        let model_dir = match self.available_models.read().await.get(model_name) {
+            Some(info) if matches!(info.status, ModelStatus::Available) => info.path.clone(),
+            // load_model reports every other status.
+            _ => return Ok(()),
+        };
+        let (_, pinned_files) = Self::pinned_model(model_name)?;
+        for pinned in pinned_files {
+            let file_path = model_dir.join(pinned.file);
+            if let Err(error) = model_integrity::ensure_verified(pinned, &file_path).await {
+                if matches!(error.downcast_ref(), Some(model_integrity::IntegrityError::Mismatch { .. })) {
+                    if let Some(model) = self.available_models.write().await.get_mut(model_name) {
+                        model.status = ModelStatus::Error(error.to_string());
+                    }
+                }
+                return Err(error);
+            }
+        }
+        Ok(())
+    }
+
     /// Load a Parakeet model
     pub async fn load_model(&self, model_name: &str) -> Result<()> {
+        self.verify_before_load(model_name).await?;
         let models = self.available_models.read().await;
         let model_info = models
             .get(model_name)
@@ -661,26 +613,7 @@ impl ParakeetEngine {
             }
         }
 
-        // Both v3 sources contain the same compatible ONNX export. Prefer the
-        // established Hugging Face repository and fail over to this fork's
-        // release assets when one CDN is temporarily unavailable.
-        let base_urls = Self::download_base_urls(model_name);
-
-        // Determine which files to download based on quantization
-        let files_to_download = match model_info.quantization {
-            QuantizationType::Int8 => vec![
-                "encoder-model.int8.onnx",
-                "decoder_joint-model.int8.onnx",
-                "nemo128.onnx",
-                "vocab.txt",
-            ],
-            QuantizationType::FP32 => vec![
-                "encoder-model.onnx",
-                "decoder_joint-model.onnx",
-                "nemo128.onnx",
-                "vocab.txt",
-            ],
-        };
+        let (base_url, pinned_files) = Self::pinned_model(model_name)?;
 
         // Create model directory
         let model_dir = &model_info.path;
@@ -699,35 +632,31 @@ impl ParakeetEngine {
             .build()
             .map_err(|e| anyhow!("Failed to create HTTP client: {}", e))?;
 
-        let total_files = files_to_download.len();
-
-        let file_sizes = Self::download_file_sizes(model_name, &model_info.quantization);
+        let total_files = pinned_files.len();
 
         // Calculate total expected download size
-        let total_size_bytes: u64 = files_to_download
-            .iter()
-            .filter_map(|f| file_sizes.get(*f))
-            .copied()
-            .sum();
+        let total_size_bytes: u64 = pinned_files.iter().map(|pinned| pinned.size).sum();
 
         // Check for existing downloads (complete or partial) to calculate resume offset
         let mut already_downloaded: u64 = 0;
-        for filename in &files_to_download {
-            let file_path = model_dir.join(filename);
-            if file_path.exists() {
-                if let Ok(metadata) = fs::metadata(&file_path).await {
-                    let file_size = metadata.len();
-                    let expected_size = file_sizes.get(*filename).copied().unwrap_or(0);
-                    // Count all existing bytes (complete files capped at expected size, partial as-is)
-                    // This ensures progress starts from where we left off
-                    if file_size <= expected_size {
-                        already_downloaded += file_size;
-                    }
+        for pinned in pinned_files {
+            if let Ok(metadata) = fs::metadata(model_dir.join(pinned.file)).await {
+                let file_size = metadata.len();
+                // Count all existing bytes (complete files capped at expected size, partial as-is)
+                // This ensures progress starts from where we left off
+                if file_size <= pinned.size {
+                    already_downloaded += file_size;
                 }
             }
         }
 
         let mut total_downloaded: u64 = already_downloaded;
+        // Hashing a kept file runs on a blocking thread and polls this between
+        // 1 MiB reads, so Cancel does not wait for hundreds of megabytes.
+        let cancel_flag = || {
+            let token = cancellation.clone();
+            move || token.is_cancelled()
+        };
 
         // Timing for speed calculation
         let download_start_time = Instant::now();
@@ -742,7 +671,8 @@ impl ParakeetEngine {
             already_downloaded as f64 / 1_048_576.0
         );
 
-        for (index, filename) in files_to_download.iter().enumerate() {
+        for (index, pinned) in pinned_files.iter().enumerate() {
+            let filename = pinned.file;
             let file_path = model_dir.join(filename);
 
             // Check for existing partial file to resume
@@ -752,16 +682,26 @@ impl ParakeetEngine {
                 0
             };
 
-            let expected_size = file_sizes.get(*filename).copied().unwrap_or(0);
+            let expected_size = pinned.size;
 
-            if existing_size == expected_size && expected_size > 0 {
-                log::info!(
-                    "Skipping complete file: {} ({:.2} MB, expected: {:.2} MB)",
-                    filename,
-                    existing_size as f64 / 1_048_576.0,
-                    expected_size as f64 / 1_048_576.0
-                );
-                continue;
+            if existing_size == expected_size {
+                // A complete file left by an earlier attempt or an older build
+                // is hashed once rather than trusted for its size.
+                match model_integrity::ensure_verified_cancellable(pinned, &file_path, cancel_flag()).await {
+                    Ok(()) => {
+                        log::info!(
+                            "Skipping verified file: {} ({:.2} MB)",
+                            filename,
+                            expected_size as f64 / 1_048_576.0
+                        );
+                        continue;
+                    }
+                    Err(_) if cancellation.is_cancelled() => return Err(anyhow!(DOWNLOAD_CANCELLED_MESSAGE)),
+                    Err(error) => {
+                        log::warn!("{}; downloading it again", error);
+                        total_downloaded = total_downloaded.saturating_sub(existing_size);
+                    }
+                }
             }
 
             if existing_size > expected_size {
@@ -769,174 +709,172 @@ impl ParakeetEngine {
                     .await
                     .map_err(|e| anyhow!("Failed to remove oversized {}: {}", filename, e))?;
             }
+            if cancellation.is_cancelled() {
+                return Err(anyhow!(DOWNLOAD_CANCELLED_MESSAGE));
+            }
+            let resume_size = fs::metadata(&file_path)
+                .await
+                .map(|metadata| metadata.len())
+                .unwrap_or(0);
             log::info!(
                 "Downloading file {}/{}: {} (resuming from {} bytes)",
                 index + 1,
                 total_files,
                 filename,
-                existing_size.min(expected_size)
+                resume_size
             );
 
-            let mut source_errors = Vec::new();
-            let mut completed = false;
-            for base_url in &base_urls {
+            let file_url = format!("{}/{}", base_url, filename);
+            let (response, resuming) = match super::download_response::artifact_response(
+                &client, &file_url, resume_size, expected_size, cancellation,
+            ).await {
+                Ok(result) => result,
+                Err(_) if cancellation.is_cancelled() => return Err(anyhow!(DOWNLOAD_CANCELLED_MESSAGE)),
+                Err(error) => {
+                    return Err(anyhow!(
+                        "Could not download {}. Check your connection, VPN, firewall, or proxy, then retry. Details: {}",
+                        filename,
+                        error
+                    ));
+                }
+            };
+            let file_total_size = expected_size;
+            // The hash covers the whole file, so a resumed transfer first reads
+            // back the bytes it keeps.
+            let mut check = if resuming {
+                match model_integrity::Check::resume(pinned, &file_path, cancel_flag()).await {
+                    Ok(check) => check,
+                    // The partial file is untouched and stays for the next resume.
+                    Err(_) if cancellation.is_cancelled() => return Err(anyhow!(DOWNLOAD_CANCELLED_MESSAGE)),
+                    Err(e) => return Err(anyhow!("Failed to read partial {}: {}", filename, e)),
+                }
+            } else {
+                model_integrity::Check::new(pinned)
+            };
+
+            log::info!("Downloading {} from {}", filename, base_url);
+            let file = if resuming {
+                fs::OpenOptions::new()
+                    .append(true)
+                    .open(&file_path)
+                    .await
+                    .map_err(|e| {
+                        anyhow!("Failed to open file for resume {}: {}", filename, e)
+                    })?
+            } else {
+                total_downloaded = total_downloaded.saturating_sub(resume_size);
+                fs::File::create(&file_path)
+                    .await
+                    .map_err(|e| anyhow!("Failed to create file {}: {}", filename, e))?
+            };
+            let mut writer = BufWriter::with_capacity(8 * 1024 * 1024, file);
+            use futures_util::StreamExt;
+            let mut stream = response.bytes_stream();
+            let mut file_downloaded = if resuming { resume_size } else { 0 };
+            let mut transfer_error = None;
+
+            loop {
                 if cancellation.is_cancelled() {
+                    let _ = writer.flush().await;
                     return Err(anyhow!(DOWNLOAD_CANCELLED_MESSAGE));
                 }
-                let resume_size = fs::metadata(&file_path)
-                    .await
-                    .map(|metadata| metadata.len())
-                    .unwrap_or(0);
-                if resume_size == expected_size {
-                    completed = true;
-                    break;
-                }
 
-                let file_url = format!("{}/{}", base_url, filename);
-                let (response, resuming) = match super::download_response::artifact_response(
-                    &client, &file_url, resume_size, expected_size, cancellation,
-                ).await {
-                    Ok(result) => result,
-                    Err(_) if cancellation.is_cancelled() => return Err(anyhow!(DOWNLOAD_CANCELLED_MESSAGE)),
-                    Err(error) => {
-                        source_errors.push(format!("{}: {}", base_url, error));
-                        continue;
-                    }
-                };
-                let file_total_size = expected_size;
-
-                log::info!("Downloading {} from {}", filename, base_url);
-                let file = if resuming {
-                    fs::OpenOptions::new()
-                        .append(true)
-                        .open(&file_path)
-                        .await
-                        .map_err(|e| {
-                            anyhow!("Failed to open file for resume {}: {}", filename, e)
-                        })?
-                } else {
-                    total_downloaded = total_downloaded.saturating_sub(resume_size);
-                    fs::File::create(&file_path)
-                        .await
-                        .map_err(|e| anyhow!("Failed to create file {}: {}", filename, e))?
-                };
-                let mut writer = BufWriter::with_capacity(8 * 1024 * 1024, file);
-                use futures_util::StreamExt;
-                let mut stream = response.bytes_stream();
-                let mut file_downloaded = if resuming { resume_size } else { 0 };
-                let mut transfer_error = None;
-
-                loop {
-                    if cancellation.is_cancelled() {
-                        let _ = writer.flush().await;
+                let next = tokio::select! {
+                    biased;
+                    _ = cancellation.cancelled() => {
+                        writer.flush().await?;
                         return Err(anyhow!(DOWNLOAD_CANCELLED_MESSAGE));
                     }
-
-                    let next = tokio::select! {
-                        biased;
-                        _ = cancellation.cancelled() => {
-                            writer.flush().await?;
-                            return Err(anyhow!(DOWNLOAD_CANCELLED_MESSAGE));
-                        }
-                        result = timeout(Duration::from_secs(30), stream.next()) => result,
-                    };
-                    let chunk = match next {
-                        Err(_) => {
-                            transfer_error = Some("no data received for 30 seconds".to_string());
-                            break;
-                        }
-                        Ok(None) => break,
-                        Ok(Some(Err(error))) => {
-                            transfer_error = Some(error.to_string());
-                            break;
-                        }
-                        Ok(Some(Ok(chunk))) => chunk,
-                    };
-
-                    if chunk.len() as u64 > expected_size.saturating_sub(file_downloaded) {
-                        transfer_error = Some("Artifact exceeded its catalog size".to_string());
+                    result = timeout(Duration::from_secs(30), stream.next()) => result,
+                };
+                let chunk = match next {
+                    Err(_) => {
+                        transfer_error = Some("no data received for 30 seconds".to_string());
                         break;
                     }
-                    writer
-                        .write_all(&chunk)
-                        .await
-                        .map_err(|e| anyhow!("Failed to write chunk to file: {}", e))?;
-                    let chunk_len = chunk.len() as u64;
-                    file_downloaded += chunk_len;
-                    total_downloaded += chunk_len;
-                    bytes_since_last_report += chunk_len;
-
-                    let overall_progress = if total_size_bytes > 0 {
-                        ((total_downloaded as f64 / total_size_bytes as f64) * 100.0).min(99.0)
-                            as u8
-                    } else {
-                        ((index as f64 + (file_downloaded as f64 / file_total_size.max(1) as f64))
-                            / total_files as f64
-                            * 100.0) as u8
-                    };
-                    let elapsed_since_report = last_report_time.elapsed();
-                    if overall_progress > last_reported_progress
-                        || elapsed_since_report >= Duration::from_millis(500)
-                        || file_downloaded >= file_total_size
-                    {
-                        let speed_mbps = if elapsed_since_report.as_secs_f64() >= 0.1 {
-                            (bytes_since_last_report as f64 / (1024.0 * 1024.0))
-                                / elapsed_since_report.as_secs_f64()
-                        } else {
-                            0.0
-                        };
-                        last_reported_progress = overall_progress;
-                        last_report_time = Instant::now();
-                        bytes_since_last_report = 0;
-                        if let Some(ref callback) = progress_callback {
-                            callback(DownloadProgress::new(
-                                total_downloaded,
-                                total_size_bytes,
-                                speed_mbps,
-                            ));
-                        }
-                        if let Some(model) = self.available_models.write().await.get_mut(model_name)
-                        {
-                            model.status = ModelStatus::Downloading {
-                                progress: overall_progress,
-                            };
-                        }
+                    Ok(None) => break,
+                    Ok(Some(Err(error))) => {
+                        transfer_error = Some(error.to_string());
+                        break;
                     }
-                }
+                    Ok(Some(Ok(chunk))) => chunk,
+                };
 
-                writer
-                    .flush()
-                    .await
-                    .map_err(|e| anyhow!("Failed to flush file {}: {}", filename, e))?;
-                let final_size = fs::metadata(&file_path)
-                    .await
-                    .map_err(|e| anyhow!("Failed to inspect {}: {}", filename, e))?
-                    .len();
-                if final_size == expected_size {
-                    completed = true;
+                if let Err(error) = check.update(&chunk) {
+                    transfer_error = Some(error.to_string());
                     break;
                 }
-                source_errors.push(format!(
-                    "{} stopped at {} of {} bytes{}",
-                    base_url,
+                writer
+                    .write_all(&chunk)
+                    .await
+                    .map_err(|e| anyhow!("Failed to write chunk to file: {}", e))?;
+                let chunk_len = chunk.len() as u64;
+                file_downloaded += chunk_len;
+                total_downloaded += chunk_len;
+                bytes_since_last_report += chunk_len;
+
+                let overall_progress = if total_size_bytes > 0 {
+                    ((total_downloaded as f64 / total_size_bytes as f64) * 100.0).min(99.0)
+                        as u8
+                } else {
+                    ((index as f64 + (file_downloaded as f64 / file_total_size.max(1) as f64))
+                        / total_files as f64
+                        * 100.0) as u8
+                };
+                let elapsed_since_report = last_report_time.elapsed();
+                if overall_progress > last_reported_progress
+                    || elapsed_since_report >= Duration::from_millis(500)
+                    || file_downloaded >= file_total_size
+                {
+                    let speed_mbps = if elapsed_since_report.as_secs_f64() >= 0.1 {
+                        (bytes_since_last_report as f64 / (1024.0 * 1024.0))
+                            / elapsed_since_report.as_secs_f64()
+                    } else {
+                        0.0
+                    };
+                    last_reported_progress = overall_progress;
+                    last_report_time = Instant::now();
+                    bytes_since_last_report = 0;
+                    if let Some(ref callback) = progress_callback {
+                        // At most 99%, like the status: the last chunk of the
+                        // last file arrives before that file is checked.
+                        callback(DownloadProgress {
+                            percent: overall_progress,
+                            ..DownloadProgress::new(total_downloaded, total_size_bytes, speed_mbps)
+                        });
+                    }
+                    if let Some(model) = self.available_models.write().await.get_mut(model_name)
+                    {
+                        model.status = ModelStatus::Downloading {
+                            progress: overall_progress,
+                        };
+                    }
+                }
+            }
+
+            writer
+                .flush()
+                .await
+                .map_err(|e| anyhow!("Failed to flush file {}: {}", filename, e))?;
+            // Close the file before its marker records its modification time.
+            drop(writer);
+            let final_size = fs::metadata(&file_path)
+                .await
+                .map_err(|e| anyhow!("Failed to inspect {}: {}", filename, e))?
+                .len();
+            if final_size != expected_size {
+                return Err(anyhow!(
+                    "Could not download {}: stopped at {} of {} bytes{}. Check your connection, VPN, firewall, or proxy, then retry.",
+                    filename,
                     final_size,
                     expected_size,
                     transfer_error
-                        .map(|error| format!(": {}", error))
+                        .map(|error| format!(" ({})", error))
                         .unwrap_or_default()
                 ));
             }
-
-            if cancellation.is_cancelled() {
-                return Err(anyhow!(DOWNLOAD_CANCELLED_MESSAGE));
-            }
-            if !completed {
-                return Err(anyhow!(
-                    "Could not download {} from any available source. Check your connection, VPN, firewall, or proxy, then retry. Details: {}",
-                    filename,
-                    source_errors.join("; ")
-                ));
-            }
+            check.finish(&file_path)?;
+            model_integrity::mark_verified(pinned, &file_path);
 
             log::info!(
                 "Completed download: {} ({:.2} MB, overall progress: {:.1}%)",
@@ -1054,33 +992,97 @@ mod tests {
         assert!(!retry.is_cancelled());
     }
 
-    #[test]
-    fn v3_download_prefers_hugging_face_with_github_fallback() {
+    #[tokio::test]
+    async fn every_offered_model_downloads_only_from_its_pinned_hugging_face_commit() {
+        let dir = tempfile::tempdir().unwrap();
+        let engine = ParakeetEngine::new_with_models_dir(Some(dir.path().to_path_buf())).unwrap();
+        for model in engine.discover_models().await.unwrap() {
+            assert!(ParakeetEngine::pinned_model(&model.name).is_ok(), "{}", model.name);
+        }
         assert_eq!(
-            ParakeetEngine::download_base_urls("parakeet-tdt-0.6b-v3-int8"),
-            vec![
-                "https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/main",
-                "https://github.com/TylerBuza/Meetily-ActuallyFree/releases/download/parakeet-tdt-0.6b-v3-onnx",
-            ]
+            ParakeetEngine::pinned_model("parakeet-tdt-0.6b-v3-int8").unwrap().0,
+            "https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/8f23f0c03c8761650bdb5b40aaf3e40d2c15f1ce"
         );
+        assert_eq!(
+            ParakeetEngine::pinned_model("parakeet-tdt-0.6b-v2-int8").unwrap().0,
+            "https://huggingface.co/istupakov/parakeet-tdt-0.6b-v2-onnx/resolve/0bbb45a3365852604aef28b538a8f066f4ccaa85"
+        );
+        assert!(ParakeetEngine::pinned_model("parakeet-tdt-0.6b-v3-fp32").is_err());
     }
 
     #[test]
     fn published_int8_sizes_are_exact() {
-        assert_eq!(
-            ParakeetEngine::download_file_sizes(
-                "parakeet-tdt-0.6b-v2-int8",
-                &QuantizationType::Int8,
-            )["encoder-model.int8.onnx"],
-            652_184_014,
-        );
-        assert_eq!(
-            ParakeetEngine::download_file_sizes(
-                "parakeet-tdt-0.6b-v3-int8",
-                &QuantizationType::Int8,
-            )["decoder_joint-model.int8.onnx"],
-            18_202_004,
-        );
+        let size = |model: &str, file: &str| {
+            model_integrity::find(ParakeetEngine::pinned_model(model).unwrap().1, file)
+                .unwrap()
+                .size
+        };
+        assert_eq!(size("parakeet-tdt-0.6b-v2-int8", "encoder-model.int8.onnx"), 652_184_014);
+        assert_eq!(size("parakeet-tdt-0.6b-v3-int8", "decoder_joint-model.int8.onnx"), 18_202_004);
+    }
+
+    #[tokio::test]
+    async fn load_deletes_a_tampered_file_and_trusts_files_verified_before() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let model = "parakeet-tdt-0.6b-v2-int8";
+        let model_dir = temp.path().join("parakeet").join(model);
+        std::fs::create_dir_all(&model_dir).expect("model directory");
+        for pinned in ParakeetEngine::pinned_model(model).unwrap().1 {
+            let path = model_dir.join(pinned.file);
+            // Synchronous so each file is closed before its marker is written.
+            std::fs::File::create(&path).unwrap().set_len(pinned.size).unwrap();
+            // Markers stand for an earlier verified download; hashing these
+            // zero-filled files would fail, so the test shows they are skipped.
+            if pinned.file != "vocab.txt" {
+                model_integrity::mark_verified(pinned, &path);
+            }
+        }
+
+        let engine =
+            ParakeetEngine::new_with_models_dir(Some(temp.path().to_path_buf())).expect("engine");
+        engine.discover_models().await.expect("discover models");
+        let error = engine.load_model(model).await.unwrap_err().to_string();
+        assert!(error.contains("vocab.txt failed its integrity check and was deleted"), "{error}");
+        assert!(!model_dir.join("vocab.txt").exists());
+        assert!(model_dir.join("encoder-model.int8.onnx").exists());
+        assert!(matches!(
+            engine.available_models.read().await[model].status,
+            ModelStatus::Error(_)
+        ));
+    }
+
+    #[tokio::test]
+    async fn cancel_stops_hashing_a_kept_file_at_once() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let model = "parakeet-tdt-0.6b-v3-int8";
+        let model_dir = temp.path().join("parakeet").join(model);
+        std::fs::create_dir_all(&model_dir).expect("model directory");
+        // A complete encoder left by an older build, never verified: 650 MB
+        // to hash before the download would move on (and fail: it is zeros).
+        let encoder = model_integrity::find(ParakeetEngine::pinned_model(model).unwrap().1, "encoder-model.int8.onnx")
+            .unwrap();
+        let path = model_dir.join(encoder.file);
+        std::fs::File::create(&path).unwrap().set_len(encoder.size).unwrap();
+        let engine = Arc::new(ParakeetEngine::new_with_models_dir(Some(temp.path().to_path_buf())).unwrap());
+        engine.discover_models().await.unwrap();
+
+        let download = tokio::spawn({
+            let engine = engine.clone();
+            async move { engine.download_model_detailed(model, None).await }
+        });
+        while !matches!(engine.available_models.read().await[model].status, ModelStatus::Downloading { .. }) {
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+        engine.cancel_download(model).await.unwrap();
+        let error = timeout(Duration::from_secs(1), download)
+            .await
+            .expect("the download stops within a second")
+            .unwrap()
+            .unwrap_err();
+        assert_eq!(error.to_string(), DOWNLOAD_CANCELLED_MESSAGE);
+        // Neither deleted as a mismatch nor marked as verified.
+        assert_eq!(std::fs::metadata(&path).unwrap().len(), encoder.size);
+        assert!(!model_dir.join("encoder-model.int8.onnx.verified").exists());
     }
 
     #[tokio::test]

@@ -22,8 +22,22 @@ interface DownloadProgress {
 }
 
 // Categorize error messages for better user experience
-function categorizeError(error: string): string {
+export function categorizeError(error: string): string {
   const lowerError = error.toLowerCase();
+
+  // Native downloads compare every model file with a pinned SHA-256
+  // (model_integrity.rs), whose message says what happened to the file.
+  // Checked first: the message also names a file.
+  if (lowerError.includes('integrity check')) {
+    if (lowerError.includes('nothing was deleted')) {
+      // The server announced another length, before anything was written.
+      return 'Integrity check failed - The server sent a file of the wrong size. Nothing was deleted. Please retry download';
+    }
+    if (lowerError.includes('could not be deleted')) {
+      return 'Integrity check failed - The download did not match its pinned checksum and could not be deleted. Close any program using it, then retry download';
+    }
+    return 'Integrity check failed - The download did not match its pinned checksum and was deleted. Please retry download';
+  }
 
   if (lowerError.includes('network') ||
     lowerError.includes('connection') ||

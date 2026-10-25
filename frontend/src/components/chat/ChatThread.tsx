@@ -176,7 +176,7 @@ export function ChatThread({
                     </span>
                   ) : message.status === 'error' ? (
                     <div className="space-y-2">
-                      <p className="text-af-danger">Couldn’t answer: {message.answer}</p>
+                      <p className="text-af-danger [overflow-wrap:anywhere]">Couldn’t answer: {message.answer}</p>
                       <button type="button" onClick={() => retry(message)} className="inline-flex items-center gap-1.5 text-xs text-af-text-2 hover:text-af-text">
                         <RotateCcw className="h-3 w-3" /> Try again
                       </button>

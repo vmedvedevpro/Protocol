@@ -6,7 +6,9 @@ let jobs: any;
 let nativeWhisperAvailable: boolean;
 let nativeNemotronAvailable: boolean;
 let activeEngine: string;
+let pyannoteAvailable: boolean;
 let postCall: { provider: string; model: string };
+let openedUrls: string[];
 const startDownload = mock(() => {});
 const uninstallModel = mock(() => {});
 mock.module('@/contexts/OptionalModelDownloadsContext', () => ({
@@ -17,8 +19,9 @@ mock.module('@/components/WhisperModelManager', () => ({ ModelManager: () => nul
 mock.module('@/components/ParakeetModelManager', () => ({ ParakeetModelManager: () => null }));
 mock.module('sonner', () => ({ toast: { success: () => {}, error: () => {} } }));
 mock.module('@tauri-apps/api/event', () => ({ listen: async () => () => {} }));
-mock.module('@tauri-apps/api/core', () => ({ invoke: async (command: string) => {
-  if (command === 'diarization_get_status') return { active_engine: activeEngine, nemotron_available: nativeNemotronAvailable, pyannote_available: true, model_dir: 'fixture-models', nemotron_threshold: 0.5 };
+mock.module('@tauri-apps/api/core', () => ({ invoke: async (command: string, args?: { url: string }) => {
+  if (command === 'open_external_url') { openedUrls.push(args!.url); return; }
+  if (command === 'diarization_get_status') return { active_engine: activeEngine, nemotron_available: nativeNemotronAvailable, pyannote_available: pyannoteAvailable, model_dir: 'fixture-models', nemotron_threshold: 0.5 };
   if (command === 'whisper_get_available_models') return [{ name: 'large-v3-turbo-q5_0', status: nativeWhisperAvailable ? 'Available' : 'Missing' }];
   if (command === 'parakeet_get_available_models') return [{ name: 'parakeet-tdt-0.6b-v3-int8', status: 'Available' }];
   if (command === 'api_get_post_call_transcript_config') return postCall;
@@ -41,8 +44,9 @@ function App() {
 }
 beforeEach(() => {
   jobs = { whisper: { status: 'idle', progress: 0 }, nemotron: { status: 'idle', progress: 0 } };
-  activeEngine = 'pyannote'; nativeWhisperAvailable = false; nativeNemotronAvailable = false;
+  activeEngine = 'pyannote'; nativeWhisperAvailable = false; nativeNemotronAvailable = false; pyannoteAvailable = true;
   postCall = { provider: 'live', model: '' };
+  openedUrls = [];
   startDownload.mockClear(); uninstallModel.mockClear(); setLive.mockClear();
   Object.defineProperty(globalThis, 'window', { configurable: true, writable: true, value: Object.assign(new EventTarget(), { setTimeout, clearTimeout }) });
   Object.defineProperty(globalThis, 'sessionStorage', { configurable: true, value: { getItem: () => null, removeItem: () => {} } });
@@ -81,4 +85,26 @@ test('optional Settings uninstall actions target only the chosen model', async (
   expect(uninstallModel).toHaveBeenCalledWith('whisper');
   await act(async () => root.root.findByProps({ 'aria-label': 'Uninstall Nemotron' }).props.onClick());
   expect(uninstallModel).toHaveBeenCalledWith('nemotron');
+});
+
+test('Pyannote credits name each model license and open its source', async () => {
+  await act(async () => { root = create(<App />); });
+  const text = JSON.stringify(root.toJSON());
+  expect(text).toContain('by CNRS');
+  expect(text).not.toContain('Apache');
+  expect(text).toContain('THIRD_PARTY_MODELS.txt');
+  const link = (label: string) => root.root.findAll((node) => node.type === 'button' && node.props.children === label);
+  expect(link('CC BY 4.0')).toHaveLength(2);
+  await act(async () => link('WeSpeaker ResNet34-LM')[0].props.onClick());
+  expect(openedUrls).toEqual(['https://huggingface.co/Wespeaker/wespeaker-voxceleb-resnet34-LM']);
+});
+
+test('missing Pyannote models name the pinned commit the repair downloads from', async () => {
+  pyannoteAvailable = false;
+  await act(async () => { root = create(<App />); });
+  const text = JSON.stringify(root.toJSON());
+  // model_integrity::PYANNOTE_BASE, not a release of the app.
+  expect(text).toContain('from the Protocol repository on GitHub, at the fixed commit 76e9939');
+  expect(text).not.toContain('GitHub release');
+  expect(text).toContain('Re-download models');
 });
