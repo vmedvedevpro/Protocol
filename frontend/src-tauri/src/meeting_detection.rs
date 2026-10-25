@@ -50,7 +50,7 @@ impl Default for MeetingDetectionSettings {
 }
 
 /// Default keyword list. Deliberately excludes bare "meet" to avoid matching
-/// this app's own process ("meetily") and unrelated software.
+/// meeting recorders such as Meetily and unrelated software.
 fn default_meeting_apps() -> Vec<String> {
     [
         "zoom",
@@ -142,10 +142,15 @@ struct MeetingEndedPayload {
     process: String,
 }
 
-/// True for our own process — never treat Meetily as a "meeting app".
+/// True for our own process — never treat Protocol as a "meeting app".
+/// Matches `protocol.exe` (`protocol` on macOS) and the installer's
+/// `protocol-{cpu,vulkan,cuda}.exe` variants by whole name: other apps
+/// that merely contain "protocol" (Office's `protocolhandler.exe`) and
+/// upstream Meetily are not this app.
 fn is_self_process(name: &str) -> bool {
     let n = name.to_lowercase();
-    n.contains("meetily") || n.contains("meetily-actually")
+    let stem = n.strip_suffix(".exe").unwrap_or(&n);
+    stem == "protocol" || stem.starts_with("protocol-")
 }
 
 /// Scan the process list once and, if a (non-ignored) meeting app is present,
@@ -217,7 +222,7 @@ fn scan_for_meeting_app(settings: &MeetingDetectionSettings) -> Option<(String, 
                 }
             }
         }
-        // CAM has holders but none are known meeting apps (e.g. only Meetily or
+        // CAM has holders but none are known meeting apps (e.g. only Protocol or
         // a browser). Do not fall through to process-only — that re-fires on idle
         // Zoom/Teams sitting in the tray.
         return None;
@@ -352,10 +357,15 @@ mod tests {
     use super::{is_self_process, process_matches_keyword};
 
     #[test]
-    fn never_treats_meetily_as_a_meeting() {
-        assert!(is_self_process("meetily.exe"));
-        assert!(is_self_process("Meetily - Actually Free.exe"));
+    fn never_treats_protocol_as_a_meeting() {
+        assert!(is_self_process("protocol.exe"));
+        assert!(is_self_process("Protocol.exe"));
+        assert!(is_self_process("protocol-cuda.exe"));
+        assert!(is_self_process("protocol"));
         assert!(!is_self_process("ms-teams.exe"));
+        assert!(!is_self_process("protocolhandler.exe"));
+        assert!(!is_self_process("meetily.exe"));
+        assert!(!is_self_process("Meetily - Actually Free.exe"));
     }
 
     #[test]
@@ -514,19 +524,5 @@ pub async fn set_meeting_detection_settings<R: Runtime>(
     } else {
         MONITOR_GENERATION.fetch_add(1, Ordering::SeqCst);
     }
-    Ok(())
-}
-
-/// Manually (re)start the monitor using current settings.
-#[tauri::command]
-pub async fn start_meeting_detection<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
-    start_monitor(&app);
-    Ok(())
-}
-
-/// Manually stop the monitor.
-#[tauri::command]
-pub async fn stop_meeting_detection() -> Result<(), String> {
-    MONITOR_GENERATION.fetch_add(1, Ordering::SeqCst);
     Ok(())
 }

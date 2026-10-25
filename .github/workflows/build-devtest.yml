@@ -375,9 +375,9 @@ jobs:
         run: |
           $profileFlag = if ("${{ matrix.args }}" -match "--debug") { $null } else { "--release" }
           $profile = if ($profileFlag) { "release" } else { "debug" }
-          cargo build $profileFlag -p meetily --bin meetily --no-default-features --features vulkan,custom-protocol
+          cargo build $profileFlag -p protocol --bin protocol --no-default-features --features vulkan,custom-protocol
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & "frontend/scripts/build-nsis-progress-plugin.ps1" -ProgressMainBinary "target/$profile/meetily.exe"
+          & "frontend/scripts/build-nsis-progress-plugin.ps1" -ProgressMainBinary "target/$profile/protocol.exe"
 
       # Build step (with code signing)
       - name: Build Tauri app (with code signing)

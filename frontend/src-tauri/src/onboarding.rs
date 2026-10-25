@@ -107,26 +107,6 @@ pub async fn save_onboarding_status<R: Runtime>(
     Ok(())
 }
 
-/// Reset onboarding status (delete from store)
-pub async fn reset_onboarding_status<R: Runtime>(
-    app: &AppHandle<R>,
-) -> Result<()> {
-    info!("Resetting onboarding status");
-
-    let store = app.store("onboarding-status.json")
-        .map_err(|e| anyhow::anyhow!("Failed to access onboarding store: {}", e))?;
-
-    // Clear the status key
-    store.delete("status");
-
-    // Persist deletion to disk
-    store.save()
-        .map_err(|e| anyhow::anyhow!("Failed to save onboarding store after reset: {}", e))?;
-
-    info!("Successfully reset onboarding status");
-    Ok(())
-}
-
 /// Tauri commands for onboarding status
 #[tauri::command]
 pub async fn get_onboarding_status<R: Runtime>(
@@ -156,15 +136,6 @@ pub async fn save_onboarding_status_cmd<R: Runtime>(
     save_onboarding_status(&app, &status)
         .await
         .map_err(|e| format!("Failed to save onboarding status: {}", e))
-}
-
-#[tauri::command]
-pub async fn reset_onboarding_status_cmd<R: Runtime>(
-    app: AppHandle<R>,
-) -> Result<(), String> {
-    reset_onboarding_status(&app)
-        .await
-        .map_err(|e| format!("Failed to reset onboarding status: {}", e))
 }
 
 #[tauri::command]

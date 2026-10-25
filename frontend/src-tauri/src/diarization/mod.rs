@@ -563,13 +563,6 @@ pub async fn diarization_models_available() -> Result<bool, String> {
     Ok(models_available())
 }
 
-/// The writable folder where a user can drop their own models to override the
-/// bundled ones (also the download target).
-#[tauri::command]
-pub async fn diarization_model_directory() -> Result<String, String> {
-    Ok(diarization_user_model_dir().to_string_lossy().to_string())
-}
-
 /// Status report of the diarization subsystem.
 #[derive(Debug, Clone, Serialize)]
 pub struct DiarizationEngineStatus {
@@ -583,11 +576,6 @@ pub struct DiarizationEngineStatus {
     pub pyannote_threshold: f32,
     pub nemotron_download_size: u64,
     pub pyannote_download_size: u64,
-}
-
-#[tauri::command]
-pub async fn get_diarization_engine() -> Result<String, String> {
-    Ok(get_active_engine())
 }
 
 #[tauri::command]
@@ -674,17 +662,6 @@ pub async fn open_diarization_model_directory() -> Result<(), String> {
             .map_err(|e| e.to_string())?;
     }
     Ok(())
-}
-
-/// Total size of the diarization model download, in bytes.
-#[tauri::command]
-pub async fn diarization_download_size() -> Result<u64, String> {
-    let engine = get_active_engine();
-    if engine.eq_ignore_ascii_case("nemotron") {
-        Ok(download::nemotron_download_bytes())
-    } else {
-        Ok(download::total_download_bytes())
-    }
 }
 
 /// Download the diarization models.
@@ -778,27 +755,6 @@ pub async fn reassign_transcript_speaker(
     })
 }
 
-/// Run diarization on a recording and return speaker-labeled time segments.
-#[tauri::command]
-pub async fn diarize_recording(
-    audio_path: String,
-    num_speakers: Option<usize>,
-    threshold: Option<f32>,
-    engine: Option<String>,
-) -> Result<DiarizationResult, String> {
-    let path = PathBuf::from(&audio_path);
-    let selected_engine = engine.unwrap_or_else(get_active_engine);
-    if !matches!(selected_engine.as_str(), "pyannote" | "nemotron") { return Err("Unknown diarization engine".into()); }
-    // Model inference is CPU-heavy; keep it off the async runtime's core threads.
-    tokio::task::spawn_blocking(move || diarize_file_with_engine(&path, &selected_engine, num_speakers, threshold))
-        .await
-        .map_err(|e| format!("Diarization task failed: {}", e))?
-        .map_err(|e| {
-            log::error!("Diarization failed: {}", e);
-            e.to_string()
-        })
-}
-
 #[derive(Debug, Clone, Serialize)]
 pub struct MeetingDiarizationResult {
     pub num_speakers: usize,
@@ -844,12 +800,32 @@ fn newest_audio_in(dir: &Path) -> Option<PathBuf> {
     found.pop().map(|(_, p)| p)
 }
 
+/// The meeting whose recording `find_meeting_audio` looks for in the recordings
+/// roots.
+struct MeetingAudioLookup<'a> {
+    id: &'a str,
+    title: &'a str,
+    created_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// Largest gap between a meeting's `created_at` and the start in a folder name
+/// for a folder without a meeting id to count as that meeting's. Meetings saved
+/// before v0.2.12 store the save time rather than the start, so a long meeting
+/// needs hours; a full day would reach the next occurrence of a daily title.
+const MEETING_FOLDER_START_TOLERANCE_SECS: i64 = 12 * 60 * 60;
+
 /// Locate a meeting's recording.
 ///
-/// Recordings are saved per-meeting as `<recordings folder>/<meeting name>/audio.mp4`,
-/// so we search: the meeting's own `folder_path`, then each meeting subfolder of
-/// the configured recordings folder, then the install-local data root (tray saves).
-fn find_meeting_audio(folder_path: Option<String>, meeting_title: Option<&str>) -> Option<PathBuf> {
+/// Recordings are saved per-meeting as
+/// `<recordings folder>/<meeting name>_<start>/audio.mp4`, so we search: the
+/// meeting's own `folder_path`, then the meeting folders of the recordings roots
+/// (see `find_meeting_folder_audio` and `recordings_roots`), then the
+/// install-local data root (tray saves).
+fn find_meeting_audio(
+    folder_path: Option<String>,
+    meeting: Option<&MeetingAudioLookup<'_>>,
+    recordings_roots: &[PathBuf],
+) -> Option<PathBuf> {
     // 1. The meeting's recorded folder (or a direct file path).
     if let Some(folder) = folder_path.as_deref() {
         let p = PathBuf::from(folder);
@@ -863,33 +839,108 @@ fn find_meeting_audio(folder_path: Option<String>, meeting_title: Option<&str>) 
         }
     }
 
-    // 2. The configured recordings folder, matched by meeting title.
-    let recordings_root = crate::audio::recording_preferences::get_default_recordings_folder();
-    if recordings_root.is_dir() {
-        if let Some(title) = meeting_title {
-            // Folder names are sanitized versions of the meeting title, and get a
-            // timestamp suffix, so match on prefix rather than equality.
-            let needle = title.to_lowercase();
-            for entry in std::fs::read_dir(&recordings_root).ok()?.flatten() {
-                let dir = entry.path();
-                if !dir.is_dir() {
-                    continue;
-                }
-                let name = dir
-                    .file_name()
-                    .map(|n| n.to_string_lossy().to_lowercase())
-                    .unwrap_or_default();
-                if name.starts_with(&needle) || needle.starts_with(name.as_str()) {
-                    if let Some(found) = newest_audio_in(&dir) {
-                        return Some(found);
-                    }
-                }
-            }
-        }
+    // 2. The meeting folders of the recordings roots.
+    if let Some(found) = meeting.and_then(|meeting| find_meeting_folder_audio(meeting, recordings_roots)) {
+        return Some(found);
     }
 
     // 3. Install-local data root (where tray/UI stop-recording saves land).
     newest_audio_in(&crate::paths::install_data_root())
+}
+
+/// The meeting's audio in the meeting folders of `recordings_roots`, decided
+/// over all roots at once so that their order does not matter.
+///
+/// A folder whose `metadata.json` carries the meeting's id is the meeting's, and
+/// no other folder is guessed even when it has no audio. Without such a folder (the recording
+/// saver writes no id, and old folders have no metadata), the result is the
+/// folder with the same title, no other meeting's id, and the start closest to
+/// `created_at` within `MEETING_FOLDER_START_TOLERANCE_SECS`. Folders whose name
+/// is not `<title>_<start>`, such as albums in a broad root, are never used.
+fn find_meeting_folder_audio(meeting: &MeetingAudioLookup<'_>, recordings_roots: &[PathBuf]) -> Option<PathBuf> {
+    let title = meeting_folder_title_key(meeting.title);
+    let mut closest: Option<(i64, PathBuf)> = None;
+    for recordings_root in recordings_roots {
+        // An unreadable root must not stop the search in the next one.
+        let Ok(entries) = std::fs::read_dir(recordings_root) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let dir = entry.path();
+            if !dir.is_dir() {
+                continue;
+            }
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            let Some((folder_title, started_at)) = parse_meeting_folder_name(&name) else {
+                continue;
+            };
+            match metadata_meeting_id(&dir) {
+                Some(id) if id == meeting.id => return newest_audio_in(&dir),
+                Some(_) => continue,
+                None => {}
+            }
+            if meeting_folder_title_key(folder_title) != title {
+                continue;
+            }
+            let distance = (started_at - meeting.created_at).num_seconds().abs();
+            if distance > MEETING_FOLDER_START_TOLERANCE_SECS
+                || closest.as_ref().is_some_and(|(best, _)| *best <= distance)
+            {
+                continue;
+            }
+            if let Some(audio) = newest_audio_in(&dir) {
+                closest = Some((distance, audio));
+            }
+        }
+    }
+    closest.map(|(_, audio)| audio)
+}
+
+/// Split a meeting folder name, `<sanitized title>_<UTC start>`, into the title
+/// and the start. The start has been written as `%Y-%m-%d_%H-%M-%S`, then
+/// `%Y-%m-%d_%H-%M`, and now `%Y-%m-%d_%H-%M-%S-%3f` with `_<n>` appended on a
+/// name collision (see `audio_processing::create_meeting_folder`).
+fn parse_meeting_folder_name(name: &str) -> Option<(&str, chrono::DateTime<chrono::Utc>)> {
+    let collision_stem = name
+        .rsplit_once('_')
+        .filter(|(_, n)| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+        .map(|(stem, _)| stem);
+    [Some(name), collision_stem].into_iter().flatten().find_map(|stem| {
+        let mut parts = stem.rsplitn(3, '_');
+        let (time, date, title) = (parts.next()?, parts.next()?, parts.next()?);
+        let start = format!("{}_{}", date, time);
+        ["%Y-%m-%d_%H-%M-%S-%3f", "%Y-%m-%d_%H-%M-%S", "%Y-%m-%d_%H-%M"]
+            .iter()
+            .find_map(|format| chrono::NaiveDateTime::parse_from_str(&start, format).ok())
+            .map(|start| (title, start.and_utc()))
+    })
+}
+
+/// Titles compare the way folder names spell them: sanitized and lowercased.
+/// Sanitizing the folder side again also matches folders named before `'` was
+/// sanitized.
+fn meeting_folder_title_key(title: &str) -> String {
+    crate::audio::audio_processing::sanitize_filename(title).to_lowercase()
+}
+
+/// The meeting id in a folder's `metadata.json`, if it has one.
+fn metadata_meeting_id(dir: &Path) -> Option<String> {
+    let raw = std::fs::read_to_string(dir.join("metadata.json")).ok()?;
+    let metadata: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    metadata.get("meeting_id")?.as_str().map(str::to_owned)
+}
+
+/// Recordings roots to search for a meeting's folder: the folder saved in
+/// Settings and the default root, where meetings recorded before the folder was
+/// changed still live.
+async fn recordings_roots(app: &tauri::AppHandle) -> Vec<PathBuf> {
+    let mut roots = vec![crate::audio::recording_preferences::configured_recordings_folder(app).await];
+    let default_root = crate::audio::recording_preferences::get_default_recordings_folder();
+    if !roots.contains(&default_root) {
+        roots.push(default_root);
+    }
+    roots
 }
 
 fn is_manual_speaker_label(label: &str) -> bool {
@@ -986,6 +1037,7 @@ fn ensure_wav(path: &Path) -> Result<(PathBuf, bool)> {
 /// Diarize a meeting's recording and assign "Speaker N" labels to its transcript segments.
 #[tauri::command]
 pub async fn diarize_meeting(
+    app: tauri::AppHandle,
     state: tauri::State<'_, crate::state::AppState>,
     meeting_id: String,
     audio_path: Option<String>,
@@ -1001,27 +1053,34 @@ pub async fn diarize_meeting(
     let num_speakers = if selected_engine == "nemotron" { None } else { num_speakers };
 
     // Resolve the recording.
-    let meeting: Option<(Option<String>, String)> =
-        sqlx::query_as("SELECT folder_path, title FROM meetings WHERE id = ?")
+    let meeting: Option<(Option<String>, String, chrono::DateTime<chrono::Utc>)> =
+        sqlx::query_as("SELECT folder_path, title, created_at FROM meetings WHERE id = ?")
             .bind(&meeting_id)
             .fetch_optional(pool)
             .await
             .map_err(|e| format!("Failed to read meeting: {}", e))?;
 
-    let (folder_path, title) = match meeting {
-        Some((f, t)) => (f, Some(t)),
+    let (folder_path, lookup) = match &meeting {
+        Some((folder, title, created_at)) => (
+            folder.clone(),
+            Some(MeetingAudioLookup { id: &meeting_id, title, created_at: *created_at }),
+        ),
         None => (None, None),
     };
 
     let source = match audio_path {
         Some(p) => PathBuf::from(p),
-        None => find_meeting_audio(folder_path.clone(), title.as_deref()).ok_or_else(|| {
-            format!(
-                "No recording found for this meeting. Looked in the meeting folder, \
-                 {} and the app data folder.",
-                crate::audio::recording_preferences::get_default_recordings_folder().display()
-            )
-        })?,
+        None => {
+            let roots = recordings_roots(&app).await;
+            find_meeting_audio(folder_path.clone(), lookup.as_ref(), &roots).ok_or_else(|| {
+                let searched: Vec<String> = roots.iter().map(|root| root.display().to_string()).collect();
+                format!(
+                    "No recording found for this meeting. Looked in the meeting folder, \
+                     {} and the app data folder.",
+                    searched.join(", ")
+                )
+            })?
+        }
     };
     log::info!("🧑‍🤝‍🧑 Diarizing meeting {} with {} using {}", meeting_id, selected_engine, source.display());
 
@@ -1734,6 +1793,94 @@ mod tests {
         assert!(failed.is_err());
         let labels: Vec<String> = sqlx::query_scalar("SELECT speaker FROM transcripts ORDER BY id").fetch_all(&pool).await.unwrap();
         assert_eq!(labels,vec!["You + Speaker 2","Guest","Named"]);
+    }
+
+    fn folder_with_audio(root: &Path, name: &str, metadata: Option<&str>) -> PathBuf {
+        let folder = root.join(name);
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(folder.join("audio.mp4"), b"").unwrap();
+        if let Some(metadata) = metadata {
+            std::fs::write(folder.join("metadata.json"), metadata).unwrap();
+        }
+        folder.join("audio.mp4")
+    }
+
+    fn utc(value: &str) -> chrono::DateTime<chrono::Utc> {
+        chrono::DateTime::parse_from_rfc3339(value).unwrap().with_timezone(&chrono::Utc)
+    }
+
+    #[test]
+    fn meeting_audio_lookup_prefers_the_folder_with_the_meeting_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let configured = dir.path().join("custom-recordings");
+        let default = dir.path().join("protocol-recordings");
+        // An import names its folder before transcription, so its folder starts
+        // further from `created_at` than a same-title recording does.
+        let imported = folder_with_audio(
+            &default,
+            "Customer Interview_2026-09-01_08-40-00-000",
+            Some(r#"{"meeting_id":"imported"}"#),
+        );
+        let recorded = folder_with_audio(
+            &configured,
+            "Customer Interview_2026-09-01_09-00-00-000",
+            Some(r#"{"meeting_id":null}"#),
+        );
+        let lookup = |id, created_at| MeetingAudioLookup { id, title: "Customer Interview", created_at: utc(created_at) };
+
+        for roots in [[configured.clone(), default.clone()], [default.clone(), configured.clone()]] {
+            assert_eq!(
+                find_meeting_folder_audio(&lookup("imported", "2026-09-01T09:00:00Z"), &roots),
+                Some(imported.clone())
+            );
+            // Another meeting's folder is never a candidate, however close its start.
+            assert_eq!(
+                find_meeting_folder_audio(&lookup("recorded", "2026-09-01T08:40:00Z"), &roots),
+                Some(recorded.clone())
+            );
+        }
+    }
+
+    #[test]
+    fn meeting_audio_lookup_ignores_unrelated_folders_in_a_broad_root() {
+        let dir = tempfile::tempdir().unwrap();
+        let music = dir.path().join("Music");
+        folder_with_audio(&music, "Weekly", None);
+        folder_with_audio(&music, "Weekly Beats", None);
+        folder_with_audio(&music, "Weekly Sync_2026-10-25_10-00-00-000", None);
+        let meeting = MeetingAudioLookup { id: "weekly", title: "Weekly", created_at: utc("2026-10-25T10:00:00Z") };
+
+        assert_eq!(find_meeting_folder_audio(&meeting, &[music]), None);
+    }
+
+    #[test]
+    fn meeting_audio_lookup_finds_old_folder_without_metadata_by_start() {
+        let dir = tempfile::tempdir().unwrap();
+        let configured = dir.path().join("custom-recordings");
+        let default = dir.path().join("protocol-recordings");
+        // Saved before v0.2.12: a minute-precision name, no metadata, and a
+        // `created_at` that is the save time after a 45-minute meeting.
+        let old = folder_with_audio(&default, "Weekly Sync_2026-09-01_10-00", None);
+        folder_with_audio(&default, "Weekly Sync_2026-08-31_10-00", None);
+        folder_with_audio(&configured, "Weekly Sync_2026-09-01_14-00-00-000", Some(r#"{"meeting_id":null}"#));
+        let roots = [dir.path().join("missing-root"), configured, default];
+        let lookup = |created_at| MeetingAudioLookup { id: "weekly-sync", title: "Weekly Sync", created_at: utc(created_at) };
+
+        assert_eq!(find_meeting_folder_audio(&lookup("2026-09-01T10:45:00Z"), &roots), Some(old));
+        assert_eq!(find_meeting_folder_audio(&lookup("2026-09-03T10:00:00Z"), &roots), None);
+    }
+
+    #[test]
+    fn meeting_folder_names_parse_every_start_format() {
+        let parsed = |name| parse_meeting_folder_name(name).map(|(title, start)| (title.to_owned(), start.to_rfc3339()));
+        let expect = |title: &str, start: &str| Some((title.to_owned(), start.to_owned()));
+
+        assert_eq!(parsed("Sync_2026-09-01_10-00"), expect("Sync", "2026-09-01T10:00:00+00:00"));
+        assert_eq!(parsed("Sync_2026-09-01_10-00-05"), expect("Sync", "2026-09-01T10:00:05+00:00"));
+        assert_eq!(parsed("Q4_sync_2026-09-01_10-00-05-123"), expect("Q4_sync", "2026-09-01T10:00:05.123+00:00"));
+        assert_eq!(parsed("Sync_2026-09-01_10-00-05-123_2"), expect("Sync", "2026-09-01T10:00:05.123+00:00"));
+        assert_eq!(parsed("Weekly Beats"), None);
+        assert_eq!(parsed("Live_2019_Remastered"), None);
     }
 
     #[test]

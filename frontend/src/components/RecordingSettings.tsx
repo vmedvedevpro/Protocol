@@ -4,7 +4,6 @@ import { AlertTriangle, FolderCog, FolderOpen } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { invoke } from '@tauri-apps/api/core';
-import Analytics from '@/lib/analytics';
 import { toast } from 'sonner';
 import { useConfig } from '@/contexts/ConfigContext';
 
@@ -112,11 +111,6 @@ export function RecordingSettings({ onSave }: RecordingSettingsProps) {
   const handleAutoSaveToggle = async (enabled: boolean) => {
     setPreferences((current) => ({ ...current, auto_save: enabled }));
     await savePreferences({ auto_save: enabled });
-
-    // Track auto-save setting change
-    await Analytics.track('auto_save_recording_toggled', {
-      enabled: enabled.toString()
-    });
   };
 
   const handleOpenFolder = async () => {
@@ -145,7 +139,6 @@ export function RecordingSettings({ onSave }: RecordingSettingsProps) {
       updateRecordingsLocation(selectedFolder);
       onSave?.(newPreferences);
       toast.success('Recordings folder updated');
-      Analytics.track('recordings_folder_changed', { source: 'recording_settings' }).catch(console.error);
     } catch (error) {
       console.error('Failed to change recordings folder:', error);
       toast.error('Could not update recordings folder', {
@@ -164,9 +157,6 @@ export function RecordingSettings({ onSave }: RecordingSettingsProps) {
       await store.set('show_recording_notification', enabled);
       await store.save();
       toast.success('Preference saved');
-      await Analytics.track('recording_notification_preference_changed', {
-        enabled: enabled.toString()
-      });
     } catch (error) {
       console.error('Failed to save notification preference:', error);
       toast.error('Failed to save preference');

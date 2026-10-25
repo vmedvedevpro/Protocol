@@ -2,7 +2,6 @@
 
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import Analytics from '@/lib/analytics';
 import { AUTO_START_KEY } from '@/lib/recording-launch';
 import { invoke } from '@tauri-apps/api/core';
 import { useRecordingState } from '@/contexts/RecordingStateContext';
@@ -125,11 +124,9 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
           group_id: meeting.group_id ?? null,
         }));
         setMeetings(transformedMeetings);
-        Analytics.trackBackendConnection(true);
       } catch (error) {
         console.error('Error fetching meetings:', error);
         setMeetings([]);
-        Analytics.trackBackendConnection(false, error instanceof Error ? error.message : 'Unknown error');
       }
     }
   }, [serverAddress]);
@@ -242,7 +239,6 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
     if (pathname !== '/') {
       router.push('/');
     }
-    Analytics.trackButtonClick('new_recording_ready', 'sidebar');
   };
 
   // Summary polling management

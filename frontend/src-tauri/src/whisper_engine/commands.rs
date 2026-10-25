@@ -406,11 +406,6 @@ pub async fn whisper_is_model_loaded() -> Result<bool, String> {
     }
 }
 
-#[command]
-pub async fn whisper_unload_model() -> Result<bool, String> {
-    crate::audio::common::force_unload_stt().await.map(|_| true)
-}
-
 /// Force-unload Whisper + Parakeet (settings / local stack panel).
 #[command]
 pub async fn force_unload_stt_models() -> Result<(), String> {

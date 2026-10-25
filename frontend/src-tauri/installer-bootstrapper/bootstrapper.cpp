@@ -738,7 +738,7 @@ void StartInstall() {
 }
 
 void LaunchMeetily() {
-  std::filesystem::path executable = std::filesystem::path(g_install_dir) / L"meetily.exe";
+  std::filesystem::path executable = std::filesystem::path(g_install_dir) / L"protocol.exe";
   ShellExecuteW(nullptr, L"open", executable.c_str(), nullptr, g_install_dir.c_str(), SW_SHOWNORMAL);
   DestroyWindow(g_window);
 }

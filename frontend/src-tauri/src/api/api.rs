@@ -14,11 +14,8 @@ use crate::{
         },
     },
     state::AppState,
-    summary::CustomOpenAIConfig,
+    summary::{llm_client::LLMProvider, CustomOpenAIConfig},
 };
-
-// Hardcoded server URL
-const APP_SERVER_URL: &str = "http://localhost:5167";
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ApiResponse<T> {
@@ -46,35 +43,6 @@ pub struct SearchRequest {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct TranscriptSearchResult {
-    pub id: String,
-    pub title: String,
-    #[serde(rename = "matchContext")]
-    pub match_context: String,
-    pub timestamp: String,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ProfileRequest {
-    pub email: String,
-    pub license_key: String,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct SaveProfileRequest {
-    pub id: String,
-    pub email: String,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct UpdateProfileRequest {
-    pub email: String,
-    pub license_key: String,
-    pub company: String,
-    pub position: String,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
 pub struct ModelConfig {
     pub provider: String,
     pub model: String,
@@ -86,8 +54,6 @@ pub struct ModelConfig {
     pub ollama_endpoint: Option<String>,
     #[serde(rename = "summaryMaxTokens")]
     pub summary_max_tokens: Option<i64>,
-    #[serde(rename = "claudeCliPath")]
-    pub claude_cli_path: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -225,19 +191,6 @@ pub struct TranscriptSegment {
     pub speaker: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Profile {
-    pub id: String,
-    pub name: Option<String>,
-    pub email: String,
-    pub license_key: String,
-    pub company: Option<String>,
-    pub position: Option<String>,
-    pub created_at: String,
-    pub updated_at: String,
-    pub is_licensed: bool,
-}
-
 // Helper function to get auth token from store (optional)
 #[allow(dead_code)]
 async fn get_auth_token<R: Runtime>(app: &AppHandle<R>) -> Option<String> {
@@ -262,93 +215,6 @@ async fn get_auth_token<R: Runtime>(app: &AppHandle<R>) -> Option<String> {
             None
         }
     }
-}
-
-// Helper function to get server address - now hardcoded
-async fn get_server_address<R: Runtime>(_app: &AppHandle<R>) -> Result<String, String> {
-    log_info!("Using hardcoded server URL: {}", APP_SERVER_URL);
-    Ok(APP_SERVER_URL.to_string())
-}
-
-// Generic API call function with optional authentication
-async fn make_api_request<R: Runtime, T: for<'de> Deserialize<'de>>(
-    app: &AppHandle<R>,
-    endpoint: &str,
-    method: &str,
-    body: Option<&str>,
-    additional_headers: Option<HashMap<String, String>>,
-    auth_token: Option<String>, // Pass auth token from frontend
-) -> Result<T, String> {
-    let client = reqwest::Client::new();
-    let server_url = get_server_address(app).await?;
-
-    let url = format!("{}{}", server_url, endpoint);
-    log_info!("Making {} request to: {}", method, url);
-
-    let mut request = match method.to_uppercase().as_str() {
-        "GET" => client.get(&url),
-        "POST" => client.post(&url),
-        "PUT" => client.put(&url),
-        "DELETE" => client.delete(&url),
-        _ => return Err(format!("Unsupported HTTP method: {}", method)),
-    };
-
-    // Add authorization header if auth token is provided
-    if let Some(token) = auth_token {
-        log_info!("Adding authorization header");
-        request = request.header("Authorization", format!("Bearer {}", token));
-    } else {
-        log_warn!("No auth token provided, making unauthenticated request");
-    }
-
-    request = request.header("Content-Type", "application/json");
-
-    // Add additional headers if provided
-    if let Some(headers) = additional_headers {
-        for (key, value) in headers {
-            request = request.header(&key, &value);
-        }
-    }
-
-    // Add body if provided
-    if let Some(body_str) = body {
-        request = request.body(body_str.to_string());
-    }
-
-    let response = request.send().await.map_err(|e| {
-        let error_msg = format!("Request failed: {}", e);
-        log_error!("{}", error_msg);
-        error_msg
-    })?;
-
-    let status = response.status();
-    log_info!("Response status: {}", status);
-
-    if !status.is_success() {
-        let error_text = response
-            .text()
-            .await
-            .unwrap_or_else(|_| "Unknown error".to_string());
-        let error_msg = format!("HTTP {}: {}", status, error_text);
-        log_error!("{}", error_msg);
-        return Err(error_msg);
-    }
-
-    let response_text = response.text().await.map_err(|e| {
-        let error_msg = format!("Failed to read response: {}", e);
-        log_error!("{}", error_msg);
-        error_msg
-    })?;
-
-    // Safely truncate response for logging, respecting UTF-8 character boundaries
-    let truncated = response_text.chars().take(200).collect::<String>();
-    log_info!("Response body: {}", truncated);
-
-    serde_json::from_str(&response_text).map_err(|e| {
-        let error_msg = format!("Failed to parse JSON: {}", e);
-        log_error!("{}", error_msg);
-        error_msg
-    })
 }
 
 // API Commands for Tauri
@@ -497,126 +363,34 @@ pub async fn api_get_meeting_audio<R: Runtime>(
 }
 
 #[tauri::command]
-pub async fn api_search_transcripts<R: Runtime>(
-    _app: AppHandle<R>,
-    state: tauri::State<'_, AppState>,
-    query: String,
-    auth_token: Option<String>,
-) -> Result<Vec<TranscriptSearchResult>, String> {
-    log_info!(
-        "api_search_transcripts called with query: '{}', auth_token: {}",
-        query,
-        auth_token.is_some()
-    );
-
-    let pool = state.db_manager.pool();
-
-    match TranscriptsRepository::search_transcripts(pool, &query).await {
-        Ok(results) => {
-            log_info!(
-                "Search completed successfully with {} results.",
-                results.len()
-            );
-            Ok(results)
-        }
-        Err(e) => {
-            log_error!("Error searching transcripts for query '{}': {}", query, e);
-            Err(format!("Failed to search transcripts: {}", e))
-        }
-    }
-}
-
-#[tauri::command]
-pub async fn api_get_profile<R: Runtime>(
-    app: AppHandle<R>,
-    email: String,
-    license_key: String,
-    auth_token: Option<String>,
-) -> Result<Profile, String> {
-    log_info!(
-        "api_get_profile called for email: {}, auth_token: {}",
-        email,
-        auth_token.is_some()
-    );
-
-    let profile_request = ProfileRequest { email, license_key };
-    let body = serde_json::to_string(&profile_request).map_err(|e| e.to_string())?;
-
-    make_api_request::<R, Profile>(&app, "/get-profile", "POST", Some(&body), None, auth_token)
-        .await
-}
-
-#[tauri::command]
-pub async fn api_save_profile<R: Runtime>(
-    app: AppHandle<R>,
-    id: String,
-    email: String,
-    auth_token: Option<String>,
-) -> Result<serde_json::Value, String> {
-    log_info!(
-        "api_save_profile called for email: {}, auth_token: {}",
-        email,
-        auth_token.is_some()
-    );
-
-    let save_request = SaveProfileRequest { id, email };
-    let body = serde_json::to_string(&save_request).map_err(|e| e.to_string())?;
-
-    make_api_request::<R, serde_json::Value>(
-        &app,
-        "/save-profile",
-        "POST",
-        Some(&body),
-        None,
-        auth_token,
-    )
-    .await
-}
-
-#[tauri::command]
-pub async fn api_update_profile<R: Runtime>(
-    app: AppHandle<R>,
-    email: String,
-    license_key: String,
-    company: String,
-    position: String,
-    auth_token: Option<String>,
-) -> Result<serde_json::Value, String> {
-    log_info!(
-        "api_update_profile called for email: {}, auth_token: {}",
-        email,
-        auth_token.is_some()
-    );
-
-    let update_request = UpdateProfileRequest {
-        email,
-        license_key,
-        company,
-        position,
-    };
-    let body = serde_json::to_string(&update_request).map_err(|e| e.to_string())?;
-
-    make_api_request::<R, serde_json::Value>(
-        &app,
-        "/update-profile",
-        "POST",
-        Some(&body),
-        None,
-        auth_token,
-    )
-    .await
-}
-
-#[tauri::command]
 pub async fn api_get_model_config<R: Runtime>(
     _app: AppHandle<R>,
     state: tauri::State<'_, AppState>,
     _auth_token: Option<String>,
 ) -> Result<Option<ModelConfig>, String> {
     log_info!("api_get_model_config called (native)");
-    let pool = state.db_manager.pool();
+    read_model_config(state.db_manager.pool()).await
+}
 
+async fn read_model_config(pool: &sqlx::SqlitePool) -> Result<Option<ModelConfig>, String> {
     match SettingsRepository::get_model_config(pool).await {
+        // A saved provider this build no longer offers, such as the Claude Code
+        // CLI provider removed in #19, comes back with an empty provider and
+        // model: the UI then asks for another provider instead of failing to load.
+        Ok(Some(config)) if LLMProvider::from_str(&config.provider).is_err() => {
+            log_warn!(
+                "⚠️ Saved summary provider '{}' is no longer supported; no provider selected",
+                &config.provider
+            );
+            Ok(Some(ModelConfig {
+                provider: String::new(),
+                model: String::new(),
+                whisper_model: config.whisper_model,
+                api_key: None,
+                ollama_endpoint: config.ollama_endpoint,
+                summary_max_tokens: config.summary_max_tokens,
+            }))
+        }
         Ok(Some(config)) => {
             log_info!(
                 "✅ Found model config in database: provider={}, model={}, whisperModel={}, ollamaEndpoint={:?}",
@@ -635,7 +409,6 @@ pub async fn api_get_model_config<R: Runtime>(
                         api_key,
                         ollama_endpoint: config.ollama_endpoint,
                         summary_max_tokens: config.summary_max_tokens,
-                        claude_cli_path: config.claude_cli_path,
                     }))
                 }
                 Err(e) => {
@@ -669,17 +442,15 @@ pub async fn api_save_model_config<R: Runtime>(
     api_key: Option<String>,
     ollama_endpoint: Option<String>,
     summary_max_tokens: Option<i64>,
-    claude_cli_path: Option<String>,
     _auth_token: Option<String>,
 ) -> Result<serde_json::Value, String> {
     log_info!(
-        "💾 api_save_model_config called (native): provider='{}', model='{}', whisperModel='{}', ollamaEndpoint={:?}, summaryMaxTokens={:?}, claudeCliPath={:?}",
+        "💾 api_save_model_config called (native): provider='{}', model='{}', whisperModel='{}', ollamaEndpoint={:?}, summaryMaxTokens={:?}",
         &provider,
         &model,
         &whisper_model,
         &ollama_endpoint,
-        &summary_max_tokens,
-        &claude_cli_path
+        &summary_max_tokens
     );
     let pool = state.db_manager.pool();
 
@@ -701,17 +472,6 @@ pub async fn api_save_model_config<R: Runtime>(
     {
         log_error!("❌ Failed to save model config to database: {}", e);
         return Err(e.to_string());
-    }
-
-    // The Claude Code CLI path is only meaningful for that provider, but it is
-    // saved whenever it is sent so the override survives switching away and back.
-    if provider == "claude-cli" {
-        if let Err(e) =
-            SettingsRepository::save_claude_cli_path(pool, claude_cli_path.as_deref()).await
-        {
-            log_error!("❌ Failed to save Claude Code CLI path: {}", e);
-            return Err(e.to_string());
-        }
     }
 
     // Skip API key saving for custom-openai provider (it uses customOpenAIConfig JSON instead)
@@ -925,36 +685,6 @@ pub async fn api_save_meeting_vocabulary(
     VocabularyRepository::save_meeting(state.db_manager.pool(), &meeting_id, &vocabulary)
         .await
         .map(|normalized| normalized.unwrap_or_default())
-}
-
-#[tauri::command]
-pub async fn api_get_transcript_api_key<R: Runtime>(
-    _app: AppHandle<R>,
-    state: tauri::State<'_, AppState>,
-    provider: String,
-    _auth_token: Option<String>,
-) -> Result<String, String> {
-    log_info!(
-        "api_get_transcript_api_key called (native) for provider '{}'",
-        &provider
-    );
-    match SettingsRepository::get_transcript_api_key(&state.db_manager.pool(), &provider).await {
-        Ok(key) => {
-            log_info!(
-                "Successfully retrieved transcript API key for provider '{}'.",
-                &provider
-            );
-            Ok(key.unwrap_or_default())
-        }
-        Err(e) => {
-            log_error!(
-                "Failed to get transcript API key for provider '{}': {}",
-                &provider,
-                e
-            );
-            Err(e.to_string())
-        }
-    }
 }
 
 #[tauri::command]
@@ -1389,77 +1119,6 @@ pub async fn open_meeting_folder<R: Runtime>(
     }
 }
 
-// Simple test command to check backend connectivity
-#[tauri::command]
-pub async fn test_backend_connection<R: Runtime>(
-    app: AppHandle<R>,
-    auth_token: Option<String>,
-) -> Result<String, String> {
-    log_debug!("Testing backend connection...");
-
-    let client = reqwest::Client::new();
-    let server_url = get_server_address(&app).await?;
-
-    log_debug!("Testing connection to: {}", server_url);
-
-    let mut request = client.get(&format!("{}/docs", server_url));
-
-    if let Some(token) = auth_token {
-        request = request.header("Authorization", format!("Bearer {}", token));
-    }
-
-    match request.send().await {
-        Ok(response) => {
-            let status = response.status();
-            log_debug!("Backend responded with status: {}", status);
-            Ok(format!("Backend is reachable. Status: {}", status))
-        }
-        Err(e) => {
-            let error_msg = format!("Failed to connect to backend: {}", e);
-            log_debug!("{}", error_msg);
-            Err(error_msg)
-        }
-    }
-}
-
-#[tauri::command]
-pub async fn debug_backend_connection<R: Runtime>(app: AppHandle<R>) -> Result<String, String> {
-    log_debug!("=== DEBUG: Testing backend connection ===");
-
-    // Test 1: Check server address from store
-    let server_url = match get_server_address(&app).await {
-        Ok(url) => {
-            log_debug!("✓ Server URL from store: {}", url);
-            url
-        }
-        Err(e) => {
-            log_error!("✗ Failed to get server URL: {}", e);
-            return Err(format!("Failed to get server URL: {}", e));
-        }
-    };
-
-    // Test 2: Make a simple HTTP request to the backend
-    let client = reqwest::Client::new();
-    let test_url = format!("{}/docs", server_url); // Try the docs endpoint which should be public
-
-    log_debug!("Testing connection to: {}", test_url);
-
-    match client.get(&test_url).send().await {
-        Ok(response) => {
-            let status = response.status();
-            log_debug!("✓ Backend responded with status: {}", status);
-            Ok(format!(
-                "Backend connection successful! Status: {}, URL: {}",
-                status, server_url
-            ))
-        }
-        Err(e) => {
-            log_error!("✗ Backend connection failed: {}", e);
-            Err(format!("Backend connection failed: {}", e))
-        }
-    }
-}
-
 #[tauri::command]
 pub async fn open_external_url(url: String) -> Result<(), String> {
     if !url.starts_with("https://") && !url.starts_with("http://") {
@@ -1721,5 +1380,51 @@ pub async fn api_test_custom_openai_connection<R: Runtime>(
                 Err(format!("Connection failed: {}", e))
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod model_config_tests {
+    use super::*;
+
+    async fn settings_pool() -> sqlx::SqlitePool {
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+        pool
+    }
+
+    #[tokio::test]
+    async fn removed_cli_provider_loads_as_no_provider_selected() {
+        let pool = settings_pool().await;
+        // The row the removed provider's settings panel wrote, CLI path included.
+        sqlx::query(
+            "INSERT INTO settings (id, provider, model, whisperModel, summaryMaxTokens, claudeCliPath)
+             VALUES ('1', 'claude-cli', 'sonnet', 'large-v3', 4096, 'C:\\Tools\\claude.exe')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let config = read_model_config(&pool).await.unwrap().unwrap();
+        assert_eq!(config.provider, "");
+        assert_eq!(config.model, "");
+        assert_eq!(config.api_key, None);
+        assert_eq!(config.whisper_model, "large-v3");
+        assert_eq!(config.summary_max_tokens, Some(4096));
+    }
+
+    #[tokio::test]
+    async fn supported_provider_loads_unchanged() {
+        let pool = settings_pool().await;
+        SettingsRepository::save_model_config(&pool, "claude", "claude-sonnet-4-5", "large-v3", None, Some(32000))
+            .await
+            .unwrap();
+        SettingsRepository::save_api_key(&pool, "claude", "sk-ant-test").await.unwrap();
+
+        let config = read_model_config(&pool).await.unwrap().unwrap();
+        assert_eq!(config.provider, "claude");
+        assert_eq!(config.model, "claude-sonnet-4-5");
+        assert_eq!(config.api_key.as_deref(), Some("sk-ant-test"));
+        assert_eq!(config.summary_max_tokens, Some(32000));
     }
 }

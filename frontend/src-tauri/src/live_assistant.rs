@@ -2,9 +2,8 @@
 //!
 //! Answers ad-hoc questions during an active meeting using the live transcript as
 //! context. Reuses the user's configured model provider — local Ollama, the bundled
-//! local model (BuiltInAI), the signed-in Claude Code CLI, or any BYOK cloud
-//! provider (OpenAI / Claude / Groq / OpenRouter / custom OpenAI-compatible
-//! endpoints such as Gemini).
+//! local model (BuiltInAI), or any BYOK cloud provider (OpenAI / Claude / Groq /
+//! OpenRouter / custom OpenAI-compatible endpoints such as Gemini).
 //!
 //! This is a *consensual* meeting-assistant feature: it operates on the transcript the
 //! app is already capturing for the user's own meeting notes. It does not hide itself
@@ -27,27 +26,28 @@ struct ResolvedAssistantModel {
     api_key: String,
     ollama_endpoint: Option<String>,
     custom_openai_endpoint: Option<String>,
-    claude_cli_path: Option<String>,
     custom_openai_max_tokens: Option<u32>,
     custom_openai_temperature: Option<f32>,
     custom_openai_top_p: Option<f32>,
     app_data_dir: PathBuf,
 }
 
+const NO_MODEL_CONFIGURED: &str = "No AI model configured. Choose one in Model Settings first.";
+
 async fn resolve_assistant_model(pool: &SqlitePool) -> Result<ResolvedAssistantModel, String> {
     let config = SettingsRepository::get_model_config(pool)
         .await
         .map_err(|e| format!("Failed to load model config: {}", e))?
-        .ok_or_else(|| "No AI model configured. Choose one in Model Settings first.".to_string())?;
+        .ok_or_else(|| NO_MODEL_CONFIGURED.to_string())?;
 
     let provider_name = config.provider.clone();
-    let provider = LLMProvider::from_str(&provider_name)?;
+    // A saved provider this build no longer offers (the Claude Code CLI, #19)
+    // counts as no provider selected, as it does in Model Settings.
+    let provider =
+        LLMProvider::from_str(&provider_name).map_err(|_| NO_MODEL_CONFIGURED.to_string())?;
     let api_key = if matches!(
         provider,
-        LLMProvider::Ollama
-            | LLMProvider::BuiltInAI
-            | LLMProvider::ClaudeCli
-            | LLMProvider::CustomOpenAI
+        LLMProvider::Ollama | LLMProvider::BuiltInAI | LLMProvider::CustomOpenAI
     ) {
         String::new()
     } else {
@@ -61,13 +61,6 @@ async fn resolve_assistant_model(pool: &SqlitePool) -> Result<ResolvedAssistantM
     let ollama_endpoint = (provider == LLMProvider::Ollama)
         .then(|| config.ollama_endpoint.clone())
         .flatten();
-    let claude_cli_path = if provider == LLMProvider::ClaudeCli {
-        SettingsRepository::get_claude_cli_path(pool)
-            .await
-            .map_err(|e| format!("Failed to read the Claude Code CLI path: {}", e))?
-    } else {
-        None
-    };
     let custom = if provider == LLMProvider::CustomOpenAI {
         Some(
             SettingsRepository::get_custom_openai_config(pool)
@@ -103,7 +96,6 @@ async fn resolve_assistant_model(pool: &SqlitePool) -> Result<ResolvedAssistantM
         api_key: custom_openai_api_key.unwrap_or(api_key),
         ollama_endpoint,
         custom_openai_endpoint,
-        claude_cli_path,
         custom_openai_max_tokens,
         custom_openai_temperature,
         custom_openai_top_p,
@@ -133,7 +125,6 @@ async fn generate_assistant_answer(
             .or(Some(default_temperature)),
         model.custom_openai_top_p,
         Some(&model.app_data_dir),
-        model.claude_cli_path.as_deref(),
         None,
     )
     .await
@@ -508,56 +499,20 @@ mod meeting_context_tests {
     }
 }
 
-#[derive(serde::Deserialize)]
-struct OllamaEmbeddingResponse {
-    embedding: Vec<f32>,
-}
+#[cfg(test)]
+mod assistant_model_tests {
+    use super::{resolve_assistant_model, NO_MODEL_CONFIGURED};
+    use crate::database::repositories::setting::SettingsRepository;
 
-/// Generate embeddings for a batch of texts via a local Ollama server.
-///
-/// Used by the (optional) RAG feature to embed transcript chunks + the question so the
-/// frontend can rank chunks by similarity. Requires Ollama running with an embedding
-/// model pulled (default: `nomic-embed-text`).
-#[tauri::command]
-pub async fn ollama_embed(
-    texts: Vec<String>,
-    model: Option<String>,
-    endpoint: Option<String>,
-) -> Result<Vec<Vec<f32>>, String> {
-    let endpoint = endpoint
-        .filter(|e| !e.trim().is_empty())
-        .unwrap_or_else(|| "http://localhost:11434".to_string());
-    let endpoint = endpoint.trim_end_matches('/').to_string();
-    let model = model
-        .filter(|m| !m.trim().is_empty())
-        .unwrap_or_else(|| "nomic-embed-text".to_string());
+    #[tokio::test]
+    async fn removed_cli_provider_asks_for_another_model() {
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+        SettingsRepository::save_model_config(&pool, "claude-cli", "sonnet", "large-v3", None, None)
+            .await
+            .unwrap();
 
-    let client = reqwest::Client::new();
-    let mut out = Vec::with_capacity(texts.len());
-    for t in texts {
-        if t.trim().is_empty() {
-            out.push(Vec::new());
-            continue;
-        }
-        let resp = client
-            .post(format!("{}/api/embeddings", endpoint))
-            .json(&serde_json::json!({ "model": model, "prompt": t }))
-            .send()
-            .await
-            .map_err(|e| format!("Ollama embeddings request failed (is Ollama running?): {}", e))?;
-        if !resp.status().is_success() {
-            let code = resp.status();
-            let body = resp.text().await.unwrap_or_default();
-            return Err(format!(
-                "Ollama embeddings error {} (pull the model with `ollama pull {}`): {}",
-                code, model, body
-            ));
-        }
-        let parsed: OllamaEmbeddingResponse = resp
-            .json()
-            .await
-            .map_err(|e| format!("Failed to parse Ollama embeddings response: {}", e))?;
-        out.push(parsed.embedding);
+        let error = resolve_assistant_model(&pool).await.err().unwrap();
+        assert_eq!(error, NO_MODEL_CONFIGURED);
     }
-    Ok(out)
 }

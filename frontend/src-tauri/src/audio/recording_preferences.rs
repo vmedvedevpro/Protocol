@@ -306,30 +306,7 @@ pub async fn load_recording_preferences<R: Runtime>(
         }
     };
 
-    // Try to get the preferences from store
-    let prefs = if let Some(value) = store.get("preferences") {
-        match serde_json::from_value::<RecordingPreferences>(value.clone()) {
-            Ok(p) => {
-                info!("Loaded recording preferences from store");
-                // Update macOS backend to current value if needed
-                #[cfg(target_os = "macos")]
-                let p = {
-                    let mut p = p;
-                    let backend = crate::audio::capture::get_current_backend();
-                    p.system_audio_backend = Some(backend.to_string());
-                    p
-                };
-                p
-            }
-            Err(e) => {
-                warn!("Failed to deserialize preferences: {}, using defaults", e);
-                RecordingPreferences::default()
-            }
-        }
-    } else {
-        info!("No stored preferences found, using defaults");
-        RecordingPreferences::default()
-    };
+    let prefs = preferences_from_store_value(store.get("preferences"));
 
     #[cfg(target_os = "macos")]
     let prefs = if let Err(error) = reject_current_app_bundle_path(&prefs.save_folder) {
@@ -374,6 +351,49 @@ pub async fn load_recording_preferences<R: Runtime>(
            prefs.preferred_mic_device, prefs.preferred_system_device, prefs.mic_gain,
            prefs.system_gain, prefs.real_time_transcription, prefs.per_app_recording_enabled, prefs.per_app_targets.len(), prefs.per_app_target_app);
     Ok(prefs)
+}
+
+/// Stored preferences, or the defaults when nothing is stored or the stored
+/// value no longer deserializes. This is where a missing or unreadable
+/// preference falls back to the default recordings folder.
+fn preferences_from_store_value(value: Option<serde_json::Value>) -> RecordingPreferences {
+    if let Some(value) = value {
+        match serde_json::from_value::<RecordingPreferences>(value) {
+            Ok(p) => {
+                info!("Loaded recording preferences from store");
+                // Update macOS backend to current value if needed
+                #[cfg(target_os = "macos")]
+                let p = {
+                    let mut p = p;
+                    let backend = crate::audio::capture::get_current_backend();
+                    p.system_audio_backend = Some(backend.to_string());
+                    p
+                };
+                p
+            }
+            Err(e) => {
+                warn!("Failed to deserialize preferences: {}, using defaults", e);
+                RecordingPreferences::default()
+            }
+        }
+    } else {
+        info!("No stored preferences found, using defaults");
+        RecordingPreferences::default()
+    }
+}
+
+/// Recordings root a recording started now would use: the folder saved in
+/// Settings, or the default when preferences cannot be loaded, as recording
+/// start does. Code that creates or looks up meeting folders outside a live
+/// recording uses this rather than `get_default_recordings_folder()`.
+pub async fn configured_recordings_folder<R: Runtime>(app: &AppHandle<R>) -> PathBuf {
+    match load_recording_preferences(app).await {
+        Ok(preferences) => preferences.save_folder,
+        Err(error) => {
+            warn!("Failed to load recording preferences, using the default recordings folder: {error}");
+            get_default_recordings_folder()
+        }
+    }
 }
 
 /// Save recording preferences to store
@@ -628,108 +648,6 @@ pub async fn open_recordings_folder<R: Runtime>(app: AppHandle<R>) -> Result<(),
     Ok(())
 }
 
-// Backend selection commands
-
-/// Get available audio capture backends for the current platform
-#[tauri::command]
-pub async fn get_available_audio_backends() -> Result<Vec<String>, String> {
-    #[cfg(target_os = "macos")]
-    {
-        let backends = crate::audio::capture::get_available_backends();
-        Ok(backends.iter().map(|b| b.to_string()).collect())
-    }
-
-    #[cfg(not(target_os = "macos"))]
-    {
-        // Only ScreenCaptureKit available on non-macOS
-        Ok(vec!["screencapturekit".to_string()])
-    }
-}
-
-/// Get current audio capture backend
-#[tauri::command]
-pub async fn get_current_audio_backend() -> Result<String, String> {
-    #[cfg(target_os = "macos")]
-    {
-        let backend = crate::audio::capture::get_current_backend();
-        Ok(backend.to_string())
-    }
-
-    #[cfg(not(target_os = "macos"))]
-    {
-        Ok("screencapturekit".to_string())
-    }
-}
-
-/// Set audio capture backend
-#[tauri::command]
-pub async fn set_audio_backend(backend: String) -> Result<(), String> {
-    #[cfg(target_os = "macos")]
-    {
-        use crate::audio::capture::AudioCaptureBackend;
-
-        let backend_enum = AudioCaptureBackend::from_string(&backend)
-            .ok_or_else(|| format!("Invalid backend: {}", backend))?;
-
-        // Selection cannot prove permission: denied taps can still open and emit
-        // zeros. Onboarding/Recheck owns the up-to-five-second audible probe.
-        if backend_enum == AudioCaptureBackend::CoreAudio {
-            info!("🔐 Core Audio backend requires Audio Capture permission (macOS 14.2+)");
-            info!("📍 Onboarding or Recheck verifies the tap while system audio is playing");
-        }
-
-        info!("Setting audio backend to: {:?}", backend_enum);
-        crate::audio::capture::set_current_backend(backend_enum);
-        Ok(())
-    }
-
-    #[cfg(not(target_os = "macos"))]
-    {
-        if backend != "screencapturekit" {
-            return Err(format!(
-                "Backend {} not available on this platform",
-                backend
-            ));
-        }
-        Ok(())
-    }
-}
-
-/// Get backend information (name and description)
-#[derive(Serialize)]
-pub struct BackendInfo {
-    pub id: String,
-    pub name: String,
-    pub description: String,
-}
-
-#[tauri::command]
-pub async fn get_audio_backend_info() -> Result<Vec<BackendInfo>, String> {
-    #[cfg(target_os = "macos")]
-    {
-        use crate::audio::capture::AudioCaptureBackend;
-
-        let backends = AudioCaptureBackend::available_backends()
-            .into_iter()
-            .map(|backend| BackendInfo {
-                id: backend.to_string(),
-                name: backend.name().to_string(),
-                description: backend.description().to_string(),
-            })
-            .collect();
-        Ok(backends)
-    }
-
-    #[cfg(not(target_os = "macos"))]
-    {
-        Ok(vec![BackendInfo {
-            id: "screencapturekit".to_string(),
-            name: "ScreenCaptureKit".to_string(),
-            description: "Default system audio capture".to_string(),
-        }])
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -769,6 +687,31 @@ mod tests {
         assert_eq!(preferences.per_app_targets.len(), 2);
         assert_eq!(preferences.per_app_targets[0].executable, "chrome.exe");
         assert_eq!(preferences.per_app_targets[1].executable, "zoom.exe");
+    }
+
+    #[test]
+    fn stored_recordings_folder_is_loaded() {
+        let custom = std::env::temp_dir().join("custom-recordings");
+        let preferences = preferences_from_store_value(Some(serde_json::json!({
+            "save_folder": custom,
+            "auto_save": true,
+            "file_format": "mp4"
+        })));
+
+        assert_eq!(preferences.save_folder, custom);
+    }
+
+    #[test]
+    fn missing_or_unreadable_preferences_use_default_recordings_folder() {
+        let default = get_default_recordings_folder();
+
+        assert_eq!(preferences_from_store_value(None).save_folder, default);
+        let unreadable = preferences_from_store_value(Some(serde_json::json!({
+            "save_folder": 42,
+            "auto_save": true,
+            "file_format": "mp4"
+        })));
+        assert_eq!(unreadable.save_folder, default);
     }
 
     #[test]
