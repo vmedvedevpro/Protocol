@@ -17,6 +17,15 @@ issue and PR numbers refer to
   signing in the Windows packaging script, release verifier, and workflows.
 - Point About, onboarding, crash reports, and the CUDA setup prompt at this
   repository.
+- Remove seven IPC commands that nothing in the app called: `read_audio_file`,
+  `save_transcript`, `diarize_recording`, `ollama_embed`,
+  `detect_legacy_database`, `get_ollama_model_context`, and
+  `get_meeting_playback_audio`. All but the last accepted a path, URL, or
+  endpoint from the WebView without checks, which let it read or write any file,
+  decode any audio file, probe whether a file exists, or send requests and
+  transcript text to any server; `get_meeting_playback_audio` added a meeting's
+  audio file to the asset protocol scope. Playback and every other feature work
+  as before ([#3](https://github.com/vmedvedevpro/Protocol/issues/3)).
 
 ## Unreleased
 
