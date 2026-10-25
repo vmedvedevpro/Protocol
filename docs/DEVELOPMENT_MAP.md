@@ -221,23 +221,54 @@ recording start), and on macOS for a folder inside the app bundle
 `ensure_recordings_directory` applies the Settings checks (app-bundle rejection
 on macOS, create, probe write). An unusable saved folder fails the import with
 its path in the error instead of writing to the default root, which would make
-Settings look applied while files land elsewhere.
+Settings look applied while files land elsewhere. The path appears once: it is
+added only when the validation error does not already contain it. A failure in
+`create_meeting_folder` after the checks pass (for example a name too long for a
+deep folder) is a bare OS error, so the import adds the root path to it.
 
 `diarization::find_meeting_audio`, the fallback when a meeting's `folder_path`
-is missing or has no audio, matches the title in the configured root and then
-in the default root, where meetings recorded before a folder change remain.
+is missing or has no audio, searches the meeting folders of the configured root
+and of the default root, where meetings recorded before a folder change remain.
+`find_meeting_folder_audio` decides over both roots at once, so their order does
+not matter:
+
+1. A folder whose `metadata.json` `meeting_id` is the meeting's id is the
+   meeting's (import writes the id). If that folder has no audio, nothing else
+   in the roots is guessed.
+2. Otherwise the candidates are folders with the meeting's title (sanitized,
+   case-insensitive) and no other meeting's id: recordings, whose saver writes
+   `meeting_id: null`, and old folders without metadata. The one whose start is
+   closest to the meeting's `created_at` wins, within 12 hours.
+   `created_at` is the recording start for meetings saved since v0.2.12 and the
+   save time before that, hence the window.
+3. Only folders named `<title>_<UTC start>[_<n>]` are considered, so albums and
+   other folders in a broad root are ignored. The start is parsed in each format
+   the app has written: `%Y-%m-%d_%H-%M-%S`, `%Y-%m-%d_%H-%M` and
+   `%Y-%m-%d_%H-%M-%S-%3f`.
+
+The install-local data root (tray saves) stays the last resort after the roots.
+Limits: a folder without an id is not found once the meeting has been renamed,
+and two same-title meetings without ids less than 12 hours apart resolve to the
+closer start.
+
 Retranscription and checkpoint recovery work inside an existing meeting folder
 and create none. The other `get_default_recordings_folder()` callers are the
 preference default, the fallbacks when preferences cannot be loaded, the
 Settings default-folder display, and the short-take discard allow-list.
 
-Native tests: `import_meeting_folder_is_created_in_custom_recordings_folder` and
-`unusable_recordings_folder_fails_import_folder_creation` (`import.rs`),
+Native tests: `import_meeting_folder_is_created_in_custom_recordings_folder`,
+`unusable_recordings_folder_fails_import_folder_creation`,
+`unusable_recordings_folder_error_names_the_folder_once` and
+`meeting_folder_creation_error_names_the_recordings_folder` (`import.rs`),
 `stored_recordings_folder_is_loaded` and
 `missing_or_unreadable_preferences_use_default_recordings_folder`
 (`recording_preferences.rs`), and
-`meeting_audio_lookup_searches_configured_then_default_recordings_root`
-(`diarization/mod.rs`). The store/`AppHandle` glue in
+`meeting_audio_lookup_prefers_the_folder_with_the_meeting_id`,
+`meeting_audio_lookup_ignores_unrelated_folders_in_a_broad_root`,
+`meeting_audio_lookup_finds_old_folder_without_metadata_by_start` and
+`meeting_folder_names_parse_every_start_format` (`diarization/mod.rs`). The
+lookup tests call `find_meeting_folder_audio` on temporary folders; the
+`created_at` query in `diarize_meeting` is not tested. The store/`AppHandle` glue in
 `configured_recordings_folder` has no test, and an import into a custom folder
 has not been checked in the running app.
 
