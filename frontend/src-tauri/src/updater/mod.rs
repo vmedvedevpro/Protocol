@@ -21,6 +21,7 @@ pub mod busy;
 pub mod cache;
 pub mod commands;
 pub mod engine;
+pub mod install;
 pub mod journal;
 pub mod prefs;
 pub mod schedule;
@@ -33,6 +34,7 @@ use engine::DownloadEnd;
 use prefs::Prefs;
 use serde::Serialize;
 use status::{Activity, CheckOutcome, ErrorKind, Machine, Offer, UpdateError};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use support::Support;
@@ -49,6 +51,10 @@ const WATCH: Duration = Duration::from_secs(3);
 /// A manual check that waited for a running check reuses its result.
 const JOIN_WINDOW_MS: i64 = 5_000;
 
+/// Set by the first quit request, so the exit that follows an install on
+/// quit (or a refused one) is not intercepted again.
+static QUITTING: AtomicBool = AtomicBool::new(false);
+
 pub struct UpdaterState {
     support: Support,
     current_version: String,
@@ -64,6 +70,20 @@ pub struct UpdaterState {
     /// Set when this launch is the result of an install (for the "Updated" toast).
     updated_from: Mutex<Option<String>>,
     busy: Mutex<Vec<BusyReason>>,
+    /// What the tray menu last showed, so it is rebuilt only when that changes.
+    tray_item: Mutex<TrayItem>,
+}
+
+/// The updater's line in the tray menu.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum TrayItem {
+    #[default]
+    None,
+    /// A newer release is offered and not downloaded (or a `.deb` notice).
+    Available(String),
+    Downloading,
+    /// Downloaded; `busy` disables the item.
+    Ready { version: String, busy: bool },
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -98,6 +118,21 @@ impl UpdaterState {
             download_cancel: Mutex::new(None),
             updated_from: Mutex::new(None),
             busy: Mutex::new(Vec::new()),
+            tray_item: Mutex::new(TrayItem::None),
+        }
+    }
+
+    pub fn tray_item(&self) -> TrayItem {
+        let machine = self.machine();
+        let busy = self.busy.lock().map(|busy| !busy.is_empty()).unwrap_or(true);
+        match (&machine.activity, &machine.offer) {
+            (Activity::Downloading { .. }, _) => TrayItem::Downloading,
+            (_, Some(offer)) if offer.downloaded => TrayItem::Ready {
+                version: offer.release.version.clone(),
+                busy: busy || machine.activity != Activity::Idle,
+            },
+            (_, Some(offer)) => TrayItem::Available(offer.release.version.clone()),
+            _ => TrayItem::None,
         }
     }
 
@@ -183,6 +218,58 @@ pub fn emit_status<R: Runtime>(app: &AppHandle<R>) {
     let snapshot = state.snapshot();
     if let Err(error) = app.emit(STATUS_EVENT, &snapshot) {
         log::warn!("[updater] could not push the status: {error}");
+    }
+    let item = state.tray_item();
+    let changed = state
+        .tray_item
+        .lock()
+        .map(|mut shown| std::mem::replace(&mut *shown, item.clone()) != item)
+        .unwrap_or(false);
+    if changed {
+        crate::tray::update_tray_menu(app);
+    }
+}
+
+pub fn is_quitting() -> bool {
+    QUITTING.load(Ordering::SeqCst)
+}
+
+/// Whether quitting now would try to install a downloaded update.
+pub fn installs_on_quit<R: Runtime>(app: &AppHandle<R>) -> bool {
+    app.try_state::<UpdaterState>()
+        .is_some_and(|state| state.support.installs() && state.ready_version().is_some())
+}
+
+/// Tray Quit and macOS ⌘Q / Dock Quit. With a downloaded update and nothing
+/// busy, the update installs and the app exits without starting again (the
+/// next start runs the new version); otherwise the app quits as before. A
+/// quit during a recording keeps today's behaviour and never installs (#32).
+pub fn quit_app<R: Runtime>(app: &AppHandle<R>) {
+    if QUITTING.swap(true, Ordering::SeqCst) || !installs_on_quit(app) {
+        app.exit(0);
+        return;
+    }
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        if let Err(refusal) = install::install_now(&app, install::Mode::Quit, &[]).await {
+            log::info!("[updater] quitting without installing: {refusal:?}");
+            app.exit(0);
+        }
+    });
+}
+
+/// "Restart and update" from the panel, Settings or the tray.
+pub async fn install_and_restart<R: Runtime>(app: &AppHandle<R>) -> Result<Snapshot, install::Refusal> {
+    let state = app.state::<UpdaterState>();
+    match install::install_now(app, install::Mode::Restart, &[]).await {
+        Ok(()) => Ok(state.snapshot()),
+        Err(install::Refusal::Busy { reasons }) => {
+            state.refresh_busy();
+            emit_status(app);
+            Err(install::Refusal::Busy { reasons })
+        }
+        Err(install::Refusal::Failed) => Ok(state.snapshot()),
+        Err(refusal) => Err(refusal),
     }
 }
 

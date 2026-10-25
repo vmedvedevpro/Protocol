@@ -2,7 +2,7 @@
 //! same snapshot is also pushed as `updater-status` to every window.
 
 use super::busy::{self, UiActivity};
-use super::{Snapshot, UpdaterState};
+use super::{install, Snapshot, UpdaterState};
 use tauri::{AppHandle, Manager, Runtime};
 
 const STARTING: &str = "The updater is still starting";
@@ -28,6 +28,17 @@ pub async fn updater_check_now<R: Runtime>(app: AppHandle<R>) -> Result<Snapshot
 pub async fn updater_download_now<R: Runtime>(app: AppHandle<R>) -> Result<Snapshot, String> {
     ready(&app)?;
     Ok(super::request_download(&app))
+}
+
+/// "Restart and update". `Err` carries why it was refused (`busy` with the
+/// reasons, or `notReady`); an install that failed returns the snapshot with
+/// its error.
+#[tauri::command]
+pub async fn updater_install_now<R: Runtime>(app: AppHandle<R>) -> Result<Snapshot, install::Refusal> {
+    if app.try_state::<UpdaterState>().is_none() {
+        return Err(install::Refusal::NotReady);
+    }
+    super::install_and_restart(&app).await
 }
 
 #[tauri::command]

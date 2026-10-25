@@ -64,9 +64,66 @@ fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, item_id: &str) {
                 let _ = window.eval("window.location.assign('/settings')");
             }
         }
-        "quit" => app.exit(0),
+        "update_check" => {
+            open_update_settings(app);
+            let app = app.clone();
+            tauri::async_runtime::spawn(async move {
+                crate::updater::check_now(&app, true).await;
+            });
+        }
+        "update_open" => open_update_settings(app),
+        "update_install" => {
+            let app = app.clone();
+            tauri::async_runtime::spawn(async move {
+                // A refusal is explained in Settings › About.
+                if crate::updater::install_and_restart(&app).await.is_err() {
+                    open_update_settings(&app);
+                }
+            });
+        }
+        // Installs a downloaded update first when nothing is busy.
+        "quit" => crate::updater::quit_app(app),
         _ => {}
     }
+}
+
+fn open_update_settings<R: Runtime>(app: &AppHandle<R>) {
+    focus_main_window(app);
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.eval("window.location.assign('/settings?section=about')");
+    }
+}
+
+/// The updater's items, shown when this copy checks for updates.
+fn add_update_items<'a, R: Runtime>(
+    app: &'a AppHandle<R>,
+    mut builder: MenuBuilder<'a, R, AppHandle<R>>,
+) -> tauri::Result<MenuBuilder<'a, R, AppHandle<R>>> {
+    use crate::updater::{TrayItem, UpdaterState};
+    let Some(updater) = app.try_state::<UpdaterState>() else {
+        return Ok(builder);
+    };
+    if !updater.support().checks() {
+        return Ok(builder);
+    }
+    builder = builder.item(&PredefinedMenuItem::separator(app)?);
+    builder = match updater.tray_item() {
+        TrayItem::None => builder,
+        TrayItem::Available(version) => builder.item(
+            &MenuItemBuilder::with_id("update_open", format!("Update Available · {version}")).build(app)?,
+        ),
+        TrayItem::Downloading => builder.item(
+            &MenuItemBuilder::new("Downloading Update…").enabled(false).build(app)?,
+        ),
+        TrayItem::Ready { version, busy: false } => builder.item(
+            &MenuItemBuilder::with_id("update_install", format!("Restart to Update to {version}")).build(app)?,
+        ),
+        // Menus cannot explain more; Settings › About says what is running.
+        TrayItem::Ready { busy: true, .. } => builder.item(
+            &MenuItemBuilder::new("Update Ready — Protocol Is Busy").enabled(false).build(app)?,
+        ),
+    };
+    Ok(builder.item(&MenuItemBuilder::with_id("update_check", "Check for Updates…").build(app)?))
 }
 fn toggle_recording_handler<R: Runtime>(app: &AppHandle<R>) {
     focus_main_window(app);
@@ -376,10 +433,11 @@ fn build_menu<R: Runtime>(
         }
     }
 
-    builder
+    builder = builder
         .item(&PredefinedMenuItem::separator(app)?)
         .item(&MenuItemBuilder::with_id("open_window", "Open Main Window").build(app)?)
-        .item(&MenuItemBuilder::with_id("settings", "Settings").build(app)?)
+        .item(&MenuItemBuilder::with_id("settings", "Settings").build(app)?);
+    add_update_items(app, builder)?
         .item(&PredefinedMenuItem::separator(app)?)
         .item(&MenuItemBuilder::with_id("quit", "Quit").build(app)?)
         .build()

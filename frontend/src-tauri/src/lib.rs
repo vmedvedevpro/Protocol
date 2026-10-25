@@ -766,6 +766,7 @@ pub fn run() {
             updater::commands::updater_get_status,
             updater::commands::updater_check_now,
             updater::commands::updater_download_now,
+            updater::commands::updater_install_now,
             updater::commands::updater_set_auto_check,
             updater::commands::updater_set_ui_activity,
         ])
@@ -776,6 +777,16 @@ pub fn run() {
                 #[cfg(target_os = "macos")]
                 tauri::RunEvent::Reopen { .. } => {
                     tray::focus_main_window(_app_handle);
+                }
+                // ⌘Q and Dock Quit (no exit code) install a downloaded update
+                // first, like tray Quit. Programmatic exits and restarts carry
+                // a code and pass through.
+                #[cfg(target_os = "macos")]
+                tauri::RunEvent::ExitRequested { code: None, api, .. }
+                    if !updater::is_quitting() && updater::installs_on_quit(_app_handle) =>
+                {
+                    api.prevent_exit();
+                    updater::quit_app(_app_handle);
                 }
                 tauri::RunEvent::Exit => {
                     log::info!("Application exiting, cleaning up resources...");
