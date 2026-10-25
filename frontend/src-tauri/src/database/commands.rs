@@ -20,29 +20,6 @@ pub async fn check_first_launch(app: AppHandle) -> Result<bool, String> {
         .map_err(|e| format!("Failed to check first launch: {}", e))
 }
 
-/// Open a dialog to select a folder or file for legacy database import
-#[tauri::command]
-pub async fn select_legacy_database_path(app: AppHandle) -> Result<Option<String>, String> {
-    use tauri_plugin_dialog::DialogExt;
-
-    info!("Opening dialog to select legacy database location");
-
-    let file_path = app
-        .dialog()
-        .file()
-        .add_filter("Database Files", &["db"])
-        .blocking_pick_file();
-
-    if let Some(path) = file_path {
-        let path_str = path.to_string();
-        info!("User selected path: {}", path_str);
-        Ok(Some(path_str))
-    } else {
-        info!("User cancelled file selection");
-        Ok(None)
-    }
-}
-
 /// Check for legacy database in the default app data directory
 #[tauri::command]
 pub async fn check_default_legacy_database(app: AppHandle) -> Result<Option<String>, String> {

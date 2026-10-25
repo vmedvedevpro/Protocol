@@ -766,7 +766,6 @@ pub fn run() {
             audio::permissions::get_system_audio_permission_status,
             // Database import commands
             database::commands::check_first_launch,
-            database::commands::select_legacy_database_path,
             database::commands::check_default_legacy_database,
             database::commands::check_homebrew_database,
             database::commands::import_and_initialize_database,
@@ -778,7 +777,6 @@ pub fn run() {
             // Onboarding commands
             onboarding::get_onboarding_status,
             onboarding::save_onboarding_status_cmd,
-            onboarding::reset_onboarding_status_cmd,
             onboarding::complete_onboarding,
             // System settings commands
             #[cfg(target_os = "macos")]
