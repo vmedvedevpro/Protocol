@@ -32,7 +32,8 @@ import { toast } from 'sonner';
 import { claudeOutputBudget, parseClaudeOutputTokens } from '@/lib/claude-output-tokens';
 
 export interface ModelConfig {
-  provider: 'ollama' | 'groq' | 'claude' | 'openai' | 'openrouter' | 'builtin-ai' | 'custom-openai';
+  /** '' means no provider is selected: the saved one is no longer offered */
+  provider: 'ollama' | 'groq' | 'claude' | 'openai' | 'openrouter' | 'builtin-ai' | 'custom-openai' | '';
   model: string;
   whisperModel: string;
   apiKey?: string | null;
@@ -258,6 +259,7 @@ export function ModelSettingsModal({
   );
 
   const isDoneDisabled =
+    !modelConfig.provider ||
     (requiresApiKey && (!apiKey || (typeof apiKey === 'string' && !apiKey.trim()))) ||
     (modelConfig.provider === 'ollama' && ollamaEndpointChanged) ||
     isCustomOpenAIInvalid;
@@ -276,7 +278,7 @@ export function ModelSettingsModal({
           setModelConfig(data);
 
           // Fetch API key if not included in response and provider requires it
-          if (data.provider !== 'ollama' && !data.apiKey) {
+          if (data.provider && data.provider !== 'ollama' && !data.apiKey) {
             try {
               const apiKeyData = await invoke('api_get_api_key', {
                 provider: data.provider
@@ -904,7 +906,7 @@ export function ModelSettingsModal({
               </SelectContent>
             </Select>
 
-            {modelConfig.provider !== 'builtin-ai' && modelConfig.provider !== 'custom-openai' && (
+            {modelConfig.provider !== '' && modelConfig.provider !== 'builtin-ai' && modelConfig.provider !== 'custom-openai' && (
               <Popover open={modelComboboxOpen} onOpenChange={setModelComboboxOpen} modal={true}>
                 <PopoverTrigger asChild>
                   <Button
@@ -962,6 +964,11 @@ export function ModelSettingsModal({
               </Popover>
             )}
           </div>
+          {!modelConfig.provider && (
+            <p className="text-xs text-muted-foreground mt-1">
+              The provider saved earlier is no longer available. Choose another one.
+            </p>
+          )}
         </div>
 
         {/* Custom OpenAI Configuration Section */}

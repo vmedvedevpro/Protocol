@@ -8,8 +8,11 @@
 import { invoke } from '@tauri-apps/api/core';
 import { TranscriptModelProps } from '@/components/TranscriptSettings';
 
+export type SummaryProvider = 'ollama' | 'groq' | 'claude' | 'openrouter' | 'openai' | 'builtin-ai' | 'custom-openai';
+
 export interface ModelConfig {
-  provider: 'ollama' | 'groq' | 'claude' | 'openrouter' | 'openai' | 'builtin-ai' | 'custom-openai';
+  /** '' means no provider is selected: the saved one is no longer offered */
+  provider: SummaryProvider | '';
   model: string;
   whisperModel: string;
   /**

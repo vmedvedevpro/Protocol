@@ -13,6 +13,19 @@ import {
   readCachedDetectedSummaryLanguage,
 } from '@/lib/summary-language-preferences';
 
+/**
+ * A saved provider the app no longer offers loads as no provider (''); see
+ * api_get_model_config. Ask for another one instead of starting a summary the
+ * backend would reject.
+ */
+function askForSummaryProvider(onOpenModelSettings?: () => void) {
+  toast.error('Choose a summary provider', {
+    description: 'The provider saved earlier is no longer available. Pick another one in Model Settings.',
+    duration: 7000,
+  });
+  onOpenModelSettings?.();
+}
+
 async function resolveSummaryLanguage(
   meetingId: string,
   transcriptTexts: string[]
@@ -660,6 +673,11 @@ export function useSummaryGeneration({
       return false;
     }
 
+    if (!modelConfig.provider) {
+      askForSummaryProvider(onOpenModelSettings);
+      return false;
+    }
+
     // Flip the UI into "Generating…" immediately — before the (slow) transcript
     // fetch / model checks — so auto-summary doesn't leave the empty-state
     // "Generate summary" button up for the whole prep phase.
@@ -877,6 +895,10 @@ export function useSummaryGeneration({
     const isCurrentRequest = () =>
       mountedRef.current && activeMeetingIdRef.current === requestMeetingId &&
       summaryRequestGenerationRef.current === requestGeneration;
+    if (!modelConfig.provider) {
+      askForSummaryProvider(onOpenModelSettings);
+      return;
+    }
     setSummaryStatus('regenerating');
     setSummaryError(null);
 

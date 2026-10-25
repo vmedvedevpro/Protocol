@@ -32,14 +32,19 @@ struct ResolvedAssistantModel {
     app_data_dir: PathBuf,
 }
 
+const NO_MODEL_CONFIGURED: &str = "No AI model configured. Choose one in Model Settings first.";
+
 async fn resolve_assistant_model(pool: &SqlitePool) -> Result<ResolvedAssistantModel, String> {
     let config = SettingsRepository::get_model_config(pool)
         .await
         .map_err(|e| format!("Failed to load model config: {}", e))?
-        .ok_or_else(|| "No AI model configured. Choose one in Model Settings first.".to_string())?;
+        .ok_or_else(|| NO_MODEL_CONFIGURED.to_string())?;
 
     let provider_name = config.provider.clone();
-    let provider = LLMProvider::from_str(&provider_name)?;
+    // A saved provider this build no longer offers (the Claude Code CLI, #19)
+    // counts as no provider selected, as it does in Model Settings.
+    let provider =
+        LLMProvider::from_str(&provider_name).map_err(|_| NO_MODEL_CONFIGURED.to_string())?;
     let api_key = if matches!(
         provider,
         LLMProvider::Ollama | LLMProvider::BuiltInAI | LLMProvider::CustomOpenAI
@@ -491,6 +496,24 @@ mod meeting_context_tests {
         assert!(context.chars().count() <= 3_000 + 200);
         assert!(context.contains("budget approval"));
         assert!(context.contains("[41:40]"));
+    }
+}
+
+#[cfg(test)]
+mod assistant_model_tests {
+    use super::{resolve_assistant_model, NO_MODEL_CONFIGURED};
+    use crate::database::repositories::setting::SettingsRepository;
+
+    #[tokio::test]
+    async fn removed_cli_provider_asks_for_another_model() {
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+        SettingsRepository::save_model_config(&pool, "claude-cli", "sonnet", "large-v3", None, None)
+            .await
+            .unwrap();
+
+        let error = resolve_assistant_model(&pool).await.err().unwrap();
+        assert_eq!(error, NO_MODEL_CONFIGURED);
     }
 }
 

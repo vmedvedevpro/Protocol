@@ -14,7 +14,7 @@ use crate::{
         },
     },
     state::AppState,
-    summary::CustomOpenAIConfig,
+    summary::{llm_client::LLMProvider, CustomOpenAIConfig},
 };
 
 // Hardcoded server URL
@@ -612,9 +612,28 @@ pub async fn api_get_model_config<R: Runtime>(
     _auth_token: Option<String>,
 ) -> Result<Option<ModelConfig>, String> {
     log_info!("api_get_model_config called (native)");
-    let pool = state.db_manager.pool();
+    read_model_config(state.db_manager.pool()).await
+}
 
+async fn read_model_config(pool: &sqlx::SqlitePool) -> Result<Option<ModelConfig>, String> {
     match SettingsRepository::get_model_config(pool).await {
+        // A saved provider this build no longer offers, such as the Claude Code
+        // CLI provider removed in #19, comes back with an empty provider and
+        // model: the UI then asks for another provider instead of failing to load.
+        Ok(Some(config)) if LLMProvider::from_str(&config.provider).is_err() => {
+            log_warn!(
+                "⚠️ Saved summary provider '{}' is no longer supported; no provider selected",
+                &config.provider
+            );
+            Ok(Some(ModelConfig {
+                provider: String::new(),
+                model: String::new(),
+                whisper_model: config.whisper_model,
+                api_key: None,
+                ollama_endpoint: config.ollama_endpoint,
+                summary_max_tokens: config.summary_max_tokens,
+            }))
+        }
         Ok(Some(config)) => {
             log_info!(
                 "✅ Found model config in database: provider={}, model={}, whisperModel={}, ollamaEndpoint={:?}",
@@ -1705,5 +1724,51 @@ pub async fn api_test_custom_openai_connection<R: Runtime>(
                 Err(format!("Connection failed: {}", e))
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod model_config_tests {
+    use super::*;
+
+    async fn settings_pool() -> sqlx::SqlitePool {
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+        pool
+    }
+
+    #[tokio::test]
+    async fn removed_cli_provider_loads_as_no_provider_selected() {
+        let pool = settings_pool().await;
+        // The row the removed provider's settings panel wrote, CLI path included.
+        sqlx::query(
+            "INSERT INTO settings (id, provider, model, whisperModel, summaryMaxTokens, claudeCliPath)
+             VALUES ('1', 'claude-cli', 'sonnet', 'large-v3', 4096, 'C:\\Tools\\claude.exe')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let config = read_model_config(&pool).await.unwrap().unwrap();
+        assert_eq!(config.provider, "");
+        assert_eq!(config.model, "");
+        assert_eq!(config.api_key, None);
+        assert_eq!(config.whisper_model, "large-v3");
+        assert_eq!(config.summary_max_tokens, Some(4096));
+    }
+
+    #[tokio::test]
+    async fn supported_provider_loads_unchanged() {
+        let pool = settings_pool().await;
+        SettingsRepository::save_model_config(&pool, "claude", "claude-sonnet-4-5", "large-v3", None, Some(32000))
+            .await
+            .unwrap();
+        SettingsRepository::save_api_key(&pool, "claude", "sk-ant-test").await.unwrap();
+
+        let config = read_model_config(&pool).await.unwrap().unwrap();
+        assert_eq!(config.provider, "claude");
+        assert_eq!(config.model, "claude-sonnet-4-5");
+        assert_eq!(config.api_key.as_deref(), Some("sk-ant-test"));
+        assert_eq!(config.summary_max_tokens, Some(32000));
     }
 }
