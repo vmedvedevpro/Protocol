@@ -520,9 +520,10 @@ The feed has `windows-x86_64-nsis` and `windows-x86_64` (both the setup),
 `darwin-aarch64-app` and `darwin-aarch64` (`protocol-macos-arm64.app.tar.gz`) and
 `linux-x86_64-appimage`, and deliberately no `linux-x86_64` or deb key: a deb
 install finds no entry and gets #31's download link instead of an AppImage.
-Until #31's configuration and #33's tauri-cli 2.12 are in `main`, dry runs warn
-about them and the macOS leg adds a throwaway updater configuration so the
-`.app.tar.gz` is still built; tag runs fail.
+Signatures carry the version (`signer sign --app-version`, tauri-cli 2.12 from
+#33); `verify-updater-signature.mjs` checks it. Until #31's configuration is in
+`main`, dry runs warn about it and the macOS leg adds a throwaway updater
+configuration so the `.app.tar.gz` is still built; tag runs fail.
 
 **Migration checksums.** sqlx stores a SHA-384 per applied migration and refuses
 a binary whose embedded bytes differ. The ten historical migrations
