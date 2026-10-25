@@ -624,7 +624,7 @@ Integrity checks:
   is refused and kept: it may be a partial download kept for resume or one being
   written. The built-in summary path, which the live assistant reaches without
   a readiness check, also refuses while the model is downloading, and after a
-  deletion marks the model not downloaded so Settings offers it again.
+  deletion marks the model failed, with the reason, so Settings offers it again.
 - Diarization keeps its own checks: downloads go to `.part`, are verified and
   then renamed; Nemotron is hashed before every load (`nemotron.rs`); bundled
   or manually placed Pyannote files are not hashed at load.

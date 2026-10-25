@@ -293,8 +293,12 @@ deleted" and "Nothing was deleted".
     assistant and the person and group questions. It goes through the
     registered `ModelManager::verify_before_load`: it refuses while a download
     of the model runs ("is still downloading"), and after a failed check sets
-    the cached status to NotDownloaded (deleted) or Corrupted (not deleted), so
-    Settings offers the download again.
+    the cached status to Error with the reason (deleted) or Corrupted (not
+    deleted), so Settings says why and offers the download again. The summary
+    status is internally tagged, so its error is the struct variant
+    `Error { message }`, `{ type: 'error', message }` in `BuiltInModelStatus`.
+    `BuiltInModelManager.tsx` lists the models again after a download error
+    event and shows that message.
   - Recording start then says the model failed its integrity check, and whether
     it was deleted, instead of "still downloading": `model_unavailable_message`
     in `recording_commands.rs` for native starts, and `modelIntegrityMessage`
@@ -307,21 +311,22 @@ resume, cancellation between reads, marker invalidation, future size, every URL
 commit-pinned), Parakeet and Whisper load-path tests with tampered files,
 `discovery_does_not_list_a_failed_model_that_could_not_be_deleted` (Whisper),
 the summary tests `the_live_assistant_keeps_a_partial_or_downloading_model`,
-`a_full_size_model_that_fails_its_hash_is_deleted_and_offered_again` and
+`a_full_size_model_that_fails_its_hash_is_deleted_and_offered_again`,
 `cancel_stops_hashing_a_kept_model_at_once` (with its Parakeet twin
-`cancel_stops_hashing_a_kept_file_at_once`), catalog/pin consistency for
-Whisper, Parakeet, GGUF and Nemotron, `tests/download-progress/errors.test.ts`
-and `tests/lib/recording-start-errors.test.ts`. The delete-failure tests hold
-the file open without `FILE_SHARE_DELETE` and run on Windows only.
+`cancel_stops_hashing_a_kept_file_at_once`),
+`every_status_serializes_with_its_tag_and_round_trips` and
+`the_model_list_serializes_after_a_failed_download`, catalog/pin consistency for
+Whisper, Parakeet, GGUF and Nemotron, `tests/download-progress/errors.test.ts`,
+`tests/download-progress/builtin-manager.test.tsx` (an error status shows its
+message and Retry) and `tests/lib/recording-start-errors.test.ts`. The
+delete-failure tests hold the file open without `FILE_SHARE_DELETE` and run on
+Windows only.
 The ignored `model_integrity::tests::small_pinned_files_match_what_their_sources_serve`
 streams five small pinned files (about 0.3 MB) from Hugging Face and GitHub;
 run it with `--ignored` when changing a pin. Limits: the engine download paths
 are not exercised against a server (their URLs are not injectable), Pyannote
 copies in the user folder are still not hashed at load, and Nemotron is still
-hashed on every load by `nemotron.rs`. A failed summary download records
-`ModelStatus::Error(String)`, which the internally tagged summary status cannot
-serialize, so `builtin_ai_list_models` fails until the next rescan; this
-predates the integrity work, which uses NotDownloaded and Corrupted instead.
+hashed on every load by `nemotron.rs`.
 
 ## 5. Acceleration and packaging are separate from ASR selection
 

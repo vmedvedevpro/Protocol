@@ -28,6 +28,9 @@ issue and PR numbers refer to
   (`resources/diarization/THIRD_PARTY_MODELS.txt`), and correct the Settings
   credit line: the WeSpeaker weights and the VBx x-vector transform are
   CC BY 4.0, not Apache-2.0 (#1).
+- Show why a built-in summary model failed: after a failed download or
+  integrity check, Settings no longer says "Failed to load models", and the
+  model card shows the error with Retry (#1).
 
 ## Unreleased
 
