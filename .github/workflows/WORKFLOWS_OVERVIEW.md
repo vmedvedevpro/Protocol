@@ -14,6 +14,9 @@ certificate yet).
 | `release-build-macos.yml` | called by `release.yml` | `macos-15`: Apple Silicon DMG and updater bundle, native tests, bundle checks, two launches |
 | `release-build-linux.yml` | called by `release.yml` | `ubuntu-22.04`: experimental AppImage and deb, start under Xvfb; native tests do not block yet |
 | `release-published.yml` | release published | Downloads the public assets anonymously and checks checksums, `latest.json`, signatures and `/releases/latest` |
+| `virustotal.yml` | release published; manual run for a tag | Scans the Windows setup (optionally every installer) with VirusTotal and writes the detection counts and report links to the job summary |
+| `codeql.yml` | pull requests, pushes to `main`, weekly | CodeQL code scanning of the workflows, the TypeScript/JavaScript and the Rust code |
+| `scorecard.yml` | pushes to `main`, weekly | OpenSSF Scorecard; publishes the score behind the README badge |
 
 Everything a job decides lives in tested scripts under `scripts/release/`
 (`node --test "scripts/release/test/*.test.mjs"`), so it can be run locally the
@@ -167,7 +170,8 @@ Check the policy with
 `gh api repos/vmedvedevpro/Protocol/environments/release/deployment-branch-policies`:
 it should list one policy, `v*` of type `tag`. Keep an offline copy of the key
 file and its password: losing either strands every installed copy on its
-version. No other secrets are used.
+version. The only other secret is the optional repository secret `VT_API_KEY`
+of `virustotal.yml` ([below](#virustotal)).
 
 ## Runners, caches, time
 
@@ -188,6 +192,90 @@ version. No other secrets are used.
   elsewhere): the historical migrations' checksums depend on them, and each leg
   checks the files it embeds against `released-migration-checksums.json`.
 
+## Code scanning, VirusTotal and badges
+
+### CodeQL
+
+`codeql.yml` is CodeQL's advanced setup: one job per language, `actions`,
+`javascript-typescript` and `rust`, all with `build-mode: none`, so nothing is
+compiled and no native toolchain is installed. It runs on pull requests, pushes
+to `main` and every Monday, so new queries also reach unchanged code. Findings
+appear under **Security → Code scanning**; on a pull request, new alerts show as
+a check. Permissions: `contents: read` and `security-events: write`. A pull
+request takes about 1 minute for `actions` and `javascript-typescript` and about
+10 for `rust`, in parallel with the other checks.
+
+Rust is extracted by rust-analyzer from the sources: build scripts and
+procedural macros are not run, so code they generate (`tauri::generate_context!`,
+`#[tauri::command]` wrappers, serde derives) is not analysed, and a few macro
+calls fail to expand. The first run extracted 181 of 184 Rust files without
+errors; `diarization/clustering.rs` fails because it starts with a UTF-8 byte
+order mark. The repository's code-scanning *default setup* must stay off:
+GitHub rejects advanced-setup results while it is on. C/C++, Python and Swift
+files are not analysed.
+
+### OpenSSF Scorecard
+
+`scorecard.yml` runs on pushes to `main` and every Monday, uploads its SARIF to
+code scanning and publishes the result to `api.scorecard.dev`
+(`publish_results: true`), which serves the badge. The Scorecard API then
+verifies the workflow and rejects the result unless it keeps to its rules: no
+top-level `env` or `defaults`, no workflow-level write permissions,
+`id-token: write` only in the Scorecard job, which may use only
+`actions/checkout`, `actions/upload-artifact`, `github/codeql-action/upload-sarif`,
+`ossf/scorecard-action` and `step-security/harden-runner`, on an Ubuntu hosted
+runner. Results are published only from the default branch, so pull requests do
+not run it. The job's permissions: `contents: read`, `security-events: write`
+(SARIF) and `id-token: write` (signs the published result). The default
+`GITHUB_TOKEN` is enough; a fine-grained PAT (`repo_token`) is only needed to
+read classic branch protection, which this repository does not use.
+
+### VirusTotal
+
+`virustotal.yml` runs when a release is published, alongside
+`release-published.yml`, and scans `protocol-windows-x64-setup.exe`. A manual
+run scans any published tag; with **all-installers** it adds the DMG, the
+AppImage, the deb and the macOS updater bundle. Run it from `main`: a tag made
+before the workflow existed does not have the script.
+
+```powershell
+gh workflow run virustotal.yml -R vmedvedevpro/Protocol -f tag=v0.3.0 -f all-installers=true
+```
+
+`scripts/release/virustotal-report.mjs` takes each file's hash from the
+release's `SHA256SUMS.txt` and asks VirusTotal for it. A file VirusTotal has
+already analysed is not uploaded again; any other is downloaded anonymously,
+checked against the list, uploaded (through an upload URL above 32 MB; the
+limit is 650 MB) and waited for, up to 30 minutes. The job summary lists each
+file with `flagged/engines` (malicious and suspicious verdicts out of the
+engines that gave one) and the link to its report,
+`https://www.virustotal.com/gui/file/<sha256>`, for the owner to read or paste
+into the release notes. Detections do not fail the run: unsigned installers
+often get one to three heuristic ones. There is no badge.
+
+It needs the repository secret `VT_API_KEY`, the key of a free VirusTotal
+account (Profile → API key); without it the step writes a notice and the run
+succeeds. The public API allows 4 requests a minute and 500 a day, so requests
+are spaced 15 s apart; one release takes about 5 requests per uploaded file.
+The job has `contents: read` only.
+
+```powershell
+gh secret set VT_API_KEY -R vmedvedevpro/Protocol
+```
+
+### README badges
+
+| Badge | Source | Shows | Has a value |
+| --- | --- | --- | --- |
+| Release | shields.io, GitHub releases | The latest published release marked Latest | Now |
+| Downloads | shields.io, GitHub releases | Downloads of every asset of every release | Now |
+| CI | shields.io, `pr-checks.yml` | The latest run of the PR checks on `main` | Now |
+| CodeQL | shields.io, `codeql.yml` | The latest CodeQL run on `main` (not the alert count) | After the first run on `main` |
+| OpenSSF Scorecard | `api.scorecard.dev` | The latest published score, 0–10 | After the first run on `main` |
+| License | shields.io, GitHub's license detection | MIT | Now |
+
+There is no coverage badge and no coverage collection (owner decision in #17).
+
 ## Removed upstream workflows
 
 `build.yml`, `build-test.yml`, `build-windows.yml`, `build-devtest.yml`,
@@ -197,4 +285,5 @@ their guides (`ACCELERATION_GUIDE.md`, `README_DEVTEST.md`, `MACOS_RELEASE.md`)
 were Meetily – Actually Free's release process: DigiCert and Apple signing,
 upstream asset names, a separate macOS publication, a VirusTotal upload, and
 secrets this repository does not have. `release.yml` and its legs replace them;
-the macOS bundle checks moved into `release-build-macos.yml`.
+the macOS bundle checks moved into `release-build-macos.yml`, and
+`virustotal.yml` (#17) scans published releases again, reporting only.

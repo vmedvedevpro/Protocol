@@ -520,7 +520,9 @@ procedure, dry runs and the `release` environment are in
    with the local files. Dry runs run the same script in `preview` with a
    throwaway key.
 5. The owner publishes; `release-published.yml` (`check-published-release.mjs`)
-   checks the public assets, the feed and `/releases/latest`.
+   checks the public assets, the feed and `/releases/latest`, and
+   `virustotal.yml` (`virustotal-report.mjs`, needs `VT_API_KEY`) writes the
+   Windows setup's VirusTotal detections and report link to its job summary.
 
 The feed has `windows-x86_64-nsis` and `windows-x86_64` (both the setup),
 `darwin-aarch64-app` and `darwin-aarch64` (`protocol-macos-arm64.app.tar.gz`) and
@@ -553,6 +555,16 @@ started in CI only, and their native tests do not block; caches saved by tag run
 are visible only to that tag, so release runs start cold (about 40 minutes, the
 Windows leg about 35); `llama-helper` is CPU-only on Windows and Linux; the
 Vulkan/CPU choice happens at install and update time, not at launch.
+
+### Code scanning and badges
+
+`codeql.yml` runs CodeQL (workflows, TypeScript/JavaScript, Rust; `build-mode:
+none`) on pull requests, `main` and weekly, with alerts in the Security tab;
+`scorecard.yml` runs OpenSSF Scorecard on `main` and weekly and publishes the
+score behind the README badge. Their permissions, the Rust extraction limits,
+`virustotal.yml` and what each README badge shows are in
+[WORKFLOWS_OVERVIEW.md](../.github/workflows/WORKFLOWS_OVERVIEW.md#code-scanning-virustotal-and-badges).
+Nothing collects test coverage.
 
 ### Fork identity and updates
 
@@ -741,7 +753,8 @@ source recovery for #42. Apple Silicon build `36876715270` passed all 22 worker
 and pipeline regressions plus bundle/launch checks; public smoke test
 `36878960910` passed. See [RELEASE_V0220_MACOS.md](RELEASE_V0220_MACOS.md) for
 provenance. Physical recording and live-transcription confirmation remain open.
-Upstream's VirusTotal submission workflow was removed in #15.
+Upstream's VirusTotal submission workflow was removed in #15; Protocol's
+`virustotal.yml` (#17) reports VirusTotal results for published releases.
 
 Live system-meter warnings are documented in
 [SYSTEM_AUDIO_LEVEL_ADVICE.md](SYSTEM_AUDIO_LEVEL_ADVICE.md).
