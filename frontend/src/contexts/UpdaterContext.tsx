@@ -19,9 +19,15 @@ import {
   type UpdaterSnapshot,
 } from '@/lib/updater';
 
+/** How long a refusal's reasons stay next to Restart and update. */
+export const REFUSAL_MS = 10_000;
+
 interface UpdaterContextValue {
   status: UpdaterSnapshot | null;
-  /** Reasons the last Restart and update was refused for, until the next try. */
+  /**
+   * Reasons the last Restart and update was refused for, until the reported
+   * work ends, the next try, or REFUSAL_MS.
+   */
   refusedFor: BusyReason[];
   panelOpen: boolean;
   setPanelOpen: (open: boolean) => void;
@@ -84,6 +90,14 @@ export function UpdaterProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (busy === 0) setRefusedFor([]);
   }, [busy]);
+  // A refusal can name work that busyReasons never lists (the speech engine
+  // lock, a summary that ended before the refresh), so the count above may
+  // never change; without the timer the button would stay disabled.
+  useEffect(() => {
+    if (refusedFor.length === 0) return;
+    const timer = setTimeout(() => setRefusedFor([]), REFUSAL_MS);
+    return () => clearTimeout(timer);
+  }, [refusedFor]);
 
   const value = useMemo(
     () => ({ status, refusedFor, panelOpen, setPanelOpen, checkNow, download, installNow, setAutoCheck }),

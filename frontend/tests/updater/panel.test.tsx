@@ -1,6 +1,6 @@
 import React from 'react';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
-import { afterEach, beforeEach, expect, mock, test } from 'bun:test';
+import { afterEach, beforeEach, expect, jest, mock, test } from 'bun:test';
 import type { UpdaterSnapshot } from '../../src/lib/updater';
 
 Object.assign(globalThis, { React });
@@ -29,7 +29,7 @@ mock.module('@/components/ui/progress', () => ({ Progress: (props: any) => <prog
 mock.module('@/components/ui/spinner', () => ({ Spinner: () => <span /> }));
 mock.module('@/components/ui/switch', () => ({ Switch: (props: any) => <input type="checkbox" {...props} /> }));
 
-const { UpdaterProvider, useUpdater } = await import('../../src/contexts/UpdaterContext');
+const { UpdaterProvider, useUpdater, REFUSAL_MS } = await import('../../src/contexts/UpdaterContext');
 const { UpdatePanel, MAC_PERMISSIONS_NOTE } = await import('../../src/components/updater/UpdatePanel');
 const { UpdateSettings } = await import('../../src/components/updater/UpdateSettings');
 const { snapshot, offered } = await import('./fixtures');
@@ -95,6 +95,31 @@ test('Restart and update is disabled while native code reports work', async () =
   expect(text()).toContain('a recording is in progress');
   await push(snapshot({ offer: offered('0.3.1', { downloaded: true }) }));
   for (const button of buttons('Restart and update')) expect(button.props.disabled).toBe(false);
+});
+
+test('a refusal that the status never lists clears on its own', async () => {
+  jest.useFakeTimers();
+  try {
+    await mount();
+    await push(snapshot({ offer: offered('0.3.1', { downloaded: true }) }));
+    installRefusal = { kind: 'busy', reasons: ['speechEngine'] };
+    await press('Restart and update');
+    expect(text()).toContain('the speech engine is busy');
+    for (const button of buttons('Restart and update')) expect(button.props.disabled).toBe(true);
+    await act(async () => { jest.advanceTimersByTime(REFUSAL_MS); });
+    expect(text()).not.toContain('the speech engine is busy');
+    for (const button of buttons('Restart and update')) expect(button.props.disabled).toBe(false);
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
+test('Restart and update waits for a running check in the panel and in Settings', async () => {
+  await mount();
+  await push(snapshot({ offer: offered('0.3.1', { downloaded: true }), activity: { state: 'checking', manual: true } }));
+  const restart = buttons('Restart and update');
+  expect(restart).toHaveLength(2);
+  for (const button of restart) expect(button.props.disabled).toBe(true);
 });
 
 test('a download waiting for the recording cannot be started twice', async () => {

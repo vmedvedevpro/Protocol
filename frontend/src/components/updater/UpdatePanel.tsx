@@ -50,6 +50,7 @@ export function UpdatePanel({ onClose }: { onClose: () => void }) {
   const { version, notes } = offer.release;
   const downloading = status.activity.state === 'downloading';
   const installing = status.activity.state === 'installing';
+  const busyActivity = status.activity.state !== 'idle';
   const percent = downloadPercent(status.activity);
   const blocked = blockedLine(status, updater.refusedFor);
   const error = status.error && !status.error.background && status.error.action !== 'check' ? status.error : null;
@@ -85,7 +86,7 @@ export function UpdatePanel({ onClose }: { onClose: () => void }) {
             Download from GitHub
           </Button>
         ) : offer.downloaded ? (
-          <Button size="sm" disabled={!!blocked || installing} onClick={() => void updater.installNow()}>
+          <Button size="sm" disabled={!!blocked || busyActivity} onClick={() => void updater.installNow()}>
             {installing ? 'Restarting…' : 'Restart and update'}
           </Button>
         ) : (
