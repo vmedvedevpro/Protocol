@@ -1,0 +1,295 @@
+name: Release
+
+# A pushed tag vX.Y.Z or vX.Y.Z-rc.N on a commit of main builds every platform
+# and creates a draft release; the owner publishes it by hand. Manual runs and
+# pull requests that touch the pipeline are always dry runs: they build and
+# check everything, sign with a throwaway key and create no release.
+# See WORKFLOWS_OVERVIEW.md for the procedure.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version the files must carry (empty = tauri.conf.json). Always a dry run.
+        required: false
+        type: string
+  pull_request:
+    paths:
+      - '.github/workflows/release*.yml'
+      - '.github/workflows/pr-checks.yml'
+      - 'scripts/release/**'
+      - 'frontend/scripts/build-universal-windows.ps1'
+      - 'frontend/scripts/stage-runtime-deps.ps1'
+      - 'frontend/scripts/verify-windows-release.mjs'
+      - 'frontend/scripts/bootstrap-*.ps1'
+      - 'frontend/src-tauri/windows/**'
+      - 'frontend/src-tauri/vulkan-probe/**'
+      - 'frontend/src-tauri/tauri*.conf.json'
+      - 'frontend/src-tauri/build.rs'
+      - 'frontend/src-tauri/build/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  # One run per tag, never cancelled; a newer push of a branch or PR cancels
+  # its older dry run.
+  group: release-${{ github.event_name == 'push' && github.ref || format('dry-run-{0}', github.event.pull_request.number || github.ref) }}
+  cancel-in-progress: ${{ github.event_name != 'push' }}
+
+jobs:
+  validate:
+    if: github.repository == 'vmedvedevpro/Protocol'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.validate.outputs.version }}
+      tag: ${{ steps.validate.outputs.tag }}
+      prerelease: ${{ steps.validate.outputs.prerelease }}
+      first_release: ${{ steps.validate.outputs.first_release }}
+      updater_configured: ${{ steps.validate.outputs.updater_configured }}
+      signed_version: ${{ steps.validate.outputs.signed_version }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          # Full history: a tag run checks that the commit is on origin/main.
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+      - name: List the repository's releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases" > "$RUNNER_TEMP/releases.json"
+      - name: Validate the release
+        id: validate
+        env:
+          MODE: ${{ github.event_name == 'push' && 'tag' || 'dry-run' }}
+          TAG: ${{ github.ref_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          args=(--mode "$MODE" --sha "$GITHUB_SHA" --releases "$RUNNER_TEMP/releases.json" --notes-out "$RUNNER_TEMP/notes-source.md")
+          if [[ "$MODE" == tag ]]; then args+=(--tag "$TAG"); fi
+          if [[ -n "${INPUT_VERSION:-}" ]]; then args+=(--version "$INPUT_VERSION"); fi
+          node scripts/release/validate-release.mjs "${args[@]}"
+      - name: Check released migration checksums
+        run: node scripts/release/check-migration-checksums.mjs --source git
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-notes-source
+          path: ${{ runner.temp }}/notes-source.md
+          if-no-files-found: error
+          retention-days: 14
+
+  frontend-checks:
+    needs: validate
+    uses: ./.github/workflows/pr-checks.yml
+
+  build-windows:
+    needs: [validate, frontend-checks]
+    uses: ./.github/workflows/release-build-windows.yml
+    with:
+      version: ${{ needs.validate.outputs.version }}
+
+  build-macos:
+    needs: [validate, frontend-checks]
+    uses: ./.github/workflows/release-build-macos.yml
+    with:
+      version: ${{ needs.validate.outputs.version }}
+      updater-configured: ${{ needs.validate.outputs.updater_configured == 'true' }}
+
+  build-linux:
+    needs: [validate, frontend-checks]
+    uses: ./.github/workflows/release-build-linux.yml
+    with:
+      version: ${{ needs.validate.outputs.version }}
+
+  # Dry runs: the same assembly as `draft`, signed with a throwaway key, kept
+  # as the release-dry-run artifact instead of a release.
+  preview:
+    if: github.event_name != 'push'
+    needs: [validate, build-windows, build-macos, build-linux]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      PNPM_CONFIG_ENABLE_GLOBAL_VIRTUAL_STORE: 'false'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+        with:
+          version: 11.9.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - name: Install the pinned Tauri CLI
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+      # Only the legs' artifacts are named leg-*, so a release-dry-run left by
+      # an earlier attempt of this run is never taken for a leg.
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: leg-*
+          path: ${{ runner.temp }}/legs
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-notes-source
+          path: ${{ runner.temp }}
+      - name: Assemble the release with a throwaway key
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+          SIGNED_VERSION: ${{ needs.validate.outputs.signed_version }}
+          FIRST_RELEASE: ${{ needs.validate.outputs.first_release }}
+        run: |
+          set -euo pipefail
+          legs="$RUNNER_TEMP/legs"
+          key="$RUNNER_TEMP/preview.key"
+          node frontend/node_modules/@tauri-apps/cli/tauri.js signer generate --ci -w "$key"
+          TAURI_SIGNING_PRIVATE_KEY="$(cat "$key")" bash scripts/release/assemble-release.sh \
+            "$legs" "$RUNNER_TEMP/dist" "$RUNNER_TEMP/notes-source.md" "$key.pub" "$RUNNER_TEMP/dist-notes.md"
+          mkdir -p "$RUNNER_TEMP/preview"
+          cp "$RUNNER_TEMP/dist"/{latest.json,SHA256SUMS.txt} "$RUNNER_TEMP/dist"/*.sig "$RUNNER_TEMP/preview/"
+          cp "$RUNNER_TEMP/dist-notes.md" "$RUNNER_TEMP/preview/notes.md"
+          {
+            echo "## Dry run of v$VERSION"
+            echo
+            echo "Signed with a throwaway key; no release was created. The installers are in the leg-windows, leg-macos and leg-linux artifacts."
+            echo
+            echo '### SHA256SUMS.txt'
+            echo '```'
+            cat "$RUNNER_TEMP/dist/SHA256SUMS.txt"
+            echo '```'
+            echo '### latest.json'
+            echo '```json'
+            cat "$RUNNER_TEMP/dist/latest.json"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-dry-run
+          path: ${{ runner.temp }}/preview
+          if-no-files-found: error
+          retention-days: 14
+
+  # Tag runs: signs with the production key and creates the draft. Only this
+  # job can read the release environment, which admits only tag runs (v*).
+  draft:
+    if: github.event_name == 'push'
+    needs: [validate, build-windows, build-macos, build-linux]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    environment: release
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    env:
+      PNPM_CONFIG_ENABLE_GLOBAL_VIRTUAL_STORE: 'false'
+      VERSION: ${{ needs.validate.outputs.version }}
+      TAG: ${{ needs.validate.outputs.tag }}
+      PRERELEASE: ${{ needs.validate.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+        with:
+          version: 11.9.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - name: Install the pinned Tauri CLI
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: leg-*
+          path: ${{ runner.temp }}/legs
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-notes-source
+          path: ${{ runner.temp }}
+      - name: Sign and assemble the release
+        env:
+          SIGNED_VERSION: ${{ needs.validate.outputs.signed_version }}
+          FIRST_RELEASE: ${{ needs.validate.outputs.first_release }}
+          ATTESTATIONS: 'true'
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$TAURI_SIGNING_PRIVATE_KEY" ]]; then
+            echo "::error::The release environment has no TAURI_SIGNING_PRIVATE_KEY secret"
+            exit 1
+          fi
+          legs="$RUNNER_TEMP/legs"
+          # The key every installed copy trusts: signatures that do not verify
+          # against it would strand those installs, so assemble checks them.
+          node -p "require('./frontend/src-tauri/tauri.conf.json').plugins.updater.pubkey" > "$RUNNER_TEMP/pubkey"
+          bash scripts/release/assemble-release.sh \
+            "$legs" "$RUNNER_TEMP/dist" "$RUNNER_TEMP/notes-source.md" "$RUNNER_TEMP/pubkey" "$RUNNER_TEMP/notes.md"
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            ${{ runner.temp }}/dist/protocol-windows-x64-setup.exe
+            ${{ runner.temp }}/dist/protocol-macos-arm64.dmg
+            ${{ runner.temp }}/dist/protocol-macos-arm64.app.tar.gz
+            ${{ runner.temp }}/dist/protocol-linux-x86_64.AppImage
+            ${{ runner.temp }}/dist/protocol_${{ needs.validate.outputs.version }}_amd64.deb
+      - name: Create the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # A re-run (after deleting and pushing the tag again) replaces the
+          # previous draft for this tag; a published release is never touched.
+          if state=$(gh release view "$TAG" --json isDraft --jq .isDraft 2>/dev/null); then
+            if [[ "$state" != true ]]; then
+              echo "::error::$TAG is already published"
+              exit 1
+            fi
+            gh release delete "$TAG" --yes
+          fi
+          prerelease=()
+          if [[ "$PRERELEASE" == true ]]; then prerelease=(--prerelease); fi
+          for attempt in 1 2 3; do
+            if gh release create "$TAG" --draft --verify-tag --title "Protocol $VERSION" \
+              --notes-file "$RUNNER_TEMP/notes.md" "${prerelease[@]}" "$RUNNER_TEMP"/dist/*; then
+              break
+            fi
+            echo "::warning::Upload attempt $attempt failed"
+            gh release delete "$TAG" --yes 2>/dev/null || true
+            if [[ $attempt == 3 ]]; then exit 1; fi
+            sleep 30
+          done
+          id=$(gh release view "$TAG" --json databaseId --jq .databaseId)
+          gh api "repos/$GITHUB_REPOSITORY/releases/$id" > "$RUNNER_TEMP/release.json"
+          node scripts/release/check-release-assets.mjs --version "$VERSION" --dir "$RUNNER_TEMP/dist" --release "$RUNNER_TEMP/release.json"
+          url=$(node -p "require(process.argv[1]).html_url" "$RUNNER_TEMP/release.json")
+          {
+            echo "## Draft $TAG"
+            echo
+            echo "[$url]($url)"
+            echo
+            echo "Before publishing: read the notes, install protocol-windows-x64-setup.exe from the draft, record a short meeting."
+            echo "Publish with **Set as the latest release** checked (stable releases), or:"
+            echo
+            echo '```'
+            echo "gh release edit $TAG --draft=false --latest"
+            echo '```'
+            echo
+            echo '### SHA256SUMS.txt'
+            echo '```'
+            cat "$RUNNER_TEMP/dist/SHA256SUMS.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

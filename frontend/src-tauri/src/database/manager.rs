@@ -376,6 +376,40 @@ impl DatabaseManager {
 mod tests {
     use super::*;
 
+    /// The checksums embedded in this binary must equal the ones released
+    /// builds for this platform recorded in existing databases. A Windows build
+    /// from an LF checkout, or an edited released migration, fails here instead
+    /// of refusing to open users' databases after an update.
+    #[test]
+    fn embedded_migrations_match_released_checksums() {
+        let table: serde_json::Value =
+            serde_json::from_str(include_str!("../../released-migration-checksums.json"))
+                .unwrap();
+        let released = table["migrations"].as_object().unwrap();
+        let column = if cfg!(windows) { "windows" } else { "unix" };
+        assert_eq!(
+            MIGRATOR.iter().count(),
+            released.len(),
+            "every migration needs an entry in released-migration-checksums.json"
+        );
+        for migration in MIGRATOR.iter() {
+            let entry = released
+                .get(&migration.version.to_string())
+                .unwrap_or_else(|| panic!("no released checksum for {}", migration.version));
+            let embedded: String = migration
+                .checksum
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect();
+            assert_eq!(
+                embedded,
+                entry[column].as_str().unwrap(),
+                "migration {} differs from its released {column} checksum",
+                migration.version
+            );
+        }
+    }
+
     #[tokio::test]
     async fn repairs_known_people_migration_line_ending_checksum() {
         let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();

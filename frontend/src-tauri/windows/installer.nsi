@@ -33,22 +33,6 @@ ManifestDPIAwareness PerMonitorV2
 ${StrCase}
 ${StrLoc}
 
-!define MEETILY_PROGRESS_MESSAGE 0x84D1
-
-; The frameless bootstrapper passes a unique token and polls this per-user key.
-; The native NSIS progress control supplies continuous progress when available;
-; these milestones keep status truthful even while a runtime installer owns the
-; foreground work and the NSIS bar is temporarily stationary.
-!macro MeetilyReportProgress Percent
-  StrCpy $MeetilyReportedProgress ${Percent}
-  ${If} $UpdateMode = 1
-    SendMessage $HWNDPARENT ${MEETILY_PROGRESS_MESSAGE} ${Percent} 0
-  ${EndIf}
-  ${If} $MeetilyProgressToken != ""
-    WriteRegDWORD HKCU "Software\meetily\InstallerProgress\$MeetilyProgressToken" "Percent" ${Percent}
-  ${EndIf}
-!macroend
-
 {{#if installer_hooks}}
 !include "{{installer_hooks}}"
 {{/if}}
@@ -74,9 +58,6 @@ ${StrLoc}
 !define OUTFILE "{{out_file}}"
 !define ARCH "{{arch}}"
 !define ADDITIONALPLUGINSPATH "{{additional_plugins_path}}"
-!if /FileExists "${NSISDIR}\Plugins\x86-unicode\MeetilyProgress.dll"
-  !define MEETILY_HAS_PROGRESS_PLUGIN
-!endif
 !define ALLOWDOWNGRADES "{{allow_downgrades}}"
 !define DISPLAYLANGUAGESELECTOR "{{display_language_selector}}"
 !define INSTALLWEBVIEW2MODE "{{install_webview2_mode}}"
@@ -102,10 +83,6 @@ Var UpdateMode
 Var NoShortcutMode
 Var WixMode
 Var OldMainBinaryName
-Var MeetilyProgressToken
-Var MeetilyReportedProgress
-Var MeetilyInstallProgress
-Var MeetilyDisplayedProgress
 
 Name "${PRODUCTNAME}"
 BrandingText "Protocol"
@@ -206,7 +183,7 @@ VIAddVersionKey "ProductVersion" "${VERSION}"
 
 !define MUI_WELCOMEPAGE_TITLE "Welcome to Protocol"
 !define MUI_WELCOMEPAGE_TITLE_3LINES
-!define MUI_WELCOMEPAGE_TEXT "Private meeting capture, transcription, and summaries — entirely on your PC.$\r$\n$\r$\nSetup will install Protocol and local runtimes (WebView2, Visual C++, CUDA libraries).$\r$\n$\r$\nNothing is uploaded. Click Next to continue."
+!define MUI_WELCOMEPAGE_TEXT "Private meeting capture, transcription, and summaries — entirely on your PC.$\r$\n$\r$\nSetup will install Protocol and its local runtimes (WebView2 and Visual C++).$\r$\n$\r$\nNothing is uploaded. Click Next to continue."
 
 !define MUI_FINISHPAGE_TITLE "You're all set"
 !define MUI_FINISHPAGE_TITLE_3LINES
@@ -265,10 +242,10 @@ Function MeetilyWelcomePageShow
   Pop $R1
   SetCtlColors $R1 A8B3C7 0A0C10
 
-  ${NSD_CreateGroupBox} 0 96u 100% 62u "  ONE INSTALLER, THREE BACKENDS  "
+  ${NSD_CreateGroupBox} 0 96u 100% 62u "  ONE INSTALLER, TWO BACKENDS  "
   Pop $R1
   SetCtlColors $R1 7DD3FC 0A0C10
-  ${NSD_CreateLabel} 14u 116u -14u 12u "NVIDIA CUDA    |    AMD / Intel / NVIDIA Vulkan    |    CPU fallback"
+  ${NSD_CreateLabel} 14u 116u -14u 12u "Vulkan GPU (AMD / Intel / NVIDIA)    |    CPU fallback"
   Pop $R1
   SetCtlColors $R1 E2E8F0 0A0C10
   ${NSD_CreateLabel} 14u 136u -14u 12u "Setup detects compatible hardware automatically."
@@ -440,9 +417,8 @@ Function MeetilyDarkenInstFiles
   ; Progress bar → teal on dark track
   GetDlgItem $R1 $R0 1004
   ${If} $R1 != 0
-    StrCpy $MeetilyInstallProgress $R1
     ${If} $UpdateMode = 1
-      ; Match the current bootstrapper's blue progress treatment.
+      ; Updates use a blue bar so they read differently from a first install.
       SendMessage $R1 ${PBM_SETBARCOLOR} 0 0xF7884B
     ${Else}
       SendMessage $R1 ${PBM_SETBARCOLOR} 0 0xBFD42D
@@ -469,23 +445,6 @@ Function MeetilyDarkenInstFiles
   IntCmp $R1 0 +2 0 0
     ShowWindow $R1 ${SW_HIDE}
 
-  ${If} $UpdateMode = 1
-    ; The install thread blocks inside large File opcodes. This native UI-thread
-    ; observer converts each current-file extraction percentage into byte-
-    ; weighted overall progress and leaves status control 1006 unchanged.
-    !ifdef MEETILY_HAS_PROGRESS_PLUGIN
-      MeetilyProgress::Start
-    !else
-      StrCpy $MeetilyDisplayedProgress 0
-      Call MeetilyRefreshInstallProgress
-      nsDialogs::CreateTimer MeetilyRefreshInstallProgress 150
-    !endif
-  ${Else}
-    StrCpy $MeetilyDisplayedProgress 0
-    Call MeetilyRefreshInstallProgress
-    nsDialogs::CreateTimer MeetilyRefreshInstallProgress 150
-  ${EndIf}
-
   ; There is nowhere to navigate while files are being installed. Keep only
   ; Cancel visible, then reveal Next once .onInstSuccess runs.
   GetDlgItem $R1 $HWNDPARENT 1
@@ -495,61 +454,6 @@ Function MeetilyDarkenInstFiles
   IntCmp $R1 0 +2 0 0
     ShowWindow $R1 ${SW_HIDE}
 
-  Pop $R1
-  Pop $R0
-FunctionEnd
-
-Function MeetilyRefreshInstallProgress
-  Push $R0
-  Push $R1
-  Push $R2
-  Push $R3
-  ${If} $MeetilyInstallProgress == ""
-    Goto meetily_progress_done
-  ${EndIf}
-  !ifdef MEETILY_HAS_PROGRESS_PLUGIN
-    ${If} $UpdateMode = 1
-      Goto meetily_progress_done
-    ${EndIf}
-  !endif
-
-  SendMessage $MeetilyInstallProgress ${PBM_GETRANGE} 1 0 $R1
-  SendMessage $MeetilyInstallProgress ${PBM_GETRANGE} 0 0 $R2
-  SendMessage $MeetilyInstallProgress ${PBM_GETPOS} 0 0 $R0
-  ${If} $R2 > $R1
-    IntOp $R0 $R0 - $R1
-    IntOp $R0 $R0 * 100
-    IntOp $R3 $R2 - $R1
-    IntOp $R0 $R0 / $R3
-  ${Else}
-    StrCpy $R0 0
-  ${EndIf}
-  ${If} $R0 > 100
-    StrCpy $R0 100
-  ${ElseIf} $R0 < 0
-    StrCpy $R0 0
-  ${EndIf}
-  ${If} $MeetilyReportedProgress > $R0
-    StrCpy $R0 $MeetilyReportedProgress
-  ${EndIf}
-  ${If} $R0 > $MeetilyDisplayedProgress
-    IntOp $R2 $R0 - $MeetilyDisplayedProgress
-    ${If} $R2 > 6
-      IntOp $MeetilyDisplayedProgress $MeetilyDisplayedProgress + 2
-    ${Else}
-      StrCpy $MeetilyDisplayedProgress $R0
-    ${EndIf}
-  ${EndIf}
-
-  GetDlgItem $R1 $HWNDPARENT 1038
-  ${If} $UpdateMode = 1
-    SendMessage $R1 ${WM_SETTEXT} 0 "STR:Updating app files to version ${VERSION}  |  $MeetilyDisplayedProgress% complete"
-  ${Else}
-    SendMessage $R1 ${WM_SETTEXT} 0 "STR:Copying files and setting up local runtimes  |  $MeetilyDisplayedProgress% complete"
-  ${EndIf}
-  meetily_progress_done:
-  Pop $R3
-  Pop $R2
   Pop $R1
   Pop $R0
 FunctionEnd
@@ -595,11 +499,11 @@ Function MeetilyDirPageShow
   ${NSD_OnClick} $MeetilyDirBrowse MeetilyDirBrowseClick
   System::Call 'uxtheme::SetWindowTheme(p$MeetilyDirBrowse, w"DarkMode_Explorer", p0)'
 
-  ${NSD_CreateLabel} 0 78u 100% 24u "Approx. 810 MB required for the app, models bundle hooks, and GPU runtimes. WebView2 may add a little more on first run."
+  ${NSD_CreateLabel} 0 78u 100% 24u "About 300 MB for the app and its local runtimes. Transcription and summary models are downloaded later, inside Protocol."
   Pop $MeetilyDirHint
   SetCtlColors $MeetilyDirHint 5A6578 0A0C10
 
-  ${NSD_CreateLabel} 0 110u 100% 36u "After files copy, setup quietly ensures WebView2, Visual C++, and CUDA libraries. An NVIDIA GPU is used automatically when a driver is present."
+  ${NSD_CreateLabel} 0 110u 100% 36u "After files copy, setup quietly ensures WebView2 and Visual C++, then picks the Vulkan GPU build when your graphics driver supports it, otherwise the CPU build."
   Pop $0
   SetCtlColors $0 A8B3C7 0A0C10
 
@@ -978,8 +882,6 @@ FunctionEnd
 {{/each}}
 
 Function .onInit
-  StrCpy $MeetilyProgressToken ""
-  ${GetOptions} $CMDLINE "/PROGRESSTOKEN=" $MeetilyProgressToken
   ${GetOptions} $CMDLINE "/P" $PassiveMode
   ${IfNot} ${Errors}
     StrCpy $PassiveMode 1
@@ -1036,9 +938,6 @@ FunctionEnd
 
 
 Section EarlyChecks
-  StrCpy $MeetilyReportedProgress 0
-  StrCpy $MeetilyDisplayedProgress 0
-  !insertmacro MeetilyReportProgress 1
   ; Abort silent installer if downgrades is disabled
   !if "${ALLOWDOWNGRADES}" == "false"
   ${If} ${Silent}
@@ -1058,7 +957,6 @@ Section EarlyChecks
 SectionEnd
 
 Section WebView2
-  !insertmacro MeetilyReportProgress 3
   ; Check if Webview2 is already installed and skip this section
   ${If} ${RunningX64}
     ReadRegStr $4 HKLM "SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\${WEBVIEW2APPGUID}" "pv"
@@ -1148,11 +1046,9 @@ Section WebView2
       ${EndIf}
     !endif
   ${EndIf}
-  !insertmacro MeetilyReportProgress 10
 SectionEnd
 
 Section Install
-  !insertmacro MeetilyReportProgress 12
   SetOutPath $INSTDIR
 
   !ifmacrodef NSIS_HOOK_PREINSTALL
@@ -1176,7 +1072,6 @@ Section Install
   {{#each binaries}}
     File /a "/oname={{this}}" "{{no-escape @key}}"
   {{/each}}
-  !insertmacro MeetilyReportProgress 72
 
   ; Create file associations
   {{#each file_associations as |association| ~}}
@@ -1256,8 +1151,6 @@ Section Install
     Call CreateOrUpdateDesktopShortcut
   ${EndIf}
 
-  !insertmacro MeetilyReportProgress 78
-
   !ifmacrodef NSIS_HOOK_POSTINSTALL
     !insertmacro NSIS_HOOK_POSTINSTALL
   !endif
@@ -1269,10 +1162,6 @@ Section Install
     GetDlgItem $R1 $HWNDPARENT 1
     ShowWindow $R1 ${SW_SHOW}
   ${EndIf}
-  !insertmacro MeetilyReportProgress 100
-  StrCpy $MeetilyDisplayedProgress 100
-  Call MeetilyRefreshInstallProgress
-  nsDialogs::KillTimer MeetilyRefreshInstallProgress
 
   ; Auto close this page for passive mode. In-app updates are visible even in
   ; passive mode, so leave the completed state onscreen briefly instead of
@@ -1286,8 +1175,6 @@ Section Install
 SectionEnd
 
 Function .onInstSuccess
-  nsDialogs::KillTimer MeetilyRefreshInstallProgress
-
   ; All shortcut choices are final now, including the interactive finish-page
   ; desktop option. Refresh Explorer/Search without resetting the icon cache.
   System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0x0000, p 0, p 0)'
@@ -1302,10 +1189,6 @@ Function .onInstSuccess
       nsis_tauri_utils::RunAsUser "$INSTDIR\${MAINBINARYNAME}.exe" "$R0"
     ${EndIf}
   ${EndIf}
-FunctionEnd
-
-Function .onInstFailed
-  nsDialogs::KillTimer MeetilyRefreshInstallProgress
 FunctionEnd
 
 Function un.onInit

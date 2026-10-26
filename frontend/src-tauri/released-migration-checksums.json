@@ -1,0 +1,101 @@
+{
+  "description": "SHA-384 checksums that sqlx records for each migration in _sqlx_migrations, per platform. Released databases depend on them: never edit or delete an entry. Add new migrations with node scripts/release/check-migration-checksums.mjs --add-new after pinning them to LF in .gitattributes. Checked by that script (git blobs and build working trees) and by database::manager tests.",
+  "platformSpecificThrough": "20251229000000",
+  "migrations": {
+    "20250916100000": {
+      "file": "20250916100000_initial_schema.sql",
+      "unix": "7458ff9ff8c4fc1d0c21fba3078b72555ed8e7585c05c12f21e92a6406ce2fa5bdb37b1a571d0fd37be9f1142786685b",
+      "windows": "298f47afaa1fe9b3312bc1d9d23d0bc780bdd12f54206df690b5aa7c1117bc3d1c40d99918d7266e5522bd86ef8d7793"
+    },
+    "20250920155811": {
+      "file": "20250920155811_add_openrouter_api_key.sql",
+      "unix": "214d65142af1c9f35bf70c8b56742f90cea59ad238f88474f4a4e68d0d2379daf2cce26aa019f86cfca02a2bea380bd2",
+      "windows": "e006a52615896541acce6ea2ba1e918109976d78792b70a41ecc94f07ed255dbd79038a6022f1c7c5e9e8803d0b2d3d0"
+    },
+    "20251006000000": {
+      "file": "20251006000000_add_audio_sync_fields.sql",
+      "unix": "8a82ee1452083b05f6ac4a1ff84cdb08ae1c579b9e8405f11a91d612f8d4ffe1dcbaa864b6661bcc1465b5a325aa54d4",
+      "windows": "9ac46a88e49d20e3b665d79912134c14106460675dd8aa70ecb3eb25e934bd9fda102a6c2a932078f44671c30c8640a4"
+    },
+    "20251010153942": {
+      "file": "20251010153942_add_ollama_endpoint.sql",
+      "unix": "27c924fdd27b50288ef0bbaccde5731acccfc1e72a7c41018e69638c72b6c074d851e8536f840c8663a829ffd55e43e5",
+      "windows": "eb12baae2c08a0487c28ae64eb18c1f115cb110c5bc6ba127322b1952e06367b1e26c45c0642c26ea153e7729edb2cc2"
+    },
+    "20251101000000": {
+      "file": "20251101000000_add_summary_backup.sql",
+      "unix": "dab914be5bdf2f3b718f2c6b30f62e30750b2ff24af94b83a82e4a7f30a336dcab1187dcb32959a1c3bdcfd78ec62139",
+      "windows": "07d6ed23b60c0af3de7cb1891c9c3a79c0310c9d6e857e0441e1615f7574cb62f44329cc318af386f3d23a9b7c8a3950"
+    },
+    "20251105120000": {
+      "file": "20251105120000_add_pro_license_custom_openai.sql",
+      "unix": "f5de8e11d508dd1bef80b8b95ba33675b24fea4d63742c7d16b2cdfd8054c5a02415daf9b7becc8277beef7beb446e91",
+      "windows": "e91730ceb5dca556da33c49daa79db820b8d499f8a246e6397168a1b56b3b15a4001dc20dc74b7877206e8bc2213fa2f"
+    },
+    "20251110000000": {
+      "file": "20251110000000_add_grace_period_to_licensing.sql",
+      "unix": "0b7283bccaede4f067c375539736e2da7a77bd0aa2d52643aafcf9d379b8bbbf9251b04f0a08057ef0dfb1b182d1ec3d",
+      "windows": "f11c86bf0ef57c6daec61a7f1de4f403c5fe6d9aafdf1677229db777b711935be633279a37efcb8e6555b1438fb0bea8"
+    },
+    "20251110000001": {
+      "file": "20251110000001_add_speaker_field.sql",
+      "unix": "8c7e0dd650585576c55da259a091618cc6597f13a77d62bdb1ed4c827ed77e5e4e759bcd418eb79e2158fb2f3801f667",
+      "windows": "c5d436603d3fc94728c62eb1cbeb22245ad345dfabefdc2d29e679204af24c5c966c8b4b1caeed4bde1f2a706c24613e"
+    },
+    "20251223000000": {
+      "file": "20251223000000_add_meeting_notes.sql",
+      "unix": "9a2891ab5801b6c987ec9c4aca34581ca41ff7f25385e039340da9688cc19df4b590b9e98d5f01bf5f33a7e985d3d15c",
+      "windows": "d9024f5483da5adcfe3cae4fccea9c5be755d9e46f25aa666b4d40a466dd3fc2039e1a2998d7c5ac63c4777eb9392377"
+    },
+    "20251229000000": {
+      "file": "20251229000000_add_gemini_api_key.sql",
+      "unix": "f24ee2cf9a10d33141258f0edfc59bdd3354dfb0bd4307e82b5a0d9aede013df91252ce84f2382613e3f04e4f61c331b",
+      "windows": "806e0cfce84a9a7a8cbc7bd19c33a040963913b57a6f28932b5ff3fbdaa111aff290fc5fd8d5b4491b61b8aa69b5a6a9"
+    },
+    "20260811000000": {
+      "file": "20260811000000_add_people.sql",
+      "unix": "3722b8a73598e02e31d989430bf2e756539ba575bc4c4a7d981bee4fb218e549ab36c93071eaa73c006e14cf6cf58b1b",
+      "windows": "3722b8a73598e02e31d989430bf2e756539ba575bc4c4a7d981bee4fb218e549ab36c93071eaa73c006e14cf6cf58b1b"
+    },
+    "20260822000000": {
+      "file": "20260822000000_add_whisper_vocabulary.sql",
+      "unix": "35ebdbc42b40dce040294605761967c2b699a8c345d63d1032a61fd93be26532e433e30fc2521c2f251e164604569334",
+      "windows": "35ebdbc42b40dce040294605761967c2b699a8c345d63d1032a61fd93be26532e433e30fc2521c2f251e164604569334"
+    },
+    "20260823000000": {
+      "file": "20260823000000_add_post_call_transcription.sql",
+      "unix": "fb22075cc96985aac0f78ba649af672a05765666a83dc76deab25968a65ffc012d674b5889acac68901aded855be5093",
+      "windows": "fb22075cc96985aac0f78ba649af672a05765666a83dc76deab25968a65ffc012d674b5889acac68901aded855be5093"
+    },
+    "20260830000000": {
+      "file": "20260830000000_add_title_provenance.sql",
+      "unix": "675b72fd5167bec13dae0c94dd376dc5e88bf0529ca5ae9df5087602e925c539a0966550f198df0c30e7257e93d9f77a",
+      "windows": "675b72fd5167bec13dae0c94dd376dc5e88bf0529ca5ae9df5087602e925c539a0966550f198df0c30e7257e93d9f77a"
+    },
+    "20260914000000": {
+      "file": "20260914000000_add_claude_cli_path.sql",
+      "unix": "c72b02726de8671bb8f8bcd912969904ca466c9fff2c31573e69d385d287351e79bf15139ebb11af45c73080119c16ab",
+      "windows": "c72b02726de8671bb8f8bcd912969904ca466c9fff2c31573e69d385d287351e79bf15139ebb11af45c73080119c16ab"
+    },
+    "20260914010000": {
+      "file": "20260914010000_add_summary_max_tokens.sql",
+      "unix": "f74e8d5d7add98725db492740d2fbb66a871035e4a58b4f9173bfae6e14bb682ccc276dcb1a6adfbdd86942a5bd4e91d",
+      "windows": "f74e8d5d7add98725db492740d2fbb66a871035e4a58b4f9173bfae6e14bb682ccc276dcb1a6adfbdd86942a5bd4e91d"
+    },
+    "20260926010000": {
+      "file": "20260926010000_add_groups.sql",
+      "unix": "012d177c82e0630dbba1615c4548a9260c9036a442138d8f4e16ff6fdc3885b822aad69122d708273139838789945eb8",
+      "windows": "012d177c82e0630dbba1615c4548a9260c9036a442138d8f4e16ff6fdc3885b822aad69122d708273139838789945eb8"
+    },
+    "20260928000000": {
+      "file": "20260928000000_unified_workspace.sql",
+      "unix": "e3c640ecee0aba5e1ff8696949b5b1b99b1b21ab1694f6a6d4ca2569c620772f8e9a5998cf26391d9495772b823cd3a3",
+      "windows": "e3c640ecee0aba5e1ff8696949b5b1b99b1b21ab1694f6a6d4ca2569c620772f8e9a5998cf26391d9495772b823cd3a3"
+    },
+    "20260928010000": {
+      "file": "20260928010000_reset_placeholder_titles.sql",
+      "unix": "1caa429daca88ecdbeaf363312acf1ef619c5ba4bfa8662a590e82c1d1cd8838e2b3a4b0e46b320b2b204d09d46f426d",
+      "windows": "1caa429daca88ecdbeaf363312acf1ef619c5ba4bfa8662a590e82c1d1cd8838e2b3a4b0e46b320b2b204d09d46f426d"
+    }
+  }
+}
