@@ -42,14 +42,15 @@ prereleases are invisible to them.
 
    ```powershell
    node scripts/release/bump-version.mjs 0.3.0
-   powershell -NoProfile -ExecutionPolicy Bypass -File C:\Users\User\Documents\git\Protocol\.reports\orchestration\native-env.ps1 cargo metadata --locked --format-version 1 > NUL
+   cargo metadata --locked --format-version 1 > $null
    ```
 
    This sets the version in `tauri.conf.json`, `frontend/src-tauri/Cargo.toml`,
    `Cargo.lock` and `frontend/package.json`, and turns `## Protocol — unreleased`
-   in `CHANGELOG.md` into `## Protocol 0.3.0 — <today>` under a new, empty
-   unreleased heading. Review the section: it becomes the release notes and the
-   text the updater shows. Merge the PR.
+   in `CHANGELOG.md` into `## Protocol 0.3.0 — <today>` (UTC; `--date YYYY-MM-DD`
+   sets another) under a new, empty unreleased heading; `cargo metadata` then
+   confirms that `Cargo.lock` still matches. Review the section: it becomes the
+   release notes and the text the updater shows. Merge the PR.
 
 2. **Tag the merged commit and push the tag.** Fetch first, and push only this
    tag (never `git push --tags`):
