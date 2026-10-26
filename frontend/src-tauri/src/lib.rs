@@ -554,6 +554,7 @@ pub fn run() {
             start_recording,
             stop_recording,
             is_recording,
+            audio::save_handoff::recording_save_finished,
             get_transcription_status,
             audio::waveform::get_waveform_peaks,
             whisper_engine::labs::get_whisper_strict_silence,

@@ -4,9 +4,10 @@
 //! install gate (`install.rs`) checks it again under the engine lifecycle lock.
 //! Each reason is read from the module that owns the work:
 //!
-//! - work that already has a flag of its own (recording, its stop drain, audio
-//!   import, retranscription) and summary runs (their cancellation registry) are
-//!   read through a getter in that module;
+//! - work that already has a flag of its own (recording, its stop drain, the
+//!   meeting save it hands to the WebView, audio import, retranscription) and
+//!   summary runs (their cancellation registry) are read through a getter in
+//!   that module;
 //! - work without such a flag holds a [`BusyGuard`] from [`hold`] for as long as
 //!   it runs (offline speaker identification, model downloads).
 //!
@@ -18,7 +19,10 @@
 //! pipeline between its native steps. The WebView reports them as a lease:
 //! [`set_ui_activity`] replaces the whole set, and the set expires [`UI_LEASE`]
 //! after the last report, so a reloaded or crashed WebView cannot block updates
-//! forever. The frontend only reports; this module decides.
+//! forever. The frontend only reports; this module decides. The meeting save is
+//! also tracked natively since #32 (`audio::save_handoff`): from the moment
+//! native Stop hands the meeting over until the WebView answers, which ends the
+//! lease's `recordingSave` too ([`end_ui_activity`]).
 
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -138,6 +142,14 @@ pub fn set_ui_activity(activities: Vec<UiActivity>) {
     }
 }
 
+/// Drops one activity from the frontend's set without renewing the lease: the
+/// native owner learned that it ended before the WebView's next report.
+pub fn end_ui_activity(activity: UiActivity) {
+    if let Ok(mut lease) = UI.lock() {
+        lease.remove(activity);
+    }
+}
+
 fn ui_activity() -> Vec<UiActivity> {
     UI.lock()
         .map(|lease| lease.active(Instant::now()).to_vec())
@@ -150,6 +162,7 @@ pub fn current() -> Vec<BusyReason> {
     let sources = Sources {
         recording: crate::audio::recording_commands::is_recording_active(),
         stopping: crate::audio::recording_commands::is_stopping(),
+        recording_save: crate::audio::save_handoff::pending(),
         import: crate::audio::import::is_import_in_progress(),
         retranscription: crate::audio::retranscription::is_retranscription_in_progress(),
         summaries: crate::summary::service::active_summary_count(),
@@ -163,6 +176,7 @@ pub fn current() -> Vec<BusyReason> {
 pub(crate) struct Sources {
     pub recording: bool,
     pub stopping: bool,
+    pub recording_save: bool,
     pub import: bool,
     pub retranscription: bool,
     pub summaries: usize,
@@ -182,6 +196,7 @@ pub(crate) fn reasons(
                 || match reason {
                     BusyReason::Recording => sources.recording,
                     BusyReason::RecordingStopping => sources.stopping,
+                    BusyReason::RecordingSave => sources.recording_save,
                     BusyReason::Import => sources.import,
                     BusyReason::Retranscription => sources.retranscription,
                     BusyReason::Summary => sources.summaries > 0,
@@ -211,6 +226,10 @@ impl UiLease {
         self.renewed = Some(now);
     }
 
+    pub(crate) fn remove(&mut self, activity: UiActivity) {
+        self.activities.retain(|active| *active != activity);
+    }
+
     pub(crate) fn active(&self, now: Instant) -> &[UiActivity] {
         match self.renewed {
             Some(renewed) if now.saturating_duration_since(renewed) < UI_LEASE => &self.activities,
@@ -237,9 +256,10 @@ mod tests {
 
     #[test]
     fn each_owner_flag_maps_to_its_reason() {
-        let cases: [(fn(&mut Sources), BusyReason); 5] = [
+        let cases: [(fn(&mut Sources), BusyReason); 6] = [
             (|s| s.recording = true, BusyReason::Recording),
             (|s| s.stopping = true, BusyReason::RecordingStopping),
+            (|s| s.recording_save = true, BusyReason::RecordingSave),
             (|s| s.import = true, BusyReason::Import),
             (|s| s.retranscription = true, BusyReason::Retranscription),
             (|s| s.summaries = 2, BusyReason::Summary),
@@ -302,5 +322,15 @@ mod tests {
         assert!(lease
             .active(start + Duration::from_secs(60) + UI_LEASE)
             .is_empty());
+    }
+
+    #[test]
+    fn an_ended_activity_leaves_the_lease_without_renewing_it() {
+        let start = Instant::now();
+        let mut lease = UiLease::new();
+        lease.replace(vec![UiActivity::RecordingSave, UiActivity::PostCall], start);
+        lease.remove(UiActivity::RecordingSave);
+        assert_eq!(lease.active(start), &[UiActivity::PostCall]);
+        assert!(lease.active(start + UI_LEASE).is_empty());
     }
 }

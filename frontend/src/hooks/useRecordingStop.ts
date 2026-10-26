@@ -15,11 +15,12 @@ import {
 import { endLiveSession, finalLiveTitle, readLiveNotes, writeLiveTitle } from '@/lib/live-session';
 import { announceChange, saveMeetingNotes } from '@/lib/workspace-api';
 import { endAutomatedRecording } from '@/lib/meeting-automation';
+import { reportSaveFinished } from '@/lib/recording-save';
 
 type SummaryStatus = 'idle' | 'processing' | 'summarizing' | 'regenerating' | 'completed' | 'error';
 
 interface UseRecordingStopReturn {
-  handleRecordingStop: (callApi: boolean) => Promise<void>;
+  handleRecordingStop: (callApi: boolean, stopId?: number) => Promise<void>;
   isStopping: boolean;
   isProcessingTranscript: boolean;
   isSavingTranscript: boolean;
@@ -38,6 +39,7 @@ interface UseRecordingStopReturn {
  * - Auto-navigation to meeting details
  * - Toast notifications for success/error
  * - Window exposure for Rust callbacks
+ * - Answers the native Stop (`stopId`) with the save's outcome
  */
 export function useRecordingStop(
   setIsRecording: (value: boolean) => void,
@@ -75,9 +77,11 @@ export function useRecordingStop(
   const stopInProgressRef = useRef(false);
 
   // Main recording stop handler
-  const handleRecordingStop = useCallback(async (isCallApi: boolean) => {
+  const handleRecordingStop = useCallback(async (isCallApi: boolean, stopId?: number) => {
     // Guard: prevent duplicate/concurrent stop calls
     if (stopInProgressRef.current) {
+      // A second Stop's meeting is not saved by this run.
+      void reportSaveFinished(stopId, 'notSaved');
       return;
     }
     stopInProgressRef.current = true;
@@ -129,6 +133,7 @@ export function useRecordingStop(
         description: `That take was under ${MIN_MEETING_SECS} seconds, so nothing was saved.`,
         duration: 5000,
       });
+      await reportSaveFinished(stopId, 'discarded');
       stopInProgressRef.current = false;
       return;
     }
@@ -138,6 +143,9 @@ export function useRecordingStop(
     setIsRecording(false);
     setIsRecordingDisabled(true);
     const stopStartTime = Date.now();
+    // Set once the native Stop has its answer; `finally` answers every other ending.
+    let answered = false;
+    let failed = false;
 
     try {
       console.log('Post-stop processing (new implementation)...', {
@@ -353,6 +361,10 @@ export function useRecordingStop(
           // Clean up IndexedDB meeting ID (redundant with markMeetingAsSaved cleanup, but ensures cleanup)
           sessionStorage.removeItem('indexeddb_current_meeting_id');
 
+          // The meeting is saved.
+          answered = true;
+          await reportSaveFinished(stopId, 'saved');
+
           // Refetch meetings and set current meeting
           await refetchMeetings();
 
@@ -397,11 +409,13 @@ export function useRecordingStop(
       // isRecording already set to false at function start
       setIsRecordingDisabled(false);
     } catch (error) {
+      failed = true;
       console.error('Error in handleRecordingStop:', error);
       setStatus(RecordingStatus.ERROR, error instanceof Error ? error.message : 'Unknown error');
       // isRecording already set to false at function start
       setIsRecordingDisabled(false);
     } finally {
+      if (!answered) await reportSaveFinished(stopId, failed ? 'failed' : 'notSaved');
       // Always reset the guard flag when done
       stopInProgressRef.current = false;
     }
