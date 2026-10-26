@@ -8,6 +8,18 @@ numbers refer to
 
 ## Protocol — unreleased
 
+### Changed
+
+- **Speaker models from public sources**
+  ([#23](https://github.com/vmedvedevpro/Protocol/issues/23)). The bundled
+  Pyannote models are now the published onnx-community export of
+  segmentation-3.0 and WeSpeaker's own ResNet34-LM export, and **Re-download
+  models** in Settings fetches each from its source at a fixed commit. The new
+  segmentation file matches the original model exactly, where the old one
+  differed on about 3 % of frames; the installer grows by 3 MB. Saved voices
+  keep working with no re-enrolment. Updating removes the old model files,
+  and custom models in the data folder now need the new file names.
+
 ## Protocol 0.3.0 — 2026-10-26
 
 The first release of Protocol, built from Meetily – Actually Free 0.2.22

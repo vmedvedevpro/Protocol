@@ -333,8 +333,11 @@ download source: commit-pinned URLs plus the exact size and SHA-256 of each file
 for Whisper, Parakeet v2/v3 INT8, the four GGUF summary models, Pyannote/WeSpeaker
 and Nemotron. Its module comment records how the hashes were obtained (Hugging
 Face tree API at the pinned commit, small files downloaded and hashed). The
-Parakeet GitHub mirror is gone; the Pyannote repair download takes the bundled
-files from this repository at commit `76e9939`.
+Parakeet GitHub mirror is gone. The bundled Pyannote/WeSpeaker files are
+byte-identical to public files (onnx-community segmentation-3.0, WeSpeaker's own
+ResNet34-LM export, pyannote community-1's x-vector transform), and the repair
+download takes each from its source at a pinned commit; their qualification
+against the 0.3.0 files is in [DIARIZATION_MODELS.md](DIARIZATION_MODELS.md).
 
 Failures are `IntegrityError` values that callers tell apart with
 `downcast_ref`: `WrongSize` (file on disk of another size, kept), `ServerSize`
@@ -421,9 +424,12 @@ follow the progress callback. `progress_of_unchecked_bytes_stays_below_100_perce
 (diarization) and `a_deleted_model_is_logged_as_an_error_and_a_kept_one_as_a_warning`
 (summary client) cover the event percent and the log level.
 The ignored `model_integrity::tests::small_pinned_files_match_what_their_sources_serve`
-streams five small pinned files (about 0.3 MB) from Hugging Face and GitHub;
-run it with `--ignored` when changing a pin. Limits: the Parakeet and
-diarization download paths are not exercised against a server (their URLs and
+streams five small pinned files (about 0.3 MB) from Hugging Face, and
+`pyannote_files_match_what_their_sources_serve` the three Pyannote files (about
+33 MB); run them with `--ignored` when changing a pin.
+`bundled_pyannote_files_are_their_pinned_public_files` (`diarization/download.rs`)
+hashes the bundled copies against the same pins on every test run. Limits: the
+Parakeet and diarization download paths are not exercised against a server (their URLs and
 pins are not injectable), Pyannote copies in the user folder are still not
 hashed at load, and Nemotron is still hashed on every load by `nemotron.rs`.
 
@@ -847,6 +853,7 @@ or with standalone TypeScript checking. When using pnpm in this environment,
 | [V0218_DOWNLOAD_FIX.md](V0218_DOWNLOAD_FIX.md) | Async stack-overflow diagnosis; keep large checksum buffers off the future's inline stack. |
 | [NEMOTRON_NATIVE_ACTIVATION.md](NEMOTRON_NATIVE_ACTIVATION.md) | Native download/activation lifetime regression and verification. |
 | [UPSTREAM_0_4_1_PORTS.md](UPSTREAM_0_4_1_PORTS.md) | Selective upstream integration decisions. |
+| [DIARIZATION_MODELS.md](DIARIZATION_MODELS.md) | Pyannote/WeSpeaker file provenance, qualification against the 0.3.0 files, voice-profile continuity, the 0.3.0 upgrade path, and how to repeat the measurements. |
 
 The public release documented in README is distinct from a local candidate.
 Development labels 0.2.18–0.2.20 in historical notes were consolidated into the
