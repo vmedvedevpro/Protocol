@@ -124,6 +124,16 @@ test('Settings checks on request and toggles the automatic check', async () => {
   expect(calls).toContainEqual(['updater_set_auto_check', { enabled: false }]);
 });
 
+test('a failed manual check is reported while a release is offered', async () => {
+  await mount();
+  const error = { kind: 'network', action: 'check', message: 'offline', at: 1, background: false } as const;
+  await push(snapshot({ offer: offered(), error }));
+  expect(text()).toContain("Couldn't reach GitHub.");
+  expect(buttons('Download')).not.toHaveLength(0);
+  await push(snapshot({ offer: offered(), error: { ...error, background: true } }));
+  expect(text()).not.toContain("Couldn't reach GitHub.");
+});
+
 test('a copy that cannot update says why and offers the releases page', async () => {
   status = snapshot({ support: { kind: 'off', reason: 'notInstalled' } });
   await mount();

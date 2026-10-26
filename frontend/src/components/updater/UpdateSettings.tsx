@@ -57,6 +57,9 @@ export function UpdateSettings() {
   const { offer, activity, error, support } = status;
   const busyActivity = activity.state !== 'idle';
   const actionError = error && !error.background && error.action !== 'check' ? error : null;
+  // Without an offer the status line carries a failed manual check; with one
+  // (the tray's Check for Updates lands here) the alert below must say it.
+  const checkError = offer && error && !error.background && error.action === 'check' ? error : null;
   const backgroundError = error?.background ? error : null;
   const blocked = blockedLine(status, updater.refusedFor);
   const percent = downloadPercent(activity);
@@ -136,6 +139,11 @@ export function UpdateSettings() {
       {actionError && (
         <p role="alert" className="text-[13px] leading-relaxed text-af-danger">
           {errorSentence(actionError, status.platform, offer?.release.version, status.currentVersion)}
+        </p>
+      )}
+      {checkError && (
+        <p role="alert" className="text-[13px] leading-relaxed text-af-danger">
+          {errorSentence(checkError, status.platform)}
         </p>
       )}
       {blocked && <p className="text-[13px] leading-relaxed text-af-warning">{blocked}</p>}
