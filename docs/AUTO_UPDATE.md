@@ -88,10 +88,13 @@ onboarding overview, `PRIVACY_POLICY.md`, `README.md`, and `CHANGELOG.md`.
   was made for in its trusted comment, so a tampered feed cannot pair an old
   signed installer with a newer version number. `tauri build` adds the version;
   a hand-signed file needs `tauri signer sign --app-version X.Y.Z`.
-- `plugins.updater.pubkey` holds the public key. **The key committed by #31 is a
-  test key** (ID `916526FFDABCAB76`); it must be replaced with the owner's
-  production key before the PR merges, because every later release must be
-  signed with the key compiled into the first updater build.
+- `plugins.updater.pubkey` holds the owner's production public key (minisign
+  key ID `8A2223F21A78A38A`). Installed copies trust only the key compiled into
+  them, so every release must be signed with its private key, which lives in
+  the `release` environment's secrets
+  ([WORKFLOWS_OVERVIEW.md](../.github/workflows/WORKFLOWS_OVERVIEW.md)) and in
+  the owner's offline copy. Test builds (the end-to-end runs) override the key
+  with their own.
 - `bundle.createUpdaterArtifacts: true` makes `tauri build` sign the updater
   bundle, so a build needs `TAURI_SIGNING_PRIVATE_KEY` (a throwaway key is fine
   for local and CI builds; the release job signs the final files again) or
