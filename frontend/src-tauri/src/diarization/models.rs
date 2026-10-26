@@ -29,8 +29,12 @@ const POWERSET: [&[usize]; 7] = [
 pub const MAX_LOCAL_SPEAKERS: usize = 3;
 
 /// The three files of a Pyannote model directory, bundled or user-supplied.
-pub const SEGMENTATION_FILE: &str = "segmentation-3.0-fp16.onnx";
-pub const EMBEDDING_FILE: &str = "wespeaker-resnet34-LM.onnx";
+/// Their sources and pins are `model_integrity::PYANNOTE`. Protocol 0.3.0
+/// bundled other exports under other names (`segmentation-3.0-fp16.onnx`,
+/// `wespeaker-resnet34-LM.onnx`), so a copy of those left in the data folder
+/// is never loaded in place of these.
+pub const SEGMENTATION_FILE: &str = "segmentation-3.0.onnx";
+pub const EMBEDDING_FILE: &str = "voxceleb_resnet34_LM.onnx";
 pub const XVEC_TRANSFORM_FILE: &str = "xvec_transform.npz";
 
 /// Dimension of the WeSpeaker embedding the x-vector transform expects.

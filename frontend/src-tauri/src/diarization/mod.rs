@@ -280,9 +280,11 @@ pub fn diarize_file_with_engine(
         let model_dir = diarization_model_dir();
         if !pyannote_models_available() {
             return Err(anyhow!(
-                "Pyannote diarization models not found in {}. Expected segmentation-3.0-fp16.onnx, \
-                 wespeaker-resnet34-LM.onnx and xvec_transform.npz.",
-                model_dir.display()
+                "Pyannote diarization models not found in {}. Expected {}, {} and {}.",
+                model_dir.display(),
+                models::SEGMENTATION_FILE,
+                models::EMBEDDING_FILE,
+                models::XVEC_TRANSFORM_FILE
             ));
         }
         diarize_file_with_models(wav_path, &model_dir, num_speakers, threshold)

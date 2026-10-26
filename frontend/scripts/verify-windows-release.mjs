@@ -110,8 +110,14 @@ try {
 
   await sameAs('ffmpeg.exe', 'binaries/ffmpeg-x86_64-pc-windows-msvc.exe', 'Stale ffmpeg.exe');
   await sameAs('llama-helper.exe', 'binaries/llama-helper-x86_64-pc-windows-msvc.exe', 'Stale llama-helper.exe');
-  for (const name of ['parakeet-rs-LICENSE.txt', 'THIRD_PARTY_MODELS.txt']) {
-    await sameAs(`resources/diarization/${name}`, `resources/diarization/${name}`, `Missing or stale notice: ${name}`);
+  // The diarization models and their notices; the files Protocol 0.3.0
+  // bundled under other names must not come back (installer-hooks.nsh
+  // deletes them from an updated install).
+  const diarization = ['THIRD_PARTY_MODELS.txt', 'parakeet-rs-LICENSE.txt', 'segmentation-3.0.onnx',
+    'voxceleb_resnet34_LM.onnx', 'xvec_transform.npz'];
+  assert.deepEqual(await listed('resources/diarization'), diarization, 'Unexpected diarization resources');
+  for (const name of diarization) {
+    await sameAs(`resources/diarization/${name}`, `resources/diarization/${name}`, `Missing or stale: ${name}`);
   }
   for (const name of ['onnxruntime.dll', 'onnxruntime_providers_shared.dll', 'onnxruntime-LICENSE.txt', 'DirectML.dll', 'DirectML-LICENSE.txt']) {
     await sameAs(`binaries/onnxruntime/${name}`, `binaries/onnxruntime/${name}`, `Unexpected ONNX Runtime: ${name}`);
