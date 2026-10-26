@@ -119,8 +119,9 @@ pnpm run build
 pnpm exec tsc --noEmit
 ```
 
-The universal Windows installer (CPU, Vulkan, and CUDA variants; needs the CUDA
-toolkit) is built and checked with:
+Releases are built in GitHub Actions (see
+[WORKFLOWS_OVERVIEW.md](.github/workflows/WORKFLOWS_OVERVIEW.md)). The same
+Windows installer (CPU and Vulkan builds) can be built and checked locally with:
 
 ```powershell
 cd frontend

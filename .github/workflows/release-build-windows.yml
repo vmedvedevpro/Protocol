@@ -1,0 +1,152 @@
+name: Release build (Windows)
+
+# Called by release.yml. Builds protocol-windows-x64-setup.exe with
+# frontend/scripts/build-universal-windows.ps1 (CPU + Vulkan, unsigned),
+# tests, verifies and installs it on the runner, and uploads the
+# leg-windows artifact. No secrets, read-only token.
+on:
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    # windows-2022, not -latest: windows-latest moved to Visual Studio 2026,
+    # and the whisper.cpp and llama.cpp builds are only known to work with VS 2022.
+    runs-on: windows-2022
+    timeout-minutes: 150
+    env:
+      CARGO_TERM_COLOR: always
+      NEXT_TELEMETRY_DISABLED: '1'
+      PNPM_CONFIG_ENABLE_GLOBAL_VIRTUAL_STORE: 'false'
+      VERSION: ${{ inputs.version }}
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      # The ten historical migrations were released from CRLF checkouts on
+      # Windows; their checksums are stored in every Windows database. Set it
+      # before checkout instead of relying on the image's default.
+      - name: Check out with Windows line endings
+        run: git config --global core.autocrlf true
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+      - name: Check the version and the migrations this build embeds
+        run: |
+          node scripts/release/check-version-files.mjs $env:VERSION
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          node scripts/release/check-migration-checksums.mjs --source worktree --platform windows
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+        with:
+          version: 11.9.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c
+        with:
+          toolchain: 1.99.1
+      - uses: swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
+        with:
+          workspaces: '. -> target'
+          key: windows-x64-release-v1
+      # whisper-rs 0.13 generates its Windows bindings with libclang, and only
+      # LLVM 18 works (the image has 20). The script pins the archive by SHA-256.
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: .build-tools/clang+llvm-18.1.8-x86_64-pc-windows-msvc.tar.xz
+          key: llvm-18.1.8-${{ hashFiles('frontend/scripts/bootstrap-llvm18.ps1') }}
+      - name: Set up LLVM 18
+        timeout-minutes: 15
+        run: |
+          $llvm = & frontend/scripts/bootstrap-llvm18.ps1 | Select-Object -Last 1
+          "LLVM_18_DIR=$llvm" >> $env:GITHUB_ENV
+          "LIBCLANG_PATH=$llvm\bin" >> $env:GITHUB_ENV
+      - name: Set up the Vulkan SDK
+        uses: humbletim/install-vulkan-sdk@30ba978f977e81b72d091fc8888feb1fb26f9aff # v1.2
+        with:
+          version: 1.4.309.0
+          cache: true
+      # CPU build: upstream found that the Vulkan build of llama-cpp-sys-2
+      # hits a CMake race, and summaries run on the CPU everywhere.
+      - name: Build llama-helper
+        run: |
+          cargo build --release --locked -p llama-helper
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          New-Item -ItemType Directory -Force frontend/src-tauri/binaries | Out-Null
+          Copy-Item target/release/llama-helper.exe frontend/src-tauri/binaries/llama-helper-x86_64-pc-windows-msvc.exe
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+      - name: Build the installer
+        run: |
+          & frontend/scripts/build-universal-windows.ps1 -AllowUnsigned -VulkanSdk $env:VULKAN_SDK -LlvmDir $env:LLVM_18_DIR -OutputDir dist
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+      # Same features as the bundled CPU build, so the release dependencies are
+      # reused. Not --features vulkan: that test binary imports vulkan-1.dll,
+      # which a GPU-less runner may lack. Includes the migration checksum test.
+      - name: Test the native code
+        run: |
+          cargo test --release --locked -p protocol --lib --no-default-features --features custom-protocol -- --test-threads=1
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+      - name: Verify the installer payload
+        env:
+          SEVEN_ZIP: C:\Program Files\7-Zip\7z.exe
+        run: |
+          node frontend/scripts/verify-windows-release.mjs dist
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+      # The runner has no GPU, so this exercises the CPU branch of the probe
+      # and the hooks: the branch that must work on every machine.
+      - name: Install, start and uninstall
+        run: |
+          $installDir = Join-Path $env:RUNNER_TEMP 'Protocol'
+          $setup = Start-Process -FilePath dist\protocol-windows-x64-setup.exe -ArgumentList '/S', "/D=$installDir" -Wait -PassThru
+          if ($setup.ExitCode -ne 0) { throw "Setup exited with $($setup.ExitCode)" }
+          $backend = (Get-Content (Join-Path $installDir 'data\selected-backend.txt') -Raw).Trim()
+          Write-Host "Selected backend: $backend"
+          if (Test-Path (Join-Path $installDir 'installer-variants')) { throw 'installer-variants was not removed' }
+          if (-not (Test-Path (Join-Path $installDir 'DirectML.dll'))) { throw 'DirectML.dll was not installed' }
+          $log = Join-Path $env:RUNNER_TEMP 'protocol-launch.log'
+          $app = Start-Process -FilePath (Join-Path $installDir 'protocol.exe') -PassThru `
+            -RedirectStandardError $log -RedirectStandardOutput "$log.stdout"
+          Start-Sleep -Seconds 30
+          if ($app.HasExited) {
+            Get-Content $log
+            throw "Protocol exited during startup with $($app.ExitCode)"
+          }
+          Stop-Process -Id $app.Id -Force
+          Get-Content $log
+          foreach ($milestone in @('Application setup complete', 'Fresh database initialized successfully')) {
+            if (-not (Select-String -Path $log -SimpleMatch $milestone -Quiet)) { throw "Missing startup milestone: $milestone" }
+          }
+          # _?= runs the uninstaller in place, so Start-Process can wait for it.
+          $uninstall = Start-Process -FilePath (Join-Path $installDir 'uninstall.exe') -ArgumentList '/S', "_?=$installDir" -Wait -PassThru
+          if ($uninstall.ExitCode -ne 0) { throw "Uninstall exited with $($uninstall.ExitCode)" }
+          if (Test-Path (Join-Path $installDir 'protocol.exe')) { throw 'protocol.exe was not removed' }
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: leg-windows
+          path: |
+            dist/protocol-windows-x64-setup.exe
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: logs-windows
+          path: ${{ runner.temp }}/protocol-launch.log*
+          if-no-files-found: ignore
+          retention-days: 14

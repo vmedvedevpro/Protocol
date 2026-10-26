@@ -72,11 +72,22 @@ planned work is tracked in [GitHub issues](https://github.com/vmedvedevpro/Proto
   groups must run as separate invocations; see the map for known groups.
 - Serialize Next production builds with native builds/tests embedding
   `frontend/out`. Do not run standalone TypeScript checking during a Next build.
-- Windows release packaging is owned by
-  `frontend/scripts/build-universal-windows.ps1`; verify the resulting payload with
-  `node frontend/scripts/verify-windows-release.mjs`.
+- Releases are built by `.github/workflows/release.yml` from a pushed
+  `vX.Y.Z` tag into a draft that the owner publishes; manual runs and pipeline
+  PRs are dry runs. The procedure is in
+  [WORKFLOWS_OVERVIEW.md](.github/workflows/WORKFLOWS_OVERVIEW.md). Never push
+  tags or publish releases unless asked.
+- Windows packaging is owned by `frontend/scripts/build-universal-windows.ps1`
+  (CPU + Vulkan, one `protocol-windows-x64-setup.exe`); verify the resulting
+  payload with `node frontend/scripts/verify-windows-release.mjs`. The release
+  rules live in `scripts/release/`; run
+  `node --test "scripts/release/test/*.test.mjs"` after changing them.
+- Released migrations never change. A new migration needs a
+  `text eol=lf` line in `.gitattributes` and an entry from
+  `node scripts/release/check-migration-checksums.mjs --add-new`.
 - Model/audio-dependent tests are explicitly ignored by default. Report whether
   they actually ran, which type of fixture was used, and what they establish.
 - Never commit private recordings, databases, model binaries, crash dumps, local
   signing keys, or diagnostic artifacts. `.build-tools/` contains local helpers,
-  not a portable or authoritative public test environment.
+  not a portable or authoritative public test environment; the release
+  workflow's build legs are the reference builds.

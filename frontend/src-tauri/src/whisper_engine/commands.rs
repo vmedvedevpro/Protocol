@@ -5,6 +5,13 @@ use std::sync::{Arc, Mutex};
 use tauri::{command, AppHandle, Emitter, Manager, Runtime};
 
 const MIN_CUDA_DRIVER: (u32, u32) = (580, 0);
+// Release installers carry CPU and Vulkan builds only (0.3.0, #15). Without
+// this gate every NVIDIA user with a current driver would be told on every
+// launch to rerun setup for a CUDA build that does not exist, and users with
+// an older driver to update it for CUDA. A build made with `--features cuda`
+// keeps the driver check.
+#[cfg(target_os = "windows")]
+const CUDA_SETUP_AVAILABLE: bool = cfg!(feature = "cuda");
 const MIN_CUDA_COMPUTE_CAPABILITY: (u32, u32) = (7, 5);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
@@ -510,28 +517,26 @@ pub async fn get_local_stack_status() -> Result<serde_json::Value, String> {
 /// Recheck whether a Windows NVIDIA driver now supports the CUDA build selected
 /// by setup. CUDA and Vulkan are separate executables, so a newly ready CUDA
 /// driver requires rerunning setup rather than changing the active process.
+/// Not applicable unless CUDA setup exists (`CUDA_SETUP_AVAILABLE`).
 #[command]
 pub async fn get_cuda_reconfiguration_status() -> Result<CudaReconfigurationStatus, String> {
     #[cfg(target_os = "windows")]
-    {
+    if CUDA_SETUP_AVAILABLE {
         return tauri::async_runtime::spawn_blocking(windows_cuda_reconfiguration_status)
             .await
             .map_err(|error| format!("Failed to recheck CUDA availability: {error}"));
     }
 
-    #[cfg(not(target_os = "windows"))]
-    {
-        Ok(CudaReconfigurationStatus {
-            compiled_backend: super::acceleration::WhisperCompiledBackend::current()
-                .as_str()
-                .to_string(),
-            nvidia_gpu_detected: false,
-            driver_state: CudaDriverState::NotApplicable,
-            driver_update_required: false,
-            reconfiguration_required: false,
-            setup_download_url: None,
-        })
-    }
+    Ok(CudaReconfigurationStatus {
+        compiled_backend: super::acceleration::WhisperCompiledBackend::current()
+            .as_str()
+            .to_string(),
+        nvidia_gpu_detected: false,
+        driver_state: CudaDriverState::NotApplicable,
+        driver_update_required: false,
+        reconfiguration_required: false,
+        setup_download_url: None,
+    })
 }
 
 #[command]
@@ -971,6 +976,16 @@ mod cuda_reconfiguration_tests {
             classify_cuda_driver(true, true, Some("610.74"), Some("7.0")),
             CudaDriverState::UnsupportedGpu
         );
+    }
+
+    #[cfg(not(feature = "cuda"))]
+    #[test]
+    fn builds_without_cuda_never_ask_for_cuda_setup() {
+        let status = tauri::async_runtime::block_on(get_cuda_reconfiguration_status()).unwrap();
+        assert_eq!(status.driver_state, CudaDriverState::NotApplicable);
+        assert!(!status.driver_update_required);
+        assert!(!status.reconfiguration_required);
+        assert_eq!(status.setup_download_url, None);
     }
 
     #[test]
