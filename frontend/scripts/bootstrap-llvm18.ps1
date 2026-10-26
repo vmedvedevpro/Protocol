@@ -28,10 +28,12 @@ if (-not (Test-Path $archive)) {
   # only after a complete download, so a broken one is never hashed or cached.
   $url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-18.1.8/clang+llvm-18.1.8-x86_64-pc-windows-msvc.tar.xz"
   $partial = "$archive.partial"
-  & curl.exe --fail --location --silent --show-error --retry 3 --connect-timeout 30 `
+  # The script's output is the LLVM path, so the transfer summary goes to the host.
+  $transfer = & curl.exe --fail --location --silent --show-error --retry 3 --connect-timeout 30 `
     --speed-limit 102400 --speed-time 60 --output $partial `
-    --write-out 'Downloaded %{size_download} bytes in %{time_total} s\n' $url
+    --write-out 'Downloaded %{size_download} bytes in %{time_total} s' $url
   if ($LASTEXITCODE -ne 0) { throw "Failed to download LLVM 18 (curl exit $LASTEXITCODE)" }
+  Write-Host $transfer
   Move-Item -Force $partial $archive
 }
 $actualSha256 = (Get-FileHash $archive -Algorithm SHA256).Hash
