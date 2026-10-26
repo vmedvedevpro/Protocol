@@ -23,6 +23,8 @@ pub mod online;
 pub mod live_nemotron;
 pub mod voiceprint;
 pub mod voice_profiles;
+#[cfg(test)]
+mod qualification;
 
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
