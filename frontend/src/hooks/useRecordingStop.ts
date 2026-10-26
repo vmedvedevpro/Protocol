@@ -39,7 +39,7 @@ interface UseRecordingStopReturn {
  * - Auto-navigation to meeting details
  * - Toast notifications for success/error
  * - Window exposure for Rust callbacks
- * - Answers the native Stop (`stopId`) with the save's outcome
+ * - Answers the native Stop (`stopId`) with the save's outcome; a quit waits for it
  */
 export function useRecordingStop(
   setIsRecording: (value: boolean) => void,
@@ -80,7 +80,7 @@ export function useRecordingStop(
   const handleRecordingStop = useCallback(async (isCallApi: boolean, stopId?: number) => {
     // Guard: prevent duplicate/concurrent stop calls
     if (stopInProgressRef.current) {
-      // A second Stop's meeting is not saved by this run.
+      // A second Stop's meeting is not saved by this run; don't keep a quit waiting for it.
       void reportSaveFinished(stopId, 'notSaved');
       return;
     }
@@ -361,9 +361,9 @@ export function useRecordingStop(
           // Clean up IndexedDB meeting ID (redundant with markMeetingAsSaved cleanup, but ensures cleanup)
           sessionStorage.removeItem('indexeddb_current_meeting_id');
 
-          // The meeting is saved.
+          // The meeting is saved: a quit waiting for it may exit from here on.
           answered = true;
-          await reportSaveFinished(stopId, 'saved');
+          const quitting = await reportSaveFinished(stopId, 'saved');
 
           // Refetch meetings and set current meeting
           await refetchMeetings();
@@ -385,13 +385,20 @@ export function useRecordingStop(
           // Mark as completed
           setStatus(RecordingStatus.COMPLETED);
 
-          setTimeout(() => {
-            router.push(`/meeting-details?id=${meetingId}&source=recording`);
-            clearTranscripts()
-
-            // Reset to IDLE after navigation
+          if (quitting) {
+            // Stop and quit: opening the meeting would start post-call
+            // processing that the exit cuts off.
+            clearTranscripts();
             setStatus(RecordingStatus.IDLE);
-          }, 350);
+          } else {
+            setTimeout(() => {
+              router.push(`/meeting-details?id=${meetingId}&source=recording`);
+              clearTranscripts()
+
+              // Reset to IDLE after navigation
+              setStatus(RecordingStatus.IDLE);
+            }, 350);
+          }
         } catch (saveError) {
           console.error('Failed to save meeting to database:', saveError);
           setStatus(RecordingStatus.ERROR, saveError instanceof Error ? saveError.message : 'Unknown error');

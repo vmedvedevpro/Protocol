@@ -5,8 +5,8 @@
 //! the meeting and transcript rows (`useRecordingStop.ts`). Native code cannot
 //! see that save, so each handoff gets an id here: [`begin`] right before the
 //! event is sent, [`finish`] when the WebView reports how its save ended
-//! through [`recording_save_finished`]. The updater's busy registry reads
-//! [`pending`].
+//! through [`recording_save_finished`]. A quit during a recording waits for the
+//! answer (`quit.rs`), and the updater's busy registry reads [`pending`].
 //!
 //! Only the latest handoff is tracked: one recording runs at a time, and the
 //! WebView handles one stop at a time. A WebView that never answers (reloaded
@@ -20,6 +20,9 @@ use std::time::{Duration, Instant};
 /// ends a few seconds after the event: the WebView waits 4.5 s for late
 /// transcript events and then writes the meeting in one call.
 pub const ANSWER_WINDOW: Duration = Duration::from_secs(120);
+
+/// How often [`wait`] looks at the handoff.
+const POLL: Duration = Duration::from_millis(200);
 
 /// How the WebView's save ended. Serialized in camelCase for the WebView.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -116,17 +119,31 @@ pub fn pending() -> bool {
     latest() == Handoff::Pending
 }
 
-/// The main window's answer: how the save after Stop `stop_id` ended.
+/// Waits until the latest handoff is answered or its window has passed.
+pub async fn wait() -> Handoff {
+    loop {
+        let handoff = latest();
+        if handoff != Handoff::Pending {
+            return handoff;
+        }
+        tokio::time::sleep(POLL).await;
+    }
+}
+
+/// The main window's answer: how the save after Stop `stop_id` ended. Returns
+/// whether Protocol quits once the save is done, so the WebView does not open
+/// the meeting and start post-call processing that the exit would cut off.
 #[tauri::command]
-pub fn recording_save_finished(stop_id: u64, outcome: SaveOutcome) {
+pub fn recording_save_finished(stop_id: u64, outcome: SaveOutcome) -> bool {
     if finish(stop_id, outcome) {
         log::info!("[save] meeting save after stop {stop_id}: {outcome:?}");
         // The answer ends the save; a lease report still in flight must not
-        // keep an update from installing.
+        // keep an update from installing on the quit that follows.
         crate::updater::busy::end_ui_activity(crate::updater::busy::UiActivity::RecordingSave);
     } else {
         log::warn!("[save] ignored an answer for stop {stop_id} ({outcome:?}): not the latest stop");
     }
+    crate::quit::saving_to_quit()
 }
 
 #[cfg(test)]

@@ -24,6 +24,7 @@ Object.assign(globalThis, {
 
 // Everything the hook does that matters here, in order.
 let events: string[];
+let quitting: boolean;
 let saveMeeting: () => Promise<{ meeting_id: string }>;
 let answerFails: boolean;
 let status: string;
@@ -33,7 +34,7 @@ mock.module('@tauri-apps/api/core', () => ({
     if (name === 'recording_save_finished') {
       if (answerFails) throw new Error('IPC failed');
       events.push(`answer ${args?.stopId} ${args?.outcome}`);
-      return undefined;
+      return quitting;
     }
     events.push(name);
     return undefined;
@@ -111,6 +112,7 @@ function Probe() {
 let root: ReactTestRenderer;
 beforeEach(async () => {
   events = [];
+  quitting = false;
   answerFails = false;
   duration = 60;
   status = 'recording';
@@ -140,6 +142,13 @@ test('a saved meeting answers the native stop after the save, then opens the mee
     'open /meeting-details?id=m1&source=recording',
     'clear transcripts',
   ]);
+  expect(status).toBe('idle');
+});
+
+test('when Protocol quits after the save, the meeting does not open and post-call processing does not start', async () => {
+  quitting = true;
+  await run(true, 7);
+  expect(events).toEqual(['meeting saved', 'recovery record cleared', 'answer 7 saved', 'clear transcripts']);
   expect(status).toBe('idle');
 });
 
@@ -185,9 +194,10 @@ test('stops without a native stop id (error paths) send no answer', async () => 
   expect(events.some((event) => event.startsWith('answer'))).toBe(false);
 });
 
-test('an answer that cannot be delivered does not break the save', async () => {
+test('an answer that cannot be delivered counts as no quit, and the meeting still opens', async () => {
   answerFails = true;
-  await reportSaveFinished(9, 'saved');
+  expect(await reportSaveFinished(9, 'saved')).toBe(false);
+  expect(await reportSaveFinished(undefined, 'saved')).toBe(false);
   await run(true, 7);
   expect(events).toEqual([
     'meeting saved',

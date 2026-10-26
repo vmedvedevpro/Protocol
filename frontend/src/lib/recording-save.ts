@@ -5,13 +5,17 @@ export type SaveOutcome = 'saved' | 'discarded' | 'notSaved' | 'failed';
 
 /**
  * Answers the Stop that handed this meeting over (`stop_id` in
- * `recording-stop-complete`), so native code knows when the save has ended.
+ * `recording-stop-complete`). A quit during a recording waits for this answer
+ * before Protocol exits. Resolves true when Protocol quits once the save is
+ * done: the caller then does not open the meeting, so no post-call processing
+ * starts that the exit would cut off.
  */
-export async function reportSaveFinished(stopId: number | undefined, outcome: SaveOutcome): Promise<void> {
-  if (stopId === undefined) return;
+export async function reportSaveFinished(stopId: number | undefined, outcome: SaveOutcome): Promise<boolean> {
+  if (stopId === undefined) return false;
   try {
-    await invoke('recording_save_finished', { stopId, outcome });
+    return await invoke<boolean>('recording_save_finished', { stopId, outcome });
   } catch (error) {
     console.warn('Could not report the end of the meeting save:', error);
+    return false;
   }
 }
