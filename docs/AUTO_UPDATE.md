@@ -30,6 +30,14 @@ remembered in `localStorage` (`protocol-updater-seen-v1`). On macOS the panel
 and Settings add that the system may ask again for microphone and screen
 recording access.
 
+The tray's Settings, Check for Updates… and Update Available items, and a
+Restart to Update that was refused or failed, open Settings (› About) through
+the page's router (`tray-navigate` event): a reload would drop a meeting that
+is still being saved after a recording, and the queued post-call jobs. A
+refusal's reason stays next to **Restart and update** until the work ends, or
+for 10 seconds when the work is not one the status lists (the speech engine's
+lock). The button is disabled while a check, download or install runs.
+
 Every text that describes the feature says that the download waits for a click:
 Settings › About (identity card and switch description), the panel, the
 onboarding overview, `PRIVACY_POLICY.md`, `README.md`, and `CHANGELOG.md`.
@@ -43,8 +51,10 @@ onboarding overview, `PRIVACY_POLICY.md`, `README.md`, and `CHANGELOG.md`.
   download that failed waits for **Try again**.
 - **Checks.** On by default, at most daily: the scheduler ticks every 10
   minutes (first after 2 minutes), checks when 24 hours have passed since the
-  last completed check, and backs off 1/2/4/6 hours after failures. Future
-  timestamps (clock moved back) are clamped. No automatic check before
+  last completed check, and backs off 1/2/4/6 hours after failed automatic
+  checks. A failed manual check does not count, and no retry comes earlier
+  than 24 hours after the last completed check. Future timestamps (clock moved
+  back) are clamped. No automatic check before
   onboarding completes. A manual check always runs and joins a check started
   less than 5 seconds earlier. The switch is in Settings › About and is stored
   in the plugin store `updater.json` (`autoCheck`, `lastCheckedAt`,
@@ -117,12 +127,14 @@ executable:
    it (an import holds the lock while it transcribes), so the user reads "an
    audio import is running" first.
 4. Moves the state machine to installing (a second install cannot start).
-5. Reads the cached payload (size and SHA-256 checked against the cache entry).
-6. `prepare_exit`: WAL checkpoint without closing the pool, llama-helper
+5. Checks the app's location (macOS and Linux, below) before it reads the
+   payload: a quit skips the install, a click shows the error.
+6. Reads the cached payload (size and SHA-256 checked against the cache entry).
+7. `prepare_exit`: WAL checkpoint without closing the pool, llama-helper
    stopped (it starts again on demand), crash session closed so the next start
    does not report a crash.
-7. Writes an install marker (`from`, `to`, time) next to the cache.
-8. Hands the payload to the plugin, which verifies the signature again.
+8. Writes an install marker (`from`, `to`, time) next to the cache.
+9. Hands the payload to the plugin, which verifies the signature again.
 
 If the install fails before the process exits, the crash session is reopened,
 the lock is released, and the error is shown; a signature failure also deletes
@@ -210,9 +222,10 @@ error kinds and messages, no user data).
   every key, the gate's decisions, and the gate lock blocking a recording
   start.
 - **Frontend** (`frontend/tests/updater/`): wording per state, the pill label,
-  the panel's Download and Restart and update with busy refusals, the macOS
-  note and the `.deb` link, Settings' check and switch, a failed manual check
-  next to an offer, toasts once per version,
+  the panel's Download and Restart and update with busy refusals (one the
+  status never lists clears after 10 seconds; the button waits for a running
+  check), the macOS note and the `.deb` link, Settings' check and switch, a
+  failed manual check next to an offer, toasts once per version,
   and the activity reporter's full-set, renewal and unmount behaviour.
 - **End to end**: see below.
 

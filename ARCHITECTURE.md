@@ -895,9 +895,9 @@ version even though the registry and executable already contain the new one.
   portable copies) never check; `.deb` installs check and link to GitHub.
 - **When.** The scheduler task starts with the app, ticks every 10 minutes
   (first after 2), and checks once 24 hours have passed since the last
-  completed check, with 1/2/4/6 h backoff after failures. It waits for
-  onboarding and honours the Settings › About switch. A manual check always
-  runs.
+  completed check, with 1/2/4/6 h backoff after failed automatic checks (a
+  failed manual check does not count). It waits for onboarding and honours the
+  Settings › About switch. A manual check always runs.
 - **Download.** Only on the user's click. It does not start, and is cancelled,
   while a recording runs; it resumes on its own afterwards. The verified payload
   and its feed entry are cached in `app_cache_dir()/updates`, so a restart
