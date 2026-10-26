@@ -34,10 +34,10 @@ jobs:
       # before checkout instead of relying on the image's default.
       - name: Check out with Windows line endings
         run: git config --global core.autocrlf true
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24'
       - name: Check the version and the migrations this build embeds
@@ -46,10 +46,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit 1 }
           node scripts/release/check-migration-checksums.mjs --source worktree --platform windows
           if ($LASTEXITCODE -ne 0) { exit 1 }
-      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
         with:
           version: 11.9.0
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24'
           cache: pnpm
@@ -63,7 +63,7 @@ jobs:
           key: windows-x64-release-v1
       # whisper-rs 0.13 generates its Windows bindings with libclang, and only
       # LLVM 18 works (the image has 20). The script pins the archive by SHA-256.
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .build-tools/clang+llvm-18.1.8-x86_64-pc-windows-msvc.tar.xz
           key: llvm-18.1.8-${{ hashFiles('frontend/scripts/bootstrap-llvm18.ps1') }}
@@ -73,11 +73,14 @@ jobs:
           $llvm = & frontend/scripts/bootstrap-llvm18.ps1 | Select-Object -Last 1
           "LLVM_18_DIR=$llvm" >> $env:GITHUB_ENV
           "LIBCLANG_PATH=$llvm\bin" >> $env:GITHUB_ENV
+      # No installer cache: the action's cache step is actions/cache@v4, which
+      # targets Node.js 20. The 191 MB download takes seconds, and tag runs
+      # start with cold caches anyway.
       - name: Set up the Vulkan SDK
         uses: humbletim/install-vulkan-sdk@30ba978f977e81b72d091fc8888feb1fb26f9aff # v1.2
         with:
           version: 1.4.309.0
-          cache: true
+          cache: false
       # CPU build: upstream found that the Vulkan build of llama-cpp-sys-2
       # hits a CMake race, and summaries run on the CPU everywhere.
       - name: Build llama-helper
@@ -134,7 +137,7 @@ jobs:
           $uninstall = Start-Process -FilePath (Join-Path $installDir 'uninstall.exe') -ArgumentList '/S', "_?=$installDir" -Wait -PassThru
           if ($uninstall.ExitCode -ne 0) { throw "Uninstall exited with $($uninstall.ExitCode)" }
           if (Test-Path (Join-Path $installDir 'protocol.exe')) { throw 'protocol.exe was not removed' }
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: leg-windows
           path: |
@@ -143,7 +146,7 @@ jobs:
           if-no-files-found: error
           retention-days: 14
           compression-level: 0
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: logs-windows
