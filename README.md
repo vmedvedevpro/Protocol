@@ -1,16 +1,91 @@
-# Protocol
+<p align="center">
+  <img src="frontend/src-tauri/icon-source.png" alt="Protocol logo" width="120" />
+</p>
 
-A local-first meeting recorder and transcriber for Windows.
+<h1 align="center">Protocol</h1>
 
-Protocol records the microphone and computer audio of a call, transcribes it on
-the machine, labels who spoke, and keeps notes, action items, and summaries next
-to the transcript. It is a personal fork of
-[Meetily – Actually Free](https://github.com/TylerBuza/Meetily-ActuallyFree),
-tuned for the calls I record: mostly in Russian, often on Discord, on a laptop
-with an Intel Arc GPU (Vulkan, no CUDA).
+<p align="center">
+  <strong>Meeting notes that never leave your computer.</strong><br>
+  Protocol records your calls, transcribes them on your machine, tells the
+  speakers apart, and keeps notes, action items, and summaries next to the
+  transcript.
+</p>
 
-> **Status:** early fork. Planned work is tracked in
-> [issues](https://github.com/vmedvedevpro/Protocol/issues).
+<p align="center">
+  <a href="https://github.com/vmedvedevpro/Protocol/releases/latest/download/protocol-windows-x64-setup.exe"><strong>Download for Windows</strong></a>
+  · <a href="https://github.com/vmedvedevpro/Protocol/releases/latest/download/protocol-macos-arm64.dmg">macOS (Apple Silicon)</a>
+  · <a href="https://github.com/vmedvedevpro/Protocol/releases/latest">Linux (experimental)</a>
+  · <a href="https://github.com/vmedvedevpro/Protocol/releases/latest">Release notes</a>
+</p>
+
+Free and open source: no account, no subscription, no analytics. Protocol is
+built on [Meetily – Actually Free](https://github.com/TylerBuza/Meetily-ActuallyFree),
+which in turn builds on the original [Meetily](https://github.com/Zackriya-Solutions/meetily).
+
+## Why Protocol
+
+Protocol keeps everything Meetily – Actually Free offers (speaker
+diarization, voice profiles, Labs, every AI provider, no paid tier) and adds
+what an app that hears all your calls should have:
+
+- **Runs next to Meetily.** Its own name, `protocol.exe`, folders, and
+  settings. Install it beside Meetily or Meetily – Actually Free and keep
+  both: installing, updating, or removing Protocol leaves them running and
+  their data untouched.
+- **Updates you control.** One check a day, which you can turn off. An update
+  downloads only when you click **Download**, its signature is verified, and it
+  installs when you click **Restart and update** or quit the app, never during
+  a recording or while a meeting is being processed.
+- **Models you can trust.** Whisper, Parakeet, the summary models, and the
+  speaker models are downloaded from pinned sources (an exact Hugging Face
+  commit or this repository's release), and every file is checked against a
+  known SHA-256 before Protocol loads it.
+- **Less that can go wrong.** No analytics code, no support script that zipped
+  your database with its API keys, and 70 unused internal commands removed,
+  seven of which let the app's web view read any file or send transcripts to
+  any server. No setting starts an executable of your choice.
+- **One small Windows installer.** About 118 MB. It picks the Vulkan GPU build
+  (NVIDIA, AMD, Intel Arc) or the CPU build for your computer by itself.
+- **Builds you can check.** Windows, macOS, and Linux builds come from public
+  GitHub Actions runs, with `SHA256SUMS.txt` and build-provenance
+  attestations.
+
+| | Protocol | Meetily – Actually Free 0.2.22 |
+| --- | --- | --- |
+| Speaker diarization, voice profiles, Labs | ✅ | ✅ |
+| No account, licence key, or paid tier | ✅ | ✅ |
+| Installs beside another Meetily | ✅ own name and folders | ❌ same `meetily.exe` as Meetily |
+| Model downloads | Every model from a pinned source, checked by SHA-256 | Several from moving branches, checked by size or not at all |
+| Analytics code | None | Inactive PostHog SDK |
+| Unused internal commands | Removed | 70, seven of them with unchecked paths or URLs |
+| Platforms | Windows, macOS (Apple Silicon), Linux (experimental) | Windows, macOS preview |
+
+Meetily itself has a free Community Edition and a paid PRO tier; Meetily –
+Actually Free unlocks the app's features without a paid tier, and Protocol
+builds on that.
+
+## Features
+
+- **Capture.** Microphone and computer audio are recorded as separate tracks
+  plus a mixed track. On Windows you can capture only the apps you choose
+  instead of all computer audio.
+- **Transcription on your machine.** Live transcription with Parakeet, and
+  optional Whisper for a more accurate pass after the call. Import existing
+  audio files too.
+- **Who said what.** Your microphone is always **You**; remote voices are told
+  apart with Pyannote/WeSpeaker or the optional Nemotron model. Rename and
+  merge speakers during or after a call, link them to contacts, and let
+  Protocol suggest names it has heard before (voice profiles, beta).
+- **Notes and summaries.** Notes, action items, and AI summaries with local
+  models (built-in models or Ollama) or a provider you connect with your own
+  key: Claude, OpenAI, Groq, OpenRouter, or any compatible endpoint. Ask
+  questions about a meeting and use your own summary templates.
+- **Your meeting library.** History, groups, contacts, a **Ctrl+K** command
+  bar, and export to PDF, Word, Markdown (with YAML frontmatter), text, or
+  JSON.
+- **Labs.** Opt-in meeting detection and automatic recording, waveform
+  scrubbing, clean transcripts, a Whisper silence guard, and Parakeet on the
+  GPU through DirectML.
 
 ## Install
 
@@ -28,93 +103,28 @@ The [release notes](https://github.com/vmedvedevpro/Protocol/releases/latest)
 have the details and the checksums.
 
 - **Windows:** if SmartScreen says "Windows protected your PC", click
-  **More info**, then **Run anyway**.
+  **More info**, then **Run anyway**. Setup installs for your user only, with
+  no administrator rights.
 - **macOS:** if Gatekeeper cannot verify Protocol, click **Open Anyway** in
   **System Settings → Privacy & Security** once.
 - **Linux** builds are experimental: they are built and started in CI but not
-  tested with real meetings.
+  yet tested with real meetings.
 
-After that, Protocol offers new versions itself (see below). To build it
-yourself, see [Build from source](#build-from-source-windows).
-
-## What it does
-
-Everything below comes from upstream and works as it does there.
-
-- **Capture.** Microphone and computer audio are recorded as separate tracks
-  (`mic.mp4`, `system.mp4`) plus a mixed `audio.mp4`. On Windows you can capture
-  selected applications instead of all computer audio.
-- **Transcription.** Live transcription with Parakeet; optional Whisper for
-  post-call enhancement. Whisper runs on Vulkan, CUDA, or CPU depending on the
-  build.
-- **Speakers.** Your microphone is always labeled **You**; remote voices are
-  separated with Pyannote/WeSpeaker or the optional Nemotron model. Rename and
-  merge speakers during or after a call; link them to contacts.
-- **Notes and summaries.** Notes, action items, and AI summaries with local
-  models (built-in GGUF models, Ollama) or a provider you configure with your own
-  key (Claude, OpenAI, Groq, OpenRouter, or a custom endpoint).
-- **Library.** Meeting history, groups, contacts, a Ctrl+K command bar, and export
-  to PDF, Word, Markdown (with YAML frontmatter), text, or JSON.
-- **Labs.** Opt-in meeting detection and automation, waveform scrubbing, clean
-  transcripts, a Whisper silence guard, Parakeet on DirectML, and voice profiles.
-
-## How it differs from upstream
-
-- **Own identity.** Product name, bundle identifier
-  (`io.github.vmedvedevpro.protocol`), install folder, data folders, recordings
-  folder, and Windows notification identity are all separate, so Protocol runs
-  beside an installed Meetily or Meetily – Actually Free without sharing data,
-  settings, or the single-instance lock. The executable is `protocol.exe`, so
-  installing, upgrading, or uninstalling Protocol leaves a running Meetily
-  alone. Setup and uninstall close a running Protocol only when it runs from
-  the folder being installed or removed: they ask first in an interactive run
-  and close it without asking in passive and silent runs, so a dev build or a
-  Labs install elsewhere keeps running. One exception: the first upgrade over
-  a Protocol build made before 0.3.0 can run that build's old uninstaller,
-  which can close every running `meetily.exe` (builds before the rename) or
-  `protocol.exe` (builds before Tauri 2.12). Close Meetily too before that
-  upgrade (see
-  [ARCHITECTURE.md](ARCHITECTURE.md#8-windows-installer-and-onboarding)).
-- **Updates from GitHub releases, on your click.** Once a day Protocol asks
-  this repository's releases whether a newer version exists and, if so, shows
-  **Update available** with the release notes. It downloads the update only
-  when you click **Download**, verifies its signature, and installs it when you
-  click **Restart and update** or quit the app, never during a recording. Turn
-  the daily check off in Settings › About; the `.deb` package shows a link
-  instead of updating itself. See [docs/AUTO_UPDATE.md](docs/AUTO_UPDATE.md).
-- **No Claude Code CLI provider.** No IPC command runs an executable you chose
-  any more; Built-in AI still starts its bundled `llama-helper`, and the Ollama
-  check may run `ollama list`. A summary provider saved as the CLI loads as
-  unselected, and the app asks you to choose another
-  ([#19](https://github.com/vmedvedevpro/Protocol/issues/19)).
-
-## Roadmap
-
-| Area | Issues |
-| --- | --- |
-| Hygiene and security | [#3](https://github.com/vmedvedevpro/Protocol/issues/3) IPC commands |
-| Recording reliability | [#28](https://github.com/vmedvedevpro/Protocol/issues/28) reconnect a disconnected audio device, [#32](https://github.com/vmedvedevpro/Protocol/issues/32) confirm before quitting during a recording |
-| Russian transcription | [#5](https://github.com/vmedvedevpro/Protocol/issues/5) GigaAM v3 |
-| Speaker labels | [#23](https://github.com/vmedvedevpro/Protocol/issues/23) public ONNX exports of the diarization models |
-| Starting recordings | [#6](https://github.com/vmedvedevpro/Protocol/issues/6) Discord detection, [#7](https://github.com/vmedvedevpro/Protocol/issues/7) Google Calendar via iCal |
-| Using meetings elsewhere | [#8](https://github.com/vmedvedevpro/Protocol/issues/8) read-only MCP server |
-| Optional | [#9](https://github.com/vmedvedevpro/Protocol/issues/9) labels by device, [#10](https://github.com/vmedvedevpro/Protocol/issues/10) local-network-only mode, [#11](https://github.com/vmedvedevpro/Protocol/issues/11) archive encryption |
-| Fork cleanup | [#16](https://github.com/vmedvedevpro/Protocol/issues/16) upstream docs, [#17](https://github.com/vmedvedevpro/Protocol/issues/17) README badges |
+After that, Protocol offers new versions itself; see
+[docs/AUTO_UPDATE.md](docs/AUTO_UPDATE.md) for how updates work.
 
 ## Privacy
 
-Recordings, transcripts, and settings stay on the machine. Nothing is sent
+Recordings, transcripts, and settings stay on your computer. Nothing is sent
 anywhere unless you choose a cloud provider for summaries, which then
-processes that content under its own terms. Analytics have been removed. Once
-a day, unless you turn it off, Protocol asks GitHub whether a newer release
-exists; the request carries nothing about you or your meetings, and an update
-downloads only when you click **Download**. The network is also used to
-download models: from Hugging Face at
+processes that content under its own terms. Once a day, unless you turn it
+off, Protocol asks GitHub whether a newer release exists; the request carries
+nothing about you or your meetings. Models are downloaded from Hugging Face at
 pinned commits, and the repair download of the bundled speaker models from this
-repository. Every downloaded file is checked against a pinned SHA-256. See
-[PRIVACY_POLICY.md](PRIVACY_POLICY.md).
+repository. See [PRIVACY_POLICY.md](PRIVACY_POLICY.md).
 
-## Where data lives
+<details>
+<summary><strong>Where your data lives</strong></summary>
 
 | Data | Windows location |
 | --- | --- |
@@ -127,57 +137,29 @@ repository. Every downloaded file is checked against a pinned SHA-256. See
 On macOS the first row is `~/Library/Application Support/vmedvedevpro/Protocol` and
 recordings default to `~/Movies/protocol-recordings`.
 
-## Build from source (Windows)
+</details>
 
-Prerequisites: Rust (MSVC toolchain), Node.js 20+ with pnpm, Visual Studio 2022
-Build Tools with C++, CMake, LLVM/libclang (18 recommended), and the Vulkan SDK
-for a Vulkan build.
+## What's next
 
-```powershell
-cd frontend
-pnpm install
-pnpm run tauri:dev:vulkan   # or tauri:dev:cpu / tauri:dev:cuda
-```
+| Area | Issues |
+| --- | --- |
+| Russian transcription | [#5](https://github.com/vmedvedevpro/Protocol/issues/5) GigaAM v3 |
+| Starting recordings | [#6](https://github.com/vmedvedevpro/Protocol/issues/6) Discord call detection, [#7](https://github.com/vmedvedevpro/Protocol/issues/7) Google Calendar via iCal |
+| Recording reliability | [#28](https://github.com/vmedvedevpro/Protocol/issues/28) reconnect a disconnected audio device, [#32](https://github.com/vmedvedevpro/Protocol/issues/32) confirm before quitting during a recording |
+| Using meetings elsewhere | [#8](https://github.com/vmedvedevpro/Protocol/issues/8) read-only MCP server |
+| Speaker labels | [#23](https://github.com/vmedvedevpro/Protocol/issues/23) public ONNX exports of the diarization models |
+| Hygiene and security | [#3](https://github.com/vmedvedevpro/Protocol/issues/3) IPC commands |
+| Optional | [#9](https://github.com/vmedvedevpro/Protocol/issues/9) labels by device, [#10](https://github.com/vmedvedevpro/Protocol/issues/10) local-network-only mode, [#11](https://github.com/vmedvedevpro/Protocol/issues/11) archive encryption |
+| Project | [#16](https://github.com/vmedvedevpro/Protocol/issues/16) upstream docs, [#17](https://github.com/vmedvedevpro/Protocol/issues/17) README badges |
 
-Frontend checks, as run in CI:
+Found a bug or want something? [Open an issue](https://github.com/vmedvedevpro/Protocol/issues).
 
-```powershell
-cd frontend
-pnpm dlx bun@1.3.10 scripts/test-isolated.mjs
-pnpm run build
-pnpm exec tsc --noEmit
-```
+## For developers
 
-Releases are built in GitHub Actions (see
-[WORKFLOWS_OVERVIEW.md](.github/workflows/WORKFLOWS_OVERVIEW.md)). The same
-Windows installer (CPU and Vulkan builds) can be built and checked locally with:
-
-```powershell
-cd frontend
-.\scripts\build-universal-windows.ps1 -AllowUnsigned
-node scripts\verify-windows-release.mjs
-```
-
-Before changing code, read [AGENTS.md](AGENTS.md),
+Building from source, checks, releases, and syncing with upstream are in
+[docs/BUILDING.md](docs/BUILDING.md). Start with [AGENTS.md](AGENTS.md),
 [ARCHITECTURE.md](ARCHITECTURE.md), and the
-[development map](docs/DEVELOPMENT_MAP.md). Most notes under `docs/` are
-upstream's engineering and release history.
-
-## Staying in sync with upstream
-
-Internal names (`MEETILY_*` environment variables, storage and event keys) are
-kept as upstream has them so merges stay small; the Cargo package and the
-executable are `protocol`.
-
-Upstream's tags include Meetily's own `v0.3.0` and `v0.4.0`, which would
-collide with Protocol's release tags, so the remote is set up without tags:
-
-```powershell
-git remote add upstream https://github.com/TylerBuza/Meetily-ActuallyFree.git
-git config remote.upstream.tagOpt --no-tags
-git fetch upstream
-git merge upstream/main
-```
+[development map](docs/DEVELOPMENT_MAP.md) before changing code.
 
 ## Credits and license
 
