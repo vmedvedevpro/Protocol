@@ -12,9 +12,9 @@ issue and PR numbers refer to
   recordings folder, installer registry key, and Windows notification identity,
   so it runs beside an installed Meetily or Meetily – Actually Free without
   sharing data, settings, or the single-instance lock.
-- Remove the in-app updater: the updater and process plugins, update checks,
-  the onboarding update question, the tray and About update actions, and updater
-  signing in the Windows packaging script, release verifier, and workflows.
+- Replace upstream's updater, which looked for Meetily – Actually Free
+  releases, with Protocol's own (next item). The process plugin, the onboarding
+  question about update checks, and upstream's update dialog are gone.
 - Add an in-app updater that works like Orca's
   ([#31](https://github.com/vmedvedevpro/Protocol/issues/31)): once a day
   (switch in Settings › About, on by default) Protocol checks this repository's
