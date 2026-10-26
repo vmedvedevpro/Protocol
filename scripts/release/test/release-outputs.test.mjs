@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { expectedAssets, releaseProblems, setProblems } from '../check-release-assets.mjs';
-import { feedProblems } from '../check-published-release.mjs';
+import { feedProblems, loneSurrogatePaths } from '../check-published-release.mjs';
 import { UPDATER_PAYLOADS, latestJson, requiredAssets } from '../release-lib.mjs';
 import { renderNotes } from '../render-notes.mjs';
 import { SUMS_FILE, checkSums, writeSums } from '../write-sha256sums.mjs';
@@ -78,4 +78,16 @@ test('a published feed must name this version, its own URLs and the uploaded sig
     'darwin-aarch64-app: signature differs from protocol-macos-arm64.app.tar.gz.sig',
     'darwin-aarch64: signature differs from protocol-macos-arm64.app.tar.gz.sig',
   ]);
+});
+
+test('a published feed with a lone surrogate is rejected, as the updater would', () => {
+  const signatures = Object.fromEntries(UPDATER_PAYLOADS.map((name) => [name, `sig-${name}\n`]));
+  const text = JSON.stringify(latestJson({ version: '0.3.0', notes: '- Change.', pubDate: '2026-10-30T12:00:00Z', signatures }));
+  // JSON.parse accepts the escape; serde_json does not.
+  const broken = JSON.parse(text.replace('- Change.', '- Change \\ud83d.'));
+  assert.deepEqual(feedProblems(broken, '0.3.0', signatures), [
+    'latest.json.notes: lone UTF-16 surrogate, the updater cannot parse the feed',
+  ]);
+  assert.deepEqual(feedProblems(JSON.parse(text.replace('- Change.', '- Change \\ud83d\\ude00.')), '0.3.0', signatures), []);
+  assert.deepEqual(loneSurrogatePaths({ list: ['ok', '\udc00'], ['\ud800']: 1 }), ['latest.json.list.1', 'latest.json (a key)']);
 });

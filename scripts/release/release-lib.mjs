@@ -208,9 +208,24 @@ export function feedNotes(notes, version, limit = FEED_NOTES_LIMIT, repository =
   let cut = notes;
   while (Buffer.byteLength(cut) > budget) {
     const boundary = Math.max(cut.lastIndexOf('\n\n'), cut.lastIndexOf('\n- '));
-    cut = boundary > 0 ? cut.slice(0, boundary) : cut.slice(0, Math.floor(cut.length / 2));
+    cut = boundary > 0 ? cut.slice(0, boundary) : prefixWithinBytes(cut, budget);
   }
   return cut.trimEnd() + more;
+}
+
+// The longest prefix of `text` within `budget` UTF-8 bytes that ends between
+// code points. A cut inside a surrogate pair would leave a lone surrogate,
+// which JSON.stringify writes as \udXXX and the updater's serde_json rejects,
+// making the whole feed unreadable.
+function prefixWithinBytes(text, budget) {
+  let bytes = 0;
+  let end = 0;
+  for (const codePoint of text) {
+    bytes += Buffer.byteLength(codePoint);
+    if (bytes > budget) break;
+    end += codePoint.length;
+  }
+  return text.slice(0, end);
 }
 
 // latest.json for tauri-plugin-updater. `signatures` maps each updater payload

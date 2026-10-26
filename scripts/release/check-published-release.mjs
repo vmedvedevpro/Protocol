@@ -26,9 +26,21 @@ async function download(url, path) {
   await pipeline(Readable.fromWeb(response.body), createWriteStream(path));
 }
 
+// Paths of the strings in a parsed feed, keys included, that hold a lone UTF-16
+// surrogate. JSON.parse accepts an escaped one (\ud83d); the updater's
+// serde_json rejects the whole feed, so no installed app could update.
+export function loneSurrogatePaths(value, path = 'latest.json') {
+  if (typeof value === 'string') return value.isWellFormed() ? [] : [path];
+  if (value === null || typeof value !== 'object') return [];
+  return Object.entries(value).flatMap(([key, child]) => [
+    ...(key.isWellFormed() ? [] : [`${path} (a key)`]),
+    ...loneSurrogatePaths(child, `${path}.${key}`),
+  ]);
+}
+
 // Problems with a downloaded feed, given the .sig contents by asset name.
 export function feedProblems(feed, version, signatures, repository = REPOSITORY) {
-  const problems = [];
+  const problems = loneSurrogatePaths(feed).map((path) => `${path}: lone UTF-16 surrogate, the updater cannot parse the feed`);
   if (feed.version !== version) problems.push(`latest.json says version ${feed.version}`);
   const platforms = Object.keys(feed.platforms ?? {}).sort();
   if (platforms.join() !== Object.keys(FEED_PLATFORMS).sort().join()) problems.push(`latest.json platforms: ${platforms.join(', ')}`);

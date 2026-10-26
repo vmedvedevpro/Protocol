@@ -143,6 +143,23 @@ test('long feed notes are cut at a boundary and link to the release', () => {
   assert.equal(feedNotes('- Short.', '0.3.0', 2000), '- Short.');
 });
 
+test('feed notes without a boundary are cut between code points', () => {
+  const link = '\n\n[Full release notes](https://github.com/vmedvedevpro/Protocol/releases/tag/v0.3.0)';
+  const budget = 4000 - Buffer.byteLength(link);
+  // Halving these 6,002 UTF-16 units would end between the emoji's surrogates.
+  const halved = feedNotes(`${'a'.repeat(3000)}😀${'b'.repeat(3000)}`, '0.3.0', 4000);
+  // Here the byte budget ends inside the emoji.
+  const atBudget = feedNotes(`${'a'.repeat(budget - 2)}😀${'b'.repeat(100)}`, '0.3.0', 4000);
+  for (const cut of [halved, atBudget]) {
+    assert.ok(cut.isWellFormed(), 'no lone surrogate');
+    assert.ok(!JSON.stringify(cut).includes('\\ud83d'));
+    assert.ok(Buffer.byteLength(cut) <= 4000);
+    assert.ok(cut.endsWith(link));
+  }
+  assert.ok(halved.startsWith(`${'a'.repeat(3000)}😀b`));
+  assert.equal(atBudget, `${'a'.repeat(budget - 2)}${link}`);
+});
+
 test('SHA256SUMS lines are sorted GNU format and parse back', () => {
   const hash = (char) => char.repeat(64);
   const text = formatSha256Sums([{ name: 'b.exe', hash: hash('b') }, { name: 'a.dmg', hash: hash('a') }]);
