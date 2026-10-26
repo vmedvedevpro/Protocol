@@ -543,9 +543,9 @@ the Rust test above and the CUDA status test in
 `whisper_engine::commands::cuda_reconfiguration_tests`. Remaining limits: builds
 are unsigned (SmartScreen and Gatekeeper warnings); Linux packages are built and
 started in CI only, and their native tests do not block; caches saved by tag runs
-are visible only to that tag, so release runs start cold (about 75–90 minutes);
-`llama-helper` is CPU-only on Windows and Linux; the Vulkan/CPU choice happens at
-install and update time, not at launch.
+are visible only to that tag, so release runs start cold (about 40 minutes, the
+Windows leg about 35); `llama-helper` is CPU-only on Windows and Linux; the
+Vulkan/CPU choice happens at install and update time, not at launch.
 
 ### Fork identity and updates
 

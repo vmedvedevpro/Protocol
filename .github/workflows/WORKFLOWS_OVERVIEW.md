@@ -77,10 +77,10 @@ prereleases are invisible to them.
    updater configuration is complete (`createUpdaterArtifacts`, `pubkey`, the
    endpoint above, `requireSignedVersion`), the locked tauri-cli can sign with
    `--app-version` (2.12 or later), and the migration checksum table matches.
-   Then the frontend checks and the three build legs run (about 75–90 minutes
-   from a cold cache; Windows takes longest), and `draft` signs the updater
-   payloads with the production key, verifies the signatures against the key in
-   `tauri.conf.json`, writes `latest.json`, `SHA256SUMS.txt` and the notes,
+   Then the frontend checks and the three build legs run (about 40 minutes
+   with cold Rust caches, almost all of it the Windows leg), and `draft`
+   signs the updater payloads with the production key, verifies the signatures
+   against the key in `tauri.conf.json`, writes `latest.json`, `SHA256SUMS.txt` and the notes,
    attests the installers, and creates the **draft** release. Its job summary
    links the draft.
 
