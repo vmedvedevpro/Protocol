@@ -1,0 +1,50 @@
+name: VirusTotal
+
+# After the owner publishes a release: scans the Windows setup with VirusTotal
+# (scripts/release/virustotal-report.mjs) and writes the detection count and
+# the report link to the job summary, for the owner to read or paste into the
+# release notes. No badge and no write access. Needs the VT_API_KEY repository
+# secret; without it the step writes a notice and the run stays green. A manual
+# run scans any published release, optionally with every installer; run it
+# from main, since tags made before this workflow do not have the script.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Published release to scan, for example v0.3.0
+        required: true
+        type: string
+      all-installers:
+        description: Also scan the macOS and Linux packages and the macOS updater bundle
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    if: github.repository == 'vmedvedevpro/Protocol'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+      - name: Scan the release
+        env:
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+          ALL_INSTALLERS: ${{ inputs.all-installers }}
+          VT_API_KEY: ${{ secrets.VT_API_KEY }}
+        run: |
+          set -euo pipefail
+          extra=()
+          if [ "$ALL_INSTALLERS" = true ]; then extra=(--all); fi
+          mkdir -p "$RUNNER_TEMP/assets"
+          node scripts/release/virustotal-report.mjs --tag "$TAG" --dir "$RUNNER_TEMP/assets" "${extra[@]}"
