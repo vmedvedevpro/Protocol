@@ -3,8 +3,9 @@
 //! Pyannote path, embedding agreement between two sets of model files, and
 //! whether voice profiles learned with one set still match under another.
 //!
-//! The test is ignored: it needs model files and audio from outside the
-//! repository. Set
+//! `bundled_embedding_model_keeps_the_voice_profile_space` runs by default and
+//! guards saved voice profiles. The comparison is ignored: it needs model
+//! files and audio from outside the repository. Set
 //!
 //! - `PROTOCOL_DIARIZATION_MODELS`: `label=dir` pairs separated by `;`. Each
 //!   dir holds the three files under the names `DiarizationModels::load`
@@ -626,6 +627,77 @@ fn compare_model_sets() {
         }
         println!("| {} ({} voices) | {} | {} | {} |", sets[learned].0, profiles.len(), sets[matched].0, live.row(), post.row());
     }
+}
+
+/// A fixed voice-like signal: 3 s of a 120 Hz harmonic tone with vibrato, a
+/// formant-shaped spectrum and a 4 Hz syllable envelope.
+fn synthetic_voice() -> Vec<f32> {
+    use std::f32::consts::PI;
+    let formant = |f: f32, centre: f32, width: f32| (-((f - centre) / width).powi(2)).exp();
+    (0..48_000)
+        .map(|n| {
+            let t = n as f32 / 16_000.0;
+            // Phase of 120 Hz with a 3% vibrato at 5 Hz.
+            let phase = 2.0 * PI * 120.0 * t - 120.0 * 0.03 / 5.0 * (2.0 * PI * 5.0 * t).cos();
+            let tone: f32 = (1..=30)
+                .map(|k| {
+                    let f = 120.0 * k as f32;
+                    let gain = formant(f, 700.0, 300.0) + 0.6 * formant(f, 1200.0, 400.0) + 0.3 * formant(f, 2500.0, 500.0);
+                    gain / k as f32 * (k as f32 * phase).sin()
+                })
+                .sum();
+            0.1 * (0.55 + 0.45 * (2.0 * PI * 4.0 * t).sin()) * tone
+        })
+        .collect()
+}
+
+/// Prints the embedding of [`synthetic_voice`] under each model set, the
+/// source of [`PROFILE_SPACE_REFERENCE`].
+#[test]
+#[ignore = "Needs model files; see the module comment"]
+fn print_synthetic_voice_embeddings() {
+    for pair in std::env::var("PROTOCOL_DIARIZATION_MODELS").unwrap().split(';') {
+        let (label, dir) = pair.split_once('=').unwrap();
+        let embedding = DiarizationModels::load(Path::new(dir)).unwrap().embed(&synthetic_voice()).unwrap();
+        let values: Vec<String> = embedding.iter().map(|value| format!("{value:.5}")).collect();
+        println!("{label}: [{}]", values.join(", "));
+    }
+}
+
+/// The embedding of [`synthetic_voice`] under the WeSpeaker export Protocol
+/// 0.3.0 bundled (`wespeaker-resnet34-LM.onnx`, SHA-256 `992a5632...`), as
+/// [`print_synthetic_voice_embeddings`] printed it.
+#[rustfmt::skip]
+const PROFILE_SPACE_REFERENCE: [f32; 128] = [
+    -0.23564, -0.47648, -0.07782, 0.12356, -0.00220, 0.00765, -0.00757, 0.02761,
+    -0.12269, 0.16239, -0.06784, 0.18201, -0.09164, 0.01173, -0.04418, -0.04720,
+    -0.02879, 0.05769, -0.01904, -0.07470, 0.07043, 0.05253, -0.00075, 0.06605,
+    0.01581, -0.10548, 0.06177, -0.01218, 0.08562, -0.02313, -0.02803, -0.02108,
+    0.12409, -0.00150, 0.01709, 0.03028, -0.04179, 0.06840, 0.07425, -0.04783,
+    0.01636, 0.05579, -0.04058, -0.01100, 0.04634, 0.08708, 0.01042, -0.01519,
+    -0.02262, 0.17442, 0.00780, 0.07508, -0.08391, -0.07986, -0.04987, -0.18351,
+    -0.05109, 0.02930, -0.08523, -0.01647, 0.14280, -0.09986, 0.02704, -0.02053,
+    0.09180, -0.00042, -0.04147, 0.06382, 0.08579, -0.05322, -0.00038, 0.06271,
+    0.00992, -0.00940, -0.03589, 0.20194, -0.12502, 0.06812, 0.02645, 0.10010,
+    -0.04461, 0.06754, 0.12189, 0.09327, -0.03886, -0.01143, 0.03825, 0.06294,
+    -0.06542, -0.03507, 0.04184, -0.00038, 0.04071, 0.02199, 0.08690, 0.06998,
+    0.01150, -0.00721, 0.11198, -0.13178, -0.07038, 0.07809, 0.15134, 0.01966,
+    -0.07979, -0.00027, 0.04056, -0.01103, -0.04772, 0.08249, 0.18056, -0.01069,
+    -0.02674, 0.01990, 0.19402, 0.01831, -0.05682, 0.08205, 0.03582, 0.02064,
+    -0.02671, 0.00899, -0.14424, -0.00041, -0.08542, 0.03826, -0.15326, 0.04878,
+];
+
+/// Saved voice profiles and the local voiceprint are embeddings tagged only
+/// with `voice_profiles::MODEL`, so the bundled embedding model and front-end
+/// must keep producing the space they were learned in. Protocol 0.3.0 bundled
+/// another export of the same weights; this pins the bundled files to it. A
+/// model that fails here needs a new `MODEL` id and a re-enrolment path.
+#[test]
+fn bundled_embedding_model_keeps_the_voice_profile_space() {
+    let bundled = Path::new(env!("CARGO_MANIFEST_DIR")).join("resources/diarization");
+    let embedding = DiarizationModels::load(&bundled).unwrap().embed(&synthetic_voice()).unwrap();
+    let similarity = cosine(&embedding, &PROFILE_SPACE_REFERENCE);
+    assert!(similarity > 0.9999, "cosine {similarity} to the 0.3.0 embedding");
 }
 
 #[test]
