@@ -687,7 +687,7 @@ modify Windows updater metadata.
 ### 0.2.7 - 2026-08-23
 
 <p align="center">
-  <img src="docs/images/v0.2.7-whisper-vocabulary.png" alt="Meetily Whisper vocabulary settings for global and meeting-specific terms" width="1100" />
+  <img src="docs/upstream/images/v0.2.7-whisper-vocabulary.png" alt="Meetily Whisper vocabulary settings for global and meeting-specific terms" width="1100" />
 </p>
 
 #### Critical Windows Upgrade Fix

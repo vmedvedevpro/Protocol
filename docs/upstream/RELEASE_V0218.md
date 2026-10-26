@@ -12,14 +12,14 @@ with transcripts, notes, and summaries afterward.
   components, integrated Windows controls, and Ctrl+K search.
 - **Organization:** groups, contacts, meeting filters, and multi-meeting export.
 
-![Redesigned meeting workspace with transcript, notes, action items, and summary](https://raw.githubusercontent.com/TylerBuza/Meetily-ActuallyFree/main/docs/images/v0.2.18/meeting-detail.png)
+![Redesigned meeting workspace with transcript, notes, action items, and summary](images/v0.2.18/meeting-detail.png)
 
 <details>
 <summary><strong>More screenshots: live recording and meeting library</strong></summary>
 
-![Live recording with transcript, speaker controls, and recording bar](https://raw.githubusercontent.com/TylerBuza/Meetily-ActuallyFree/main/docs/images/v0.2.18/live-recording.png)
+![Live recording with transcript, speaker controls, and recording bar](images/v0.2.18/live-recording.png)
 
-![Meeting library with search, filters, and date-grouped meetings](https://raw.githubusercontent.com/TylerBuza/Meetily-ActuallyFree/main/docs/images/v0.2.18/meeting-workspace.png)
+![Meeting library with search, filters, and date-grouped meetings](images/v0.2.18/meeting-workspace.png)
 
 </details>
 

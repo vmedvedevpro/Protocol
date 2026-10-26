@@ -32,6 +32,9 @@ not updated as Protocol's code changes.
 | [RELEASE_V0222_MACOS.md](RELEASE_V0222_MACOS.md) | v0.2.22-macos preview |
 | [UPSTREAM_0_4_1_PORTS.md](UPSTREAM_0_4_1_PORTS.md) | v0.2.16: what was ported from Meetily 0.4.1 |
 
+[`images/`](images) holds the screenshots that the v0.2.18 note and the
+changelog's v0.2.7 entry show, with Meetily's branding of the time.
+
 Other notes in [`docs/`](..) were also written in Actually Free but describe code
 Protocol still runs, so they stay next to the
 [development map](../DEVELOPMENT_MAP.md) that links them. Those that also record
