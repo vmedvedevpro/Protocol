@@ -27,9 +27,22 @@ release="$repo/scripts/release"
 payloads=(protocol-windows-x64-setup.exe protocol-macos-arm64.app.tar.gz protocol-linux-x86_64.AppImage)
 
 mkdir -p "$dist"
+# Files left from an earlier run would pass the name check below and be signed
+# and hashed as if a leg had built them.
+if [[ -n "$(find "$dist" -mindepth 1 -maxdepth 1 -print -quit)" ]]; then
+  echo "::error::$dist is not empty; assemble into a new folder"
+  exit 1
+fi
 for leg in "$legs"/*/; do
   node "$release/write-sha256sums.mjs" --check "$leg"
-  find "$leg" -maxdepth 1 -type f ! -name SHA256SUMS.txt -exec mv -n {} "$dist/" \;
+  while IFS= read -r -d '' file; do
+    name=${file##*/}
+    if [[ -e "$dist/$name" ]]; then
+      echo "::error::$name comes from more than one leg"
+      exit 1
+    fi
+    mv "$file" "$dist/$name"
+  done < <(find "$leg" -maxdepth 1 -type f ! -name SHA256SUMS.txt -print0)
 done
 node "$release/check-release-assets.mjs" --version "$VERSION" --dir "$dist" --stage legs
 
