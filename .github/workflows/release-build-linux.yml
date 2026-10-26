@@ -99,9 +99,11 @@ jobs:
           cat "$work/runtime" "$work/filesystem.squashfs" > "$appimage"
           chmod +x "$appimage"
           rm -rf "$work"
+      # custom-protocol as in tauri build, so tauri and its dependents are not
+      # compiled again for the tests.
       - name: Test the native code (not blocking yet)
         continue-on-error: true
-        run: cargo test --release --locked -p protocol --lib -- --test-threads=1
+        run: cargo test --release --locked -p protocol --lib --features custom-protocol -- --test-threads=1
       - name: Check the packages and start the AppImage
         run: |
           set -euo pipefail

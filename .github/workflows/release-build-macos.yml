@@ -102,8 +102,10 @@ jobs:
           fi
           # ${config[@]+...}: macOS bash 3.2 treats an empty array as unset under set -u.
           pnpm exec tauri build --ci --target "$TARGET" --bundles app,dmg ${config[@]+"${config[@]}"} -- --locked
+      # custom-protocol as in tauri build, so tauri and its dependents are not
+      # compiled again for the tests.
       - name: Test the native code
-        run: cargo test --release --locked -p protocol --lib --target "$TARGET" -- --test-threads=1
+        run: cargo test --release --locked -p protocol --lib --target "$TARGET" --features custom-protocol -- --test-threads=1
       - name: Verify the bundle and start the app
         run: |
           set -euo pipefail
