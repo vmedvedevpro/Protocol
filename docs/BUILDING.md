@@ -1,0 +1,63 @@
+# Building and contributing
+
+How to build Protocol from source, check a change, and keep the fork in sync with
+upstream. For what the app does and how to install a release, see the
+[README](../README.md).
+
+Before changing code, read [AGENTS.md](../AGENTS.md),
+[ARCHITECTURE.md](../ARCHITECTURE.md), and the
+[development map](DEVELOPMENT_MAP.md). Most other notes under `docs/` are
+upstream's engineering and release history.
+
+## Build from source (Windows)
+
+Prerequisites: Rust (MSVC toolchain), Node.js 20+ with pnpm, Visual Studio 2022
+Build Tools with C++, CMake, LLVM/libclang (18 recommended), and the Vulkan SDK
+for a Vulkan build.
+
+```powershell
+cd frontend
+pnpm install
+pnpm run tauri:dev:vulkan   # or tauri:dev:cpu / tauri:dev:cuda
+```
+
+Frontend checks, as run in CI:
+
+```powershell
+cd frontend
+pnpm dlx bun@1.3.10 scripts/test-isolated.mjs
+pnpm run build
+pnpm exec tsc --noEmit
+```
+
+## Releases
+
+Releases are built in GitHub Actions from a pushed `vX.Y.Z` tag into a draft
+that the owner publishes; the procedure is in
+[WORKFLOWS_OVERVIEW.md](../.github/workflows/WORKFLOWS_OVERVIEW.md), and the
+updater's feed and signing rules in [AUTO_UPDATE.md](AUTO_UPDATE.md). The same
+Windows installer (CPU and Vulkan builds) can be built and checked locally with:
+
+```powershell
+cd frontend
+.\scripts\build-universal-windows.ps1 -AllowUnsigned
+node scripts\verify-windows-release.mjs
+```
+
+## Staying in sync with upstream
+
+Protocol merges
+[Meetily – Actually Free](https://github.com/TylerBuza/Meetily-ActuallyFree)
+through the `upstream` remote. Internal names (`MEETILY_*` environment
+variables, storage and event keys) are kept as upstream has them so merges stay
+small; the Cargo package and the executable are `protocol`.
+
+Upstream's tags include Meetily's own `v0.3.0` and `v0.4.0`, which would collide
+with Protocol's release tags, so the remote is set up without tags:
+
+```powershell
+git remote add upstream https://github.com/TylerBuza/Meetily-ActuallyFree.git
+git config remote.upstream.tagOpt --no-tags
+git fetch upstream
+git merge upstream/main
+```
