@@ -96,15 +96,20 @@ test('Pyannote credits name each model license and open its source', async () =>
   const link = (label: string) => root.root.findAll((node) => node.type === 'button' && node.props.children === label);
   expect(link('CC BY 4.0')).toHaveLength(2);
   await act(async () => link('WeSpeaker ResNet34-LM')[0].props.onClick());
-  expect(openedUrls).toEqual(['https://huggingface.co/Wespeaker/wespeaker-voxceleb-resnet34-LM']);
+  await act(async () => link('onnx-community')[0].props.onClick());
+  expect(openedUrls).toEqual([
+    'https://huggingface.co/Wespeaker/wespeaker-voxceleb-resnet34-LM',
+    'https://huggingface.co/onnx-community/pyannote-segmentation-3.0',
+  ]);
 });
 
-test('missing Pyannote models name the pinned commit the repair downloads from', async () => {
+test('missing Pyannote models name the pinned sources the repair downloads from', async () => {
   pyannoteAvailable = false;
   await act(async () => { root = create(<App />); });
   const text = JSON.stringify(root.toJSON());
-  // model_integrity::PYANNOTE_BASE, not a release of the app.
-  expect(text).toContain('from the Protocol repository on GitHub, at the fixed commit 76e9939');
+  // model_integrity::PYANNOTE, not this repository or a release of the app.
+  expect(text).toContain('from their public sources on Hugging Face, each at a fixed commit');
+  expect(text).not.toContain('Protocol repository');
   expect(text).not.toContain('GitHub release');
   expect(text).toContain('Re-download models');
 });

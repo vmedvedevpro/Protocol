@@ -404,8 +404,8 @@ export function DiarizationSettings() {
             <div className="mt-4 rounded-xl bg-af-warning/10 p-4">
               <p className="text-sm text-af-text mb-3 leading-relaxed">
                 The bundled speaker models couldn&apos;t be found. You can re-download them
-                {downloadBytes > 0 && <> (~{formatMB(downloadBytes)})</>} from the Protocol repository on
-                GitHub, at the fixed commit 76e9939 — files are verified with SHA-256.
+                {downloadBytes > 0 && <> (~{formatMB(downloadBytes)})</>} from their public sources on
+                Hugging Face, each at a fixed commit — files are verified with SHA-256.
               </p>
               <Button size="sm" onClick={() => handleDownload('pyannote')} className="bg-af-accent text-af-on-accent hover:bg-af-accent-hover">
                 <Download size={16} className="mr-1.5" />
@@ -536,8 +536,8 @@ export function DiarizationSettings() {
           <div className="mt-2 text-xs text-af-text-3 leading-relaxed">
             {isPyannote ? (
               <>
-                Drop your own <code>segmentation-3.0-fp16.onnx</code>,{' '}
-                <code>wespeaker-resnet34-LM.onnx</code> and <code>xvec_transform.npz</code> here to
+                Drop your own <code>segmentation-3.0.onnx</code>,{' '}
+                <code>voxceleb_resnet34_LM.onnx</code> and <code>xvec_transform.npz</code> here to
                 override the bundled models.
               </>
             ) : (
@@ -561,8 +561,10 @@ export function DiarizationSettings() {
             by the WeSpeaker project (<CreditLink href={CC_BY_4_0}>CC BY 4.0</CreditLink>) · VBx x-vector transform by
             BUT Speech@FIT, from{' '}
             <CreditLink href="https://huggingface.co/pyannote-community/speaker-diarization-community-1">pyannote community-1</CreditLink>{' '}
-            (<CreditLink href={CC_BY_4_0}>CC BY 4.0</CreditLink>). Both ONNX files were converted from the original
-            models. Notices ship with the app in <code>resources/diarization/THIRD_PARTY_MODELS.txt</code>.
+            (<CreditLink href={CC_BY_4_0}>CC BY 4.0</CreditLink>). ONNX exports: segmentation by{' '}
+            <CreditLink href="https://huggingface.co/onnx-community/pyannote-segmentation-3.0">onnx-community</CreditLink>,
+            embeddings by the WeSpeaker project. Notices ship with the app in{' '}
+            <code>resources/diarization/THIRD_PARTY_MODELS.txt</code>.
           </>
         ) : (
           <>
