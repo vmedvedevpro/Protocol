@@ -1,157 +1,143 @@
 # Changelog
 
+The `## Protocol …` sections are Protocol's releases. Protocol is forked from
+Meetily – Actually Free at upstream commit `3130d16` (source version 0.2.22);
+every section after the Protocol ones is upstream history, and its issue and PR
+numbers refer to
+[TylerBuza/Meetily-ActuallyFree](https://github.com/TylerBuza/Meetily-ActuallyFree).
+
 ## Protocol — unreleased
 
 ## Protocol 0.3.0 — 2026-10-26
 
-Protocol is forked from Meetily – Actually Free at upstream commit `3130d16`
-(source version 0.2.22). Every section below this one is upstream history; its
-issue and PR numbers refer to
-[TylerBuza/Meetily-ActuallyFree](https://github.com/TylerBuza/Meetily-ActuallyFree).
+The first release of Protocol, built from Meetily – Actually Free 0.2.22
+(upstream commit `3130d16`). It runs as its own app beside Meetily, downloads
+updates only when you click, verifies every model it downloads, and drops code
+that could reach files or servers it should not.
 
-- Rename the app to **Protocol** with its own identifier
-  (`io.github.vmedvedevpro.protocol`), install folder, fallback data folder,
-  recordings folder, installer registry key, and Windows notification identity,
-  so it runs beside an installed Meetily or Meetily – Actually Free without
-  sharing data, settings, or the single-instance lock.
-- Replace upstream's updater, which looked for Meetily – Actually Free
-  releases, with Protocol's own (next item). The process plugin, the onboarding
-  question about update checks, and upstream's update dialog are gone.
-- Add an in-app updater that works like Orca's
-  ([#31](https://github.com/vmedvedevpro/Protocol/issues/31)): once a day
-  (switch in Settings › About, on by default) Protocol checks this repository's
-  GitHub releases and shows **Update available** with the release notes in the
+### New
+
+- **Updates on your click**
+  ([#31](https://github.com/vmedvedevpro/Protocol/issues/31)). Once a day (on by
+  default; switch in Settings › About) Protocol checks this repository's GitHub
+  releases and shows **Update available** with the release notes in the
   sidebar, the tray, and one toast per version. It downloads the update only
   when you click **Download**, verifies its signature, and installs it when you
   click **Restart and update** or quit, never during a recording or while a
   meeting is being processed. A download stops when a recording starts and
-  starts again after it. `.deb`
-  installs show a link instead; on macOS the system may ask for microphone and
-  screen recording access again after an update.
-- Remove the inactive PostHog analytics: the native `analytics` module and its
-  IPC commands, the `posthog-rs` dependency, and the frontend tracking calls and
-  provider. It never sent events. The local `analytics.json` that earlier
-  versions wrote (meeting totals, the last meeting date, per-day meeting counts,
-  and the opt-in flags) is no longer read or written and can be deleted safely;
-  `PRIVACY_POLICY.md` says where it is.
-- Point About, onboarding, crash reports, and the CUDA setup prompt at this
-  repository.
-- Remove the manual Windows support-bundle script inherited from upstream: it
-  zipped the database with provider API keys, WebView storage, memory dumps, by
-  default the newest meeting recording, the computer and user names, and the
+  starts again after it. `.deb` installs show a download link instead; on macOS
+  the system may ask for microphone and screen recording access again after an
+  update.
+- **Downloads for Windows, macOS, and Linux**
+  ([#15](https://github.com/vmedvedevpro/Protocol/issues/15)): Windows x64,
+  macOS on Apple Silicon, and experimental Linux x64 (AppImage and deb), with
+  `SHA256SUMS.txt`, updater signatures, and build-provenance attestations.
+  Releases are built in GitHub Actions from a version tag and published by hand.
+
+### Changed
+
+- **Its own app.** Protocol has its own name, icon and logo
+  ([#13](https://github.com/vmedvedevpro/Protocol/issues/13)), identifier
+  (`io.github.vmedvedevpro.protocol`), install folder, data and recordings
+  folders, installer registry key, and Windows notification identity, so it
+  runs beside an installed Meetily or Meetily – Actually Free without sharing
+  data, settings, or the single-instance lock. About, onboarding, and crash
+  reports point at this repository.
+- **Meetily keeps running.** The executable is `protocol.exe`
+  ([#12](https://github.com/vmedvedevpro/Protocol/issues/12)): setup and
+  uninstall no longer close a running Meetily or Meetily – Actually Free, and
+  meeting detection no longer takes Meetily for Protocol itself. They close a
+  running Protocol only when it runs from the folder being installed or
+  removed, asking first only in an interactive setup
+  ([#33](https://github.com/vmedvedevpro/Protocol/issues/33)). One exception:
+  the first upgrade over a Protocol build made before this release can run that
+  build's old uninstaller, which can still close every running `meetily.exe`
+  (builds before the rename) or `protocol.exe` (builds before Tauri 2.12).
+- **One Windows installer**
+  ([#15](https://github.com/vmedvedevpro/Protocol/issues/15)).
+  `protocol-windows-x64-setup.exe` carries the CPU and Vulkan builds and still
+  picks Vulkan when the graphics driver supports it. CUDA is no longer included
+  (NVIDIA GPUs use Vulkan), so the installer is about 118 MB instead of 674 MB,
+  about 500 MB of CUDA libraries are no longer installed (and are deleted from
+  an existing install), and the CUDA setup notice is gone. The installer's own
+  pages replace the frameless setup window. `/BACKEND=cpu` or `/BACKEND=vulkan`
+  is remembered for later installs and updates; `/BACKEND=auto` returns to the
+  automatic choice.
+
+### Removed
+
+- **The Claude Code CLI summary provider**
+  ([#19](https://github.com/vmedvedevpro/Protocol/issues/19)), its Model
+  Settings panel, and the IPC commands that let the app choose and run a
+  `claude` executable. Summaries and Ask AI use the built-in models, Ollama, or
+  an HTTP API provider. A provider saved as the CLI now loads as unselected, and
+  Model Settings and summary generation ask you to choose another; the CLI's
+  leftover working folder is deleted at startup.
+- **Upstream's updater**, which looked for Meetily – Actually Free releases,
+  with its update dialog and the onboarding question about update checks. The
+  updater above replaces it.
+
+### Fixed
+
+- **Audio import** goes into the recordings folder chosen in Settings instead
+  of always the default folder, and fails with the folder path when that folder
+  is unusable; speaker identification also looks there for recordings a meeting
+  does not link ([#29](https://github.com/vmedvedevpro/Protocol/issues/29)).
+- **Built-in summary models** say why they failed: after a failed download or
+  integrity check, Settings no longer says "Failed to load models", and the
+  model card shows the error with Retry
+  ([#1](https://github.com/vmedvedevpro/Protocol/issues/1)).
+- **Model licenses.** The bundled Pyannote/WeSpeaker models ship with their
+  license notices (`resources/diarization/THIRD_PARTY_MODELS.txt`), and the
+  Settings credit line is corrected: the WeSpeaker weights and the VBx x-vector
+  transform are CC BY 4.0, not Apache-2.0
+  ([#1](https://github.com/vmedvedevpro/Protocol/issues/1)).
+
+### Security and privacy
+
+- **Verified model downloads**
+  ([#1](https://github.com/vmedvedevpro/Protocol/issues/1)). Whisper, Parakeet,
+  the built-in summary models, Pyannote, and Nemotron are downloaded from pinned
+  commits, and each file's size and SHA-256 are checked. A file that does not
+  match is deleted, or reported when it cannot be, and the download or model
+  load fails with an integrity error; a partial download is kept for resume.
+  Models installed by older builds are hashed once before their first load.
+  Parakeet v3 no longer falls back to the previous fork's GitHub release, and
+  the Pyannote repair download comes from this repository.
+- **No analytics.** The inactive PostHog analytics, which never sent events,
+  are removed ([#14](https://github.com/vmedvedevpro/Protocol/issues/14)). The
+  local `analytics.json` that earlier versions wrote (meeting totals, the last
+  meeting date, per-day meeting counts, and the opt-in flags) is no longer read
+  or written and can be deleted safely; `PRIVACY_POLICY.md` says where it is.
+- **No support-bundle script.** The manual Windows script inherited from
+  upstream is removed ([#4](https://github.com/vmedvedevpro/Protocol/issues/4)):
+  it zipped the database with provider API keys, WebView storage, memory dumps,
+  by default the newest meeting recording, the computer and user names, and the
   command lines of running app processes, and it read the old Meetily folders.
   The in-app crash report remains the supported path.
-- Remove the Claude Code CLI summary provider, its Model Settings panel, and the
-  IPC commands that let the app choose and run a `claude` executable; summaries
-  and Ask AI use the built-in models, Ollama, or an HTTP API provider. A summary
-  provider saved as the CLI now loads as unselected: Model Settings and summary
-  generation ask you to choose another provider, and the CLI's leftover working
-  folder is deleted at startup
-  ([#19](https://github.com/vmedvedevpro/Protocol/issues/19)).
-- Import audio into the recordings folder chosen in Settings instead of always
-  the default folder, failing with the folder path when it is unusable; speaker
-  identification also looks there for recordings a meeting does not link (#29).
-- Rename the executable from `meetily.exe` to `protocol.exe` (Cargo package
-  `protocol`, installer variants `protocol-{cpu,vulkan,cuda}.exe`). Setup and
-  uninstall no longer close a running Meetily or Meetily – Actually Free,
-  except once: the first upgrade over a build that still has `meetily.exe` can
-  run that build's old uninstaller, which closes every `meetily.exe`. The
-  uninstall hook stops only the `protocol.exe` in its own install folder,
-  without asking, and since the Tauri 2.12 update (#33) Tauri's running-app
-  check before install also closes only that one (asking first only in an
-  interactive run).
-  Meeting detection no longer treats Meetily as Protocol itself.
-- Remove 70 IPC commands that nothing in the app called, together with the code
-  that only they used, and two frontend calls to commands that do not exist;
-  every feature works as before
-  ([#3](https://github.com/vmedvedevpro/Protocol/issues/3)).
-  - `read_audio_file`, `save_transcript`, `diarize_recording`, `ollama_embed`,
-    `detect_legacy_database`, `get_ollama_model_context`, and
-    `get_meeting_playback_audio`. All but the last accepted a path, URL, or
-    endpoint from the WebView without checks, which let it read or write any
-    file, decode any audio file, probe whether a file exists, or send requests
-    and transcript text to any server; `get_meeting_playback_audio` added a
-    meeting's audio file to the asset protocol scope.
-  - Parallel Whisper processing: `initialize_parallel_processor`,
-    `start_parallel_processing`, `pause_parallel_processing`,
-    `resume_parallel_processing`, `stop_parallel_processing`,
-    `get_parallel_processing_status`, `get_system_resources`,
-    `check_resource_constraints`, `calculate_optimal_workers`,
-    `prepare_audio_chunks`, and `test_parallel_processing_setup`.
-  - Notifications: `request_notification_permission`, `show_notification`,
-    `show_test_notification`, `is_dnd_active`, `get_system_dnd_status`,
-    `set_manual_dnd`, `set_notification_consent`, `clear_notifications`,
-    `is_notification_system_ready`, `initialize_notification_manager_manual`,
-    `test_notification_with_auto_consent`, and `get_notification_stats`.
-    Recording notifications are unchanged.
-  - Console window: `show_console`, `hide_console`, and `toggle_console`.
-  - System audio capture and monitoring: `start_system_audio_capture_command`,
-    `list_system_audio_devices_command`,
-    `check_system_audio_permissions_command`, `start_system_audio_monitoring`,
-    `stop_system_audio_monitoring`, and `get_system_audio_monitoring_status`.
-  - Audio backend selection: `get_available_audio_backends`,
-    `get_current_audio_backend`, `set_audio_backend`, and
-    `get_audio_backend_info`.
-  - The old HTTP backend: `api_get_profile`, `api_save_profile`,
-    `api_update_profile`, `test_backend_connection`, and
-    `debug_backend_connection`.
-  - Search, settings, and templates: `api_search_transcripts` (replaced by the
-    global search), `api_get_transcript_api_key`, `api_get_template_details`,
-    and `api_validate_template`.
-  - Recording and devices: `start_recording_with_devices`,
-    `is_audio_level_monitoring`, `is_recording_paused`,
-    `poll_audio_device_events`, `get_reconnection_status`, and
-    `get_active_audio_output`.
-  - Meeting detection: `start_meeting_detection` and `stop_meeting_detection`;
-    detection still starts at launch and follows its setting.
-  - Diarization: `diarization_model_directory`, `diarization_download_size`, and
-    `get_diarization_engine`.
-  - Other queries: `whisper_unload_model`, `is_compact_mode`,
-    `is_import_in_progress_command`, `check_screen_recording_permission_command`,
-    `request_screen_recording_permission_command`,
-    `select_legacy_database_path`, and `reset_onboarding_status_cmd`.
-  - Calls to unregistered commands, which could only fail with "Command not
-    found": `api_get_auto_generate_setting`, which the Model Settings view sent
-    on every mount for a switch that was already hidden (Auto Summary keeps its
-    own setting), and the unused `builtin_ai_get_models_directory` wrapper.
-- Pin every model download to a commit and verify each file's size and SHA-256
-  (#1): Whisper, Parakeet, the built-in summary models, Pyannote and Nemotron. A
-  file that does not match is deleted, or reported when it cannot be, and the
-  download or model load fails with an integrity error; a partial download is
-  kept for resume. Models installed by older builds are hashed once before
-  their first load. Parakeet v3 no longer falls back to the previous fork's
-  GitHub release, and the Pyannote repair download comes from this repository.
-- Ship license notices for the bundled Pyannote/WeSpeaker models
-  (`resources/diarization/THIRD_PARTY_MODELS.txt`), and correct the Settings
-  credit line: the WeSpeaker weights and the VBx x-vector transform are
-  CC BY 4.0, not Apache-2.0 (#1).
-- Show why a built-in summary model failed: after a failed download or
-  integrity check, Settings no longer says "Failed to load models", and the
-  model card shows the error with Retry (#1).
-- Update Tauri to 2.12 (`tauri` 2.12.5, CLI and JavaScript API 2.12.4, the
-  plugins to their matching releases), which includes the fix for the Tauri
-  security advisory GHSA-w28w-mhc8-qvjv. The Windows crash fix in the bundled
-  `tauri-runtime-wry` is carried over to 2.12.3. The Windows installer is built
-  with NSIS 3.13, and setup and uninstall now close a running Protocol only when
-  it runs from the folder being installed or removed, except once: the first
-  upgrade over an earlier build with `protocol.exe` can run that build's old
-  uninstaller, whose check still finds every `protocol.exe` by name
+- **Fewer IPC commands.** 70 commands that nothing in the app called are
+  removed, and every feature works as before
+  ([#3](https://github.com/vmedvedevpro/Protocol/issues/3)). Seven of them took
+  a path, URL, or endpoint from the WebView without checks, which let it read or
+  write any file, decode any audio file, probe whether a file exists, or send
+  requests and transcript text to any server, or added a meeting's audio file to
+  the asset protocol scope.
+- **Tauri 2.12** with the fix for the Tauri security advisory
+  GHSA-w28w-mhc8-qvjv
   ([#33](https://github.com/vmedvedevpro/Protocol/issues/33)).
-- Build releases in GitHub Actions from a version tag: one installer per
-  platform (Windows x64, macOS Apple Silicon, and experimental Linux x64
-  AppImage and deb), with `SHA256SUMS.txt`, updater signatures, and
-  build-provenance attestations, in a draft release that is published by hand
+
+### For developers
+
+- The removed IPC commands and the two frontend calls to commands that do not
+  exist are listed in the
+  [development map](https://github.com/vmedvedevpro/Protocol/blob/v0.3.0/docs/DEVELOPMENT_MAP.md#fork-identity-and-updates).
+- Tauri 2.12.5 (CLI and JavaScript API 2.12.4) with the vendored
+  `tauri-runtime-wry` crash fix carried over to 2.12.3; the Windows installer is
+  built with NSIS 3.13
+  ([#33](https://github.com/vmedvedevpro/Protocol/issues/33)).
+- The build pins the FFmpeg download by size and SHA-256, and the Visual C++
+  runtime to a versioned download
   ([#15](https://github.com/vmedvedevpro/Protocol/issues/15)).
-- Ship Windows as a single `protocol-windows-x64-setup.exe` with the CPU and
-  Vulkan builds; setup still picks Vulkan when the graphics driver supports it.
-  CUDA is no longer included (NVIDIA GPUs use Vulkan), so the installer is about
-  118 MB instead of 674 MB, about 500 MB of CUDA libraries are no longer
-  installed (and are deleted from an existing install), and the CUDA setup
-  notice is gone. The frameless setup window is replaced by the installer's own
-  pages. `/BACKEND=cpu` or `/BACKEND=vulkan` is now remembered for later installs
-  and updates; `/BACKEND=auto` returns to the automatic choice (#15).
-- Pin the FFmpeg download of the build by size and SHA-256, and the Visual C++
-  runtime to a versioned download (#15).
 
 ## Unreleased
 
