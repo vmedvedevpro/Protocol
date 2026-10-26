@@ -407,7 +407,7 @@ pub async fn check_now<R: Runtime>(app: &AppHandle<R>, manual: bool) -> Snapshot
             *pending = None;
         }
     }
-    state.prefs().record_check(effect.completed, now);
+    state.prefs().record_check(manual, effect.completed, now);
     state.save_prefs(app);
     emit_status(app);
     state.snapshot()

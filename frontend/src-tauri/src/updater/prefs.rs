@@ -18,7 +18,9 @@ pub struct Prefs {
     pub last_checked_at: Option<i64>,
     /// Unix ms of the last check attempt, successful or not.
     pub last_attempt_at: Option<i64>,
-    /// Failed checks since the last completed one; drives the backoff.
+    /// Failed automatic checks since the last completed one; drives the
+    /// backoff. A failed manual check is not counted, so clicking Check for
+    /// updates while offline never schedules extra automatic requests.
     pub failures: u32,
 }
 
@@ -34,12 +36,12 @@ impl Default for Prefs {
 }
 
 impl Prefs {
-    pub fn record_check(&mut self, completed: bool, now: i64) {
+    pub fn record_check(&mut self, manual: bool, completed: bool, now: i64) {
         self.last_attempt_at = Some(now);
         if completed {
             self.last_checked_at = Some(now);
             self.failures = 0;
-        } else {
+        } else if !manual {
             self.failures = self.failures.saturating_add(1);
         }
     }
@@ -77,10 +79,21 @@ mod tests {
     #[test]
     fn a_completed_check_resets_the_failures() {
         let mut prefs = Prefs::default();
-        prefs.record_check(false, 10);
-        prefs.record_check(false, 20);
+        prefs.record_check(false, false, 10);
+        prefs.record_check(false, false, 20);
         assert_eq!((prefs.failures, prefs.last_attempt_at, prefs.last_checked_at), (2, Some(20), None));
-        prefs.record_check(true, 30);
+        prefs.record_check(true, true, 30);
         assert_eq!((prefs.failures, prefs.last_attempt_at, prefs.last_checked_at), (0, Some(30), Some(30)));
+    }
+
+    #[test]
+    fn only_automatic_failures_count() {
+        let mut prefs = Prefs::default();
+        prefs.record_check(false, true, 10);
+        prefs.record_check(true, false, 20);
+        assert_eq!((prefs.failures, prefs.last_attempt_at, prefs.last_checked_at), (0, Some(20), Some(10)));
+        prefs.record_check(false, false, 30);
+        prefs.record_check(true, false, 40);
+        assert_eq!(prefs.failures, 1);
     }
 }
