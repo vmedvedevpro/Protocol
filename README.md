@@ -66,13 +66,15 @@ Everything below comes from upstream and works as it does there.
   beside an installed Meetily or Meetily – Actually Free without sharing data,
   settings, or the single-instance lock. The executable is `protocol.exe`, so
   installing, upgrading, or uninstalling Protocol leaves a running Meetily
-  alone, with one exception: the first upgrade over a Protocol build that still
-  has `meetily.exe` can run that build's old uninstaller, which closes every
-  running `meetily.exe`. Close Meetily too before that upgrade (see
+  alone. Setup and uninstall close a running Protocol only when it runs from
+  the folder being installed or removed: they ask first in an interactive run
+  and close it without asking in passive and silent runs, so a dev build or a
+  Labs install elsewhere keeps running. One exception: the first upgrade over
+  a Protocol build made before 0.3.0 can run that build's old uninstaller,
+  which can close every running `meetily.exe` (builds before the rename) or
+  `protocol.exe` (builds before Tauri 2.12). Close Meetily too before that
+  upgrade (see
   [ARCHITECTURE.md](ARCHITECTURE.md#8-windows-installer-and-onboarding)).
-  Setup and uninstall still close any other running `protocol.exe` of your
-  user, such as a dev build or a Labs install: they ask first in an
-  interactive run and close it without asking in passive and silent runs.
 - **Updates from GitHub releases, on your click.** Once a day Protocol asks
   this repository's releases whether a newer version exists and, if so, shows
   **Update available** with the release notes. It downloads the update only
@@ -91,11 +93,13 @@ Everything below comes from upstream and works as it does there.
 | Area | Issues |
 | --- | --- |
 | Hygiene and security | [#3](https://github.com/vmedvedevpro/Protocol/issues/3) IPC commands |
+| Recording reliability | [#28](https://github.com/vmedvedevpro/Protocol/issues/28) reconnect a disconnected audio device, [#32](https://github.com/vmedvedevpro/Protocol/issues/32) confirm before quitting during a recording |
 | Russian transcription | [#5](https://github.com/vmedvedevpro/Protocol/issues/5) GigaAM v3 |
+| Speaker labels | [#23](https://github.com/vmedvedevpro/Protocol/issues/23) public ONNX exports of the diarization models |
 | Starting recordings | [#6](https://github.com/vmedvedevpro/Protocol/issues/6) Discord detection, [#7](https://github.com/vmedvedevpro/Protocol/issues/7) Google Calendar via iCal |
 | Using meetings elsewhere | [#8](https://github.com/vmedvedevpro/Protocol/issues/8) read-only MCP server |
 | Optional | [#9](https://github.com/vmedvedevpro/Protocol/issues/9) labels by device, [#10](https://github.com/vmedvedevpro/Protocol/issues/10) local-network-only mode, [#11](https://github.com/vmedvedevpro/Protocol/issues/11) archive encryption |
-| Fork cleanup | [#16](https://github.com/vmedvedevpro/Protocol/issues/16) upstream docs |
+| Fork cleanup | [#16](https://github.com/vmedvedevpro/Protocol/issues/16) upstream docs, [#17](https://github.com/vmedvedevpro/Protocol/issues/17) README badges |
 
 ## Privacy
 
@@ -161,11 +165,16 @@ upstream's engineering and release history.
 
 ## Staying in sync with upstream
 
-Internal names (the `meetily` crate, `MEETILY_*` environment variables, storage
-keys) are kept as upstream has them so merges stay small.
+Internal names (`MEETILY_*` environment variables, storage and event keys) are
+kept as upstream has them so merges stay small; the Cargo package and the
+executable are `protocol`.
+
+Upstream's tags include Meetily's own `v0.3.0` and `v0.4.0`, which would
+collide with Protocol's release tags, so the remote is set up without tags:
 
 ```powershell
 git remote add upstream https://github.com/TylerBuza/Meetily-ActuallyFree.git
+git config remote.upstream.tagOpt --no-tags
 git fetch upstream
 git merge upstream/main
 ```
