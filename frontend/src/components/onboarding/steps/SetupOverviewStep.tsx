@@ -254,6 +254,10 @@ export function SetupOverviewStep() {
           >
             Let's Go
           </Button>
+          <p className="text-center text-xs leading-5 text-af-text-3">
+            Protocol checks GitHub once a day for a new release and downloads it only when you
+            click Download. You can turn the check off in Settings › About.
+          </p>
           <div className="text-center">
             <button
               type="button"

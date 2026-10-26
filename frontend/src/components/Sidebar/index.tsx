@@ -55,6 +55,7 @@ import { Hint } from '@/components/ui/tooltip';
 import { Dialog, DialogContent, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { VisuallyHidden } from '@/components/ui/visually-hidden';
 import { About } from '@/components/About';
+import { UpdateIndicator } from '@/components/updater/UpdateIndicator';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Kbd } from '@/components/ui/surface';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
@@ -666,17 +667,22 @@ const Sidebar: React.FC = () => {
           )}
         </div>
 
-        {/* Footer */}
-        {/* h-14 matches the meeting page's playback bar, so their top borders line up. */}
-        <div className={cn('mx-3 mt-auto flex h-14 shrink-0 flex-col justify-center border-t transition-colors', expanded ? 'border-af-border' : 'border-transparent')}>
-          <RailTip show={!expanded} label="Settings">
-            <button type="button" onClick={() => router.push('/settings')} className={navClass(isSettings)} aria-current={isSettings ? 'page' : undefined}>
-              <RailIcon>
-                <Settings />
-              </RailIcon>
-              <RailLabel expanded={expanded}>Settings</RailLabel>
-            </button>
-          </RailTip>
+        {/* Footer: the update pill (only while a release is offered) sits above it. */}
+        <div className="mt-auto shrink-0">
+          <div className="mx-3">
+            <UpdateIndicator expanded={expanded} />
+          </div>
+          {/* h-14 matches the meeting page's playback bar, so their top borders line up. */}
+          <div className={cn('mx-3 flex h-14 shrink-0 flex-col justify-center border-t transition-colors', expanded ? 'border-af-border' : 'border-transparent')}>
+            <RailTip show={!expanded} label="Settings">
+              <button type="button" onClick={() => router.push('/settings')} className={navClass(isSettings)} aria-current={isSettings ? 'page' : undefined}>
+                <RailIcon>
+                  <Settings />
+                </RailIcon>
+                <RailLabel expanded={expanded}>Settings</RailLabel>
+              </button>
+            </RailTip>
+          </div>
         </div>
       </div>
 

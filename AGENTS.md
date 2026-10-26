@@ -18,7 +18,7 @@ fork. Its code comes from two upstream projects, both MIT licensed:
 
 Most notes under `docs/` (releases, qualification, PR integration) are Actually
 Free's history. Protocol's own identity (bundle identifier, install and data
-folders, registry keys, the removed updater) is described in
+folders, registry keys, the in-app updater) is described in
 [Fork identity and updates](docs/DEVELOPMENT_MAP.md#fork-identity-and-updates);
 planned work is tracked in [GitHub issues](https://github.com/vmedvedevpro/Protocol/issues).
 
@@ -32,7 +32,16 @@ planned work is tracked in [GitHub issues](https://github.com/vmedvedevpro/Proto
   placeholders as upstream wrote them.
 - Put new features in new modules and keep edits to upstream files minimal. Keep
   the copyright notices of MIT code ported from other projects.
-- The in-app updater was removed on purpose; do not add update checks.
+- The in-app updater (`src-tauri/src/updater/`) reads only this repository's
+  GitHub releases, downloads only when the user clicks Download, and installs
+  only on the user's click or on quit, never while `updater::busy` reports
+  work. Do not add other network calls to it; the release feed and signing
+  rules are in [docs/AUTO_UPDATE.md](docs/AUTO_UPDATE.md).
+- A new long-running operation (recording-adjacent work, inference, a model
+  download, an import) registers with the busy registry: a getter its owner
+  already keeps, or `updater::busy::hold(BusyReason::…)` for the operation's
+  lifetime. Work only the WebView sees reports through
+  `markUiActivity`. Otherwise an update can restart the app in the middle of it.
 - Do not add `Co-Authored-By` trailers or other AI attribution to commits, PR
   titles, or descriptions.
 

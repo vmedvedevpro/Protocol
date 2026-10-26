@@ -740,8 +740,8 @@ introducing this runtime resource; use a newly built installer package.
 
 Protocol releases one Windows file, `protocol-windows-x64-setup.exe` (#15):
 Tauri's NSIS installer built from this template and these hooks. People run it
-directly and get its own pages; the in-app updater that #31 adds runs the same
-file with `/P /UPDATE`. A newer setup run over an existing install upgrades it in
+directly and get its own pages; the [in-app updater](#in-app-updates) runs the
+same file with `/P /UPDATE`. A newer setup run over an existing install upgrades it in
 place. The frameless bootstrapper, the NSIS overall-progress plugin and the
 install page's percentage timer that upstream wrapped around the installer were
 removed in #15. The timer ran on the UI thread and used the registers and the
@@ -864,6 +864,9 @@ usable ICD, and the Vulkan backend cannot safely assume CPU fallback. A legacy
 Khronos ICD scan remains only for packages missing the probe. The helper is
 installer-only and is removed with the staged variants after selection.
 
+The in-app updater runs the installer with `/P /UPDATE` (passive, update mode),
+plus `/R` after **Restart and update** so it starts the new version; after a
+quit it starts nothing. Passive mode shows only the progress window.
 With `/UPDATE` the installer uses `Protocol Setup`, `Updating Protocol`, and
 `Updating app files` instead of the setup wording, and a blue progress bar. Keep
 the verbose NSIS extraction log collapsed and preserve the stock MUI header font
@@ -877,12 +880,45 @@ shell/settings change notification. Without that notification, an Installed
 Apps window left open during an update can continue showing the previous
 version even though the registry and executable already contain the new one.
 
+### In-app updates
+
+`frontend/src-tauri/src/updater/` owns checks, downloads and installs through
+`tauri-plugin-updater` 2.14; the feature note is
+[docs/AUTO_UPDATE.md](docs/AUTO_UPDATE.md).
+
+- **Feed.** `plugins.updater.endpoints` is the Latest release's
+  `latest.json`; `requireSignedVersion: true` binds each minisign signature to
+  the version it names, and the public key is `plugins.updater.pubkey`.
+  Windows reads `windows-x86_64-nsis` (then `windows-x86_64`), both pointing at
+  `protocol-windows-x64-setup.exe`; macOS `darwin-aarch64-app`; Linux
+  `linux-x86_64-appimage`. Builds without a Tauri bundle-type marker (dev,
+  portable copies) never check; `.deb` installs check and link to GitHub.
+- **When.** The scheduler task starts with the app, ticks every 10 minutes
+  (first after 2), and checks once 24 hours have passed since the last
+  completed check, with 1/2/4/6 h backoff after failed automatic checks (a
+  failed manual check does not count). It waits for onboarding and honours the
+  Settings › About switch. A manual check always runs.
+- **Download.** Only on the user's click. It does not start, and is cancelled,
+  while a recording runs; it resumes on its own afterwards. The verified payload
+  and its feed entry are cached in `app_cache_dir()/updates`, so a restart
+  offers **Restart and update** again without a new download.
+- **Install.** `updater::install` takes the engine lifecycle lock (no recording
+  or batch transcription can start), re-checks `updater::busy`, checkpoints the
+  WAL, stops llama-helper, closes the crash session, writes an install marker,
+  and hands the payload to the plugin. On Windows the plugin starts the NSIS
+  installer and exits the process itself, so `RunEvent::Exit` does not run;
+  macOS and Linux replace the bundle in place and then restart or exit. Tray
+  Quit (and ⌘Q / Dock Quit on macOS) installs a downloaded update without a
+  relaunch when nothing is busy; a quit during a recording never installs.
+
 ### Onboarding
 
 Onboarding is rendered by
 `frontend/src/components/onboarding/OnboardingFlow.tsx`. It asks nothing about
-updates; an older `data/check-updates-on-launch.txt` left by upstream builds is
-ignored. The fork's issues link is in `steps/SetupOverviewStep.tsx`
+updates; `steps/SetupOverviewStep.tsx` only says that Protocol checks GitHub
+once a day and downloads an update only on a click, and the updater makes no
+request before onboarding completes. An older `data/check-updates-on-launch.txt`
+left by upstream builds is ignored. The fork's issues link is in `steps/SetupOverviewStep.tsx`
 and uses the `open_external_url` Tauri command because browser-style
 `target="_blank"` links are unreliable inside a desktop webview. On Windows that
 command calls `ShellExecuteW` directly; do not regress it to `cmd /C start`,

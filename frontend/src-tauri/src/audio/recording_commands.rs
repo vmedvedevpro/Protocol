@@ -64,6 +64,12 @@ pub fn is_recording_active() -> bool {
     IS_RECORDING.load(Ordering::SeqCst)
 }
 
+/// Whether a stop is draining transcription and saving audio (read by the
+/// updater's busy check).
+pub fn is_stopping() -> bool {
+    IS_STOPPING.load(Ordering::SeqCst)
+}
+
 /// Rechecked by the minibar lifecycle after acquiring its own serialization
 /// lock. The minimize callback may have observed recording=true before native
 /// shutdown claimed IS_STOPPING.

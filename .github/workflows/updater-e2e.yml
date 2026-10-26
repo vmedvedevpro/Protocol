@@ -1,0 +1,411 @@
+name: Updater end-to-end
+
+# Builds an old (9.0.0) and a new (9.0.1) copy under a test identity with an
+# ephemeral signing key and a localhost feed, installs the old one, and lets
+# the updater-e2e build check, download, install and restart on its own
+# (src-tauri/src/updater/e2e.rs). Passes when the relaunched copy reports
+# 9.0.1 updated from 9.0.0 and the installed files are the new ones.
+# No secrets, read-only token. See docs/AUTO_UPDATE.md.
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - frontend/src-tauri/src/updater/**
+      - frontend/src-tauri/windows/**
+      - frontend/src-tauri/tauri*.json
+      - frontend/src-tauri/Cargo.toml
+      - frontend/scripts/updater-e2e.mjs
+      - .github/workflows/updater-e2e.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: updater-e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  NEXT_TELEMETRY_DISABLED: '1'
+  PNPM_CONFIG_ENABLE_GLOBAL_VIRTUAL_STORE: 'false'
+  OLD_VERSION: 9.0.0
+  NEW_VERSION: 9.0.1
+  FEED_PORT: '8765'
+
+jobs:
+  windows:
+    # windows-2022: whisper.cpp and llama.cpp are only known to build with VS 2022.
+    runs-on: windows-2022
+    timeout-minutes: 180
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Check out with Windows line endings
+        run: git config --global core.autocrlf true
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+        with:
+          version: 11.9.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c
+        with:
+          toolchain: 1.99.1
+      - uses: swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
+        with:
+          workspaces: '. -> target'
+          key: windows-x64-updater-e2e-v1
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: .build-tools/clang+llvm-18.1.8-x86_64-pc-windows-msvc.tar.xz
+          key: llvm-18.1.8-windows
+      # whisper-rs generates its Windows bindings with libclang, and only LLVM 18
+      # works. bindgen needs only libclang.dll and clang's builtin headers, so
+      # 7-Zip extracts just those (the whole toolchain is several GB and timed
+      # out here). curl rather than gh release download, which has stalled on
+      # this runner.
+      - name: Set up LLVM 18
+        timeout-minutes: 30
+        run: |
+          $tools = Join-Path $env:GITHUB_WORKSPACE '.build-tools'
+          New-Item -ItemType Directory -Force $tools | Out-Null
+          $top = 'clang+llvm-18.1.8-x86_64-pc-windows-msvc'
+          $archive = Join-Path $tools "$top.tar.xz"
+          if (-not (Test-Path $archive)) {
+            $url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-18.1.8/$top.tar.xz"
+            curl.exe --fail --location --silent --show-error --retry 3 --connect-timeout 30 --speed-limit 102400 --speed-time 60 `
+              --output "$archive.partial" --write-out 'Downloaded %{size_download} bytes in %{time_total} s\n' $url
+            if ($LASTEXITCODE -ne 0) { throw "LLVM download failed ($LASTEXITCODE)" }
+            Move-Item -Force "$archive.partial" $archive
+          }
+          $hash = (Get-FileHash $archive -Algorithm SHA256).Hash
+          if ($hash -ne '22C5907DB053026CC2A8FF96D21C0F642A90D24D66C23C6D28EE7B1D572B82E8') { throw "LLVM archive checksum mismatch: $hash" }
+          $sevenZip = Join-Path $env:ProgramFiles '7-Zip\7z.exe'
+          $sw = [Diagnostics.Stopwatch]::StartNew()
+          # cmd carries the pipe so the tar stream stays binary.
+          cmd /d /c "`"$sevenZip`" x -so `"$archive`" | `"$sevenZip`" x -si -ttar -y `"-o$tools`" `"$top\bin\libclang.dll`" `"$top\lib\clang\18\include`" -r- >nul"
+          $libclang = Join-Path $tools "$top\bin\libclang.dll"
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path $libclang)) { throw 'Failed to extract libclang from LLVM 18' }
+          Write-Host "Extracted libclang in $([math]::Round($sw.Elapsed.TotalSeconds)) s"
+          "LIBCLANG_PATH=$(Join-Path $tools "$top\bin")" >> $env:GITHUB_ENV
+      - name: Build llama-helper
+        run: |
+          cargo build --release --locked -p llama-helper
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          New-Item -ItemType Directory -Force frontend/src-tauri/binaries | Out-Null
+          Copy-Item target/release/llama-helper.exe frontend/src-tauri/binaries/llama-helper-x86_64-pc-windows-msvc.exe
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+      # CPU build (no GPU feature): the updater does not depend on the backend.
+      - name: Build the old and the new installer
+        working-directory: frontend
+        run: |
+          $work = Join-Path $env:RUNNER_TEMP 'e2e'
+          $feed = Join-Path $work 'feed'
+          New-Item -ItemType Directory -Force $work, $feed | Out-Null
+          $key = Join-Path $work 'e2e.key'
+          node node_modules/@tauri-apps/cli/tauri.js signer generate --ci -w $key
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          $env:TAURI_SIGNING_PRIVATE_KEY = $key
+          $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = ''
+          $bundle = Join-Path $env:GITHUB_WORKSPACE 'target/release/bundle/nsis'
+          foreach ($version in $env:OLD_VERSION, $env:NEW_VERSION) {
+            $overlay = Join-Path $work "tauri.e2e-$version.json"
+            node scripts/updater-e2e.mjs config --identity e2e --version $version --pubkey-file "$key.pub" --port $env:FEED_PORT --out $overlay
+            if ($LASTEXITCODE -ne 0) { exit 1 }
+            if (Test-Path $bundle) { Remove-Item -Recurse -Force $bundle }
+            pnpm exec tauri build --ci --bundles nsis --config $overlay -- --locked --no-default-features --features custom-protocol,updater-e2e
+            if ($LASTEXITCODE -ne 0) { exit 1 }
+            $setup = Get-ChildItem $bundle -Filter '*-setup.exe' | Select-Object -First 1
+            if (-not $setup -or -not (Test-Path "$($setup.FullName).sig")) { throw "No signed installer for $version" }
+            if ($version -eq $env:OLD_VERSION) {
+              Copy-Item $setup.FullName (Join-Path $work 'old-setup.exe')
+            } else {
+              Copy-Item $setup.FullName (Join-Path $feed 'protocol-windows-x64-setup.exe')
+              Copy-Item "$($setup.FullName).sig" (Join-Path $feed 'protocol-windows-x64-setup.exe.sig')
+            }
+          }
+          node scripts/updater-e2e.mjs feed --dir $feed --version $env:NEW_VERSION --base-url "http://127.0.0.1:$env:FEED_PORT/" `
+            --asset windows-x86_64-nsis=protocol-windows-x64-setup.exe --asset windows-x86_64=protocol-windows-x64-setup.exe
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+      - name: Install the old copy and let it update itself
+        run: |
+          $work = Join-Path $env:RUNNER_TEMP 'e2e'
+          $installDir = Join-Path $work 'Protocol E2E'
+          $exe = Join-Path $installDir 'protocol-e2e.exe'
+          $result = Join-Path $work 'result.json'
+          $setup = Start-Process -FilePath (Join-Path $work 'old-setup.exe') -ArgumentList '/S', "/D=$installDir" -Wait -PassThru
+          if ($setup.ExitCode -ne 0) { throw "Setup exited with $($setup.ExitCode)" }
+          $installed = (Get-Item $exe).VersionInfo.ProductVersion
+          Write-Host "Installed $installed"
+          $server = Start-Process -FilePath node -ArgumentList 'frontend/scripts/updater-e2e.mjs', 'serve', '--dir', (Join-Path $work 'feed'), '--port', $env:FEED_PORT `
+            -RedirectStandardOutput (Join-Path $work 'feed.log') -RedirectStandardError (Join-Path $work 'feed.err.log') -PassThru
+          $env:RUST_LOG = 'info'
+          Start-Process -FilePath $exe -ArgumentList "--updater-e2e-result=$result" `
+            -RedirectStandardError (Join-Path $work 'old-app.log') -RedirectStandardOutput (Join-Path $work 'old-app.out.log') | Out-Null
+          $deadline = (Get-Date).AddMinutes(12)
+          while (-not (Test-Path $result) -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 5 }
+          $relaunched = Test-Path $result
+          if (-not $relaunched) {
+            # The installer relaunches through nsis_tauri_utils::RunAsUser,
+            # which needs the interactive shell; record if the runner lacks it.
+            $version = (Get-Item $exe).VersionInfo.ProductVersion
+            if ($version -ne $env:NEW_VERSION) { throw "No result and the installed copy is still $version" }
+            Write-Host "::warning::The installer replaced the app but did not relaunch it; starting $version by hand"
+            Start-Process -FilePath $exe -ArgumentList "--updater-e2e-result=$result" | Out-Null
+            $deadline = (Get-Date).AddMinutes(3)
+            while (-not (Test-Path $result) -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 5 }
+          }
+          Stop-Process -Id $server.Id -ErrorAction SilentlyContinue
+          if (-not (Test-Path $result)) { throw 'The updated copy wrote no result' }
+          $report = Get-Content $result -Raw | ConvertFrom-Json
+          Write-Host "Result: $(Get-Content $result -Raw)"
+          if ($report.outcome -ne 'updated' -or $report.version -ne $env:NEW_VERSION -or $report.from -ne $env:OLD_VERSION) { throw 'Unexpected result' }
+          $version = (Get-Item $exe).VersionInfo.ProductVersion
+          if ($version -ne $env:NEW_VERSION) { throw "The installed copy is $version" }
+          "relaunched-by-installer=$relaunched" | Out-File -Encoding ascii (Join-Path $work 'summary.txt')
+      - name: Uninstall
+        if: always()
+        run: |
+          $installDir = Join-Path $env:RUNNER_TEMP 'e2e/Protocol E2E'
+          $uninstaller = Join-Path $installDir 'uninstall.exe'
+          if (Test-Path $uninstaller) {
+            Get-Process protocol-e2e -ErrorAction SilentlyContinue | Stop-Process -Force
+            Start-Process -FilePath $uninstaller -ArgumentList '/S', "_?=$installDir" -Wait
+          }
+      - name: Collect logs
+        if: always()
+        run: |
+          $logs = Join-Path $env:RUNNER_TEMP 'e2e-logs'
+          New-Item -ItemType Directory -Force $logs | Out-Null
+          Get-ChildItem (Join-Path $env:RUNNER_TEMP 'e2e') -File -Include '*.log', '*.json', '*.txt' -Recurse -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -notlike '*.key*' } | Copy-Item -Destination $logs
+          $journal = Join-Path $env:LOCALAPPDATA 'io.github.vmedvedevpro.protocol.e2e/updates/updater.log'
+          if (Test-Path $journal) { Copy-Item $journal $logs }
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: updater-e2e-windows
+          path: ${{ runner.temp }}/e2e-logs
+          if-no-files-found: ignore
+          retention-days: 14
+
+  macos:
+    runs-on: macos-15
+    timeout-minutes: 150
+    env:
+      MACOSX_DEPLOYMENT_TARGET: '14.2'
+      TARGET: aarch64-apple-darwin
+    steps:
+      - name: Check out with Unix line endings
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+        with:
+          version: 11.9.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c
+        with:
+          toolchain: 1.99.1
+          targets: aarch64-apple-darwin
+      - uses: swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
+        with:
+          workspaces: '. -> target'
+          key: macos-aarch64-updater-e2e-v1
+      - name: Build llama-helper with Metal
+        run: |
+          set -euo pipefail
+          if ! brew list --versions openssl@3 >/dev/null; then
+            brew install openssl@3
+          fi
+          OPENSSL_PREFIX=$(brew --prefix openssl@3)
+          export OPENSSL_DIR="$OPENSSL_PREFIX" OPENSSL_ROOT_DIR="$OPENSSL_PREFIX" CMAKE_PREFIX_PATH="$OPENSSL_PREFIX"
+          export CPPFLAGS="-I$OPENSSL_PREFIX/include" CFLAGS="-I$OPENSSL_PREFIX/include" CXXFLAGS="-I$OPENSSL_PREFIX/include"
+          export LDFLAGS="-L$OPENSSL_PREFIX/lib" PKG_CONFIG_PATH="$OPENSSL_PREFIX/lib/pkgconfig"
+          cargo build --release --locked --package llama-helper --target "$TARGET" --features metal
+          mkdir -p frontend/src-tauri/binaries
+          cp "target/$TARGET/release/llama-helper" "frontend/src-tauri/binaries/llama-helper-$TARGET"
+          chmod +x "frontend/src-tauri/binaries/llama-helper-$TARGET"
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+      - name: Build the old and the new app
+        working-directory: frontend
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/e2e"
+          feed="$work/feed"
+          mkdir -p "$work/Applications" "$feed"
+          key="$work/e2e.key"
+          node node_modules/@tauri-apps/cli/tauri.js signer generate --ci -w "$key"
+          export TAURI_SIGNING_PRIVATE_KEY="$key" TAURI_SIGNING_PRIVATE_KEY_PASSWORD=''
+          bundle="$GITHUB_WORKSPACE/target/$TARGET/release/bundle/macos"
+          for version in "$OLD_VERSION" "$NEW_VERSION"; do
+            overlay="$work/tauri.e2e-$version.json"
+            node scripts/updater-e2e.mjs config --identity e2e --version "$version" --pubkey-file "$key.pub" --port "$FEED_PORT" --out "$overlay"
+            rm -rf "$bundle"
+            pnpm exec tauri build --ci --target "$TARGET" --bundles app --config "$overlay" -- --locked --features updater-e2e
+            test -f "$bundle/Protocol E2E.app.tar.gz.sig"
+            if [[ "$version" == "$OLD_VERSION" ]]; then
+              ditto "$bundle/Protocol E2E.app" "$work/Applications/Protocol E2E.app"
+            else
+              cp "$bundle/Protocol E2E.app.tar.gz" "$feed/protocol-macos-arm64.app.tar.gz"
+              cp "$bundle/Protocol E2E.app.tar.gz.sig" "$feed/protocol-macos-arm64.app.tar.gz.sig"
+            fi
+          done
+          node scripts/updater-e2e.mjs feed --dir "$feed" --version "$NEW_VERSION" --base-url "http://127.0.0.1:$FEED_PORT/" \
+            --asset darwin-aarch64-app=protocol-macos-arm64.app.tar.gz --asset darwin-aarch64=protocol-macos-arm64.app.tar.gz
+      - name: Start the old copy and let it update itself
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/e2e"
+          app="$work/Applications/Protocol E2E.app"
+          result="$work/result.json"
+          plist() { /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist"; }
+          echo "Installed $(plist)"
+          node frontend/scripts/updater-e2e.mjs serve --dir "$work/feed" --port "$FEED_PORT" >"$work/feed.log" 2>&1 &
+          server=$!
+          RUST_LOG=info "$app/Contents/MacOS/protocol-e2e" "--updater-e2e-result=$result" >"$work/old-app.log" 2>&1 &
+          for _ in $(seq 1 144); do
+            [[ -f "$result" ]] && break
+            sleep 5
+          done
+          kill "$server" 2>/dev/null || true
+          test -f "$result" || { echo "The updated copy wrote no result"; exit 1; }
+          echo "Result: $(cat "$result")"
+          node -e 'const r = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")); if (r.outcome !== "updated" || r.version !== process.argv[2] || r.from !== process.argv[3]) process.exit(1)' \
+            "$result" "$NEW_VERSION" "$OLD_VERSION"
+          test "$(plist)" = "$NEW_VERSION"
+          pkill -f 'Protocol E2E.app/Contents/MacOS/protocol-e2e' || true
+      - name: Collect logs
+        if: always()
+        run: |
+          mkdir -p "$RUNNER_TEMP/e2e-logs"
+          find "$RUNNER_TEMP/e2e" -maxdepth 1 -type f \( -name '*.log' -o -name '*.json' \) -exec cp {} "$RUNNER_TEMP/e2e-logs/" \; 2>/dev/null || true
+          cp "$HOME/Library/Caches/io.github.vmedvedevpro.protocol.e2e/updates/updater.log" "$RUNNER_TEMP/e2e-logs/" 2>/dev/null || true
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: updater-e2e-macos
+          path: ${{ runner.temp }}/e2e-logs
+          if-no-files-found: ignore
+          retention-days: 14
+
+  linux:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 150
+    steps:
+      - name: Check out with Unix line endings
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+        with:
+          version: 11.9.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf \
+            libasound2-dev libx11-dev libxtst-dev libxrandr-dev libdbus-1-dev libssl-dev pkg-config \
+            libclang-dev libfuse2 squashfs-tools xvfb file
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c
+        with:
+          toolchain: 1.99.1
+      - uses: swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
+        with:
+          workspaces: '. -> target'
+          key: linux-x86_64-updater-e2e-v1
+      - name: Build llama-helper
+        run: |
+          cargo build --release --locked -p llama-helper
+          mkdir -p frontend/src-tauri/binaries
+          cp target/release/llama-helper frontend/src-tauri/binaries/llama-helper-x86_64-unknown-linux-gnu
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+      - name: Build the old and the new AppImage
+        working-directory: frontend
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/e2e"
+          feed="$work/feed"
+          mkdir -p "$work/app" "$feed"
+          key="$work/e2e.key"
+          node node_modules/@tauri-apps/cli/tauri.js signer generate --ci -w "$key"
+          export TAURI_SIGNING_PRIVATE_KEY="$key" TAURI_SIGNING_PRIVATE_KEY_PASSWORD=''
+          bundle="$GITHUB_WORKSPACE/target/release/bundle/appimage"
+          for version in "$OLD_VERSION" "$NEW_VERSION"; do
+            overlay="$work/tauri.e2e-$version.json"
+            node scripts/updater-e2e.mjs config --identity e2e --version "$version" --pubkey-file "$key.pub" --port "$FEED_PORT" --out "$overlay"
+            rm -rf "$bundle"
+            pnpm exec tauri build --ci --bundles appimage --config "$overlay" -- --locked --features updater-e2e
+            appimage=$(find "$bundle" -maxdepth 1 -name '*.AppImage' -print -quit)
+            test -n "$appimage" && test -f "$appimage.sig"
+            if [[ "$version" == "$OLD_VERSION" ]]; then
+              cp "$appimage" "$work/app/protocol-e2e.AppImage"
+              chmod +x "$work/app/protocol-e2e.AppImage"
+            else
+              cp "$appimage" "$feed/protocol-linux-x86_64.AppImage"
+              cp "$appimage.sig" "$feed/protocol-linux-x86_64.AppImage.sig"
+            fi
+          done
+          node scripts/updater-e2e.mjs feed --dir "$feed" --version "$NEW_VERSION" --base-url "http://127.0.0.1:$FEED_PORT/" \
+            --asset linux-x86_64-appimage=protocol-linux-x86_64.AppImage
+      - name: Start the old copy and let it update itself
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/e2e"
+          appimage="$work/app/protocol-e2e.AppImage"
+          result="$work/result.json"
+          # A standalone Xvfb: xvfb-run would stop the display when the old
+          # process exits, before the restarted copy starts.
+          Xvfb :99 -screen 0 1280x800x24 >"$work/xvfb.log" 2>&1 &
+          xvfb=$!
+          node frontend/scripts/updater-e2e.mjs serve --dir "$work/feed" --port "$FEED_PORT" >"$work/feed.log" 2>&1 &
+          server=$!
+          DISPLAY=:99 APPIMAGE_EXTRACT_AND_RUN=1 RUST_LOG=info setsid "$appimage" "--updater-e2e-result=$result" >"$work/old-app.log" 2>&1 &
+          for _ in $(seq 1 144); do
+            [[ -f "$result" ]] && break
+            sleep 5
+          done
+          kill "$server" 2>/dev/null || true
+          test -f "$result" || { echo "The updated copy wrote no result"; exit 1; }
+          echo "Result: $(cat "$result")"
+          node -e 'const r = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")); if (r.outcome !== "updated" || r.version !== process.argv[2] || r.from !== process.argv[3]) process.exit(1)' \
+            "$result" "$NEW_VERSION" "$OLD_VERSION"
+          test "$(sha256sum < "$appimage")" = "$(sha256sum < "$work/feed/protocol-linux-x86_64.AppImage")"
+          pkill -f protocol-e2e || true
+          kill "$xvfb" 2>/dev/null || true
+      - name: Collect logs
+        if: always()
+        run: |
+          mkdir -p "$RUNNER_TEMP/e2e-logs"
+          find "$RUNNER_TEMP/e2e" -maxdepth 1 -type f \( -name '*.log' -o -name '*.json' \) -exec cp {} "$RUNNER_TEMP/e2e-logs/" \; 2>/dev/null || true
+          cp "$HOME/.cache/io.github.vmedvedevpro.protocol.e2e/updates/updater.log" "$RUNNER_TEMP/e2e-logs/" 2>/dev/null || true
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: updater-e2e-linux
+          path: ${{ runner.temp }}/e2e-logs
+          if-no-files-found: ignore
+          retention-days: 14
