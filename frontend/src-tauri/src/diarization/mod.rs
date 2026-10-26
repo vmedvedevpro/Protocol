@@ -23,6 +23,7 @@ pub mod online;
 pub mod live_nemotron;
 pub mod voiceprint;
 pub mod voice_profiles;
+pub mod retired;
 #[cfg(test)]
 mod qualification;
 

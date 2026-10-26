@@ -522,6 +522,12 @@ pub fn run() {
                 log::warn!("Failed to resolve resource directory for templates");
             }
 
+            // Repair-download copies of the diarization models 0.3.0 bundled;
+            // hashing them stays off the setup thread.
+            tauri::async_runtime::spawn_blocking(|| {
+                diarization::retired::remove_retired_copies(&diarization::diarization_user_model_dir())
+            });
+
             Ok(())
         })
         .on_window_event(|window, event| {
