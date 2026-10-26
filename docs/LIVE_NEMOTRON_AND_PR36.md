@@ -1,5 +1,9 @@
 # Live Nemotron and upstream PR #36 assessment
 
+> Written in Meetily – Actually Free before Protocol forked from it. The 0.2.x
+> versions and releases it mentions are that project's
+> ([TylerBuza/Meetily-ActuallyFree](https://github.com/TylerBuza/Meetily-ActuallyFree)).
+
 ## Implementation
 
 October 22 upstream #42 follow-up: mel features are materialized in standard contiguous

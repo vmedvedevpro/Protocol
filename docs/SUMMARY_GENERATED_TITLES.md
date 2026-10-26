@@ -1,5 +1,9 @@
 # Summary-generated meeting titles
 
+> Written in Meetily – Actually Free before Protocol forked from it. The 0.2.x
+> versions and releases it mentions are that project's
+> ([TylerBuza/Meetily-ActuallyFree](https://github.com/TylerBuza/Meetily-ActuallyFree)).
+
 Upstream PR #39 removed the summary-to-meeting-title update; @ampersandru reported the
 regression. `summary/service.rs` now restores it after a successful, accepted
 summary completion and before emitting completion to the frontend. Cancelled or

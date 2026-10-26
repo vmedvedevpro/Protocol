@@ -1,5 +1,9 @@
 # Recording callback continuity — upstream issue #40
 
+> Written in Meetily – Actually Free before Protocol forked from it. The 0.2.x
+> versions and releases it mentions are that project's
+> ([TylerBuza/Meetily-ActuallyFree](https://github.com/TylerBuza/Meetily-ActuallyFree)).
+
 ## Windows/shared-mixer follow-up — upstream issue #42 (2026-10-01)
 
 Fernando also reported v0.2.18 Windows 11 microphone gaps: exact digital silence

@@ -33,6 +33,10 @@ planned work is tracked in [GitHub issues](https://github.com/vmedvedevpro/Proto
   `cargo test -p protocol`); the library crate stays `app_lib`.
 - Sample data is not branding: leave example names in tests, fixtures, and
   placeholders as upstream wrote them.
+- In the docs, a bare `#42` is a Protocol issue or PR unless the note says at
+  the top that its numbers are Actually Free's, as
+  [docs/upstream/](docs/upstream/README.md) and the changelog's inherited part
+  do. Anywhere else, write an Actually Free one as `upstream #42` or link it.
 - Put new features in new modules and keep edits to upstream files minimal. Keep
   the copyright notices of MIT code ported from other projects.
 - The in-app updater (`src-tauri/src/updater/`) reads only this repository's
