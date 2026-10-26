@@ -79,8 +79,9 @@ fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, item_id: &str) {
                 }
             });
         }
-        // Installs a downloaded update first when nothing is busy.
-        "quit" => crate::updater::quit_app(app),
+        // Asks first during a recording; installs a downloaded update when
+        // nothing is busy.
+        "quit" => crate::quit::request(app),
         _ => {}
     }
 }

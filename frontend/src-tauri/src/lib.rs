@@ -58,6 +58,7 @@ pub mod minibar;
 pub mod model_integrity;
 pub mod parakeet_engine;
 pub mod paths;
+pub mod quit;
 pub mod state;
 pub mod summary;
 pub mod tray;
@@ -554,6 +555,7 @@ pub fn run() {
             start_recording,
             stop_recording,
             is_recording,
+            audio::save_handoff::recording_save_finished,
             get_transcription_status,
             audio::waveform::get_waveform_peaks,
             whisper_engine::labs::get_whisper_strict_silence,
@@ -778,15 +780,16 @@ pub fn run() {
                 tauri::RunEvent::Reopen { .. } => {
                     tray::focus_main_window(_app_handle);
                 }
-                // ⌘Q and Dock Quit (no exit code) install a downloaded update
-                // first, like tray Quit. Programmatic exits and restarts carry
-                // a code and pass through.
+                // ⌘Q and Dock Quit (no exit code) go through the same quit as
+                // tray Quit: a recording asks first, a downloaded update
+                // installs. Programmatic exits and restarts carry a code and
+                // pass through.
                 #[cfg(target_os = "macos")]
                 tauri::RunEvent::ExitRequested { code: None, api, .. }
-                    if !updater::is_quitting() && updater::installs_on_quit(_app_handle) =>
+                    if quit::holds_exit(_app_handle) =>
                 {
                     api.prevent_exit();
-                    updater::quit_app(_app_handle);
+                    quit::request(_app_handle);
                 }
                 tauri::RunEvent::Exit => {
                     log::info!("Application exiting, cleaning up resources...");

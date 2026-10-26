@@ -65,8 +65,9 @@ onboarding overview, `PRIVACY_POLICY.md`, `README.md`, and `CHANGELOG.md`.
 - **Install only when idle.** See [Install gate](#install-gate).
 - **Quit.** Tray Quit, and on macOS ⌘Q and Dock Quit, install a downloaded
   update without relaunch when nothing is busy; the next start runs the new
-  version. Otherwise they quit as before. A quit during a recording keeps the
-  current behaviour (#32) and never installs. macOS and Linux skip the install
+  version. Otherwise they quit as before. A quit during a recording first asks
+  to stop and save it (#32, `quit.rs`); after **Stop and quit** has saved the
+  meeting, the install follows the same gate. macOS and Linux skip the install
   on quit when the app's folder is not writable instead of raising an
   administrator prompt. On Windows only tray Quit installs: closing the window
   hides it to the tray.
@@ -149,7 +150,7 @@ the download. On the next start the marker says whether the update worked
 | Reason | Owner |
 | --- | --- |
 | `recording`, `recordingStopping` | `audio::recording_commands` (`is_recording_active`, `is_stopping`) |
-| `recordingSave` | WebView lease: `RecordingStateContext` stopping, processing or saving |
+| `recordingSave` | `audio::save_handoff::pending` (from native Stop's `recording-stop-complete` until the WebView's answer, at most 120 s; the answer also ends the lease's entry) and the WebView lease: `RecordingStateContext` stopping, processing or saving |
 | `import` | `audio::import::is_import_in_progress` |
 | `retranscription` | `audio::retranscription::is_retranscription_in_progress` |
 | `diarization` | `busy::hold` in `diarization::diarize_meeting` |

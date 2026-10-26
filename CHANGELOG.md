@@ -7,6 +7,16 @@ is inherited from the project Protocol forked from; Protocol did not release it.
 
 ## Protocol — unreleased
 
+### Fixed
+
+- **Quitting during a recording**
+  ([#32](https://github.com/vmedvedevpro/Protocol/issues/32)) asks "A recording
+  is in progress. Stop and save it, then quit?" instead of quitting at once and
+  losing the end of the recording. **Stop and quit** saves the audio, the
+  transcript and the meeting as Stop does, then quits; speaker identification
+  and the automatic summary do not run, so start them from the meeting later.
+  This applies to the tray's Quit and, on macOS, to ⌘Q and Dock Quit.
+
 ## Protocol 0.3.0 — 2026-10-26
 
 The first release of Protocol, built from Meetily – Actually Free 0.2.22
