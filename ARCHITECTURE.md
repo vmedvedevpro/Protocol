@@ -1008,9 +1008,8 @@ Responsibility map:
 | `components/onboarding/steps/AudioTestStep.tsx` | Serialize the native singleton monitor and guide audible testing |
 | `hooks/usePermissionCheck.ts` | Session-scoped verification state and deduplicated manual Recheck |
 | `audio/recording_preferences.rs` | Custom-root safety and applying the saved backend preference |
-| `.github/workflows/build-macos.yml` | Build and verify a candidate without publishing |
-| `.github/workflows/publish-macos.yml` | Promote one exact successful candidate artifact |
-| `.github/workflows/smoke-test-macos-release.yml` | Download and verify the exact public DMG |
+| `.github/workflows/release-build-macos.yml` | Build, verify and launch the DMG and updater bundle of a release; never publishes |
+| `.github/workflows/release-published.yml` | Check the published release's assets, checksums, feed and signatures |
 
 macOS uses one implemented system-audio backend: the Core Audio global process
 tap in `audio/capture/core_audio.rs`. `AudioCaptureBackend::from_string()`
@@ -1067,8 +1066,8 @@ uses `~/Library/Application Support/vmedvedevpro/Protocol` for core data,
 `~/Movies/protocol-recordings` (or the configured root) for recordings. Bundled
 diarization models and sidecars are read-only resources.
 
-The build and published-release smoke tests deliberately launch the installed
-app twice and verify its signature after runtime writes. The first launch covers
+The macOS release leg (`release-build-macos.yml`) deliberately launches the installed
+app twice and verifies its signature after runtime writes. The first launch covers
 fresh database/onboarding initialization; the second covers reopening existing
 state. Keep both launches and the post-launch signature checks. A build-only
 signature check cannot detect this class of regression.
