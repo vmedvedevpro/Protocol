@@ -118,6 +118,34 @@ differences are speaker confusion, i.e. clustering, which reacts strongly to
 small changes in the turns it gets (ES2004b oracle 38.00 → 14.80, EN2002a
 42.48 → 29.98, IS1009a 23.87 → 28.63).
 
+### Full AMI test set
+
+All 16 meetings (9.1 h), the 0.3.0 files against the bundled ones, time-weighted
+DER; "collar" leaves 0.25 s on each side of every reference boundary unscored:
+
+| Set | Auto | Auto, collar | Oracle | Oracle, collar | Miss / false alarm / confusion (auto) |
+| --- | --- | --- | --- | --- | --- |
+| 0.3.0 files | 26.53 | 19.46 | 26.46 | 19.50 | 14.25 / 3.56 / 8.72 |
+| bundled files | 26.59 | 19.59 | 24.24 | 17.09 | 14.35 / 3.42 / 8.83 |
+
+Per meeting, against the 0.3.0 files (DER points, negative is better):
+
+| Metric | Mean | Median | Better / same / worse (0.1 point) | Range |
+| --- | --- | --- | --- | --- |
+| Auto | +0.18 | +0.03 | 6 / 3 / 7 | -0.47 … +1.43 (IS1009b) |
+| Auto, collar | +0.23 | +0.09 | 5 / 3 / 8 | -0.36 … +1.48 |
+| Oracle | -1.41 | -0.01 | 6 / 3 / 7 | -23.20 (ES2004b) … +5.78 (IS1009d) |
+| Oracle, collar | -1.55 | +0.13 | 7 / 0 / 9 | -26.21 … +7.06 |
+
+With the default threshold, which the app uses unless the user sets a speaker
+count, the two sets are within 0.15 point overall and within 1.5 points on
+every meeting. The speaker count found differs on four meetings, two closer to
+the reference and two further: the 0.3.0 files find the reference count on 4
+of the 16 meetings, the bundled ones on 3, and both are off by 13 speakers in
+total (10 too many, 3 too few). With a known speaker count the bundled files
+are 2.2 points better overall, with large swings either way on single
+meetings, as above.
+
 ### Live path, embeddings and voice profiles
 
 - Live Pyannote assignment fed with the reference turns: identical labels for
