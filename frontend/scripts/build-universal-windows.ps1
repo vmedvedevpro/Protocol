@@ -105,9 +105,12 @@ function Invoke-Node([string[]]$NodeArgs) {
 
 if (-not $LlvmDir) { $LlvmDir = $env:MEETILY_LLVM_DIR }
 if (-not $LlvmDir) { $LlvmDir = "C:\Program Files\LLVM" }
-$clang = Join-Path $LlvmDir "bin\clang.exe"
-$clangVersion = if (Test-Path $clang) { (& $clang --version | Select-Object -First 1) } else { "" }
-if ($clangVersion -notmatch 'version 18\.') {
+# bindgen needs libclang.dll and clang's builtin headers, nothing else; the
+# bootstrap extracts only those, so clang.exe may be absent. The DLL's version
+# resource names its LLVM release.
+$libclangDll = Join-Path $LlvmDir "bin\libclang.dll"
+$libclangMajor = if (Test-Path -LiteralPath $libclangDll) { (Get-Item -LiteralPath $libclangDll).VersionInfo.FileMajorPart } else { 0 }
+if ($libclangMajor -ne 18 -or -not (Test-Path -LiteralPath (Join-Path $LlvmDir "lib\clang\18\include"))) {
   $LlvmDir = & (Join-Path $PSScriptRoot "bootstrap-llvm18.ps1") | Select-Object -Last 1
 }
 $env:LIBCLANG_PATH = Join-Path $LlvmDir "bin"
