@@ -9,8 +9,33 @@ to the transcript. It is a personal fork of
 tuned for the calls I record: mostly in Russian, often on Discord, on a laptop
 with an Intel Arc GPU (Vulkan, no CUDA).
 
-> **Status:** early fork. There are no Protocol releases yet; build from source.
-> Planned work is tracked in [issues](https://github.com/vmedvedevpro/Protocol/issues).
+> **Status:** early fork. Planned work is tracked in
+> [issues](https://github.com/vmedvedevpro/Protocol/issues).
+
+## Install
+
+Download the file for your system from the
+[latest release](https://github.com/vmedvedevpro/Protocol/releases/latest):
+
+| System | Download |
+| --- | --- |
+| Windows 10/11 x64 | [protocol-windows-x64-setup.exe](https://github.com/vmedvedevpro/Protocol/releases/latest/download/protocol-windows-x64-setup.exe) |
+| macOS 14.2+ on Apple Silicon | [protocol-macos-arm64.dmg](https://github.com/vmedvedevpro/Protocol/releases/latest/download/protocol-macos-arm64.dmg) |
+| Linux x64 (experimental) | [protocol-linux-x86_64.AppImage](https://github.com/vmedvedevpro/Protocol/releases/latest/download/protocol-linux-x86_64.AppImage), or `protocol_<version>_amd64.deb` from the release page |
+
+The builds are not code-signed yet, so your system warns you the first time.
+The [release notes](https://github.com/vmedvedevpro/Protocol/releases/latest)
+have the details and the checksums.
+
+- **Windows:** if SmartScreen says "Windows protected your PC", click
+  **More info**, then **Run anyway**.
+- **macOS:** if Gatekeeper cannot verify Protocol, click **Open Anyway** in
+  **System Settings → Privacy & Security** once.
+- **Linux** builds are experimental: they are built and started in CI but not
+  tested with real meetings.
+
+After that, Protocol offers new versions itself (see below). To build it
+yourself, see [Build from source](#build-from-source-windows).
 
 ## What it does
 
@@ -65,12 +90,12 @@ Everything below comes from upstream and works as it does there.
 
 | Area | Issues |
 | --- | --- |
-| Hygiene and security | [#1](https://github.com/vmedvedevpro/Protocol/issues/1) model hashes, [#19](https://github.com/vmedvedevpro/Protocol/issues/19) Claude CLI provider removal, [#3](https://github.com/vmedvedevpro/Protocol/issues/3) IPC commands, [#4](https://github.com/vmedvedevpro/Protocol/issues/4) diagnostics script |
+| Hygiene and security | [#3](https://github.com/vmedvedevpro/Protocol/issues/3) IPC commands |
 | Russian transcription | [#5](https://github.com/vmedvedevpro/Protocol/issues/5) GigaAM v3 |
 | Starting recordings | [#6](https://github.com/vmedvedevpro/Protocol/issues/6) Discord detection, [#7](https://github.com/vmedvedevpro/Protocol/issues/7) Google Calendar via iCal |
 | Using meetings elsewhere | [#8](https://github.com/vmedvedevpro/Protocol/issues/8) read-only MCP server |
 | Optional | [#9](https://github.com/vmedvedevpro/Protocol/issues/9) labels by device, [#10](https://github.com/vmedvedevpro/Protocol/issues/10) local-network-only mode, [#11](https://github.com/vmedvedevpro/Protocol/issues/11) archive encryption |
-| Fork cleanup | [#12](https://github.com/vmedvedevpro/Protocol/issues/12) executable name, [#13](https://github.com/vmedvedevpro/Protocol/issues/13) icon, [#15](https://github.com/vmedvedevpro/Protocol/issues/15) CI, [#16](https://github.com/vmedvedevpro/Protocol/issues/16) upstream docs |
+| Fork cleanup | [#16](https://github.com/vmedvedevpro/Protocol/issues/16) upstream docs |
 
 ## Privacy
 
