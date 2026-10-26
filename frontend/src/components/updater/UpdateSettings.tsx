@@ -9,6 +9,7 @@ import { useUpdater } from '@/contexts/UpdaterContext';
 import {
   downloadPercent,
   errorSentence,
+  openExternal,
   PRIVACY_URL,
   relativeTime,
   RELEASES_URL,
@@ -16,7 +17,7 @@ import {
   type UpdaterSnapshot,
 } from '@/lib/updater';
 import { ReleaseNotes } from './ReleaseNotes';
-import { blockedLine, MAC_PERMISSIONS_NOTE, MANUAL_NOTE, openExternal, RESTART_NOTE } from './UpdatePanel';
+import { blockedLine, MAC_PERMISSIONS_NOTE, MANUAL_NOTE, RESTART_NOTE } from './UpdatePanel';
 
 export const AUTO_CHECK_DESCRIPTION =
   'Once a day Protocol asks GitHub whether a newer release exists. If one does, it shows Update available; ' +

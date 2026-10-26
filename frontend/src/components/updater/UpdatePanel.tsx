@@ -1,15 +1,10 @@
 'use client';
 
-import { invoke } from '@tauri-apps/api/core';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { useUpdater } from '@/contexts/UpdaterContext';
-import { busySentence, downloadPercent, errorSentence, releaseUrl, type UpdaterSnapshot } from '@/lib/updater';
+import { busySentence, downloadPercent, errorSentence, openExternal, releaseUrl, type UpdaterSnapshot } from '@/lib/updater';
 import { ReleaseNotes } from './ReleaseNotes';
-
-export const openExternal = (url: string) => {
-  invoke('open_external_url', { url }).catch((error) => console.error('Failed to open link:', error));
-};
 
 export const RESTART_NOTE =
   'Protocol closes for about half a minute while the update installs, then opens again. Your meetings and settings are kept.';

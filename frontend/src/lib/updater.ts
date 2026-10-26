@@ -95,6 +95,11 @@ export const installNow = () => invoke<UpdaterSnapshot>('updater_install_now');
 export const setAutoCheck = (enabled: boolean) => invoke<UpdaterSnapshot>('updater_set_auto_check', { enabled });
 export const reportUiActivity = (activities: UiActivity[]) => invoke<void>('updater_set_ui_activity', { activities });
 
+/** Opens a release page or a link from the notes in the browser. */
+export const openExternal = (url: string) => {
+  invoke('open_external_url', { url }).catch((error) => console.error('Failed to open link:', error));
+};
+
 export function onStatus(handler: (snapshot: UpdaterSnapshot) => void): Promise<UnlistenFn> {
   return listen<UpdaterSnapshot>(STATUS_EVENT, (event) => handler(event.payload));
 }

@@ -3,8 +3,7 @@
 import { useEffect, useRef } from 'react';
 import { toast } from 'sonner';
 import { useUpdater } from '@/contexts/UpdaterContext';
-import { releaseUrl } from '@/lib/updater';
-import { openExternal } from './UpdatePanel';
+import { openExternal, releaseUrl } from '@/lib/updater';
 
 /** Versions a toast was already shown for, across restarts. */
 export const SEEN_KEY = 'protocol-updater-seen-v1';

@@ -2,11 +2,7 @@
 
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { invoke } from '@tauri-apps/api/core';
-
-const openExternal = (url: string) => {
-  invoke('open_external_url', { url }).catch((error) => console.error('Failed to open link:', error));
-};
+import { openExternal } from '@/lib/updater';
 
 /** The release's CHANGELOG section from the feed. No raw HTML; links open in the browser. */
 export function ReleaseNotes({ notes }: { notes: string }) {
