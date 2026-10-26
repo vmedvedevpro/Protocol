@@ -38,7 +38,10 @@ pub async fn updater_install_now<R: Runtime>(app: AppHandle<R>) -> Result<Snapsh
     if app.try_state::<UpdaterState>().is_none() {
         return Err(install::Refusal::NotReady);
     }
-    super::install_and_restart(&app).await
+    match super::install_and_restart(&app).await {
+        Ok(()) | Err(install::Refusal::Failed) => Ok(app.state::<UpdaterState>().snapshot()),
+        Err(refusal) => Err(refusal),
+    }
 }
 
 #[tauri::command]

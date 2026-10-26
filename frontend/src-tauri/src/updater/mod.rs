@@ -260,19 +260,15 @@ pub fn quit_app<R: Runtime>(app: &AppHandle<R>) {
     });
 }
 
-/// "Restart and update" from the panel, Settings or the tray.
-pub async fn install_and_restart<R: Runtime>(app: &AppHandle<R>) -> Result<Snapshot, install::Refusal> {
-    let state = app.state::<UpdaterState>();
-    match install::install_now(app, install::Mode::Restart, &[]).await {
-        Ok(()) => Ok(state.snapshot()),
-        Err(install::Refusal::Busy { reasons }) => {
-            state.refresh_busy();
-            emit_status(app);
-            Err(install::Refusal::Busy { reasons })
-        }
-        Err(install::Refusal::Failed) => Ok(state.snapshot()),
-        Err(refusal) => Err(refusal),
+/// "Restart and update" from the panel, Settings or the tray. `Failed` means
+/// the install was attempted and the snapshot carries its error.
+pub async fn install_and_restart<R: Runtime>(app: &AppHandle<R>) -> Result<(), install::Refusal> {
+    let result = install::install_now(app, install::Mode::Restart, &[]).await;
+    if matches!(result, Err(install::Refusal::Busy { .. })) {
+        app.state::<UpdaterState>().refresh_busy();
+        emit_status(app);
     }
+    result
 }
 
 /// Reads the onboarding status into the busy registry: no update installs

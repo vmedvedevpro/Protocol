@@ -73,7 +73,7 @@ fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, item_id: &str) {
         "update_install" => {
             let app = app.clone();
             tauri::async_runtime::spawn(async move {
-                // A refusal is explained in Settings › About.
+                // A refusal or a failed install is explained in Settings › About.
                 if crate::updater::install_and_restart(&app).await.is_err() {
                     open_update_settings(&app);
                 }
