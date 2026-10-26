@@ -1,8 +1,11 @@
 use tauri::{
     menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem},
     tray::TrayIconBuilder,
-    AppHandle, Manager, Runtime,
+    AppHandle, Emitter, Manager, Runtime,
 };
+
+/// Asks the main window's layout to open a page with the router.
+const NAVIGATE_EVENT: &str = "tray-navigate";
 
 #[derive(Debug, Clone)]
 pub enum RecordingState {
@@ -58,12 +61,7 @@ fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, item_id: &str) {
         "resume_recording" => resume_recording_handler(app),
         "stop_recording" => stop_recording_handler(app),
         "open_window" => focus_main_window(app),
-        "settings" => {
-            focus_main_window(app);
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.eval("window.location.assign('/settings')");
-            }
-        }
+        "settings" => open_page(app, "/settings"),
         "update_check" => {
             open_update_settings(app);
             let app = app.clone();
@@ -88,9 +86,16 @@ fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, item_id: &str) {
 }
 
 fn open_update_settings<R: Runtime>(app: &AppHandle<R>) {
+    open_page(app, "/settings?section=about");
+}
+
+/// Client-side navigation: reloading the document would drop work only the
+/// WebView holds, such as a meeting still being saved after a recording and
+/// the queued post-call jobs.
+fn open_page<R: Runtime>(app: &AppHandle<R>, path: &str) {
     focus_main_window(app);
-    if let Some(window) = app.get_webview_window("main") {
-        let _ = window.eval("window.location.assign('/settings?section=about')");
+    if let Err(error) = app.emit_to("main", NAVIGATE_EVENT, path) {
+        log::error!("Tray: could not open {path}: {error}");
     }
 }
 

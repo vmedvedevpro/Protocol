@@ -251,6 +251,19 @@ export default function RootLayout({
     return () => { disposed = true; stop?.(); };
   }, []);
 
+  // The tray's Settings and update items. Navigating with the router keeps the
+  // page alive: a reload would drop a meeting that is still being saved and the
+  // queued post-call jobs.
+  useEffect(() => {
+    if (isMinibar) return;
+    let disposed = false;
+    let stop: UnlistenFn | undefined;
+    void listen<string>('tray-navigate', event => {
+      router.push(event.payload);
+    }).then(unlisten => { if (disposed) unlisten(); else stop = unlisten; });
+    return () => { disposed = true; stop?.(); };
+  }, [isMinibar, router]);
+
   useEffect(() => {
     if (process.env.NODE_ENV === 'production') {
       const handleContextMenu = (e: MouseEvent) => e.preventDefault();
