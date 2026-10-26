@@ -219,11 +219,22 @@ never enable. Started with `--updater-e2e-result=<file>`, such a build skips the
 scheduler and the UI: it checks, downloads, installs and restarts on its own,
 ignoring only the onboarding reason (a fresh profile never finishes
 onboarding). The relaunched build writes `{outcome, version, from}` to the file
-and exits. Per platform: an ephemeral key pair, build A (9.0.0) and B (9.0.1)
-under an e2e identity with a `http://127.0.0.1` feed, install A (Windows silent
-NSIS, macOS into `$RUNNER_TEMP/Applications`, Linux AppImage under `xvfb-run`),
-start it, wait for the result, and assert version 9.0.1 from 9.0.0 and that the
-installed copy was replaced.
+and exits. The flag is an argument rather than an environment variable because
+the Windows installer relaunches through the shell, which keeps `/ARGS` but not
+the environment.
+
+Per platform: an ephemeral key pair, build A (9.0.0) and B (9.0.1) under the
+`Protocol E2E` identity (`frontend/scripts/updater-e2e.mjs config`) with a
+`http://127.0.0.1:8765` feed (`feed`, `serve`), install A (Windows: silent NSIS
+into the runner's temp folder; macOS: the `.app` in `$RUNNER_TEMP/Applications`;
+Linux: the AppImage on a standalone Xvfb, since `xvfb-run` would stop the
+display when the old process exits), start it, wait for the result, and assert
+9.0.1 updated from 9.0.0 plus the replaced files (Windows file version, macOS
+`Info.plist`, Linux AppImage hash). If the Windows installer replaces the app
+but does not relaunch it (its `RunAsUser` needs the interactive shell), the job
+starts the new copy itself and records a warning. The workflow runs on manual
+dispatch and on pull requests that touch the updater, the installer, the Tauri
+configuration or the workflow.
 
 ### Local Windows (QA identity)
 

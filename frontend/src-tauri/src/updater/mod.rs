@@ -20,6 +20,8 @@
 pub mod busy;
 pub mod cache;
 pub mod commands;
+#[cfg(feature = "updater-e2e")]
+mod e2e;
 pub mod engine;
 pub mod install;
 pub mod journal;
@@ -509,6 +511,11 @@ pub fn set_auto_check<R: Runtime>(app: &AppHandle<R>, enabled: bool) -> Snapshot
 async fn run_scheduler<R: Runtime>(app: AppHandle<R>) {
     refresh_onboarding(&app).await;
     restore(&app).await;
+    #[cfg(feature = "updater-e2e")]
+    if let Some(result) = e2e::result_path() {
+        e2e::run(&app, &result).await;
+        return;
+    }
     {
         let state = app.state::<UpdaterState>();
         state.refresh_busy();
