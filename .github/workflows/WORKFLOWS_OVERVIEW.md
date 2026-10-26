@@ -175,9 +175,15 @@ version. No other secrets are used.
   `macos-15` (arm64), `ubuntu-22.04` for the Linux packages (oldest supported
   glibc), `ubuntu-24.04` for the rest. Rust 1.99.1 in every leg.
 - Caches: Rust per leg (`swatinem/rust-cache`), the pnpm store, the LLVM 18
-  archive (Windows), the Vulkan SDK installer. Caches saved by a tag run are
+  archive (Windows). The Vulkan SDK installer is downloaded on every run: the
+  cache of `humbletim/install-vulkan-sdk` is off because it uses
+  `actions/cache@v4`, which targets Node.js 20. Caches saved by a tag run are
   only visible to that tag, so release runs usually start cold; pull-request
   runs reuse their own caches.
+- Actions are pinned by full commit SHA with the release as a comment, and
+  every JavaScript action, including those inside composite actions, must
+  target Node.js 24: the runner warns about Node.js 20 actions and will stop
+  running them.
 - Line endings are set before checkout (`core.autocrlf true` on Windows, `false`
   elsewhere): the historical migrations' checksums depend on them, and each leg
   checks the files it embeds against `released-migration-checksums.json`.
