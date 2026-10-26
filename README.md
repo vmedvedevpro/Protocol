@@ -16,6 +16,15 @@
   for Windows, macOS (Apple Silicon), or Linux (experimental)
 </p>
 
+<p align="center">
+  <a href="https://github.com/vmedvedevpro/Protocol/releases/latest"><img src="https://img.shields.io/github/v/release/vmedvedevpro/Protocol" alt="Latest release"></a>
+  <a href="https://github.com/vmedvedevpro/Protocol/releases"><img src="https://img.shields.io/github/downloads/vmedvedevpro/Protocol/total" alt="Downloads"></a>
+  <a href="https://github.com/vmedvedevpro/Protocol/actions/workflows/pr-checks.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/vmedvedevpro/Protocol/pr-checks.yml?branch=main&label=CI" alt="CI status"></a>
+  <a href="https://github.com/vmedvedevpro/Protocol/actions/workflows/codeql.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/vmedvedevpro/Protocol/codeql.yml?branch=main&label=CodeQL" alt="CodeQL status"></a>
+  <a href="https://scorecard.dev/viewer/?uri=github.com/vmedvedevpro/Protocol"><img src="https://api.scorecard.dev/projects/github.com/vmedvedevpro/Protocol/badge" alt="OpenSSF Scorecard"></a>
+  <a href="LICENSE.md"><img src="https://img.shields.io/github/license/vmedvedevpro/Protocol" alt="MIT license"></a>
+</p>
+
 Free and open source: no account, no subscription, no analytics. Protocol is
 built on [Meetily – Actually Free](https://github.com/TylerBuza/Meetily-ActuallyFree),
 which made the original [Meetily](https://github.com/Zackriya-Solutions/meetily)
