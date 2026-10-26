@@ -282,8 +282,11 @@ pub async fn refresh_onboarding<R: Runtime>(app: &AppHandle<R>) {
 }
 
 /// Launch-time bookkeeping: the install-attempt marker and a cached download.
+/// Holds `op` throughout, so a check clicked meanwhile runs afterwards and its
+/// result is not overwritten by the cached offer.
 async fn restore<R: Runtime>(app: &AppHandle<R>) {
     let state = app.state::<UpdaterState>();
+    let _op = state.op.lock().await;
     if let Some(attempt) = state.cache.take_attempt() {
         match cache::attempt_outcome(&attempt, &state.current_version) {
             AttemptOutcome::Updated { from } => {
