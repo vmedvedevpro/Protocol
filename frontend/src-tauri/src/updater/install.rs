@@ -49,10 +49,12 @@ pub(crate) fn evaluate(ready: bool, locked: bool, mut reasons: Vec<BusyReason>, 
     if !ready {
         return Err(Refusal::NotReady);
     }
-    if !locked {
-        return Err(Refusal::Busy { reasons: vec![BusyReason::SpeechEngine] });
-    }
     reasons.retain(|reason| !ignore.contains(reason));
+    // The lock holder is usually a listed operation (an import holds it while
+    // it transcribes), so the user reads that reason first and the engine last.
+    if !locked && !reasons.contains(&BusyReason::SpeechEngine) {
+        reasons.push(BusyReason::SpeechEngine);
+    }
     if reasons.is_empty() {
         Ok(())
     } else {
@@ -246,6 +248,11 @@ mod tests {
         assert_eq!(
             evaluate(true, false, vec![], &[]),
             Err(Refusal::Busy { reasons: vec![BusyReason::SpeechEngine] })
+        );
+        // An import holds the engine lock while it transcribes: name it first.
+        assert_eq!(
+            evaluate(true, false, vec![BusyReason::Import], &[]),
+            Err(Refusal::Busy { reasons: vec![BusyReason::Import, BusyReason::SpeechEngine] })
         );
         assert_eq!(
             evaluate(true, true, vec![BusyReason::Import, BusyReason::Summary], &[]),
