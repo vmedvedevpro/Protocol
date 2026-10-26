@@ -66,21 +66,34 @@ jobs:
           path: .build-tools/clang+llvm-18.1.8-x86_64-pc-windows-msvc.tar.xz
           key: llvm-18.1.8-windows
       # whisper-rs generates its Windows bindings with libclang, and only LLVM 18
-      # works. curl first: gh release download has stalled on this runner.
+      # works. bindgen needs only libclang.dll and clang's builtin headers, so
+      # 7-Zip extracts just those (the whole toolchain is several GB and timed
+      # out here). curl rather than gh release download, which has stalled on
+      # this runner.
       - name: Set up LLVM 18
-        timeout-minutes: 20
+        timeout-minutes: 30
         run: |
           $tools = Join-Path $env:GITHUB_WORKSPACE '.build-tools'
           New-Item -ItemType Directory -Force $tools | Out-Null
-          $archive = Join-Path $tools 'clang+llvm-18.1.8-x86_64-pc-windows-msvc.tar.xz'
+          $top = 'clang+llvm-18.1.8-x86_64-pc-windows-msvc'
+          $archive = Join-Path $tools "$top.tar.xz"
           if (-not (Test-Path $archive)) {
-            $url = 'https://github.com/llvm/llvm-project/releases/download/llvmorg-18.1.8/clang+llvm-18.1.8-x86_64-pc-windows-msvc.tar.xz'
-            curl.exe --fail --location --silent --show-error --retry 3 --connect-timeout 30 --speed-limit 102400 --speed-time 60 --output "$archive.partial" $url
+            $url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-18.1.8/$top.tar.xz"
+            curl.exe --fail --location --silent --show-error --retry 3 --connect-timeout 30 --speed-limit 102400 --speed-time 60 `
+              --output "$archive.partial" --write-out 'Downloaded %{size_download} bytes in %{time_total} s\n' $url
             if ($LASTEXITCODE -ne 0) { throw "LLVM download failed ($LASTEXITCODE)" }
             Move-Item -Force "$archive.partial" $archive
           }
-          $llvm = & frontend/scripts/bootstrap-llvm18.ps1 | Select-Object -Last 1
-          "LIBCLANG_PATH=$llvm\bin" >> $env:GITHUB_ENV
+          $hash = (Get-FileHash $archive -Algorithm SHA256).Hash
+          if ($hash -ne '22C5907DB053026CC2A8FF96D21C0F642A90D24D66C23C6D28EE7B1D572B82E8') { throw "LLVM archive checksum mismatch: $hash" }
+          $sevenZip = Join-Path $env:ProgramFiles '7-Zip\7z.exe'
+          $sw = [Diagnostics.Stopwatch]::StartNew()
+          # cmd carries the pipe so the tar stream stays binary.
+          cmd /d /c "`"$sevenZip`" x -so `"$archive`" | `"$sevenZip`" x -si -ttar -y `"-o$tools`" `"$top\bin\libclang.dll`" `"$top\lib\clang\18\include`" -r- >nul"
+          $libclang = Join-Path $tools "$top\bin\libclang.dll"
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path $libclang)) { throw 'Failed to extract libclang from LLVM 18' }
+          Write-Host "Extracted libclang in $([math]::Round($sw.Elapsed.TotalSeconds)) s"
+          "LIBCLANG_PATH=$(Join-Path $tools "$top\bin")" >> $env:GITHUB_ENV
       - name: Build llama-helper
         run: |
           cargo build --release --locked -p llama-helper
