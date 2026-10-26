@@ -15,7 +15,9 @@ not updated as Protocol's code changes.
   are that project's.
 - Protocol's releases are on
   [GitHub Releases](https://github.com/vmedvedevpro/Protocol/releases) and in
-  [CHANGELOG.md](../../CHANGELOG.md).
+  [CHANGELOG.md](../../CHANGELOG.md), whose
+  [Meetily – Actually Free history](../../CHANGELOG.md#meetily--actually-free-history-up-to-the-fork-at-3130d16)
+  part is the changelog of these releases.
 
 | Note | Actually Free release |
 | --- | --- |
