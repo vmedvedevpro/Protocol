@@ -14,15 +14,32 @@ import { CHANGELOG, VERSION_FILES, bumpVersionFiles, cutChangelog, parseVersion 
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 
+// { version, date } from `<version> [--date YYYY-MM-DD]` (in either order),
+// or null for anything else. `today` is the default date.
+export function parseArgs(args, today) {
+  let version = null;
+  let date = today;
+  for (let index = 0; index < args.length; index += 1) {
+    if (args[index] === '--date') {
+      date = args[index + 1];
+      index += 1;
+    } else if (version === null && !args[index].startsWith('--')) {
+      version = args[index];
+    } else {
+      return null;
+    }
+  }
+  if (!parseVersion(version ?? '') || !/^\d{4}-\d{2}-\d{2}$/.test(date ?? '')) return null;
+  return { version, date };
+}
+
 function main() {
-  const args = process.argv.slice(2);
-  const dateIndex = args.indexOf('--date');
-  const date = dateIndex === -1 ? new Date().toISOString().slice(0, 10) : args[dateIndex + 1];
-  const version = args.find((arg, index) => !arg.startsWith('--') && index !== dateIndex + 1);
-  if (!version || !parseVersion(version)) {
+  const parsed = parseArgs(process.argv.slice(2), new Date().toISOString().slice(0, 10));
+  if (!parsed) {
     console.error('usage: bump-version.mjs <X.Y.Z|X.Y.Z-rc.N> [--date YYYY-MM-DD]');
     process.exit(2);
   }
+  const { version, date } = parsed;
   const texts = Object.fromEntries(
     Object.entries(VERSION_FILES).map(([key, path]) => [key, readFileSync(join(root, path), 'utf8')]),
   );
