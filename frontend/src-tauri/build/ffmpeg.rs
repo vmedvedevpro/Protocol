@@ -142,7 +142,8 @@ fn download_and_extract_ffmpeg(
 
     println!("cargo:warning=📦 Download size: {:.1} MB", pin.archive_size as f64 / 1_048_576.0);
 
-    // Download to temp file; the process id keeps parallel builds apart
+    // Download to a temp file. The archive and the extraction folder carry the
+    // process id, so concurrent builds (two worktrees) never share either.
     let archive_path = std::env::temp_dir().join(format!(
         "ffmpeg-build-{}-{}-{}",
         std::process::id(),
@@ -258,51 +259,58 @@ fn extract_ffmpeg_from_archive(
     pin: &FfmpegPin,
     output_path: &std::path::PathBuf,
 ) -> Result<(), String> {
-    let extract_dir = std::env::temp_dir().join(format!("ffmpeg-extract-{}", target));
+    let extract_dir = std::env::temp_dir().join(format!(
+        "ffmpeg-extract-{}-{}",
+        std::process::id(),
+        target
+    ));
 
-    // Clean old extraction directory
+    // A leftover of an earlier build that had the same process id
     let _ = std::fs::remove_dir_all(&extract_dir);
     std::fs::create_dir_all(&extract_dir)
         .map_err(|e| format!("Failed to create extract dir: {}", e))?;
 
-    // Determine archive format from extension
-    let archive_str = archive_path.to_string_lossy();
+    let result = (|| {
+        // Determine archive format from extension
+        let archive_str = archive_path.to_string_lossy();
 
-    if archive_str.ends_with(".zip") {
-        extract_zip(archive_path, &extract_dir)?;
-    } else if archive_str.ends_with(".tar.xz") || archive_str.ends_with(".txz") {
-        extract_tar_xz(archive_path, &extract_dir)?;
-    } else {
-        return Err(format!("Unsupported archive format: {}", archive_str));
-    }
+        if archive_str.ends_with(".zip") {
+            extract_zip(archive_path, &extract_dir)?;
+        } else if archive_str.ends_with(".tar.xz") || archive_str.ends_with(".txz") {
+            extract_tar_xz(archive_path, &extract_dir)?;
+        } else {
+            return Err(format!("Unsupported archive format: {}", archive_str));
+        }
 
-    // Find extracted FFmpeg binary (platform-specific locations)
-    let ffmpeg_binary = find_ffmpeg_in_extracted_dir(&extract_dir, target)?;
+        // Find extracted FFmpeg binary (platform-specific locations)
+        let ffmpeg_binary = find_ffmpeg_in_extracted_dir(&extract_dir, target)?;
 
-    println!("cargo:warning=📋 Found FFmpeg at: {:?}", ffmpeg_binary);
-    verify_file(&ffmpeg_binary, "extracted ffmpeg", pin.binary_size, pin.binary_sha256)?;
+        println!("cargo:warning=📋 Found FFmpeg at: {:?}", ffmpeg_binary);
+        verify_file(&ffmpeg_binary, "extracted ffmpeg", pin.binary_size, pin.binary_sha256)?;
 
-    // Copy to target location
-    std::fs::copy(&ffmpeg_binary, output_path)
-        .map_err(|e| format!("Failed to copy binary to binaries/: {}", e))?;
+        // Copy to target location
+        std::fs::copy(&ffmpeg_binary, output_path)
+            .map_err(|e| format!("Failed to copy binary to binaries/: {}", e))?;
 
-    // Set executable permissions on Unix systems
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mut perms = std::fs::metadata(output_path)
-            .map_err(|e| format!("Failed to get metadata: {}", e))?
-            .permissions();
-        perms.set_mode(0o755); // rwxr-xr-x
-        std::fs::set_permissions(output_path, perms)
-            .map_err(|e| format!("Failed to set executable permissions: {}", e))?;
-        println!("cargo:warning=🔐 Set executable permissions");
-    }
+        // Set executable permissions on Unix systems
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = std::fs::metadata(output_path)
+                .map_err(|e| format!("Failed to get metadata: {}", e))?
+                .permissions();
+            perms.set_mode(0o755); // rwxr-xr-x
+            std::fs::set_permissions(output_path, perms)
+                .map_err(|e| format!("Failed to set executable permissions: {}", e))?;
+            println!("cargo:warning=🔐 Set executable permissions");
+        }
 
-    // Cleanup extraction directory
+        Ok(())
+    })();
+
+    // Cleanup extraction directory, also after a failed extraction or check
     let _ = std::fs::remove_dir_all(&extract_dir);
-
-    Ok(())
+    result
 }
 
 /// Extract ZIP archive (Windows, macOS)
