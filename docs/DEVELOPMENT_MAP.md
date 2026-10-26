@@ -507,8 +507,8 @@ procedure, dry runs and the `release` environment are in
    `check-migration-checksums.mjs --source git` the migration table.
 3. `pr-checks.yml` runs as a reusable workflow, then the legs
    `release-build-{windows,macos,linux}.yml` build, test and smoke-test, and each
-   uploads a `release-<platform>` artifact with its `SHA256SUMS.txt`. Legs have
-   no secrets.
+   uploads a `leg-<platform>` artifact with its `SHA256SUMS.txt` (the assembly
+   downloads exactly `leg-*`). Legs have no secrets.
 4. `draft` (environment `release`, tag runs only) runs `assemble-release.sh`:
    checks the artifacts, signs the three updater payloads with the production key
    and `--app-version`, verifies the signatures against `plugins.updater.pubkey`

@@ -1,7 +1,7 @@
 name: Release build (Linux)
 
 # Called by release.yml. Builds the experimental x86_64 AppImage and deb,
-# checks that the AppImage starts, and uploads the release-linux artifact.
+# checks that the AppImage starts, and uploads the leg-linux artifact.
 # No secrets, read-only token. The native tests have never run on Linux in
 # this lineage and do not block a release yet.
 on:
@@ -146,7 +146,7 @@ jobs:
           node scripts/release/write-sha256sums.mjs dist
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: release-linux
+          name: leg-linux
           path: |
             dist/protocol-linux-x86_64.AppImage
             dist/protocol_${{ inputs.version }}_amd64.deb

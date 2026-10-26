@@ -3,7 +3,7 @@ name: Release build (Windows)
 # Called by release.yml. Builds protocol-windows-x64-setup.exe with
 # frontend/scripts/build-universal-windows.ps1 (CPU + Vulkan, unsigned),
 # tests, verifies and installs it on the runner, and uploads the
-# release-windows artifact. No secrets, read-only token.
+# leg-windows artifact. No secrets, read-only token.
 on:
   workflow_call:
     inputs:
@@ -138,7 +138,7 @@ jobs:
           if (Test-Path (Join-Path $installDir 'protocol.exe')) { throw 'protocol.exe was not removed' }
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: release-windows
+          name: leg-windows
           path: |
             dist/protocol-windows-x64-setup.exe
             dist/SHA256SUMS.txt

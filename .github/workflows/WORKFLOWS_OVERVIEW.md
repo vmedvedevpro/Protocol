@@ -135,7 +135,7 @@ still agree. It never reaches the `release` environment or the production key.
 - Any branch, once `release.yml` is on `main`:
   `gh workflow run release.yml --ref <branch> [-f version=<the files' version>]`.
 
-Artifacts of a dry run: `release-windows`, `release-macos`, `release-linux` (the
+Artifacts of a dry run: `leg-windows`, `leg-macos`, `leg-linux` (the
 installers), `release-dry-run` (`latest.json`, `SHA256SUMS.txt`, the `.sig` files
 and `notes.md`), and `logs-*` (startup logs). The job summary of `preview` shows
 the checksums and the feed.

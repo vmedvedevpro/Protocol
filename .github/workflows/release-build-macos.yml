@@ -2,7 +2,7 @@ name: Release build (macOS)
 
 # Called by release.yml. Builds the Apple Silicon DMG and the updater bundle
 # (Protocol.app.tar.gz), ad-hoc signed and not notarized, tests and verifies
-# them, and uploads the release-macos artifact. No secrets, read-only token.
+# them, and uploads the leg-macos artifact. No secrets, read-only token.
 on:
   workflow_call:
     inputs:
@@ -260,7 +260,7 @@ jobs:
           node scripts/release/write-sha256sums.mjs dist
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: release-macos
+          name: leg-macos
           path: |
             dist/protocol-macos-arm64.dmg
             dist/protocol-macos-arm64.app.tar.gz
