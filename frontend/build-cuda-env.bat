@@ -1,8 +1,9 @@
 @echo off
 REM Fork build helper: MSVC + LLVM + reassembled CUDA toolkit + Ninja.
-REM Usage: build-cuda-env.bat [helper|libhelper|lib|bundle|check]
+REM Usage: build-cuda-env.bat [helper|libhelper|lib|check|test|fix]
 REM   check = cargo check only (type-check, NO exe link) - safe to run while the
 REM           app is still running (won't hit LNK1104 on the locked protocol.exe).
+REM   bundle = retired: CUDA installers are not supported (#15).
 setlocal enabledelayedexpansion
 
 set "ROOT=%~dp0"
@@ -100,10 +101,9 @@ cargo test --release --features cuda %~2 -- --nocapture --test-threads=1
 exit /b %errorlevel%
 
 :bundle
-echo [bundle] Build CUDA app, then Tauri bundle
-cd /d "%ROOT%src-tauri"
-cargo build --release -p protocol --bin protocol --no-default-features --features cuda,custom-protocol
-if errorlevel 1 exit /b %errorlevel%
-cd /d "%ROOT%"
-call pnpm run tauri:build:cuda
-exit /b %errorlevel%
+REM The installer hooks ship only the CPU and Vulkan builds and no CUDA runtime
+REM (#15), so a CUDA protocol.exe in a Tauri bundle would not start.
+echo [bundle] CUDA installers are not supported: the installer ships no CUDA runtime.
+echo [bundle] CUDA builds are for development only: lib, check, test.
+echo [bundle] The Windows installer is built by scripts\build-universal-windows.ps1.
+exit /b 1

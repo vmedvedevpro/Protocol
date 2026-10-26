@@ -705,14 +705,18 @@ the Model Settings dialog, a refused regeneration) and
 ## 7. Building
 
 `frontend/build-cuda-env.bat` sets up MSVC + LLVM + the reassembled CUDA toolkit
-and has four modes:
+for CUDA development builds:
 
 | Mode | Purpose |
 |---|---|
 | `check` | Type-check only, no link — **safe while the app is running** |
 | `lib` | Full build + stage bundled resources next to the exe |
 | `test <name>` | Run a Rust test with output shown |
-| `bundle` | Packaged installer |
+| `bundle` | Retired: CUDA installers are not supported, the mode stops with a message |
+
+The installer carries only the CPU and Vulkan builds and no CUDA runtime (#15),
+so a CUDA `protocol.exe` packaged by Tauri would not start; the Windows
+installer is built by `frontend/scripts/build-universal-windows.ps1` (§8).
 
 Gotchas:
 

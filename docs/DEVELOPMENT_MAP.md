@@ -448,7 +448,10 @@ on both DirectML and CPU; real speech performance remains unqualified.
 `frontend/scripts/build-universal-windows.ps1` builds the one Windows asset,
 `protocol-windows-x64-setup.exe`: Tauri's NSIS installer, which is also the
 updater's payload (run with `/P /UPDATE`). There is no CUDA build and no
-bootstrapper any more (#15). The script builds the Vulkan variant and then the
+bootstrapper any more (#15). `--features cuda` stays for development builds
+(`frontend/build-cuda-env.bat lib|check|test`); its `bundle` mode and the
+`tauri:build:cuda` script are gone because the installer ships no CUDA runtime.
+The script builds the Vulkan variant and then the
 CPU bundle in one target dir (only `whisper-rs-sys`, `whisper-rs` and `protocol`
 recompile between them), copies the Vulkan executable to
 `installer-variants\protocol-vulkan.exe` before `tauri build` relinks
