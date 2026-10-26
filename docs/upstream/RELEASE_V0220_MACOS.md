@@ -1,3 +1,7 @@
+> Meetily – Actually Free release note from before Protocol forked from it, kept
+> for history ([about this folder](README.md)). Issue and PR numbers refer to
+> [TylerBuza/Meetily-ActuallyFree](https://github.com/TylerBuza/Meetily-ActuallyFree).
+
 ## macOS recording-fix preview
 
 This Apple Silicon preview follows up on [#42](https://github.com/TylerBuza/Meetily-ActuallyFree/issues/42):

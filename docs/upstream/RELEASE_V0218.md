@@ -1,3 +1,7 @@
+> Meetily – Actually Free release note from before Protocol forked from it, kept
+> for history ([about this folder](README.md)). Issue and PR numbers refer to
+> [TylerBuza/Meetily-ActuallyFree](https://github.com/TylerBuza/Meetily-ActuallyFree).
+
 **Meetily has a new look.** This update substantially rebuilds the existing
 React/Next.js interface and meeting workspace—from live recording to working
 with transcripts, notes, and summaries afterward.
@@ -12,14 +16,14 @@ with transcripts, notes, and summaries afterward.
   components, integrated Windows controls, and Ctrl+K search.
 - **Organization:** groups, contacts, meeting filters, and multi-meeting export.
 
-![Redesigned meeting workspace with transcript, notes, action items, and summary](https://raw.githubusercontent.com/TylerBuza/Meetily-ActuallyFree/main/docs/images/v0.2.18/meeting-detail.png)
+![Redesigned meeting workspace with transcript, notes, action items, and summary](images/v0.2.18/meeting-detail.png)
 
 <details>
 <summary><strong>More screenshots: live recording and meeting library</strong></summary>
 
-![Live recording with transcript, speaker controls, and recording bar](https://raw.githubusercontent.com/TylerBuza/Meetily-ActuallyFree/main/docs/images/v0.2.18/live-recording.png)
+![Live recording with transcript, speaker controls, and recording bar](images/v0.2.18/live-recording.png)
 
-![Meeting library with search, filters, and date-grouped meetings](https://raw.githubusercontent.com/TylerBuza/Meetily-ActuallyFree/main/docs/images/v0.2.18/meeting-workspace.png)
+![Meeting library with search, filters, and date-grouped meetings](images/v0.2.18/meeting-workspace.png)
 
 </details>
 

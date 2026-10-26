@@ -7,7 +7,8 @@ upstream. For what the app does and how to install a release, see the
 Before changing code, read [AGENTS.md](../AGENTS.md),
 [ARCHITECTURE.md](../ARCHITECTURE.md), and the
 [development map](DEVELOPMENT_MAP.md). Most other notes under `docs/` are
-upstream's engineering and release history.
+upstream's engineering notes; its release notes are in
+[docs/upstream/](upstream/README.md).
 
 ## Build from source (Windows)
 

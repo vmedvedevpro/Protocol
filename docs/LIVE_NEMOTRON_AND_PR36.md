@@ -1,8 +1,12 @@
-# Live Nemotron and PR #36 assessment
+# Live Nemotron and upstream PR #36 assessment
+
+> Written in Meetily – Actually Free before Protocol forked from it. The 0.2.x
+> versions and releases it mentions are that project's
+> ([TylerBuza/Meetily-ActuallyFree](https://github.com/TylerBuza/Meetily-ActuallyFree)).
 
 ## Implementation
 
-October 22 #42 follow-up: mel features are materialized in standard contiguous
+October 22 upstream #42 follow-up: mel features are materialized in standard contiguous
 time-major order before borrowed ORT tensor construction. The transpose previously
 retained nonstandard strides through `to_owned()`. A model-free regression checks
 full features and sliced live windows against every original band/time value.
@@ -44,7 +48,7 @@ guessing identities. Engine changes during capture apply on the next recording.
   that the final watermark and first/last-turn labels remain available afterward.
 - Production frontend build and all Windows CPU/Vulkan/CUDA variants passed.
   Installer payload verification passed, including after refreshing updater notes
-  and manifest checksums to match `RELEASE_V0217.md`.
+  and manifest checksums to match [upstream/RELEASE_V0217.md](upstream/RELEASE_V0217.md).
 - The final Windows CUDA payload was installed locally and its executable hash
   matched the packaged variant. A SQLite backup was taken and the database file
   hash was unchanged across installation. Installed-app IPC verified native
@@ -53,7 +57,7 @@ guessing identities. Engine changes during capture apply on the next recording.
   and non-NVIDIA DirectML hardware remain unqualified. The release does not claim
   that the external NVIDIA/VoiceArena chart measures this application's accuracy.
 
-## PR #36 review
+## Upstream PR #36 review
 
 Reviewed `97654b0c54ace9a2a60a67f8d5aa9228a666a701` from
 <https://github.com/TylerBuza/Meetily-ActuallyFree/pull/36> by @ampersandru.
@@ -74,4 +78,4 @@ aliases rather than incorporated wholesale with the streaming engine change:
 - The PR also changes startup recovery, dev routing, CUDA setup, build flags,
   and dependencies. Those are independent of the live speaker panel.
 
-No PR #36 commits have been merged or cherry-picked as part of this change.
+No upstream PR #36 commits have been merged or cherry-picked as part of this change.

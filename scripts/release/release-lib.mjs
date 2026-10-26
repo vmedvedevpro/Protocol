@@ -120,9 +120,11 @@ export function versionFileErrors(found, version) {
 }
 
 // The body of `## Protocol <version>` (with an optional ` — <date>`), up to the
-// next `## ` heading. The upstream sections further down use other headings
-// (`## Unreleased`, `## v0.2.20 …`), so they never match. Returns
-// { count, body } so callers can reject a missing or duplicated section.
+// next `## ` heading. The inherited Actually Free changelog sits under one
+// `## Meetily – Actually Free history …` heading, which ends the oldest Protocol
+// section; its own sections are `### ` headings (`### Unreleased`,
+// `### v0.2.20 …`), so they never match. Returns { count, body } so callers can
+// reject a missing or duplicated section.
 export function changelogSection(text, version) {
   const lines = text.replace(/\r\n/g, '\n').split('\n');
   const heading = new RegExp(`^## Protocol ${version.replace(/[.]/g, '\\.')}( — \\d{4}-\\d{2}-\\d{2})?$`);

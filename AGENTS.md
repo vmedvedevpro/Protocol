@@ -16,8 +16,11 @@ fork. Its code comes from two upstream projects, both MIT licensed:
    Tyler Buza, a fork of Meetily. Protocol branched from it at `3130d16` and merges
    its changes through the `upstream` remote.
 
-Most notes under `docs/` (releases, qualification, PR integration) are Actually
-Free's history. Protocol's own identity (bundle identifier, install and data
+Actually Free's release notes are kept for history in
+[docs/upstream/](docs/upstream/README.md). Most other notes under `docs/` were
+written there too and describe code Protocol still runs; a note that also
+records Actually Free's releases or PR integration says so at the top.
+Protocol's own identity (bundle identifier, install and data
 folders, registry keys, the in-app updater) is described in
 [Fork identity and updates](docs/DEVELOPMENT_MAP.md#fork-identity-and-updates);
 planned work is tracked in [GitHub issues](https://github.com/vmedvedevpro/Protocol/issues).
@@ -30,6 +33,10 @@ planned work is tracked in [GitHub issues](https://github.com/vmedvedevpro/Proto
   `cargo test -p protocol`); the library crate stays `app_lib`.
 - Sample data is not branding: leave example names in tests, fixtures, and
   placeholders as upstream wrote them.
+- In the docs, a bare `#42` is a Protocol issue or PR unless the note says at
+  the top that its numbers are Actually Free's, as
+  [docs/upstream/](docs/upstream/README.md) and the changelog's inherited part
+  do. Anywhere else, write an Actually Free one as `upstream #42` or link it.
 - Put new features in new modules and keep edits to upstream files minimal. Keep
   the copyright notices of MIT code ported from other projects.
 - The in-app updater (`src-tauri/src/updater/`) reads only this repository's

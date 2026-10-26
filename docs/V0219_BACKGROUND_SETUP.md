@@ -1,5 +1,9 @@
 # v0.2.19 — optional background setup downloads
 
+> Written in Meetily – Actually Free before Protocol forked from it. Issue and PR
+> numbers and release versions in this note are that project's
+> ([TylerBuza/Meetily-ActuallyFree](https://github.com/TylerBuza/Meetily-ActuallyFree)).
+
 Setup Overview offers opt-in Whisper Large v3 Turbo Q5 (~547 MB) and Nemotron-3
 (~382 MB) downloads. Neither is selected by default, and downloading does not
 silently change the live transcription model or diarization selection. After a
