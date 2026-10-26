@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { test } from 'node:test';
 import {
+  MIGRATIONS_DIR,
   TABLE_PATH,
   compareWithTable,
   computeFromGit,
@@ -10,7 +13,7 @@ import {
   sha384,
   windowsForm,
 } from '../check-migration-checksums.mjs';
-import { repoRoot } from './helpers.mjs';
+import { repoRoot, withTempDir } from './helpers.mjs';
 
 const table = (migrations) => ({ platformSpecificThrough: '20251229000000', migrations });
 
@@ -87,4 +90,41 @@ test('a working tree is compared with its own platform column only', () => {
 test('the committed table matches the migrations at HEAD', () => {
   const committed = JSON.parse(readFileSync(new URL(`../../../${TABLE_PATH}`, import.meta.url), 'utf8'));
   assert.deepEqual(compareWithTable(committed, computeFromGit(repoRoot)), []);
+});
+
+test('--add-new records the staged blob and refuses a migration that is not staged as is', async () => {
+  await withTempDir(async (dir) => {
+    const git = (...args) => execFileSync('git', args, { cwd: dir, stdio: 'ignore' });
+    const migration = join(dir, MIGRATIONS_DIR, '20261001000000_c.sql');
+    const sql = 'CREATE TABLE t (id INTEGER);\n';
+    git('init', '-q');
+    mkdirSync(join(dir, MIGRATIONS_DIR), { recursive: true });
+    writeFileSync(join(dir, '.gitattributes'), `${MIGRATIONS_DIR}/20261001000000_c.sql text eol=lf\n`);
+    writeFileSync(join(dir, TABLE_PATH), `${JSON.stringify(table({}), null, 2)}\n`);
+    writeFileSync(migration, sql);
+    const addNew = () => spawnSync(
+      process.execPath,
+      [join(repoRoot, 'scripts/release/check-migration-checksums.mjs'), '--add-new', '--repo', dir],
+      { encoding: 'utf8' },
+    );
+
+    let run = addNew();
+    assert.equal(run.status, 1);
+    assert.equal(run.stderr, `error: 20261001000000_c.sql is not staged: commit or stage the migration first (git add ${MIGRATIONS_DIR})\n`);
+
+    git('add', '.');
+    writeFileSync(migration, `${sql}-- edited\n`);
+    run = addNew();
+    assert.equal(run.status, 1);
+    assert.match(run.stderr, /^error: 20261001000000_c\.sql has unstaged changes: commit or stage/);
+
+    writeFileSync(migration, sql);
+    run = addNew();
+    assert.equal(run.status, 0, run.stderr);
+    assert.match(run.stdout, /^Added 1 migration checksum entry/);
+    const written = JSON.parse(readFileSync(join(dir, TABLE_PATH), 'utf8'));
+    assert.deepEqual(written.migrations, {
+      20261001000000: { file: '20261001000000_c.sql', unix: sha384(Buffer.from(sql)), windows: sha384(Buffer.from(sql)) },
+    });
+  });
 });

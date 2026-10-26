@@ -540,7 +540,8 @@ after setting `core.autocrlf` explicitly. The authoritative check is the Rust te
 `embedded_migrations_match_released_checksums` (`database/manager.rs`) over the
 embedded `MIGRATOR`. The Windows column matches the owner's two real databases.
 A new migration needs an `eol=lf` line in `.gitattributes` and
-`check-migration-checksums.mjs --add-new`.
+`check-migration-checksums.mjs --add-new`, run after `git add`: it hashes the
+staged blob and refuses an untracked migration or one with unstaged changes.
 
 Tests: `node --test "scripts/release/test/*.test.mjs"` (in `pr-checks.yml`);
 the Rust test above and the CUDA status test in

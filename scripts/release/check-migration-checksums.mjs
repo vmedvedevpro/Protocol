@@ -13,7 +13,8 @@
 //   --source worktree --platform windows|unix
 //                                  hash the files a build is about to embed
 //   --add-new                      append entries for migrations missing from
-//                                  the table; never changes an existing entry
+//                                  the table, hashed from the index (git add the
+//                                  migration first); never changes an existing entry
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
@@ -91,19 +92,55 @@ function git(repo, args, encoding = 'utf8') {
   return execFileSync('git', args, { cwd: repo, encoding, maxBuffer: 64 * 1024 * 1024 });
 }
 
-export function computeFromGit(repo) {
-  const files = git(repo, ['ls-files', '-z', '--', MIGRATIONS_DIR]).split('\0').filter(Boolean);
+// The migrations as git stores them: the blobs at HEAD, or with `index` the
+// staged blobs (what the next commit holds), so --add-new works before the
+// migration is committed. The eol attribute is read from the same tree.
+export function computeFromGit(repo, { index = false } = {}) {
+  const files = index
+    ? git(repo, ['ls-files', '-z', '--', MIGRATIONS_DIR])
+    : git(repo, ['ls-tree', '-r', '-z', '--name-only', '--full-name', 'HEAD', '--', MIGRATIONS_DIR]);
   const computed = {};
-  for (const path of files) {
+  for (const path of files.split('\0').filter(Boolean)) {
     const file = path.slice(MIGRATIONS_DIR.length + 1);
     const version = migrationVersion(file);
     if (!version) continue;
-    const blob = git(repo, ['cat-file', 'blob', `HEAD:${path}`], 'buffer');
-    const eol = git(repo, ['check-attr', 'eol', '--', path]).trim().split(': ').pop();
+    const blob = git(repo, ['cat-file', 'blob', `${index ? '' : 'HEAD'}:${path}`], 'buffer');
+    const eol = git(repo, ['check-attr', index ? '--cached' : '--source=HEAD', 'eol', '--', path]).trim().split(': ').pop();
     const eolLf = eol === 'lf';
     computed[version] = { file, eolLf, ...expectedChecksums(blob, eolLf) };
   }
   return computed;
+}
+
+// Table entries for the staged migrations the table lacks. A migration file
+// that is untracked, or differs from its staged blob, would be recorded with
+// other bytes than the ones committed later, so it is an error instead.
+export function newEntries(repo, table) {
+  const computed = computeFromGit(repo, { index: true });
+  const staged = new Set(Object.values(computed).map(({ file }) => file));
+  const problems = readdirSync(join(repo, MIGRATIONS_DIR))
+    .filter((file) => migrationVersion(file) && !staged.has(file))
+    .map((file) => `${file} is not staged`);
+  const entries = {};
+  for (const [version, { file, unix, windows }] of Object.entries(computed)) {
+    if (table.migrations[version]) continue;
+    if (differsFromIndex(repo, `${MIGRATIONS_DIR}/${file}`)) problems.push(`${file} has unstaged changes`);
+    else entries[version] = { file, unix, windows };
+  }
+  if (problems.length > 0) {
+    throw new Error(`${problems.join(', ')}: commit or stage the migration first (git add ${MIGRATIONS_DIR})`);
+  }
+  return entries;
+}
+
+function differsFromIndex(repo, path) {
+  try {
+    execFileSync('git', ['diff', '--quiet', '--', path], { cwd: repo, stdio: 'ignore' });
+    return false;
+  } catch (error) {
+    if (error.status === 1) return true;
+    throw error;
+  }
 }
 
 export function computeFromWorktree(repo, platform) {
@@ -143,13 +180,9 @@ function main() {
   const table = JSON.parse(readFileSync(tablePath, 'utf8'));
 
   if (options.addNew) {
-    const computed = computeFromGit(repo);
-    let added = 0;
-    for (const [version, { file, unix, windows }] of Object.entries(computed)) {
-      if (table.migrations[version]) continue;
-      table.migrations[version] = { file, unix, windows };
-      added += 1;
-    }
+    const entries = newEntries(repo, table);
+    const added = Object.keys(entries).length;
+    Object.assign(table.migrations, entries);
     table.migrations = Object.fromEntries(
       Object.entries(table.migrations).sort(([a], [b]) => (BigInt(a) < BigInt(b) ? -1 : 1)),
     );
@@ -176,5 +209,10 @@ function main() {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  main();
+  try {
+    main();
+  } catch (error) {
+    console.error(`error: ${error.message}`);
+    process.exit(1);
+  }
 }
