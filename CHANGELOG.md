@@ -15,6 +15,17 @@ issue and PR numbers refer to
 - Remove the in-app updater: the updater and process plugins, update checks,
   the onboarding update question, the tray and About update actions, and updater
   signing in the Windows packaging script, release verifier, and workflows.
+- Add an in-app updater that works like Orca's
+  ([#31](https://github.com/vmedvedevpro/Protocol/issues/31)): once a day
+  (switch in Settings › About, on by default) Protocol checks this repository's
+  GitHub releases and shows **Update available** with the release notes in the
+  sidebar, the tray, and one toast per version. It downloads the update only
+  when you click **Download**, verifies its signature, and installs it when you
+  click **Restart and update** or quit, never during a recording or while a
+  meeting is being processed. A download stops when a recording starts and
+  starts again after it. `.deb`
+  installs show a link instead; on macOS the system may ask for microphone and
+  screen recording access again after an update.
 - Remove the inactive PostHog analytics: the native `analytics` module and its
   IPC commands, the `posthog-rs` dependency, and the frontend tracking calls and
   provider. It never sent events. The local `analytics.json` that earlier

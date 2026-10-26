@@ -48,8 +48,13 @@ Everything below comes from upstream and works as it does there.
   Setup and uninstall still close any other running `protocol.exe` of your
   user, such as a dev build or a Labs install: they ask first in an
   interactive run and close it without asking in passive and silent runs.
-- **No updater.** There is no in-app updater and no update check. To update,
-  pull the source and rebuild.
+- **Updates from GitHub releases, on your click.** Once a day Protocol asks
+  this repository's releases whether a newer version exists and, if so, shows
+  **Update available** with the release notes. It downloads the update only
+  when you click **Download**, verifies its signature, and installs it when you
+  click **Restart and update** or quit the app, never during a recording. Turn
+  the daily check off in Settings › About; the `.deb` package shows a link
+  instead of updating itself. See [docs/AUTO_UPDATE.md](docs/AUTO_UPDATE.md).
 - **No Claude Code CLI provider.** No IPC command runs an executable you chose
   any more; Built-in AI still starts its bundled `llama-helper`, and the Ollama
   check may run `ollama list`. A summary provider saved as the CLI loads as
@@ -71,8 +76,11 @@ Everything below comes from upstream and works as it does there.
 
 Recordings, transcripts, and settings stay on the machine. Nothing is sent
 anywhere unless you choose a cloud provider for summaries, which then
-processes that content under its own terms. Analytics and update checks have
-been removed. The network is used to download models: from Hugging Face at
+processes that content under its own terms. Analytics have been removed. Once
+a day, unless you turn it off, Protocol asks GitHub whether a newer release
+exists; the request carries nothing about you or your meetings, and an update
+downloads only when you click **Download**. The network is also used to
+download models: from Hugging Face at
 pinned commits, and the repair download of the bundled speaker models from this
 repository. Every downloaded file is checked against a pinned SHA-256. See
 [PRIVACY_POLICY.md](PRIVACY_POLICY.md).
@@ -84,6 +92,7 @@ repository. Every downloaded file is checked against a pinned SHA-256. See
 | Database, templates, models, file-backed settings | `<app folder>\data` (installed: `%LOCALAPPDATA%\vmedvedevpro\Protocol\data`; dev build: `target\debug\data`); `%APPDATA%\vmedvedevpro\Protocol` if that folder is not writable |
 | Recording and onboarding preferences | `%APPDATA%\io.github.vmedvedevpro.protocol` |
 | WebView storage | `%LOCALAPPDATA%\io.github.vmedvedevpro.protocol` |
+| Downloaded update and `updater.log` | `%LOCALAPPDATA%\io.github.vmedvedevpro.protocol\updates` (update preferences: `updater.json` in `%APPDATA%\io.github.vmedvedevpro.protocol`) |
 | Recordings | `Music\protocol-recordings` (change in **Settings → Recording**) |
 
 On macOS the first row is `~/Library/Application Support/vmedvedevpro/Protocol` and
