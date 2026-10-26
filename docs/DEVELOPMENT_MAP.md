@@ -501,7 +501,8 @@ procedure, dry runs and the `release` environment are in
 2. The owner pushes the tag `v<version>` on the merged commit.
    `validate-release.mjs` checks the tag format, that the commit is on
    `origin/main`, the version files, the CHANGELOG section (it becomes the notes),
-   the published releases (no duplicate, monotonic version), the updater
+   the published releases (no duplicate, above every non-draft release whatever
+   its prerelease flag, so a release taken off Latest keeps counting), the updater
    configuration and the locked tauri-cli's `--app-version` support, and
    `check-migration-checksums.mjs --source git` the migration table.
 3. `pr-checks.yml` runs as a reusable workflow, then the legs

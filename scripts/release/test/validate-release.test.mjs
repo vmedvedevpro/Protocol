@@ -47,7 +47,7 @@ test('a tag run fails on each release rule', () => {
     [{ changelogText: '## Protocol 0.3.0\n\n## Unreleased\n' }, /no non-empty/],
     [{ isAncestor: false }, /not on origin\/main/],
     [{ releases: [release('v0.3.0')] }, /already published/],
-    [{ releases: [release('v0.4.0')] }, /not above the latest published release 0\.4\.0/],
+    [{ releases: [release('v0.4.0')] }, /not above the highest published release 0\.4\.0/],
     [{ tauriConf: {} }, /createUpdaterArtifacts/],
     [{ tauriConf: { ...updaterConf, plugins: { updater: { ...updaterConf.plugins.updater, requireSignedVersion: false } } } }, /requireSignedVersion/],
     [{ tauriConf: { ...updaterConf, plugins: { updater: { ...updaterConf.plugins.updater, endpoints: [] } } } }, /endpoints/],
@@ -59,27 +59,48 @@ test('a tag run fails on each release rule', () => {
   }
 });
 
-test('drafts, prereleases and other tags do not count as published', () => {
+test('drafts and other tags do not count as published', () => {
   const result = tagRun({
-    releases: [release('v0.3.0', { draft: true }), release('v0.9.0', { draft: true }), release('v0.3.0-rc.1', { prerelease: true }), release('upstream-1.0')],
+    releases: [release('v0.3.0', { draft: true }), release('v0.9.0', { draft: true }), release('upstream-1.0')],
   });
   assert.deepEqual(result.errors, []);
   assert.ok(result.warnings.some((warning) => /draft for v0\.3\.0 exists/.test(warning)));
   assert.equal(result.firstRelease, true);
 });
 
-test('an RC must be above the latest stable and the previous RC of its version', () => {
-  const rc = (tag, releases) => tagRun({
-    tag,
-    versionFiles: files(tag.slice(1)),
-    changelogText: `## Protocol ${tag.slice(1)}\n\n- RC.\n`,
-    releases,
-  });
-  assert.deepEqual(rc('v0.3.1-rc.2', [release('v0.3.0'), release('v0.3.1-rc.1', { prerelease: true })]).errors, []);
-  assert.equal(rc('v0.3.1-rc.2', []).prerelease, true);
-  assert.match(rc('v0.3.1-rc.1', [release('v0.3.1-rc.1', { prerelease: true })]).errors.join(), /already published/);
-  assert.match(rc('v0.3.1-rc.1', [release('v0.3.1-rc.3', { prerelease: true })]).errors.join(), /not above the published 0\.3\.1-rc\.3/);
-  assert.match(rc('v0.3.0-rc.1', [release('v0.3.0')]).errors.join(), /not above the latest published release/);
+// A tag run of `tag` with matching version files and CHANGELOG section.
+const tagged = (tag, releases) => tagRun({
+  tag,
+  versionFiles: files(tag.slice(1)),
+  changelogText: `## Protocol ${tag.slice(1)}\n\n- Change.\n`,
+  releases,
+});
+
+test('an RC must be above every published release, earlier RCs of its version included', () => {
+  assert.deepEqual(tagged('v0.3.1-rc.2', [release('v0.3.0'), release('v0.3.1-rc.1', { prerelease: true })]).errors, []);
+  assert.equal(tagged('v0.3.1-rc.2', []).prerelease, true);
+  assert.match(tagged('v0.3.1-rc.1', [release('v0.3.1-rc.1', { prerelease: true })]).errors.join(), /already published/);
+  assert.match(tagged('v0.3.1-rc.1', [release('v0.3.1-rc.3', { prerelease: true })]).errors.join(), /not above the highest published release 0\.3\.1-rc\.3/);
+  assert.match(tagged('v0.3.0-rc.1', [release('v0.3.0')]).errors.join(), /not above the highest published release 0\.3\.0/);
+});
+
+test('a published RC counts: the release after it is not the first one', () => {
+  const result = tagged('v0.3.0', [release('v0.3.0-rc.1', { prerelease: true })]);
+  assert.deepEqual(result.errors, []);
+  assert.equal(result.firstRelease, false);
+  assert.match(tagged('v0.3.0', [release('v0.4.0-rc.1', { prerelease: true })]).errors.join(), /not above the highest published release 0\.4\.0-rc\.1/);
+});
+
+test('a stable release demoted to prerelease still counts', () => {
+  // WORKFLOWS_OVERVIEW.md step 5 takes a broken release off Latest this way.
+  const demoted = [release('v0.3.0', { prerelease: true })];
+  const next = tagged('v0.3.1', demoted);
+  assert.deepEqual(next.errors, []);
+  assert.equal(next.firstRelease, false);
+  for (const tag of ['v0.2.23', 'v0.3.0-rc.2']) {
+    assert.match(tagged(tag, demoted).errors.join(), /not above the highest published release 0\.3\.0/, tag);
+  }
+  assert.match(tagged('v0.3.0', demoted).errors.join(), /already published/);
 });
 
 test('a dry run turns release rules into warnings but keeps the version files strict', () => {

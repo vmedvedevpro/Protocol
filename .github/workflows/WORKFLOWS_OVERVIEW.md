@@ -73,8 +73,9 @@ prereleases are invisible to them.
 3. **The run.** `release.yml` starts on the tag. `validate` fails the run unless
    the tag is `vX.Y.Z` or `vX.Y.Z-rc.N`, the tagged commit is on `origin/main`,
    the four version files and a non-empty `## Protocol <version>` CHANGELOG
-   section match, the version is above every published release (an RC also
-   above earlier RCs of its version), the release is not published yet, the
+   section match, the version is above every published release (RCs and
+   releases taken off Latest with `--prerelease` included), the release is
+   not published yet, the
    updater configuration is complete (`createUpdaterArtifacts`, `pubkey`, the
    endpoint above, `requireSignedVersion`), the locked tauri-cli can sign with
    `--app-version` (2.12 or later), and the migration checksum table matches.

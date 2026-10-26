@@ -50,11 +50,14 @@ export function lockedTauriCli(lockText) {
   return /^ {2}'@tauri-apps\/cli@(\d+\.\d+\.\d+)':/m.exec(lockText)?.[1] ?? null;
 }
 
-// Published (non-draft) releases with a Protocol tag, as { version, prerelease }.
+// Versions of the published (non-draft) releases with a Protocol tag. GitHub's
+// prerelease flag is ignored: it marks RCs, but also a broken release taken off
+// Latest with `gh release edit --prerelease` (WORKFLOWS_OVERVIEW.md), which
+// stays public and keeps its place in the version order.
 function publishedVersions(releases) {
   return releases
     .filter((release) => !release.draft && versionFromTag(release.tag_name))
-    .map((release) => ({ version: versionFromTag(release.tag_name), prerelease: release.prerelease }));
+    .map((release) => versionFromTag(release.tag_name));
 }
 
 // Pure core of the job. Inputs are already read; `isAncestor` says whether the
@@ -105,24 +108,12 @@ export function validateRelease({
   if (mode === 'tag' && !isAncestor) errors.push(`the tagged commit is not on origin/main`);
 
   const published = publishedVersions(releases);
-  if (published.some((release) => release.version === version)) {
+  if (published.includes(version)) {
     releaseRule(`release v${version} is already published`);
   }
-  const stable = published.filter((release) => !release.prerelease).map((release) => release.version);
-  const latestStable = stable.sort(compareVersions).at(-1);
-  if (latestStable && compareVersions(version, latestStable) <= 0) {
-    releaseRule(`version ${version} is not above the latest published release ${latestStable}`);
-  }
-  if (isPrerelease(version)) {
-    const base = version.replace(/-rc\.\d+$/, '');
-    const latestRc = published
-      .filter((release) => release.prerelease && release.version.startsWith(`${base}-rc.`))
-      .map((release) => release.version)
-      .sort(compareVersions)
-      .at(-1);
-    if (latestRc && compareVersions(version, latestRc) <= 0) {
-      releaseRule(`version ${version} is not above the published ${latestRc}`);
-    }
+  const highest = [...published].sort(compareVersions).at(-1);
+  if (highest && compareVersions(version, highest) <= 0) {
+    releaseRule(`version ${version} is not above the highest published release ${highest}`);
   }
   const draft = releases.find((release) => release.draft && release.tag_name === `v${version}`);
   if (draft) warnings.push(`a draft for v${version} exists and will be replaced`);
@@ -140,7 +131,7 @@ export function validateRelease({
     version,
     tag: `v${version}`,
     prerelease: isPrerelease(version),
-    firstRelease: stable.length === 0,
+    firstRelease: published.length === 0,
     updaterConfigured: updaterProblems.length === 0,
     signedVersion,
     notes,
