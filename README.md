@@ -139,19 +139,6 @@ recordings default to `~/Movies/protocol-recordings`.
 
 </details>
 
-## What's next
-
-| Area | Issues |
-| --- | --- |
-| Russian transcription | [#5](https://github.com/vmedvedevpro/Protocol/issues/5) GigaAM v3 |
-| Starting recordings | [#6](https://github.com/vmedvedevpro/Protocol/issues/6) Discord call detection, [#7](https://github.com/vmedvedevpro/Protocol/issues/7) Google Calendar via iCal |
-| Recording reliability | [#28](https://github.com/vmedvedevpro/Protocol/issues/28) reconnect a disconnected audio device, [#32](https://github.com/vmedvedevpro/Protocol/issues/32) confirm before quitting during a recording |
-| Using meetings elsewhere | [#8](https://github.com/vmedvedevpro/Protocol/issues/8) read-only MCP server |
-| Speaker labels | [#23](https://github.com/vmedvedevpro/Protocol/issues/23) public ONNX exports of the diarization models |
-| Hygiene and security | [#3](https://github.com/vmedvedevpro/Protocol/issues/3) IPC commands |
-| Optional | [#9](https://github.com/vmedvedevpro/Protocol/issues/9) labels by device, [#10](https://github.com/vmedvedevpro/Protocol/issues/10) local-network-only mode, [#11](https://github.com/vmedvedevpro/Protocol/issues/11) archive encryption |
-| Project | [#16](https://github.com/vmedvedevpro/Protocol/issues/16) upstream docs, [#17](https://github.com/vmedvedevpro/Protocol/issues/17) README badges |
-
 Found a bug or want something? [Open an issue](https://github.com/vmedvedevpro/Protocol/issues).
 
 ## For developers
