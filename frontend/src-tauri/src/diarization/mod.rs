@@ -86,9 +86,9 @@ pub struct DiarizationResult {
 
 /// Required model files for Pyannote pipeline.
 const REQUIRED_FILES: [&str; 3] = [
-    "segmentation-3.0-fp16.onnx",
-    "wespeaker-resnet34-LM.onnx",
-    "xvec_transform.npz",
+    models::SEGMENTATION_FILE,
+    models::EMBEDDING_FILE,
+    models::XVEC_TRANSFORM_FILE,
 ];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

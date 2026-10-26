@@ -8,6 +8,7 @@ use ort::execution_providers::CPUExecutionProvider;
 use ort::inputs;
 use ort::session::builder::GraphOptimizationLevel;
 use ort::session::Session;
+use ort::tensor::TensorElementType;
 use ort::value::TensorRef;
 use std::io::Read;
 use std::path::Path;
@@ -27,9 +28,67 @@ const POWERSET: [&[usize]; 7] = [
 ];
 pub const MAX_LOCAL_SPEAKERS: usize = 3;
 
+/// The three files of a Pyannote model directory, bundled or user-supplied.
+pub const SEGMENTATION_FILE: &str = "segmentation-3.0-fp16.onnx";
+pub const EMBEDDING_FILE: &str = "wespeaker-resnet34-LM.onnx";
+pub const XVEC_TRANSFORM_FILE: &str = "xvec_transform.npz";
+
+/// Dimension of the WeSpeaker embedding the x-vector transform expects.
+const EMBEDDING_DIM: i64 = 256;
+
+/// The single input and output of an ONNX model. Exports name them
+/// differently (`waveform`/`segmentation` and `fbank`/`embedding` in the files
+/// Protocol 0.3.0 bundled, `input_values`/`logits` from onnx-community,
+/// `feats`/`embs` from WeSpeaker), so the names are read from the file, and
+/// the shapes are checked instead: another model is refused at load rather
+/// than misread.
+struct Io {
+    input: String,
+    output: String,
+}
+
+impl Io {
+    /// `input_last` and `output_last` are the required last dimensions, `None`
+    /// for one that varies with the audio.
+    fn of(
+        session: &Session,
+        what: &str,
+        output_rank: usize,
+        input_last: Option<i64>,
+        output_last: i64,
+    ) -> Result<Self> {
+        let [input] = session.inputs.as_slice() else {
+            return Err(anyhow!("{what} model must have one input, found {}", session.inputs.len()));
+        };
+        let [output] = session.outputs.as_slice() else {
+            return Err(anyhow!("{what} model must have one output, found {}", session.outputs.len()));
+        };
+        let input_ok = input.input_type.tensor_type() == Some(TensorElementType::Float32)
+            && input.input_type.tensor_shape().is_some_and(|shape| {
+                shape.len() == 3 && input_last.is_none_or(|last| shape[2] == last)
+            });
+        let output_ok = output.output_type.tensor_type() == Some(TensorElementType::Float32)
+            && output.output_type.tensor_shape().is_some_and(|shape| {
+                shape.len() == output_rank && shape[output_rank - 1] == output_last
+            });
+        if !input_ok || !output_ok {
+            return Err(anyhow!(
+                "{what} model has an unexpected interface: input {} {:?}, output {} {:?}",
+                input.name,
+                input.input_type,
+                output.name,
+                output.output_type
+            ));
+        }
+        Ok(Self { input: input.name.clone(), output: output.name.clone() })
+    }
+}
+
 pub struct DiarizationModels {
     segmentation: Session,
+    segmentation_io: Io,
     embedding: Session,
+    embedding_io: Io,
     // x-vector transform (VBx front-end): out = normalize(lda^T (emb - mean1) - mean2)
     mean1: Vec<f32>, // (256,)
     lda: Vec<f32>,   // (256*128,) row-major
@@ -41,9 +100,9 @@ pub struct DiarizationModels {
 impl DiarizationModels {
     pub fn load(model_dir: &Path) -> Result<Self> {
         crate::onnx_runtime::ensure_available()?;
-        let seg_path = model_dir.join("segmentation-3.0-fp16.onnx");
-        let emb_path = model_dir.join("wespeaker-resnet34-LM.onnx");
-        let xform_path = model_dir.join("xvec_transform.npz");
+        let seg_path = model_dir.join(SEGMENTATION_FILE);
+        let emb_path = model_dir.join(EMBEDDING_FILE);
+        let xform_path = model_dir.join(XVEC_TRANSFORM_FILE);
 
         for p in [&seg_path, &emb_path, &xform_path] {
             if !p.exists() {
@@ -59,7 +118,11 @@ impl DiarizationModels {
         };
 
         let segmentation = build(&seg_path)?;
+        // [batch, frames, powerset classes] from a [batch, channel, samples] waveform.
+        let segmentation_io = Io::of(&segmentation, "Segmentation", 3, None, POWERSET.len() as i64)?;
         let embedding = build(&emb_path)?;
+        // [batch, embedding] from [batch, frames, mel bins] fbank features.
+        let embedding_io = Io::of(&embedding, "Embedding", 2, Some(NUM_MEL_BINS as i64), EMBEDDING_DIM)?;
 
         let (mean1, _s1) = read_npz_array(&xform_path, "mean1")?;
         let (lda, s_lda) = read_npz_array(&xform_path, "lda")?;
@@ -81,7 +144,9 @@ impl DiarizationModels {
 
         Ok(Self {
             segmentation,
+            segmentation_io,
             embedding,
+            embedding_io,
             mean1,
             lda,
             mean2,
@@ -97,9 +162,9 @@ impl DiarizationModels {
         let arr = Array3::<f32>::from_shape_vec((1, 1, n), window.to_vec())?;
         let outputs = self
             .segmentation
-            .run(inputs!["waveform" => TensorRef::from_array_view(arr.view())?])?;
+            .run(inputs![self.segmentation_io.input.as_str() => TensorRef::from_array_view(arr.view())?])?;
         let seg = outputs
-            .get("segmentation")
+            .get(&self.segmentation_io.output)
             .ok_or_else(|| anyhow!("segmentation output missing"))?
             .try_extract_array::<f32>()?;
 
@@ -152,9 +217,9 @@ impl DiarizationModels {
         let emb: Vec<f32> = {
             let outputs = self
                 .embedding
-                .run(inputs!["fbank" => TensorRef::from_array_view(arr.view())?])?;
+                .run(inputs![self.embedding_io.input.as_str() => TensorRef::from_array_view(arr.view())?])?;
             let emb = outputs
-                .get("embedding")
+                .get(&self.embedding_io.output)
                 .ok_or_else(|| anyhow!("embedding output missing"))?
                 .try_extract_array::<f32>()?;
             emb.iter().copied().collect()
@@ -273,4 +338,25 @@ fn extract_between(s: &str, start: &str, end: &str) -> Option<String> {
     let rest = &s[i..];
     let j = rest.find(end)?;
     Some(rest[..j].to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_model_with_another_interface_is_refused_at_load() {
+        let bundled = Path::new(env!("CARGO_MANIFEST_DIR")).join("resources/diarization");
+        let dir = tempfile::tempdir().unwrap();
+        // The segmentation model where the embedding model belongs.
+        for (from, to) in [
+            (SEGMENTATION_FILE, SEGMENTATION_FILE),
+            (SEGMENTATION_FILE, EMBEDDING_FILE),
+            (XVEC_TRANSFORM_FILE, XVEC_TRANSFORM_FILE),
+        ] {
+            std::fs::copy(bundled.join(from), dir.path().join(to)).unwrap();
+        }
+        let error = DiarizationModels::load(dir.path()).err().expect("loaded a segmentation model as the embedding model");
+        assert!(error.to_string().contains("Embedding model has an unexpected interface"), "{error}");
+    }
 }
