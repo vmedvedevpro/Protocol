@@ -175,6 +175,65 @@ VAD boundaries, ASR time, and queue load also contribute. Timeline lookup waits
 at most 1.5 s; history is limited to ten minutes. Missing/failed results retain
 source labels rather than guessing a speaker or switching engines.
 
+### Stop, the meeting save, and quitting (#32)
+
+Every Stop origin (window, tray, compact bar, quit) splits the work between
+native code and the main window:
+
+1. Native, `audio/recording_commands.rs::stop_recording_inner`: stops capture
+   and flushes the pipeline, waits for every queued transcription chunk (at most
+   10 minutes), unloads the speech model, finalizes `audio.mp4`, `mic.mp4` and
+   `system.mp4` from their checkpoints and writes `transcripts.json` (at most
+   5 minutes), clears `IS_RECORDING`, then sends `recording-stopped` and,
+   to the main window only, `recording-stop-complete` with a `stop_id`.
+2. WebView, `RecordingPostProcessingProvider` → `useRecordingStop`: discards a
+   take under 10 seconds; otherwise waits 4.5 s for late transcript events,
+   saves the meeting and transcript rows (`api_save_transcript`), files the
+   meeting into a pending group, saves call notes and the summary language,
+   clears the IndexedDB recovery record, and opens
+   `/meeting-details?source=recording`, which starts post-call processing.
+3. The WebView answers the Stop with `recording_save_finished(stopId,
+   outcome)`: `saved`, `discarded`, `notSaved` or `failed`.
+   `audio/save_handoff.rs` tracks the latest handoff from `begin` until that
+   answer, for at most `ANSWER_WINDOW` (120 s); `updater::busy` reports it as
+   `recordingSave`.
+
+Before #32 a quit called `app.exit(0)` at once. It lost the audio since the last
+30-second checkpoint, speech not yet transcribed, the finalized audio files and
+the meeting row; the next start offered the meeting for recovery from IndexedDB
+(only with at least one transcript line), with audio rebuilt from the
+checkpoints.
+
+`quit.rs` owns user quits: tray Quit, and on macOS ⌘Q and Dock Quit
+(`RunEvent::ExitRequested { code: None }`, held back by `quit::holds_exit`).
+`plan` reads recording state (running, stopping, or saving through the
+handoff) and whether a downloaded update would install. With no recording work
+the quit goes to `updater::quit_app` as before. Otherwise the main window leaves
+compact mode and comes forward, and a native dialog (tauri-plugin-dialog, a
+task dialog on Windows) asks "A recording is in progress. Stop and save it, then
+quit?" with **Stop and quit** and **Cancel**. Stop and quit runs the tray's
+native Stop unless a Stop already runs, waits for it and for the WebView's
+answer, and calls `updater::quit_app` only after `saved` or `discarded`, so a
+downloaded update installs only when nothing else is busy. While the quit
+waits, the answer returns `true` and the WebView does not open the meeting, so
+no post-call work starts that the exit would cut off. `failed`, `notSaved`, or
+no answer within the window keep Protocol open with a message. A second quit
+while the dialog is open or the meeting is being saved only brings the window
+forward (`Flow`). A recording that meeting detection starts during the save
+gets the question again.
+
+Tests: `cargo test -p protocol --lib quit:: audio::save_handoff::
+updater::busy::` (the decision matrix, the second quit, the macOS hold, which
+answers let the app exit, handoff ids and the answer window) and
+`frontend/tests/recording-stop/` (the answer for each ending, no meeting page
+when quitting, the `stop_id` hand-over). Limits: Stop and quit does not run
+speaker identification or the automatic summary; import, retranscription,
+post-call processing and model downloads are not asked about and end with the
+process as before (a summary cut off this way stays pending); Windows shutdown
+and log-off exit without asking (tao ends the process on `WM_ENDSESSION`); only
+the latest handoff is tracked, so a second Stop during a save is answered
+`notSaved`.
+
 ## 3. Post-call processing and model selection
 
 Summary-generated title ownership, placeholder rejection and completion refresh
@@ -587,10 +646,10 @@ busy. The feature note is [AUTO_UPDATE.md](AUTO_UPDATE.md).
 | --- | --- |
 | `src-tauri/src/updater/mod.rs` | `UpdaterState` (managed), the scheduler task, `check_now`, `request_download`, `quit_app`, `install_and_restart`, the `updater-status` event |
 | `updater/status.rs` | Pure state machine: activity (idle, checking, downloading, installing) and the offered release (downloaded or not), errors with user-visible vs background origin |
-| `updater/busy.rs` | Busy registry: owner getters (recording, stopping, import, retranscription, summaries, onboarding), RAII `hold` guards (diarization, model downloads), the WebView lease (`recordingSave`, `postCall`, 150 s) |
+| `updater/busy.rs` | Busy registry: owner getters (recording, stopping, the meeting save handoff, import, retranscription, summaries, onboarding), RAII `hold` guards (diarization, model downloads), the WebView lease (`recordingSave`, `postCall`, 150 s) |
 | `updater/install.rs` | Install gate (engine lifecycle lock, busy re-check), exit preparation, per-platform install |
 | `updater/engine.rs`, `cache.rs`, `schedule.rs`, `prefs.rs`, `support.rs`, `journal.rs` | Plugin calls and error mapping, the verified download cache and install marker, check timing and backoff, `updater.json` preferences, which installs can update, `updater.log` |
-| `tray.rs` | Check for Updates, the available or ready version, Restart to Update; Quit through `updater::quit_app` |
+| `tray.rs`, `quit.rs` | Check for Updates, the available or ready version, Restart to Update; Quit through `quit::request`, which saves a running recording first and then calls `updater::quit_app` |
 | `contexts/UpdaterContext.tsx`, `lib/updater.ts` | Snapshot mirror, commands, every user-visible sentence |
 | `components/updater/*` | Sidebar pill and panel, Settings › About block, toasts, `UpdaterActivityReporter` |
 
