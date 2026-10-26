@@ -20,13 +20,12 @@
 
 Free and open source: no account, no subscription, no analytics. Protocol is
 built on [Meetily – Actually Free](https://github.com/TylerBuza/Meetily-ActuallyFree),
-which in turn builds on the original [Meetily](https://github.com/Zackriya-Solutions/meetily).
+which made the original [Meetily](https://github.com/Zackriya-Solutions/meetily)
+free of paid tiers and added speaker diarization and voice profiles.
 
-## Why Protocol
+## What Protocol adds
 
-Protocol keeps everything Meetily – Actually Free offers (speaker
-diarization, voice profiles, Labs, every AI provider, no paid tier) and adds
-what an app that hears all your calls should have:
+Everything Meetily – Actually Free offers is here, plus:
 
 - **Runs next to Meetily.** Its own name, `protocol.exe`, folders, and
   settings. Install it beside Meetily or Meetily – Actually Free and keep
@@ -36,33 +35,16 @@ what an app that hears all your calls should have:
   downloads only when you click **Download**, its signature is verified, and it
   installs when you click **Restart and update** or quit the app, never during
   a recording or while a meeting is being processed.
-- **Models you can trust.** Whisper, Parakeet, the summary models, and the
-  speaker models are downloaded from pinned sources (an exact Hugging Face
-  commit or this repository's release), and every file is checked against a
-  known SHA-256 before Protocol loads it.
-- **Less that can go wrong.** No analytics code, no support script that zipped
-  your database with its API keys, and 70 unused internal commands removed,
-  seven of which let the app's web view read any file or send transcripts to
-  any server. No setting starts an executable of your choice.
+- **Verified models.** Whisper, Parakeet, the summary models, and the speaker
+  models are downloaded from pinned sources, and every file is checked against
+  a known SHA-256 before Protocol loads it.
+- **A lean, locked-down app.** No analytics code, no internal commands the app
+  does not use, and no setting that starts an executable of your choice.
 - **One small Windows installer.** About 118 MB. It picks the Vulkan GPU build
   (NVIDIA, AMD, Intel Arc) or the CPU build for your computer by itself.
 - **Builds you can check.** Windows, macOS, and Linux builds come from public
   GitHub Actions runs, with `SHA256SUMS.txt` and build-provenance
   attestations.
-
-| | Protocol | Meetily – Actually Free 0.2.22 |
-| --- | --- | --- |
-| Speaker diarization, voice profiles, Labs | ✅ | ✅ |
-| No account, licence key, or paid tier | ✅ | ✅ |
-| Installs beside another Meetily | ✅ own name and folders | ❌ same `meetily.exe` as Meetily |
-| Model downloads | Every model from a pinned source, checked by SHA-256 | Several from moving branches, checked by size or not at all |
-| Analytics code | None | Inactive PostHog SDK |
-| Unused internal commands | Removed | 70, seven of them with unchecked paths or URLs |
-| Platforms | Windows, macOS (Apple Silicon), Linux (experimental) | Windows, macOS preview |
-
-Meetily itself has a free Community Edition and a paid PRO tier; Meetily –
-Actually Free unlocks the app's features without a paid tier, and Protocol
-builds on that.
 
 ## Features
 
