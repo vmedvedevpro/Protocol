@@ -21,6 +21,7 @@ test('the release notes link every download and carry the checksums', () => {
   assert.ok(notes.includes('gh attestation verify'));
   assert.ok(notes.includes('only when you click **Download**'), 'updates download on the user\'s click');
   assert.ok(!/updater\.exe|CUDA build/.test(notes));
+  assert.ok(!notes.includes('for Windows'), 'the release also ships macOS and Linux');
   const later = renderNotes({ version: '0.3.1', notes: '- Fix.', sums });
   assert.ok(!later.includes('first release') && !later.includes('gh attestation verify'));
   assert.ok(later.includes('blob/v0.3.1/CHANGELOG.md'));

@@ -14,7 +14,7 @@ export function renderNotes({ version, notes, sums, firstRelease = false, attest
   const [windows] = assets.windows;
   const [dmg] = assets.macos;
   const [appImage, deb] = assets.linux;
-  return `Protocol is a local-first meeting recorder and transcriber for Windows, forked from
+  return `Protocol is a local-first meeting recorder and transcriber, forked from
 [Meetily – Actually Free](https://github.com/TylerBuza/Meetily-ActuallyFree).${firstRelease ? ' This is its first release.' : ''}
 
 ## What's new
