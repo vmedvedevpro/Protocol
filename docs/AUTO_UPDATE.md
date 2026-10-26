@@ -89,7 +89,7 @@ onboarding overview, `PRIVACY_POLICY.md`, `README.md`, and `CHANGELOG.md`.
   signed installer with a newer version number. `tauri build` adds the version;
   a hand-signed file needs `tauri signer sign --app-version X.Y.Z`.
 - `plugins.updater.pubkey` holds the owner's production public key (minisign
-  key ID `8A2223F21A78A38A`). Installed copies trust only the key compiled into
+  key ID `1402F35BFE79E6C`). Installed copies trust only the key compiled into
   them, so every release must be signed with its private key, which lives in
   the `release` environment's secrets
   ([WORKFLOWS_OVERVIEW.md](../.github/workflows/WORKFLOWS_OVERVIEW.md)) and in
