@@ -453,7 +453,14 @@ async fn download<R: Runtime>(app: &AppHandle<R>) {
     state.journal(&format!("download {version} started"));
     emit_status(app);
 
-    let free = engine::free_space(state.cache.dir());
+    // Enumerating volumes can stall on an unreachable network drive.
+    let free = {
+        let dir = state.cache.dir().to_path_buf();
+        tauri::async_runtime::spawn_blocking(move || engine::free_space(&dir))
+            .await
+            .ok()
+            .flatten()
+    };
     let end = engine::download(&update, cancel, free, |received, total| {
         state.machine().download_progress(received, total);
         emit_status(app);
@@ -466,8 +473,14 @@ async fn download<R: Runtime>(app: &AppHandle<R>) {
     let now = now_ms();
     match end {
         DownloadEnd::Done(bytes) => {
-            let stored = state.cache.store(&version, update.raw_json.clone(), &bytes, now);
-            drop(bytes);
+            // Hashing and writing the whole payload stays off the async workers.
+            let stored = {
+                let cache = Cache::new(state.cache.dir().to_path_buf());
+                let (version, raw_json) = (version.clone(), update.raw_json.clone());
+                tauri::async_runtime::spawn_blocking(move || cache.store(&version, raw_json, &bytes, now))
+                    .await
+                    .unwrap_or_else(|error| Err(std::io::Error::other(error.to_string())))
+            };
             match stored {
                 Ok(_) => {
                     state.journal(&format!("download {version} verified and cached"));

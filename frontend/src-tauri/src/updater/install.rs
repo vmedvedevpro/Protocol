@@ -89,18 +89,8 @@ pub async fn install_now<R: Runtime>(app: &AppHandle<R>, mode: Mode, ignore: &[B
     };
     emit_status(app);
 
-    let update = state.pending.lock().ok().and_then(|pending| pending.clone()).filter(|update| update.version == version);
-    let entry = state.cache.entries().into_iter().find(|entry| entry.version == version);
-    let (Some(update), Some(entry)) = (update, entry) else {
-        return fail_before_start(app, ErrorKind::Download, "the downloaded update is missing; download it again".into());
-    };
-    let cache = super::cache::Cache::new(state.cache.dir().to_path_buf());
-    let bytes = match tauri::async_runtime::spawn_blocking(move || cache.read_payload(&entry)).await {
-        Ok(Ok(bytes)) => bytes,
-        Ok(Err(error)) => return fail_before_start(app, ErrorKind::Download, error.to_string()),
-        Err(error) => return fail_before_start(app, ErrorKind::Download, error.to_string()),
-    };
-
+    // Before the payload is read: a quit that skips the install should not
+    // hash the whole download first.
     if let Some(problem) = location_problem(mode) {
         if mode == Mode::Quit {
             // Never raise an administrator prompt while the user quits.
@@ -114,6 +104,18 @@ pub async fn install_now<R: Runtime>(app: &AppHandle<R>, mode: Mode, ignore: &[B
         emit_status(app);
         return Err(Refusal::Failed);
     }
+
+    let update =state.pending.lock().ok().and_then(|pending| pending.clone()).filter(|update| update.version == version);
+    let entry = state.cache.entries().into_iter().find(|entry| entry.version == version);
+    let (Some(update), Some(entry)) = (update, entry) else {
+        return fail_before_start(app, ErrorKind::Download, "the downloaded update is missing; download it again".into());
+    };
+    let cache = super::cache::Cache::new(state.cache.dir().to_path_buf());
+    let bytes = match tauri::async_runtime::spawn_blocking(move || cache.read_payload(&entry)).await {
+        Ok(Ok(bytes)) => bytes,
+        Ok(Err(error)) => return fail_before_start(app, ErrorKind::Download, error.to_string()),
+        Err(error) => return fail_before_start(app, ErrorKind::Download, error.to_string()),
+    };
 
     prepare_exit(app).await;
     let attempt = InstallAttempt { from: state.current_version.clone(), to: version.clone(), at: now_ms() };
