@@ -1,6 +1,6 @@
-# Recording callback continuity — issue #40
+# Recording callback continuity — upstream issue #40
 
-## Windows/shared-mixer follow-up — issue #42 (2026-10-01)
+## Windows/shared-mixer follow-up — upstream issue #42 (2026-10-01)
 
 Fernando also reported v0.2.18 Windows 11 microphone gaps: exact digital silence
 in roughly 10–40 ms multiples, worsening during an 8:38 recording. The file
@@ -132,14 +132,14 @@ passed 370 tests, with ten opt-in tests ignored in that ordinary invocation; thi
 hardware test was then run explicitly. The new total includes eight worker and
 22 pipeline regressions.
 
-## macOS microphone callback — issue #42 (unqualified)
+## macOS microphone callback — upstream issue #42 (unqualified)
 
 ### Follow-up after v0.2.19-macos (2026-10-01)
 
 The reporter observed clear microphone checkpoint audio in one meeting, but
 Stop hung and several intervals of live transcription were missing. A later
 meeting only retained the first few seconds of microphone audio. This is not
-confirmation that #42 is fixed.
+confirmation that upstream #42 is fixed.
 
 The v0.2.19 worker waited for channel disconnection before exiting. CPAL 0.15.3's
 macOS `add_disconnect_listener` retains a cloned stream in a listener owned by

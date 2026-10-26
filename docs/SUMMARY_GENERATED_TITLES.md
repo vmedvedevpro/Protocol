@@ -1,6 +1,6 @@
 # Summary-generated meeting titles
 
-PR #39 removed the summary-to-meeting-title update; @ampersandru reported the
+Upstream PR #39 removed the summary-to-meeting-title update; @ampersandru reported the
 regression. `summary/service.rs` now restores it after a successful, accepted
 summary completion and before emitting completion to the frontend. Cancelled or
 superseded summary completions do not run this update.

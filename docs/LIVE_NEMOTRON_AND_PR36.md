@@ -1,8 +1,8 @@
-# Live Nemotron and PR #36 assessment
+# Live Nemotron and upstream PR #36 assessment
 
 ## Implementation
 
-October 22 #42 follow-up: mel features are materialized in standard contiguous
+October 22 upstream #42 follow-up: mel features are materialized in standard contiguous
 time-major order before borrowed ORT tensor construction. The transpose previously
 retained nonstandard strides through `to_owned()`. A model-free regression checks
 full features and sliced live windows against every original band/time value.
@@ -53,7 +53,7 @@ guessing identities. Engine changes during capture apply on the next recording.
   and non-NVIDIA DirectML hardware remain unqualified. The release does not claim
   that the external NVIDIA/VoiceArena chart measures this application's accuracy.
 
-## PR #36 review
+## Upstream PR #36 review
 
 Reviewed `97654b0c54ace9a2a60a67f8d5aa9228a666a701` from
 <https://github.com/TylerBuza/Meetily-ActuallyFree/pull/36> by @ampersandru.
@@ -74,4 +74,4 @@ aliases rather than incorporated wholesale with the streaming engine change:
 - The PR also changes startup recovery, dev routing, CUDA setup, build flags,
   and dependencies. Those are independent of the live speaker panel.
 
-No PR #36 commits have been merged or cherry-picked as part of this change.
+No upstream PR #36 commits have been merged or cherry-picked as part of this change.
