@@ -1,5 +1,9 @@
 # Windows v0.2.20 qualification
 
+> Meetily – Actually Free release qualification from before Protocol forked from it, kept
+> for history ([about this folder](README.md)). Issue and PR numbers refer to
+> [TylerBuza/Meetily-ActuallyFree](https://github.com/TylerBuza/Meetily-ActuallyFree).
+
 Published immutable Latest release: [v0.2.20](https://github.com/TylerBuza/Meetily-ActuallyFree/releases/tag/v0.2.20).
 The tag targets build source `e1311dccb19a2b1f191ab61eb0f1f3582ee3a7e4`.
 Documentation-only follow-ups may be newer on main.

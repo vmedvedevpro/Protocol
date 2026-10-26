@@ -1,3 +1,7 @@
+> Meetily – Actually Free release note from before Protocol forked from it, kept
+> for history ([about this folder](README.md)). Issue and PR numbers refer to
+> [TylerBuza/Meetily-ActuallyFree](https://github.com/TylerBuza/Meetily-ActuallyFree).
+
 **Meetily has a new look.** This update substantially rebuilds the existing
 React/Next.js interface and meeting workspace—from live recording to working
 with transcripts, notes, and summaries afterward.

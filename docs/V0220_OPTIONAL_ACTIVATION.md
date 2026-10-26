@@ -1,5 +1,9 @@
 # Enable recommended optional models after download
 
+> Written in Meetily – Actually Free before Protocol forked from it. Issue and PR
+> numbers and release versions in this note are that project's
+> ([TylerBuza/Meetily-ActuallyFree](https://github.com/TylerBuza/Meetily-ActuallyFree)).
+>
 > Historical frontend-activation implementation. Nemotron activation was later
 > moved into its native download task; see
 > [NEMOTRON_NATIVE_ACTIVATION.md](NEMOTRON_NATIVE_ACTIVATION.md). The selected engine

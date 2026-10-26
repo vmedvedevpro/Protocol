@@ -1,3 +1,7 @@
+> Meetily – Actually Free release note from before Protocol forked from it, kept
+> for history ([about this folder](README.md)). Issue and PR numbers refer to
+> [TylerBuza/Meetily-ActuallyFree](https://github.com/TylerBuza/Meetily-ActuallyFree).
+
 **The redesigned Meetily workspace is now available as an Apple Silicon preview.**
 See the [v0.2.18 highlights and contributor thanks](https://github.com/TylerBuza/Meetily-ActuallyFree/releases/tag/v0.2.18)
 for the new interface, meeting tools, and recording improvements. Per-app capture

@@ -1,5 +1,9 @@
 # v0.2.18 — download crash and engine selection
 
+> Written in Meetily – Actually Free before Protocol forked from it. Issue and PR
+> numbers and release versions in this note are that project's
+> ([TylerBuza/Meetily-ActuallyFree](https://github.com/TylerBuza/Meetily-ActuallyFree)).
+
 The 0.2.17 Windows crash reported while downloading Nemotron was an
 `0xc00000fd` stack overflow. Matching local symbols resolved the exception to
 `_alloca_probe`; stack candidate return addresses included Tauri's async IPC

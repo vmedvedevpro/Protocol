@@ -1,5 +1,9 @@
 # October 22 macOS stability integration
 
+> Written in Meetily – Actually Free before Protocol forked from it. Issue and PR
+> numbers and release versions in this note are that project's
+> ([TylerBuza/Meetily-ActuallyFree](https://github.com/TylerBuza/Meetily-ActuallyFree)).
+
 ## Scope and ownership
 
 - #56: portable built-in microphone classification and Ogg fixture generation.

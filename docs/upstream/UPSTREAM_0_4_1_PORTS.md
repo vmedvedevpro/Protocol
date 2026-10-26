@@ -1,5 +1,10 @@
 # Selective upstream 0.4.1 integration
 
+> Meetily – Actually Free integration note for its v0.2.16 release, kept for
+> history ([about this folder](README.md)). "Upstream" here is the original
+> [Meetily](https://github.com/Zackriya-Solutions/meetily), and the PR numbers
+> refer to it.
+
 Based on upstream tag `v0.4.1`, integrated onto Actually Free v0.2.15 for
 the Windows v0.2.16 release. These are adapted changes, not a wholesale merge.
 
@@ -38,7 +43,7 @@ this as selective incorporation, not imply that every upstream fix is new here.
 
 ## Deliberately excluded
 
-- #744 and its bundled layout/reasoning rewrite.
+- [#744](https://github.com/Zackriya-Solutions/meetily/pull/744) and its bundled layout/reasoning rewrite.
 - Bluetooth hot-swap, automatic device fallback policy, and macOS probe changes.
 - Upstream's 500 ms VAD policy: retain this fork's calibrated 800 ms live value,
   separate mic/system thresholds, and 2,000 ms offline value.
