@@ -44,7 +44,7 @@ guessing identities. Engine changes during capture apply on the next recording.
   that the final watermark and first/last-turn labels remain available afterward.
 - Production frontend build and all Windows CPU/Vulkan/CUDA variants passed.
   Installer payload verification passed, including after refreshing updater notes
-  and manifest checksums to match `RELEASE_V0217.md`.
+  and manifest checksums to match [upstream/RELEASE_V0217.md](upstream/RELEASE_V0217.md).
 - The final Windows CUDA payload was installed locally and its executable hash
   matched the packaged variant. A SQLite backup was taken and the database file
   hash was unchanged across installation. Installed-app IPC verified native

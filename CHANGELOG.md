@@ -157,7 +157,7 @@ that could reach files or servers it should not.
 
 ## v0.2.20 — Windows recording reliability and setup improvements
 
-See [release notes](docs/RELEASE_V0220.md) for the complete update and test limits.
+See [release notes](docs/upstream/RELEASE_V0220.md) for the complete update and test limits.
 
 - Correct shared-mixer premature silence padding and queued-sample loss (#42).
 - Move Windows microphone DSP onto the bounded capture worker; preserve driver
@@ -178,7 +178,7 @@ See [release notes](docs/RELEASE_V0220.md) for the complete update and test limi
 ## v0.2.18
 
 Released **v0.2.18**; see [release notes and complete contributor
-credits](docs/RELEASE_V0218.md). The workspace redesign is from **@jayjoe101's
+credits](docs/upstream/RELEASE_V0218.md). The workspace redesign is from **@jayjoe101's
 PR #39**, including **@ampersandru's PRs #36–#38** and **@cedstrom's PR #28**
 (original commit attribution: **@chris-edstrom**). Thanks to **@fernandog** for
 the detailed issue #40 recording-artifact report and analysis.
@@ -350,7 +350,7 @@ model-download resume and file-retention protection.
 
 Thanks to the upstream contributors for these improvements. Individual PRs,
 attribution, fork-specific adaptations, and verification details are recorded in
-[the upstream integration notes](docs/UPSTREAM_0_4_1_PORTS.md).
+[the upstream integration notes](docs/upstream/UPSTREAM_0_4_1_PORTS.md).
 
 ### Windows Qualification
 

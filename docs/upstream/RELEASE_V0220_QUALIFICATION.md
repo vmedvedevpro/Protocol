@@ -18,7 +18,7 @@ Documentation-only follow-ups may be newer on main.
 - The microphone supplied silence. The loopback fixture was a generated tone;
   no ASR model was invoked and no captured audio was saved/uploaded. This does
   not qualify microphone speech retention, ASR accuracy/load, or the reporters'
-  devices. See [AUDIO_CALLBACK_CONTINUITY.md](AUDIO_CALLBACK_CONTINUITY.md).
+  devices. See [AUDIO_CALLBACK_CONTINUITY.md](../AUDIO_CALLBACK_CONTINUITY.md).
 - `frontend/scripts/build-universal-windows.ps1` built CPU, Vulkan, and CUDA
   variants and the universal setup/updater payload. Local build tools were LLVM
   18, Vulkan headers/shader compiler, CUDA 13, and Visual Studio 2022 Build Tools.

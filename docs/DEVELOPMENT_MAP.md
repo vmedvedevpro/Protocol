@@ -734,12 +734,12 @@ upstream history. The `v0.2.19-macos` preview packages the #42 callback change; 
 `36790029640` and published-asset smoke test `36790877680` passed. It remains
 unqualified for physical microphone capture and the reporter's device. The
 Windows Latest release is now v0.2.20; see
-[RELEASE_V0220_QUALIFICATION.md](RELEASE_V0220_QUALIFICATION.md) for Windows build,
+[upstream/RELEASE_V0220_QUALIFICATION.md](upstream/RELEASE_V0220_QUALIFICATION.md) for Windows build,
 hardware-capture, installed-upgrade, and public updater verification.
 The `v0.2.20-macos` follow-up packages explicit worker shutdown and short-gap
 source recovery for #42. Apple Silicon build `36876715270` passed all 22 worker
 and pipeline regressions plus bundle/launch checks; public smoke test
-`36878960910` passed. See [RELEASE_V0220_MACOS.md](RELEASE_V0220_MACOS.md) for
+`36878960910` passed. See [upstream/RELEASE_V0220_MACOS.md](upstream/RELEASE_V0220_MACOS.md) for
 provenance. Physical recording and live-transcription confirmation remain open.
 Upstream's VirusTotal submission workflow was removed in #15.
 
@@ -846,7 +846,7 @@ or with standalone TypeScript checking. When using pnpm in this environment,
 | [PR34_NEMOTRON.md](PR34_NEMOTRON.md) | Model provenance, hardening, DirectML qualification, and release numbering. |
 | [V0218_DOWNLOAD_FIX.md](V0218_DOWNLOAD_FIX.md) | Async stack-overflow diagnosis; keep large checksum buffers off the future's inline stack. |
 | [NEMOTRON_NATIVE_ACTIVATION.md](NEMOTRON_NATIVE_ACTIVATION.md) | Native download/activation lifetime regression and verification. |
-| [UPSTREAM_0_4_1_PORTS.md](UPSTREAM_0_4_1_PORTS.md) | Selective upstream integration decisions. |
+| [upstream/UPSTREAM_0_4_1_PORTS.md](upstream/UPSTREAM_0_4_1_PORTS.md) | Selective upstream integration decisions. |
 
 The public release documented in README is distinct from a local candidate.
 Development labels 0.2.18–0.2.20 in historical notes were consolidated into the
