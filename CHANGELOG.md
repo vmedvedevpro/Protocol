@@ -2,6 +2,8 @@
 
 ## Protocol — unreleased
 
+## Protocol 0.3.0 — 2026-10-26
+
 Protocol is forked from Meetily – Actually Free at upstream commit `3130d16`
 (source version 0.2.22). Every section below this one is upstream history; its
 issue and PR numbers refer to
