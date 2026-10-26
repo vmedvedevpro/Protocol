@@ -69,8 +69,6 @@ jobs:
           key: llvm-18.1.8-${{ hashFiles('frontend/scripts/bootstrap-llvm18.ps1') }}
       - name: Set up LLVM 18
         timeout-minutes: 15
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           $llvm = & frontend/scripts/bootstrap-llvm18.ps1 | Select-Object -Last 1
           "LLVM_18_DIR=$llvm" >> $env:GITHUB_ENV
