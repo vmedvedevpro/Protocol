@@ -3,6 +3,8 @@
 This is an orientation map for contributors and coding agents, not a substitute
 for reading the owning code. The map describes this branch's implementation;
 release availability and qualification are separate facts documented below.
+Building from source, frontend checks, and syncing with upstream are in
+[BUILDING.md](BUILDING.md).
 
 ## 1. Keep these three responsibilities separate
 
