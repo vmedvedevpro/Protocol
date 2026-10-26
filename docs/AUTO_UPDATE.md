@@ -108,11 +108,14 @@ executable:
 `updater::install::install_now`:
 
 1. Requires a downloaded, verified update.
-2. Takes the engine lifecycle lock (2 s timeout, reported as "the speech engine
-   is busy"). Holding it blocks a recording start, including one from meeting
-   detection, and batch transcription. Import and retranscription set their
-   flags before they wait for this lock, so step 3 sees them.
-3. Re-reads the busy registry under the lock and refuses with the reasons.
+2. Takes the engine lifecycle lock (2 s timeout). Holding it blocks a
+   recording start, including one from meeting detection, and batch
+   transcription. Import and retranscription set their flags before they wait
+   for this lock, so step 3 sees them.
+3. Re-reads the busy registry and refuses with the reasons. When the lock was
+   not taken, "the speech engine is busy" comes after the operation that holds
+   it (an import holds the lock while it transcribes), so the user reads "an
+   audio import is running" first.
 4. Moves the state machine to installing (a second install cannot start).
 5. Reads the cached payload (size and SHA-256 checked against the cache entry).
 6. `prepare_exit`: WAL checkpoint without closing the pool, llama-helper
@@ -183,7 +186,9 @@ register here (AGENTS.md).
 | `location` | Move Protocol to the Applications folder… / the AppImage folder is read-only | install |
 
 Background check failures never replace a visible error and appear only as
-"Last check failed …" in Settings. Every event is appended to
+"Last check failed …" in Settings. A failed manual check is the status line
+when nothing is offered and an alert under the offer otherwise (the tray's
+Check for Updates opens Settings). Every event is appended to
 `app_cache_dir()/updates/updater.log` (256 KiB, one `.old` rotation; versions,
 error kinds and messages, no user data).
 
@@ -206,7 +211,8 @@ error kinds and messages, no user data).
   start.
 - **Frontend** (`frontend/tests/updater/`): wording per state, the pill label,
   the panel's Download and Restart and update with busy refusals, the macOS
-  note and the `.deb` link, Settings' check and switch, toasts once per version,
+  note and the `.deb` link, Settings' check and switch, a failed manual check
+  next to an offer, toasts once per version,
   and the activity reporter's full-set, renewal and unmount behaviour.
 - **End to end**: see below.
 
@@ -246,7 +252,42 @@ first install; the copy is uninstalled and its folder removed afterwards.
 
 ## Results
 
-Not run yet; see the PR for the latest state.
+### Local Windows, 2026-10-26
+
+Windows 11, QA identity, NSIS builds 0.3.0 to 0.3.3 of this branch (Vulkan
+feature) signed with a test key, feed on `http://127.0.0.1:8765`. The app was
+driven through its UI and its tray menu; the evidence (screenshots, journal,
+feed log, registry and folder snapshots) stays outside the repository.
+
+| Scenario | Result |
+| --- | --- |
+| Manual check | Pill "Update available · 0.3.1", one toast, notes in the panel and Settings. The feed log shows only `latest.json`: nothing downloaded before the click. |
+| Download | One request for the installer, "verified and cached", pill "Restart and update · 0.3.1". |
+| Busy | During an import the tray item was disabled ("Update Ready — Protocol Is Busy"); during a model download Settings said "Protocol can't restart while a model is downloading." with the button disabled, and enabled it again when the download finished. |
+| Quit while busy | Tray Quit during an import exited without installing (journal: install refused, busy); the next start restored the downloaded update without a new request to the feed. |
+| Restart and update | 0.3.0 → 0.3.1 and 0.3.2 → 0.3.3: passive installer with `/P /UPDATE /R`, relaunch about 15 s later, "Updated to Protocol 0.3.x" toast, meetings and settings kept, no crash report. |
+| Install on quit | 0.3.1 → 0.3.2 from the tray's Quit: installer with `/P /UPDATE` and no `/R`, nothing started afterwards; the next start reported the update. |
+| Automatic check | With the last check 25 hours old, the first scheduler tick (2 minutes after start) found 0.3.2 and removed the leftover installer folder. |
+| Corrupted payload | One byte flipped: "failed its signature check and was deleted. Nothing was installed.", cache empty. |
+| Payload signed for another version | A 0.3.4 feed entry with the 0.3.3 installer was refused by the plugin's version check (signature error), nothing installed. |
+| Feed unreachable | Manual check: "Couldn't reach GitHub. Check your connection and try again." next to the existing offer. |
+| Switch off | Saved as `autoCheck: false`; journal "automatic checks off". |
+| Isolation | The installer stops only `protocol-qa.exe` and writes only the QA uninstall key and `HKCU\Software\vmedvedevpro\Protocol QA`. After the uninstall the HKCU registry snapshot (uninstall entries, Software keys, Meetily and Protocol keys, AUMIDs, shortcuts) matched the one taken before the first install; the owner's Protocol and Meetily folders did not change. |
+
+The run found two defects, fixed on this branch and verified in 0.3.3: a quit
+refused during an import named only "the speech engine is busy" (the import
+holds the engine lock), and a failed manual check was invisible while an update
+was offered.
+
+### CI
+
+`updater-e2e.yml` passed on all three platforms on 2026-10-26 (run
+40251084286): each relaunched build reported
+`{"from":"9.0.0","outcome":"updated","version":"9.0.1"}`, with the Windows
+file version, the macOS `Info.plist` and the Linux AppImage replaced. On
+Windows the installer relaunched the app itself (no fallback start). An
+earlier run had timed out on Windows while unpacking all of LLVM; the job now
+extracts only libclang (about 15 s).
 
 ## Limits
 
