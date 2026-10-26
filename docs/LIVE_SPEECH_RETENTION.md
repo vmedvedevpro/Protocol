@@ -1,5 +1,9 @@
 # Live speech retention (local v0.2.18 candidate)
 
+> Written in Meetily – Actually Free before Protocol forked from it. The 0.2.x
+> versions and releases it mentions are that project's
+> ([TylerBuza/Meetily-ActuallyFree](https://github.com/TylerBuza/Meetily-ActuallyFree)).
+
 ## Ownership and corrections
 
 `audio/vad.rs` owns the 16 kHz speech segmentation clock for both sources.

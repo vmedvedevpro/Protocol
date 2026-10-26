@@ -1,5 +1,9 @@
 # October PR integration
 
+> Written in Meetily – Actually Free before Protocol forked from it. Issue and PR
+> numbers and release versions in this note are that project's
+> ([TylerBuza/Meetily-ActuallyFree](https://github.com/TylerBuza/Meetily-ActuallyFree)).
+
 Work order: #42 recording diagnostics; #44/#45 speaker-label correctness; #31/#35
 post-call ownership/cancellation; #22 Linux capture; #38 remaining features;
 #27 Markdown export; #10 vocabulary; #8 ROCm; #12 superseded permission probe.

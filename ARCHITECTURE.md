@@ -149,7 +149,10 @@ recording state with `main`. Rust owns its lifecycle in `src-tauri/src/minibar.r
   command returns so Tauri can safely send the IPC response. Tray and frontend
   code must not emit a second completion event.
 - Only Stop originating in the minibar restores the main window it hid. A tray
-  or already-visible main-window stop must not steal focus.
+  or already-visible main-window stop must not steal focus. A quit during a
+  recording (`quit.rs`) is the exception: it leaves compact mode through
+  `exit_compact_mode` before it asks, so the question and the save that
+  follows show in the main window.
 - The minibar polls Rust `RecordingState.active_duration` every 500 ms rather
   than incrementing a webview-local timer. This keeps it aligned across startup
   delay, duplicate minimize events, and pauses. `recording_duration` is only a
@@ -914,7 +917,8 @@ version even though the registry and executable already contain the new one.
   installer and exits the process itself, so `RunEvent::Exit` does not run;
   macOS and Linux replace the bundle in place and then restart or exit. Tray
   Quit (and ⌘Q / Dock Quit on macOS) installs a downloaded update without a
-  relaunch when nothing is busy; a quit during a recording never installs.
+  relaunch when nothing is busy. During a recording it first asks to stop and
+  save it and waits for the meeting to be saved (`quit.rs`, #32).
 
 ### Onboarding
 

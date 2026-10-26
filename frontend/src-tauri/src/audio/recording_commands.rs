@@ -1210,17 +1210,22 @@ async fn stop_recording_inner<R: Runtime>(
     // Every stop origin uses this one completion signal. Metadata travels in the
     // same main-window-only event so frontend persistence cannot race a separate
     // broadcast (the minibar mounts the same React providers in another webview).
+    // The WebView answers `stop_id` once the meeting is saved; a quit waits for
+    // that answer (save_handoff.rs).
+    let stop_id = super::save_handoff::begin();
     if let Err(error) = app.emit_to(
         "main",
         "recording-stop-complete",
         serde_json::json!({
             "call_api": true,
+            "stop_id": stop_id,
             "folder_path": folder_path_str,
             "meeting_name": meeting_name_str,
             "audio_save_error": audio_save_error
         }),
     ) {
         warn!("Failed to notify main window of recording completion: {}", error);
+        super::save_handoff::finish(stop_id, super::save_handoff::SaveOutcome::NotSaved);
     }
 
     info!("ðŸŽ‰ Recording stopped successfully with ZERO transcript chunks lost");

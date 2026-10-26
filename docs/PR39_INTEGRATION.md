@@ -1,4 +1,8 @@
-# PR #39 integration qualification (unreleased)
+# Upstream PR #39 integration qualification (unreleased)
+
+> Written in Meetily – Actually Free before Protocol forked from it. Issue and PR
+> numbers and release versions in this note are that project's
+> ([TylerBuza/Meetily-ActuallyFree](https://github.com/TylerBuza/Meetily-ActuallyFree)).
 
 Baseline: `9d8113e`, by @jayjoe101, incorporates Claude CLI summaries (#28,
 @cedstrom), speaker editing (#36, @ampersandru), and per-app audio/Labs (#38,

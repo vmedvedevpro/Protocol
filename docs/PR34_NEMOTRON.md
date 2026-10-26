@@ -1,5 +1,9 @@
-# PR #34 qualification
+# Upstream PR #34 qualification
 
+> Written in Meetily – Actually Free before Protocol forked from it. Issue and PR
+> numbers and release versions in this note are that project's
+> ([TylerBuza/Meetily-ActuallyFree](https://github.com/TylerBuza/Meetily-ActuallyFree)).
+>
 > Historical qualification of the original post-call integration. The later live
 > Nemotron implementation supersedes statements below that live labels always use
 > Pyannote. See [the current development map](DEVELOPMENT_MAP.md) and

@@ -1,3 +1,7 @@
+> Meetily – Actually Free release note from before Protocol forked from it, kept
+> for history ([about this folder](README.md)). Issue and PR numbers refer to
+> [TylerBuza/Meetily-ActuallyFree](https://github.com/TylerBuza/Meetily-ActuallyFree).
+
 **Apple Silicon preview for the macOS recording report in [#42](https://github.com/TylerBuza/Meetily-ActuallyFree/issues/42).** Microphone processing now runs outside the capture callback; a separate system-audio tap no longer stops permanently under buffer pressure. This is a candidate fix, not a confirmed repair of the reporter's distortion.
 
 Download `Meetily-Actually-Free_0.2.19_aarch64.dmg` on an Apple Silicon Mac running macOS 14.2 or newer. Drag the app to Applications. This build is ad-hoc signed, not notarized: if macOS blocks it, use **System Settings → Privacy & Security → Open Anyway** after trying to open it. Replacing the app does not require deleting meetings, recordings, models, or settings. Existing damaged recordings are not repaired; please test a new recording. The DMG checksum is in `SHA256SUMS-macos.txt`.

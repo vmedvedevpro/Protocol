@@ -242,10 +242,11 @@ pub fn installs_on_quit<R: Runtime>(app: &AppHandle<R>) -> bool {
         .is_some_and(|state| state.support.installs() && state.ready_version().is_some())
 }
 
-/// Tray Quit and macOS ⌘Q / Dock Quit. With a downloaded update and nothing
-/// busy, the update installs and the app exits without starting again (the
-/// next start runs the new version); otherwise the app quits as before. A
-/// quit during a recording keeps today's behaviour and never installs (#32).
+/// The last step of a user quit (tray Quit, macOS ⌘Q and Dock Quit), reached
+/// through `crate::quit::request` when no recording runs, or after **Stop and
+/// quit** saved it (#32). With a downloaded update and nothing busy, the update
+/// installs and the app exits without starting again (the next start runs the
+/// new version); otherwise the app exits.
 pub fn quit_app<R: Runtime>(app: &AppHandle<R>) {
     if QUITTING.swap(true, Ordering::SeqCst) || !installs_on_quit(app) {
         app.exit(0);

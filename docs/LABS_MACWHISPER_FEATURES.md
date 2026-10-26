@@ -1,5 +1,9 @@
 # Labs: MacWhisper roadmap features 1, 3, 7, 8, 12
 
+> Written in Meetily – Actually Free before Protocol forked from it. The 0.2.x
+> versions and releases it mentions are that project's
+> ([TylerBuza/Meetily-ActuallyFree](https://github.com/TylerBuza/Meetily-ActuallyFree)).
+
 This note reviews the proposed architecture in
 `H:/opencode/meetily/CHANGES_0.2.17_AND_MACWHISPER_ROADMAP.md` against this
 branch. The attachment is a roadmap and historical inventory, not an
@@ -72,7 +76,7 @@ The UI therefore seeks/highlights turns, never invents word offsets. Waveform
 extraction is on demand and may take time for a long recording; its peak history
 is bounded to 24 hours. No word-level karaoke claim is made.
 
-Windows issue #43: `audio/waveform.rs::extract_peaks` launches FFmpeg with
+Windows upstream issue #43: `audio/waveform.rs::extract_peaks` launches FFmpeg with
 `CREATE_NO_WINDOW`, matching the other audio decoding paths. Waveform requests
 from the meeting player can spawn this process; a title update itself does not.
 The launch flag preserves the piped PCM output and existing worker ownership.

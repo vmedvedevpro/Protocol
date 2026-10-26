@@ -1,5 +1,9 @@
 # Windows v0.2.20 qualification
 
+> Meetily – Actually Free release qualification from before Protocol forked from it, kept
+> for history ([about this folder](README.md)). Issue and PR numbers refer to
+> [TylerBuza/Meetily-ActuallyFree](https://github.com/TylerBuza/Meetily-ActuallyFree).
+
 Published immutable Latest release: [v0.2.20](https://github.com/TylerBuza/Meetily-ActuallyFree/releases/tag/v0.2.20).
 The tag targets build source `e1311dccb19a2b1f191ab61eb0f1f3582ee3a7e4`.
 Documentation-only follow-ups may be newer on main.
@@ -18,7 +22,7 @@ Documentation-only follow-ups may be newer on main.
 - The microphone supplied silence. The loopback fixture was a generated tone;
   no ASR model was invoked and no captured audio was saved/uploaded. This does
   not qualify microphone speech retention, ASR accuracy/load, or the reporters'
-  devices. See [AUDIO_CALLBACK_CONTINUITY.md](AUDIO_CALLBACK_CONTINUITY.md).
+  devices. See [AUDIO_CALLBACK_CONTINUITY.md](../AUDIO_CALLBACK_CONTINUITY.md).
 - `frontend/scripts/build-universal-windows.ps1` built CPU, Vulkan, and CUDA
   variants and the universal setup/updater payload. Local build tools were LLVM
   18, Vulkan headers/shader compiler, CUDA 13, and Visual Studio 2022 Build Tools.

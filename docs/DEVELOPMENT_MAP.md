@@ -22,9 +22,9 @@ and a model's anonymous speaker channels are also different concepts.
 
 Speech-start pre-roll, live system speech sensitivity, and real-call replay
 qualification are documented in [LIVE_SPEECH_RETENTION.md](LIVE_SPEECH_RETENTION.md).
-Sample continuity across jittered capture callbacks and issue #40 qualification
+Sample continuity across jittered capture callbacks and upstream issue #40 qualification
 are documented in [AUDIO_CALLBACK_CONTINUITY.md](AUDIO_CALLBACK_CONTINUITY.md).
-That note also covers the Windows/shared-mixer and macOS follow-ups for #42:
+That note also covers the Windows/shared-mixer and macOS follow-ups for upstream #42:
 Windows CPAL mic/system blocks and macOS CPAL mic blocks use bounded workers, with
 capture timestamps, queued mute state, and stop/drain ordering owned by
 `audio/stream.rs`, `audio/pipeline.rs`, and `audio/recording_manager.rs`.
@@ -47,7 +47,7 @@ retention remains unqualified. The native suite passed 370 tests (ten opt-in tes
 ignored normally), including 22 pipeline and eight worker regressions.
 Published previews predate these corrections; see the linked continuity note
 for verification and limits.
-The #42 follow-up uses `audio/capture_worker.rs` for explicit close/drain and a
+The upstream #42 follow-up uses `audio/capture_worker.rs` for explicit close/drain and a
 bounded wait independent of retained native callbacks. Its five std-only
 regressions passed on synthetic inputs; physical Mac Stop, missing microphone
 audio, and live-text gaps remain unqualified (see the linked continuity note).
@@ -60,7 +60,7 @@ The separate macOS system tap in `audio/capture/core_audio.rs` now survives
 ring-buffer pressure and closes its async wake registration race; neither path
 has a physical macOS reproduction/qualification yet. Its aggregate device keeps
 `tapautostart` off: with it on, the HAL ran no IO until something played, so a
-meeting started in silence stopped after five seconds (issue #42; physical
+meeting started in silence stopped after five seconds (upstream issue #42; physical
 reproduction and local fix check in [OCTOBER_PR_INTEGRATION.md](OCTOBER_PR_INTEGRATION.md)).
 A later tap stall warns the user (`RecordingState::report_warning` →
 `recording-audio-route-warning`) and keeps the microphone recording.
@@ -95,7 +95,7 @@ Meeting details layout lives in `frontend/src/app/meeting-details/page-content.t
 the transcript/notes separator stores its width locally and supports pointer and
 keyboard resizing. Pane stacking now responds to the actual content width (which
 the sidebar can reduce), not just viewport width; this retains the minimum
-transcript and notes widths from issue #25. The existing wrapped toolbars and
+transcript and notes widths from upstream issue #25. The existing wrapped toolbars and
 Export access remain in `components/meeting/MeetingHeader.tsx` and
 `MeetingDocument.tsx`. Narrow-content browser checks are still required.
 
@@ -174,6 +174,65 @@ The low-latency profile buffers 1.04 s of audio, emits 0.72 s strides, and uses
 VAD boundaries, ASR time, and queue load also contribute. Timeline lookup waits
 at most 1.5 s; history is limited to ten minutes. Missing/failed results retain
 source labels rather than guessing a speaker or switching engines.
+
+### Stop, the meeting save, and quitting (#32)
+
+Every Stop origin (window, tray, compact bar, quit) splits the work between
+native code and the main window:
+
+1. Native, `audio/recording_commands.rs::stop_recording_inner`: stops capture
+   and flushes the pipeline, waits for every queued transcription chunk (at most
+   10 minutes), unloads the speech model, finalizes `audio.mp4`, `mic.mp4` and
+   `system.mp4` from their checkpoints and writes `transcripts.json` (at most
+   5 minutes), clears `IS_RECORDING`, then sends `recording-stopped` and,
+   to the main window only, `recording-stop-complete` with a `stop_id`.
+2. WebView, `RecordingPostProcessingProvider` → `useRecordingStop`: discards a
+   take under 10 seconds; otherwise waits 4.5 s for late transcript events,
+   saves the meeting and transcript rows (`api_save_transcript`), files the
+   meeting into a pending group, saves call notes and the summary language,
+   clears the IndexedDB recovery record, and opens
+   `/meeting-details?source=recording`, which starts post-call processing.
+3. The WebView answers the Stop with `recording_save_finished(stopId,
+   outcome)`: `saved`, `discarded`, `notSaved` or `failed`.
+   `audio/save_handoff.rs` tracks the latest handoff from `begin` until that
+   answer, for at most `ANSWER_WINDOW` (120 s); `updater::busy` reports it as
+   `recordingSave`.
+
+Before #32 a quit called `app.exit(0)` at once. It lost the audio since the last
+30-second checkpoint, speech not yet transcribed, the finalized audio files and
+the meeting row; the next start offered the meeting for recovery from IndexedDB
+(only with at least one transcript line), with audio rebuilt from the
+checkpoints.
+
+`quit.rs` owns user quits: tray Quit, and on macOS ⌘Q and Dock Quit
+(`RunEvent::ExitRequested { code: None }`, held back by `quit::holds_exit`).
+`plan` reads recording state (running, stopping, or saving through the
+handoff) and whether a downloaded update would install. With no recording work
+the quit goes to `updater::quit_app` as before. Otherwise the main window leaves
+compact mode and comes forward, and a native dialog (tauri-plugin-dialog, a
+task dialog on Windows) asks "A recording is in progress. Stop and save it, then
+quit?" with **Stop and quit** and **Cancel**. Stop and quit runs the tray's
+native Stop unless a Stop already runs, waits for it and for the WebView's
+answer, and calls `updater::quit_app` only after `saved` or `discarded`, so a
+downloaded update installs only when nothing else is busy. While the quit
+waits, the answer returns `true` and the WebView does not open the meeting, so
+no post-call work starts that the exit would cut off. `failed`, `notSaved`, or
+no answer within the window keep Protocol open with a message. A second quit
+while the dialog is open or the meeting is being saved only brings the window
+forward (`Flow`). A recording that meeting detection starts during the save
+gets the question again.
+
+Tests: `cargo test -p protocol --lib quit:: audio::save_handoff::
+updater::busy::` (the decision matrix, the second quit, the macOS hold, which
+answers let the app exit, handoff ids and the answer window) and
+`frontend/tests/recording-stop/` (the answer for each ending, no meeting page
+when quitting, the `stop_id` hand-over). Limits: Stop and quit does not run
+speaker identification or the automatic summary; import, retranscription,
+post-call processing and model downloads are not asked about and end with the
+process as before (a summary cut off this way stays pending); Windows shutdown
+and log-off exit without asking (tao ends the process on `WM_ENDSESSION`); only
+the latest handoff is tracked, so a second Stop during a save is answered
+`notSaved`.
 
 ## 3. Post-call processing and model selection
 
@@ -297,7 +356,7 @@ has not been checked in the running app.
   shell syntax checks ran; actual AMD build/inference did not.
 
 See [OCTOBER_PR_INTEGRATION.md](OCTOBER_PR_INTEGRATION.md) for reviewed but blocked
-PR #22/#38, qualification, and release status. These changes are source work;
+upstream PRs #22/#38, qualification, and release status. These changes are source work;
 published v0.2.20 installers do not contain them.
 
 `frontend/src/contexts/OptionalModelDownloadsContext.tsx` owns optional jobs above
@@ -593,10 +652,10 @@ busy. The feature note is [AUTO_UPDATE.md](AUTO_UPDATE.md).
 | --- | --- |
 | `src-tauri/src/updater/mod.rs` | `UpdaterState` (managed), the scheduler task, `check_now`, `request_download`, `quit_app`, `install_and_restart`, the `updater-status` event |
 | `updater/status.rs` | Pure state machine: activity (idle, checking, downloading, installing) and the offered release (downloaded or not), errors with user-visible vs background origin |
-| `updater/busy.rs` | Busy registry: owner getters (recording, stopping, import, retranscription, summaries, onboarding), RAII `hold` guards (diarization, model downloads), the WebView lease (`recordingSave`, `postCall`, 150 s) |
+| `updater/busy.rs` | Busy registry: owner getters (recording, stopping, the meeting save handoff, import, retranscription, summaries, onboarding), RAII `hold` guards (diarization, model downloads), the WebView lease (`recordingSave`, `postCall`, 150 s) |
 | `updater/install.rs` | Install gate (engine lifecycle lock, busy re-check), exit preparation, per-platform install |
 | `updater/engine.rs`, `cache.rs`, `schedule.rs`, `prefs.rs`, `support.rs`, `journal.rs` | Plugin calls and error mapping, the verified download cache and install marker, check timing and backoff, `updater.json` preferences, which installs can update, `updater.log` |
-| `tray.rs` | Check for Updates, the available or ready version, Restart to Update; Quit through `updater::quit_app` |
+| `tray.rs`, `quit.rs` | Check for Updates, the available or ready version, Restart to Update; Quit through `quit::request`, which saves a running recording first and then calls `updater::quit_app` |
 | `contexts/UpdaterContext.tsx`, `lib/updater.ts` | Snapshot mirror, commands, every user-visible sentence |
 | `components/updater/*` | Sidebar pill and panel, Settings › About block, toasts, `UpdaterActivityReporter` |
 
@@ -736,16 +795,16 @@ Upstream published macOS separately, through `publish-macos.yml` and
 `MACOS_RELEASE.md` (an explicitly labeled CI-qualified preview, a separate
 non-Latest prerelease, a physical checklist for stable releases). Protocol removed
 that process in #15; macOS is a leg of `release.yml` and its notes below are
-upstream history. The `v0.2.19-macos` preview packages the #42 callback change; build
-`36790029640` and published-asset smoke test `36790877680` passed. It remains
+upstream history. The `v0.2.19-macos` preview packages the upstream #42 callback change;
+build `36790029640` and published-asset smoke test `36790877680` passed. It remains
 unqualified for physical microphone capture and the reporter's device. The
 Windows Latest release is now v0.2.20; see
-[RELEASE_V0220_QUALIFICATION.md](RELEASE_V0220_QUALIFICATION.md) for Windows build,
+[upstream/RELEASE_V0220_QUALIFICATION.md](upstream/RELEASE_V0220_QUALIFICATION.md) for Windows build,
 hardware-capture, installed-upgrade, and public updater verification.
 The `v0.2.20-macos` follow-up packages explicit worker shutdown and short-gap
-source recovery for #42. Apple Silicon build `36876715270` passed all 22 worker
+source recovery for upstream #42. Apple Silicon build `36876715270` passed all 22 worker
 and pipeline regressions plus bundle/launch checks; public smoke test
-`36878960910` passed. See [RELEASE_V0220_MACOS.md](RELEASE_V0220_MACOS.md) for
+`36878960910` passed. See [upstream/RELEASE_V0220_MACOS.md](upstream/RELEASE_V0220_MACOS.md) for
 provenance. Physical recording and live-transcription confirmation remain open.
 Upstream's VirusTotal submission workflow was removed in #15.
 
@@ -848,15 +907,15 @@ or with standalone TypeScript checking. When using pnpm in this environment,
 
 | Note | Purpose |
 | --- | --- |
-| [LIVE_NEMOTRON_AND_PR36.md](LIVE_NEMOTRON_AND_PR36.md) | Live implementation, qualification, limitations, and assessed PR #36 scope. |
+| [LIVE_NEMOTRON_AND_PR36.md](LIVE_NEMOTRON_AND_PR36.md) | Live implementation, qualification, limitations, and assessed upstream PR #36 scope. |
 | [PR34_NEMOTRON.md](PR34_NEMOTRON.md) | Model provenance, hardening, DirectML qualification, and release numbering. |
 | [V0218_DOWNLOAD_FIX.md](V0218_DOWNLOAD_FIX.md) | Async stack-overflow diagnosis; keep large checksum buffers off the future's inline stack. |
 | [NEMOTRON_NATIVE_ACTIVATION.md](NEMOTRON_NATIVE_ACTIVATION.md) | Native download/activation lifetime regression and verification. |
-| [UPSTREAM_0_4_1_PORTS.md](UPSTREAM_0_4_1_PORTS.md) | Selective upstream integration decisions. |
+| [upstream/UPSTREAM_0_4_1_PORTS.md](upstream/UPSTREAM_0_4_1_PORTS.md) | Selective upstream integration decisions. |
 | [DIARIZATION_MODELS.md](DIARIZATION_MODELS.md) | Pyannote/WeSpeaker file provenance, qualification against the 0.3.0 files, voice-profile continuity, the 0.3.0 upgrade path, and how to repeat the measurements. |
 
 The public release documented in README is distinct from a local candidate.
-Development labels 0.2.18–0.2.20 in historical notes were consolidated into the
-0.2.17 candidate after checking GitHub's published 0.2.16. Re-check the actual
-release state before future version work; do not treat this historical statement
-as a permanently current release number.
+Development labels 0.2.18–0.2.20 in Actually Free's historical notes were
+consolidated into its 0.2.17 candidate after checking its published 0.2.16.
+Re-check the actual release state before future version work; do not treat this
+historical statement as a permanently current release number.

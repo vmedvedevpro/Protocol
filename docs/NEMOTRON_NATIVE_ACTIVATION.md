@@ -1,5 +1,9 @@
 # Nemotron background-download activation follow-up
 
+> Written in Meetily – Actually Free before Protocol forked from it. The 0.2.x
+> versions and releases it mentions are that project's
+> ([TylerBuza/Meetily-ActuallyFree](https://github.com/TylerBuza/Meetily-ActuallyFree)).
+
 The user reported having to select Nemotron manually after an optional setup
 download. Read-back found the installed model and the manually saved Nemotron
 selection; that alone did not prove automatic activation had succeeded.

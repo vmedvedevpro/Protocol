@@ -46,13 +46,14 @@ export function RecordingPostProcessingProvider({ children }: { children: React.
         // Listen for recording-stop-complete event from Rust
         const unlisten = await listen<{
           call_api: boolean;
+          stop_id?: number | null;
           folder_path?: string | null;
           meeting_name?: string | null;
           audio_save_error?: string | null;
         }>('recording-stop-complete', (event) => {
           console.log('[RecordingPostProcessing] Received recording-stop-complete event:', event.payload);
 
-          const { call_api, folder_path, meeting_name, audio_save_error } = event.payload;
+          const { call_api, stop_id, folder_path, meeting_name, audio_save_error } = event.payload;
           if (audio_save_error) {
             toast.error('Some or all meeting audio could not be saved. The transcript will still be kept.', {
               description: audio_save_error,
@@ -69,7 +70,7 @@ export function RecordingPostProcessingProvider({ children }: { children: React.
           } else {
             sessionStorage.removeItem('last_recording_meeting_name');
           }
-          void handleRecordingStopRef.current(call_api);
+          void handleRecordingStopRef.current(call_api, stop_id ?? undefined);
         });
 
         // StrictMode can clean up an effect before the asynchronous registration

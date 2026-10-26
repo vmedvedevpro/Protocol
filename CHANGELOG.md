@@ -1,10 +1,9 @@
 # Changelog
 
-The `## Protocol …` sections are Protocol's releases. Protocol is forked from
-Meetily – Actually Free at upstream commit `3130d16` (source version 0.2.22);
-every section after the Protocol ones is upstream history, and its issue and PR
-numbers refer to
-[TylerBuza/Meetily-ActuallyFree](https://github.com/TylerBuza/Meetily-ActuallyFree).
+The `## Protocol …` sections are Protocol's releases, also published on
+[GitHub Releases](https://github.com/vmedvedevpro/Protocol/releases). Everything
+under [Meetily – Actually Free history](#meetily--actually-free-history-up-to-the-fork-at-3130d16)
+is inherited from the project Protocol forked from; Protocol did not release it.
 
 ## Protocol — unreleased
 
@@ -19,6 +18,16 @@ numbers refer to
   differed on about 3 % of frames; the installer grows by 3 MB. Saved voices
   keep working with no re-enrolment. Updating removes the old model files,
   and custom models in the data folder now need the new file names.
+
+### Fixed
+
+- **Quitting during a recording**
+  ([#32](https://github.com/vmedvedevpro/Protocol/issues/32)) asks "A recording
+  is in progress. Stop and save it, then quit?" instead of quitting at once and
+  losing the end of the recording. **Stop and quit** saves the audio, the
+  transcript and the meeting as Stop does, then quits; speaker identification
+  and the automatic summary do not run, so start them from the meeting later.
+  This applies to the tray's Quit and, on macOS, to ⌘Q and Dock Quit.
 
 ## Protocol 0.3.0 — 2026-10-26
 
@@ -151,7 +160,17 @@ that could reach files or servers it should not.
   runtime to a versioned download
   ([#15](https://github.com/vmedvedevpro/Protocol/issues/15)).
 
-## Unreleased
+## Meetily – Actually Free history (up to the fork at `3130d16`)
+
+Protocol is forked from
+[Meetily – Actually Free](https://github.com/TylerBuza/Meetily-ActuallyFree) at
+commit `3130d16` (source version 0.2.22). The sections below are that
+project's changelog up to the fork, kept for history: Protocol did not publish
+these releases, and their issue and PR numbers refer to
+[TylerBuza/Meetily-ActuallyFree](https://github.com/TylerBuza/Meetily-ActuallyFree).
+The release notes they link are in [docs/upstream/](docs/upstream/README.md).
+
+### Unreleased
 
 - macOS stability candidate (0.2.22, not yet published): fix idle tap startup,
   keep microphone recording during a system-tap stall, refresh Audio Capture
@@ -167,9 +186,9 @@ that could reach files or servers it should not.
 - Add opt-in Linux source-build ROCm helper mapping and SDK discovery (#8; AMD hardware validation pending).
 - Distinguish macOS system-tap inactivity/end errors from a closed processing channel (#42 diagnostics).
 
-## v0.2.20 — Windows recording reliability and setup improvements
+### v0.2.20 — Windows recording reliability and setup improvements
 
-See [release notes](docs/RELEASE_V0220.md) for the complete update and test limits.
+See [release notes](docs/upstream/RELEASE_V0220.md) for the complete update and test limits.
 
 - Correct shared-mixer premature silence padding and queued-sample loss (#42).
 - Move Windows microphone DSP onto the bounded capture worker; preserve driver
@@ -187,15 +206,15 @@ See [release notes](docs/RELEASE_V0220.md) for the complete update and test limi
 - Add Uninstall to optional-model Settings, removing the selected model's files
   and resetting only preferences that use it.
 
-## v0.2.18
+### v0.2.18
 
 Released **v0.2.18**; see [release notes and complete contributor
-credits](docs/RELEASE_V0218.md). The workspace redesign is from **@jayjoe101's
+credits](docs/upstream/RELEASE_V0218.md). The workspace redesign is from **@jayjoe101's
 PR #39**, including **@ampersandru's PRs #36–#38** and **@cedstrom's PR #28**
 (original commit attribution: **@chris-edstrom**). Thanks to **@fernandog** for
 the detailed issue #40 recording-artifact report and analysis.
 
-### Recording and post-call corrections
+#### Recording and post-call corrections
 
 - Preserve continuous microphone/system samples across jittered capture callback
   boundaries instead of repeatedly inserting zeros or dropping samples (#40).
@@ -209,7 +228,7 @@ the detailed issue #40 recording-artifact report and analysis.
 - Restore the original text-only blue wordmark, add a system **Low audio**
   advisory, and improve capture startup, setup gating, and live speaker-edit recovery.
 
-### Interface overhaul and workspace
+#### Interface overhaul and workspace
 
 - Three themes (Midnight, Vanilla and Charcoal) built on shared colour tokens, one
   component kit across every screen, and on Windows a title bar drawn inside the app
@@ -231,7 +250,7 @@ the detailed issue #40 recording-artifact report and analysis.
 - Each person is drawn in their contact colour across the transcript, with a faint
   tint on their chat bubbles, so it is easy to see who is talking.
 
-### Claude Code CLI summaries
+#### Claude Code CLI summaries
 
 Thanks to **[@cedstrom](https://github.com/cedstrom)** for
 [PR #28](https://github.com/TylerBuza/Meetily-ActuallyFree/pull/28), which provides
@@ -246,7 +265,7 @@ this provider.
 - Runs on current Claude Code releases. The system prompt is passed as a file rather
   than on the command line, and a signed-out or outdated CLI reports the step to take.
 
-### Per-app recording and Labs
+#### Per-app recording and Labs
 
 Thanks to **[@ampersandru](https://github.com/ampersandru)** for
 [PR #38](https://github.com/TylerBuza/Meetily-ActuallyFree/pull/38) (which also brings
@@ -276,9 +295,9 @@ interface above.
     merging or deleting a contact updates or removes their voice.
 - Unnamed voices keep distinct colours in a meeting, and keep them when renamed.
 
-## 0.2.17 - 2026-09-25
+### 0.2.17 - 2026-09-25
 
-### Nemotron speaker diarization
+#### Nemotron speaker diarization
 
 Thanks to **[@ampersandru](https://github.com/ampersandru)** for
 [PR #34](https://github.com/TylerBuza/Meetily-ActuallyFree/pull/34), which provided
@@ -331,9 +350,9 @@ MIT-licensed `parakeet-rs` Sortformer implementation.
   CUDA architecture set. Credit Enes Altun/parakeet-rs for the MIT-licensed
   Sortformer reference implementation.
 
-## 0.2.16 - 2026-09-18
+### 0.2.16 - 2026-09-18
 
-### Selective Upstream Integration
+#### Selective Upstream Integration
 
 This update selectively incorporates improvements from
 [upstream Meetily v0.4.1](https://github.com/Zackriya-Solutions/meetily/releases/tag/v0.4.1)
@@ -347,7 +366,7 @@ Existing fixes we retained include Claude thinking-block handling, preservation
 of short transcript segments, responsive toolbar controls, and much of our
 model-download resume and file-retention protection.
 
-### Newly Incorporated Improvements
+#### Newly Incorporated Improvements
 
 - Preserve transcript coverage when splitting long summaries into chunks.
 - Correct HE-AAC import timing and repair stale duration metadata during
@@ -362,9 +381,9 @@ model-download resume and file-retention protection.
 
 Thanks to the upstream contributors for these improvements. Individual PRs,
 attribution, fork-specific adaptations, and verification details are recorded in
-[the upstream integration notes](docs/UPSTREAM_0_4_1_PORTS.md).
+[the upstream integration notes](docs/upstream/UPSTREAM_0_4_1_PORTS.md).
 
-### Windows Qualification
+#### Windows Qualification
 
 - Retains the full Windows runtime ownership crash fix from v0.2.14.
 - Passed 35 frontend and 70 targeted native tests, fresh CPU/Vulkan/CUDA builds,
@@ -376,9 +395,9 @@ attribution, fork-specific adaptations, and verification details are recorded in
   Tauri-signed updater engine. Windows Authenticode remains unconfigured.
 - No macOS release or permission-probe changes are included.
 
-## 0.2.15 - 2026-09-17
+### 0.2.15 - 2026-09-17
 
-### Maintenance
+#### Maintenance
 
 - Keep Export, Enhance, and other meeting toolbar actions accessible at narrow
   panel widths, using responsive icon labels, wrapping, and keyboard tooltips (#25).
@@ -392,19 +411,19 @@ attribution, fork-specific adaptations, and verification details are recorded in
 - Retain the full Windows runtime crash fix from v0.2.14; PR #30 is superseded.
 - PR #12 remains pending macOS revisions and qualification. No macOS release.
 
-### Contributors
+#### Contributors
 
 - Thanks to @mhlas7, @cedstrom, and @0cv for the maintenance contributions.
 
-### Windows Downloads
+#### Windows Downloads
 
 - Fresh CPU, Vulkan, and multi-architecture CUDA builds.
 - Manual installation uses the universal setup; in-app updates use the separate
   Tauri-signed updater engine and matching signature. Authenticode is not configured.
 
-## 0.2.14 - 2026-09-17
+### 0.2.14 - 2026-09-17
 
-### Windows Crash Fix
+#### Windows Crash Fix
 
 - Correct Windows event-loop target ownership in a narrowly patched, vendored
   Tauri runtime 2.11.4. This addresses the background reference-count race
@@ -415,7 +434,7 @@ attribution, fork-specific adaptations, and verification details are recorded in
 - This release contains the crash fix and release metadata only, with no PR
   feature merges or macOS release changes.
 
-### Validation
+#### Validation
 
 - Nine native lifecycle scenarios cover thread-affine destruction, shutdown,
   panic unwinding, monitor dispatch, and WebView2 traffic. The stress case sends
@@ -425,7 +444,7 @@ attribution, fork-specific adaptations, and verification details are recorded in
   duration is unconfirmed; these results do not establish a completed multi-hour
   recording/minibar soak or guarantee that all causes of crashes are resolved.
 
-### Windows Downloads
+#### Windows Downloads
 
 - Fresh CPU, Vulkan, and CUDA variants; CUDA targets multiple GPU generations.
 - Use `Meetily-ActuallyFree-0.2.14-x64-universal-setup.exe` for manual installation.
@@ -433,9 +452,9 @@ attribution, fork-specific adaptations, and verification details are recorded in
 - `latest.json` and `SHA256SUMS.txt` provide updater metadata and file checksums.
   Windows Authenticode remains unconfigured; Tauri updater signing is separate.
 
-## 0.2.13 - 2026-09-06
+### 0.2.13 - 2026-09-06
 
-### Bug Fixes
+#### Bug Fixes
 
 - Display complete multilingual summary Markdown with original headings, lists,
   tables, and code blocks; custom sections and decisions no longer disappear (#17).
@@ -445,7 +464,7 @@ attribution, fork-specific adaptations, and verification details are recorded in
   temporary conversion files no longer require a writable source folder (#21).
 - Use the application accent for checked settings switches in both themes (#18).
 
-### Reliability
+#### Reliability
 
 - Surface persistent summary failures and retry controls, validate selected Ollama
   models, and prevent cancelled preflight requests from starting generation.
@@ -459,7 +478,7 @@ attribution, fork-specific adaptations, and verification details are recorded in
   or possible Zoom speaker-route mismatches. Zoom warnings are heuristic: endpoint
   sound cannot be attributed to a particular application.
 
-### Windows Packaging
+#### Windows Packaging
 
 - Fresh CPU, Vulkan, and CUDA variants are required for this release.
 - The universal setup is for manual installation; the signed universal updater
@@ -467,9 +486,9 @@ attribution, fork-specific adaptations, and verification details are recorded in
 - Windows Authenticode is not configured. The Tauri updater signature is separate
   and remains required. No macOS release is included.
 
-## 0.2.12 - 2026-08-30
+### 0.2.12 - 2026-08-30
 
-### Meeting Details
+#### Meeting Details
 
 - Preserved user-renamed meeting titles when summaries are generated or
   regenerated, while still allowing AI names to replace recognizable default
@@ -482,7 +501,7 @@ attribution, fork-specific adaptations, and verification details are recorded in
 - Removed duplicate summary actions and stacked transcript and summary panels on
   narrow screens.
 
-### Time Accuracy
+#### Time Accuracy
 
 - Stored the native recording start as the meeting start instead of the later
   database save time.
@@ -492,14 +511,14 @@ attribution, fork-specific adaptations, and verification details are recorded in
   when meetings are listed, opened, or retranscribed.
 - Preserved recording-start timestamps through crash recovery and audio import.
 
-### Reliability
+#### Reliability
 
 - Added title-provenance migration and regression coverage for manual,
   generated, imported, and legacy default titles.
 - Added request-generation guards for metadata, transcript, and summary loading,
   and made summary completion idempotent across native events and polling.
 
-### Windows Downloads
+#### Windows Downloads
 
 - `Meetily-ActuallyFree-0.2.12-x64-universal-setup.exe`: recommended installer;
   automatically selects CPU, Vulkan, or CUDA.
@@ -518,9 +537,9 @@ The same `0.2.12` source can be released separately for Apple Silicon as
 macOS 14.2 qualification. The macOS release will not replace Windows Latest or
 modify Windows updater metadata.
 
-## 0.2.11 - 2026-08-28
+### 0.2.11 - 2026-08-28
 
-### Audio Balance
+#### Audio Balance
 
 - Added a persisted `0.5×–3.0×` system-audio gain control alongside microphone
   gain.
@@ -529,7 +548,7 @@ modify Windows updater metadata.
 - Added waveform-preserving peak limiting and a live warning when boosted
   system audio repeatedly reaches the safety limiter.
 
-### CUDA Setup Recovery
+#### CUDA Setup Recovery
 
 - Detects NVIDIA display hardware even before the vendor driver is installed
   and explains why setup temporarily selected Vulkan or CPU.
@@ -539,7 +558,7 @@ modify Windows updater metadata.
   then offers the current universal setup when the installed executable needs
   to be replaced with the CUDA build.
 
-### Recording Storage
+#### Recording Storage
 
 - Added native folder selection for meeting recordings in Preferences and
   Recording Settings.
@@ -548,12 +567,12 @@ modify Windows updater metadata.
 - Prevented macOS recordings from being placed inside the signed application
   bundle.
 
-### Development
+#### Development
 
 - Made Tauri launch the checked-in Next.js development binary directly instead
   of relying on a package-manager script.
 
-### Windows Downloads
+#### Windows Downloads
 
 - `Meetily-ActuallyFree-0.2.11-x64-universal-setup.exe`: recommended installer;
   automatically selects CPU, Vulkan, or CUDA.
@@ -568,9 +587,9 @@ The same `0.2.11` source can be released separately for Apple Silicon as
 macOS 14.2 qualification. The macOS release will not replace Windows Latest or
 modify Windows updater metadata.
 
-## 0.2.10 - 2026-08-26
+### 0.2.10 - 2026-08-26
 
-### Light Theme
+#### Light Theme
 
 - Added a light semantic palette so meeting lists, transcript views, search,
   settings, and other shared surfaces no longer inherit dark colors.
@@ -578,7 +597,7 @@ modify Windows updater metadata.
 - Fixed meeting summaries, meeting Q&A, person overviews, and person Q&A so
   Markdown uses light typography unless dark mode is active.
 
-### Auto Summary Preference
+#### Auto Summary Preference
 
 - Fixed the Auto Summary setting so disabling it stops post-call processing
   after transcript enhancement and speaker identification instead of generating
@@ -588,7 +607,7 @@ modify Windows updater metadata.
 - Preserved automatic post-call summaries when the preference is enabled and
   added regression coverage for recording and existing-meeting entry paths.
 
-### Windows Downloads
+#### Windows Downloads
 
 - `Meetily-ActuallyFree-0.2.10-x64-universal-setup.exe`: recommended installer;
   automatically selects CPU, Vulkan, or CUDA.
@@ -603,9 +622,9 @@ The same `0.2.10` source can be released separately for Apple Silicon as
 macOS 14.2 qualification. The macOS release will not replace Windows Latest or
 modify Windows updater metadata.
 
-## 0.2.9 - 2026-08-26
+### 0.2.9 - 2026-08-26
 
-### Post-call Reliability
+#### Post-call Reliability
 
 - Prevented idle cleanup, manual memory cleanup, and local LLM startup from
   unloading Whisper or Parakeet during a long import or post-call
@@ -617,7 +636,7 @@ modify Windows updater metadata.
 - Replaced the blocking processing dialog with a compact progress card while
   preserving modal speaker-count choices and actionable errors.
 
-### Acceleration Visibility
+#### Acceleration Visibility
 
 - Added the automatically selected Whisper backend to first-run setup and Local
   Stack settings: NVIDIA CUDA, Vulkan GPU, Apple Metal, AMD HIP, or CPU.
@@ -625,7 +644,7 @@ modify Windows updater metadata.
   uses ONNX Runtime on the CPU.
 - Shows a backend as active only while the Whisper model is actually loaded.
 
-### Windows Downloads
+#### Windows Downloads
 
 - `Meetily-ActuallyFree-0.2.9-x64-universal-setup.exe`: recommended installer;
   automatically selects CPU, Vulkan, or CUDA.
@@ -640,9 +659,9 @@ The same `0.2.9` source can be released separately for Apple Silicon as
 macOS 14.2 qualification. The macOS release will not replace Windows Latest or
 modify Windows updater metadata.
 
-## 0.2.8 - 2026-08-25
+### 0.2.8 - 2026-08-25
 
-### Recording Reliability
+#### Recording Reliability
 
 - Fixed the native Windows crash that could occur when Stop or Expand destroyed
   the floating recording bar while its WebView IPC command was still returning.
@@ -651,7 +670,7 @@ modify Windows updater metadata.
 - Preserved one main-window stop completion event and prevented updater restarts
   from being mistaken for crashes.
 
-### Private Crash Recovery
+#### Private Crash Recovery
 
 - Added an opt-in next-launch prompt after an unexpected exit or native panic.
 - Reports expose exactly **Send Report**, **Save ZIP**, and **Ignore** actions.
@@ -661,7 +680,7 @@ modify Windows updater metadata.
 - Kept native memory dumps in the separate, manually run Windows diagnostics
   collector rather than collecting them automatically.
 
-### Installer And Runtime
+#### Installer And Runtime
 
 - Added a real Vulkan capability probe before the universal installer selects
   the Vulkan backend, with safe CPU fallback when probing fails.
@@ -672,7 +691,7 @@ modify Windows updater metadata.
 - Applied compatible security patches to transitive editor and frontend build
   dependencies while retaining the release's existing React and Next.js majors.
 
-### Windows Downloads
+#### Windows Downloads
 
 - `Meetily-ActuallyFree-0.2.8-x64-universal-setup.exe`: recommended installer;
   automatically selects CPU, Vulkan, or CUDA.
@@ -687,13 +706,13 @@ The same `0.2.8` source will be released separately for Apple Silicon as
 macOS 14.2 qualification. The macOS release will not replace Windows Latest or
 modify Windows updater metadata.
 
-## 0.2.7 - 2026-08-23
+### 0.2.7 - 2026-08-23
 
 <p align="center">
-  <img src="docs/images/v0.2.7-whisper-vocabulary.png" alt="Meetily Whisper vocabulary settings for global and meeting-specific terms" width="1100" />
+  <img src="docs/upstream/images/v0.2.7-whisper-vocabulary.png" alt="Meetily Whisper vocabulary settings for global and meeting-specific terms" width="1100" />
 </p>
 
-### Critical Windows Upgrade Fix
+#### Critical Windows Upgrade Fix
 
 Meetily `v0.2.6` could fail to launch after an upgrade from `v0.2.5` because
 Windows builds embedded different line endings for one SQLx migration checksum.
@@ -706,7 +725,7 @@ If `v0.2.6` currently will not open, download and run the
 manually. The in-app updater cannot run while `v0.2.6` is unable to launch. Do
 not delete your Meetily data.
 
-### Transcription Improvements
+#### Transcription Improvements
 
 - Added independent live and post-call transcription defaults.
 - Added global and meeting-specific Whisper vocabulary hints for names,
@@ -723,7 +742,7 @@ not delete your Meetily data.
   states.
 - Improved Whisper download-progress contrast and accessibility.
 
-### Community Request
+#### Community Request
 
 This release addresses the core request from the original Meetily project's
 issue [Zackriya-Solutions/meetily#474](https://github.com/Zackriya-Solutions/meetily/issues/474):
@@ -733,7 +752,7 @@ issue [Zackriya-Solutions/meetily#474](https://github.com/Zackriya-Solutions/mee
 Global defaults now make recurring vocabulary available across meetings, while
 meeting-specific terms take priority for specialized names and terminology.
 
-### Windows Downloads
+#### Windows Downloads
 
 - `Meetily-ActuallyFree-0.2.7-x64-universal-setup.exe`: recommended installer;
   automatically selects CPU, Vulkan, or CUDA.

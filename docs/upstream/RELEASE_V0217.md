@@ -1,5 +1,9 @@
 # v0.2.17 — Nemotron speaker diarization
 
+> Meetily – Actually Free release note from before Protocol forked from it, kept
+> for history ([about this folder](README.md)). Issue and PR numbers refer to
+> [TylerBuza/Meetily-ActuallyFree](https://github.com/TylerBuza/Meetily-ActuallyFree).
+
 This update brings **optional NVIDIA Nemotron-3 diarization** to Meetily, with
 speaker labeling during live calls and refinement after the recording finishes.
 
