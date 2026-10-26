@@ -33,6 +33,15 @@ pub(crate) struct SummaryRunRegistration {
 static CANCELLATION_REGISTRY: Lazy<Arc<Mutex<HashMap<String, SummaryRunRegistration>>>> =
     Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
 
+/// Summary runs in progress: each registers for its whole run (read by the
+/// updater's busy check).
+pub fn active_summary_count() -> usize {
+    CANCELLATION_REGISTRY
+        .lock()
+        .map(|registry| registry.len())
+        .unwrap_or(0)
+}
+
 /// Strips the first `#` heading line; returns "" if no `#` is found.
 fn strip_leading_title(markdown: &str) -> String {
     if let Some(hash_pos) = markdown.find('#') {

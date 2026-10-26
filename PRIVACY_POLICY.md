@@ -1,14 +1,17 @@
 # Privacy Policy — Protocol
 
-**Short version: your data stays on your machine unless you explicitly choose to
-send it to a cloud provider or submit a crash report.**
+**Short version: your meetings stay on your machine unless you explicitly choose
+to send them to a cloud provider or submit a crash report. The only automatic
+network request is a daily check for a new release on this project's GitHub
+page, which you can turn off.**
 
 ## What is collected
 
-Protocol has **no automatic analytics, telemetry, update checks, or other
-phone-home behavior**. There is no account, no sign-in, and no usage tracking.
-The app does not automatically send your audio, transcripts, summaries, crash
-reports, or usage data to the author or anyone else.
+Protocol has **no analytics, telemetry, or usage tracking**. There is no
+account and no sign-in. The app never sends your audio, transcripts, summaries,
+crash reports, or usage data to the author or anyone else. Its one automatic
+network request is the [update check](#update-checks), which carries no
+information about you or your meetings.
 
 Earlier versions kept a local file, `analytics.json`, with the total number of
 meetings, the date and time of the last one, a count of meetings per day, and
@@ -36,6 +39,9 @@ Data leaves your machine only when **you** choose an action that sends it:
   provider.
 - **Model downloads** contact Hugging Face and, to repair the bundled speaker
   models, this repository on GitHub. These requests carry no meeting content.
+- **Update checks** (automatic unless you turn them off) read release
+  information from GitHub, and an update downloads only when you click
+  **Download**. They upload nothing.
 
 If Protocol detects that the previous session ended unexpectedly, it can create
 a redacted crash-report ZIP at your request. The report excludes recordings,
@@ -51,10 +57,41 @@ GitHub uploads attachments before the issue is submitted.
 Using the **built-in local model**, **local Whisper/Parakeet**, and **Ollama**
 keeps meeting content on your device.
 
+## Update checks
+
+Protocol updates itself from this project's GitHub releases.
+
+- **What it requests.** About once a day, and whenever you click **Check for
+  updates**, Protocol downloads a small file, `latest.json`, from
+  `https://github.com/vmedvedevpro/Protocol/releases/latest/download/latest.json`.
+  It lists the newest published version, its release notes and its download
+  links. If that version is newer, Protocol shows **Update available**.
+- **What it downloads.** Nothing more until you click **Download**. Protocol
+  then fetches the installer for your system from the same release and checks
+  its signature before keeping it. It does not download while a recording runs.
+- **What GitHub receives.** An ordinary HTTPS request: your IP address, the
+  time, and the user agent `tauri-plugin-updater/<version>`. The request does
+  not contain Protocol's version, an installation ID, your settings, or
+  anything about your meetings. Downloading an update shows GitHub which
+  system's installer you fetched. GitHub handles this data under the
+  [GitHub General Privacy Statement](https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement).
+- **What it never does.** It never uploads anything, and nothing installs until
+  you choose **Restart and update** or quit Protocol, never during a recording
+  or while a meeting is being processed.
+- **Turning it off.** Settings › About › **Check for updates automatically**.
+  With it off, Protocol contacts GitHub for updates only when you click
+  **Check for updates**. Copies installed from the `.deb` package check the same
+  way but only show a link to the new version.
+
 ## Your control
 
 Delete a meeting in the app and its data is removed locally. Uninstalling the app
 and deleting its data and recordings folders removes everything.
+
+A downloaded update is kept in the app's cache folder (`updates`) until it is
+installed or replaced by a newer one. That folder also holds `updater.log`, a
+short local record of checks, downloads and installs with versions and error
+messages, which you can attach to a bug report. Neither leaves your machine.
 
 Deleting meetings does not change the counts in a leftover `analytics.json`. On
 Windows the file is `%APPDATA%\io.github.vmedvedevpro.protocol\analytics.json`;

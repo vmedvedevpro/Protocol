@@ -143,15 +143,25 @@ the checksums and the feed.
 ## The `release` environment (owner, once)
 
 Only the `draft` job uses the environment, and it admits only tag runs. Create
-it with a tag policy and add the updater key's two secrets (PowerShell, from the
-repository root; the key pair itself is created for #31):
+the updater key pair, then the environment with a tag policy and the key's two
+secrets (Git Bash, from the repository root):
 
-```powershell
+```bash
+read -rs PW   # the key's password; not echoed, not kept in the shell history
+(cd frontend && pnpm exec tauri signer generate --ci -p "$PW" -w ~/.tauri/protocol-updater.key)
 gh api -X PUT repos/vmedvedevpro/Protocol/environments/release -F "deployment_branch_policy[protected_branches]=false" -F "deployment_branch_policy[custom_branch_policies]=true"
-gh api -X POST repos/vmedvedevpro/Protocol/environments/release/deployment-branch-policies -f name=v* -f type=tag
-Get-Content -Raw "$env:USERPROFILE\.tauri\protocol-updater.key" | gh secret set TAURI_SIGNING_PRIVATE_KEY --env release
-gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD --env release
+gh api -X POST repos/vmedvedevpro/Protocol/environments/release/deployment-branch-policies -f 'name=v*' -f type=tag
+gh secret set TAURI_SIGNING_PRIVATE_KEY -R vmedvedevpro/Protocol --env release < ~/.tauri/protocol-updater.key
+printf '%s' "$PW" | gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD -R vmedvedevpro/Protocol --env release
+unset PW
 ```
+
+The public key, `~/.tauri/protocol-updater.key.pub`, goes into
+`plugins.updater.pubkey` in `frontend/src-tauri/tauri.conf.json`. Do not pipe
+the key or the password through Windows PowerShell 5.1 (`Get-Content -Raw … |
+gh secret set`): it can append a line break, and the secret then no longer
+matches the key file. `-R` is needed in a clone with an `upstream` remote,
+where `gh secret set` refuses to guess the repository.
 
 Check the policy with
 `gh api repos/vmedvedevpro/Protocol/environments/release/deployment-branch-policies`:

@@ -671,6 +671,7 @@ pub async fn download_diarization_models<R: tauri::Runtime>(
     app: tauri::AppHandle<R>,
     engine: Option<String>,
 ) -> Result<(), String> {
+    let _busy = crate::updater::busy::hold(crate::updater::busy::BusyReason::ModelDownload);
     let target = engine.unwrap_or_else(get_active_engine);
     let _optional_guard = if target == "nemotron" { Some(crate::optional_models::operation("nemotron")?) } else { None };
     if !matches!(target.as_str(), "pyannote" | "nemotron") { return Err("Unknown diarization engine".into()); }
@@ -1045,6 +1046,7 @@ pub async fn diarize_meeting(
     threshold: Option<f32>,
     engine: Option<String>,
 ) -> Result<MeetingDiarizationResult, String> {
+    let _busy = crate::updater::busy::hold(crate::updater::busy::BusyReason::Diarization);
     let _operation_guard = operation_guard().await;
     let pool = state.db_manager.pool();
     let selected_engine = engine.unwrap_or_else(get_active_engine);

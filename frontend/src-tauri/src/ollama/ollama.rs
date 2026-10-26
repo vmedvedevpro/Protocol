@@ -256,6 +256,7 @@ pub async fn pull_ollama_model<R: Runtime>(
     model_name: String,
     endpoint: Option<String>,
 ) -> Result<(), String> {
+    let _busy = crate::updater::busy::hold(crate::updater::busy::BusyReason::ModelDownload);
     // Check if model is already being downloaded
     {
         let downloading = DOWNLOADING_MODELS.read().await;

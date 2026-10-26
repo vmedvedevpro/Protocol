@@ -37,6 +37,9 @@ import { CHROME_BOOT_SCRIPT } from '@/lib/window-chrome'
 import { RecordingPill } from '@/components/recording/RecordingPill'
 import { GroupEditorHost } from '@/components/groups/GroupEditor'
 import { RecordingNotice } from '@/components/RecordingNotice'
+import { UpdaterProvider } from '@/contexts/UpdaterContext'
+import { UpdateToasts } from '@/components/updater/UpdateToasts'
+import { UpdaterActivityReporter } from '@/components/updater/UpdaterActivityReporter'
 
 // Development only: in a plain browser (no Tauri bridge) serve sample data so
 // screens can be reviewed at http://localhost:3118. Stripped from production.
@@ -247,6 +250,19 @@ export default function RootLayout({
     }).then(unlisten => { if (disposed) unlisten(); else stop = unlisten; });
     return () => { disposed = true; stop?.(); };
   }, []);
+
+  // The tray's Settings and update items. Navigating with the router keeps the
+  // page alive: a reload would drop a meeting that is still being saved and the
+  // queued post-call jobs.
+  useEffect(() => {
+    if (isMinibar) return;
+    let disposed = false;
+    let stop: UnlistenFn | undefined;
+    void listen<string>('tray-navigate', event => {
+      router.push(event.payload);
+    }).then(unlisten => { if (disposed) unlisten(); else stop = unlisten; });
+    return () => { disposed = true; stop?.(); };
+  }, [isMinibar, router]);
 
   useEffect(() => {
     if (process.env.NODE_ENV === 'production') {
@@ -521,8 +537,10 @@ export default function RootLayout({
                       <TooltipProvider>
                         <AppTooltipGuard />
                         <RecordingPostProcessingProvider>
-                          <>
+                          <UpdaterProvider>
                             <CudaReconfigurationNotice onboardingCompleted={onboardingCompleted} />
+                            <UpdaterActivityReporter />
+                            {onboardingCompleted && !showOnboarding && <UpdateToasts />}
                             <ImportDialogProvider onOpen={handleOpenImportDialog}>
                               {onboardingCompleted && !showOnboarding && <GlobalSearchDialog />}
                               {onboardingCompleted && !showOnboarding && <RouteWarmup />}
@@ -556,7 +574,7 @@ export default function RootLayout({
                                 />
                               )}
                             </ImportDialogProvider>
-                          </>
+                          </UpdaterProvider>
                         </RecordingPostProcessingProvider>
                       </TooltipProvider>
                     </SidebarProvider>

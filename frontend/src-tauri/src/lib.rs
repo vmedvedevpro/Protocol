@@ -61,6 +61,7 @@ pub mod paths;
 pub mod state;
 pub mod summary;
 pub mod tray;
+pub mod updater;
 pub mod utils;
 pub mod whisper_engine;
 
@@ -390,6 +391,7 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(Arc::new(RwLock::new(
             None::<notifications::manager::NotificationManager<tauri::Wry>>,
         )) as NotificationManagerState<tauri::Wry>)
@@ -406,6 +408,10 @@ pub fn run() {
             if let Err(e) = tray::create_tray(_app.handle()) {
                 log::error!("Failed to create system tray: {}", e);
             }
+
+            // In-app updates: restores a downloaded update, then checks daily
+            // while automatic checks are on (src/updater/).
+            updater::init(_app.handle());
 
             // Initialize notification system with proper defaults
             log::info!("Initializing notification system...");
@@ -756,6 +762,13 @@ pub fn run() {
             audio::import::validate_audio_file_command,
             audio::import::start_import_audio_command,
             audio::import::cancel_import_command,
+            // In-app updates
+            updater::commands::updater_get_status,
+            updater::commands::updater_check_now,
+            updater::commands::updater_download_now,
+            updater::commands::updater_install_now,
+            updater::commands::updater_set_auto_check,
+            updater::commands::updater_set_ui_activity,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
@@ -764,6 +777,16 @@ pub fn run() {
                 #[cfg(target_os = "macos")]
                 tauri::RunEvent::Reopen { .. } => {
                     tray::focus_main_window(_app_handle);
+                }
+                // ⌘Q and Dock Quit (no exit code) install a downloaded update
+                // first, like tray Quit. Programmatic exits and restarts carry
+                // a code and pass through.
+                #[cfg(target_os = "macos")]
+                tauri::RunEvent::ExitRequested { code: None, api, .. }
+                    if !updater::is_quitting() && updater::installs_on_quit(_app_handle) =>
+                {
+                    api.prevent_exit();
+                    updater::quit_app(_app_handle);
                 }
                 tauri::RunEvent::Exit => {
                     log::info!("Application exiting, cleaning up resources...");

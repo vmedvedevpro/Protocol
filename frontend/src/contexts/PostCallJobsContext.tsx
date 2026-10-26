@@ -1,7 +1,8 @@
 'use client';
 
-import { createContext, useCallback, useContext, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { PostCallProcessingWorker } from '@/components/MeetingDetails/PostCallProcessingWorker';
+import { markUiActivity } from '@/lib/updater';
 
 export interface PostCallView {
   meetingId: string;
@@ -43,6 +44,12 @@ export function PostCallJobsProvider({ children }: { children: React.ReactNode }
     };
   }, []);
   const job = queue[0];
+  // Between its native steps the pipeline is visible only here (updater busy lease).
+  const processing = queue.length > 0;
+  useEffect(() => {
+    markUiActivity('postCall', processing);
+    return () => markUiActivity('postCall', false);
+  }, [processing]);
   return <Context.Provider value={{ attach }}>
     {children}
     {job && <PostCallProcessingWorker key={`post-call-job:${job.meetingId}`}

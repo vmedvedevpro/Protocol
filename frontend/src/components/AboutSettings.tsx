@@ -4,10 +4,12 @@ import { useEffect, useState } from "react"
 import Image from "next/image"
 import { invoke } from "@tauri-apps/api/core"
 import { Github, Shield, Cpu, Heart } from "lucide-react"
+import { UpdateSettings } from "@/components/updater/UpdateSettings"
 
 /**
- * About panel for Protocol. Shows version, a short description,
- * and links to the source and privacy policy. Purely informational.
+ * About panel for Protocol. Shows version, a short description, the updates
+ * block (status, manual check, the automatic-check switch), and links to the
+ * source and privacy policy.
  */
 export function AboutSettings() {
   const [version, setVersion] = useState('0.0.1');
@@ -47,7 +49,9 @@ export function AboutSettings() {
         <p className="mt-4 text-sm text-af-text-2 leading-relaxed">
           Records, transcribes and summarizes your meetings on your own machine, with GPU
           acceleration and speaker labels. Cloud models are used only when you configure them
-          with your own key. No account, no telemetry, no background update checks.
+          with your own key. No account, no telemetry. Protocol checks GitHub for new releases
+          once a day and downloads one only when you click Download; you can turn the check off
+          below.
         </p>
       </div>
 
@@ -61,7 +65,7 @@ export function AboutSettings() {
         <div className="rounded-2xl border border-af-border bg-af-panel-2/40 p-4">
           <Shield className="w-5 h-5 text-af-success mb-2" />
           <div className="text-sm font-medium text-af-text">Private</div>
-          <div className="text-xs text-af-text-3">No telemetry, nothing leaves your PC</div>
+          <div className="text-xs text-af-text-3">No telemetry; your meetings stay on your PC</div>
         </div>
         <div className="rounded-2xl border border-af-border bg-af-panel-2/40 p-4">
           <Heart className="w-5 h-5 text-pink-500 mb-2" />
@@ -69,6 +73,8 @@ export function AboutSettings() {
           <div className="text-xs text-af-text-3">MIT licensed, no account</div>
         </div>
       </div>
+
+      <UpdateSettings />
 
       {/* Links */}
       <div className="rounded-2xl border border-af-border bg-af-panel-2/40 p-5 space-y-3">
