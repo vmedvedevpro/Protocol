@@ -141,7 +141,7 @@
     },
     "plugins": {
         "updater": {
-            "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDhBMjIyM0YyMUE3OEEzOEEKUldTS28zZ2E4aU1paWxodjB3RHFBcW1acHRvMVlVRndwZjYvM0RCcE5wcElqSXZMVVQzUkswbWYK",
+            "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDE0MDJGMzVCRkU3OUU2QwpSV1JzbnVlL05TOUFBY0Ywc1RoY3F4S3dkcVBYVHpZVzNITDVWR0t4ZlRJaWhRSHhVOWpWRDFJego=",
             "endpoints": [
                 "https://github.com/vmedvedevpro/Protocol/releases/latest/download/latest.json"
             ],
