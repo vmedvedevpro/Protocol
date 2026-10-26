@@ -12,10 +12,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/vmedvedevpro/Protocol/releases/latest/download/protocol-windows-x64-setup.exe"><strong>Download for Windows</strong></a>
-  · <a href="https://github.com/vmedvedevpro/Protocol/releases/latest/download/protocol-macos-arm64.dmg">macOS (Apple Silicon)</a>
-  · <a href="https://github.com/vmedvedevpro/Protocol/releases/latest">Linux (experimental)</a>
-  · <a href="https://github.com/vmedvedevpro/Protocol/releases/latest">Release notes</a>
+  <a href="https://github.com/vmedvedevpro/Protocol/releases/latest"><strong>Download the latest release</strong></a>
+  for Windows, macOS (Apple Silicon), or Linux (experimental)
 </p>
 
 Free and open source: no account, no subscription, no analytics. Protocol is
@@ -73,16 +71,10 @@ Everything Meetily – Actually Free offers is here, plus:
 
 Download the file for your system from the
 [latest release](https://github.com/vmedvedevpro/Protocol/releases/latest):
-
-| System | Download |
-| --- | --- |
-| Windows 10/11 x64 | [protocol-windows-x64-setup.exe](https://github.com/vmedvedevpro/Protocol/releases/latest/download/protocol-windows-x64-setup.exe) |
-| macOS 14.2+ on Apple Silicon | [protocol-macos-arm64.dmg](https://github.com/vmedvedevpro/Protocol/releases/latest/download/protocol-macos-arm64.dmg) |
-| Linux x64 (experimental) | [protocol-linux-x86_64.AppImage](https://github.com/vmedvedevpro/Protocol/releases/latest/download/protocol-linux-x86_64.AppImage), or `protocol_<version>_amd64.deb` from the release page |
+Windows 10/11 x64, macOS 14.2+ on Apple Silicon, or Linux x64 (experimental).
+The release page also has the checksums and step-by-step install notes.
 
 The builds are not code-signed yet, so your system warns you the first time.
-The [release notes](https://github.com/vmedvedevpro/Protocol/releases/latest)
-have the details and the checksums.
 
 - **Windows:** if SmartScreen says "Windows protected your PC", click
   **More info**, then **Run anyway**. Setup installs for your user only, with
