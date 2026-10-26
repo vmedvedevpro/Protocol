@@ -1,14 +1,9 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { readdirSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
-import { formatLcov, mergeLcov, summarizeLcov } from './lcov.mjs';
 
 const frontend = dirname(dirname(fileURLToPath(import.meta.url)));
-// --coverage: every process writes coverage/files/<n>/lcov.info, merged into
-// coverage/lcov.info at the end (pr-checks.yml uploads it).
-const coverage = process.argv.includes('--coverage');
-const coverageDir = join(frontend, 'coverage');
 
 function testFiles(directory) {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
@@ -28,15 +23,10 @@ if (files.length === 0) throw new Error('No frontend tests found');
 // Bun shares global properties and module mocks within one test process.
 // A fresh process per file prevents browser/Tauri fixtures leaking into peers.
 const failed = [];
-if (coverage) rmSync(coverageDir, { recursive: true, force: true });
-for (const [index, file] of files.entries()) {
+for (const file of files) {
   const label = relative(frontend, file);
   console.log(`Running ${label}`);
-  const args = ['test', file];
-  if (coverage) {
-    args.push('--coverage', '--coverage-reporter=lcov', `--coverage-dir=${join(coverageDir, 'files', String(index))}`);
-  }
-  const result = spawnSync(process.execPath, args, {
+  const result = spawnSync(process.execPath, ['test', file], {
     cwd: frontend,
     stdio: 'inherit',
     env: process.env,
@@ -47,27 +37,8 @@ for (const [index, file] of files.entries()) {
   }
 }
 
-if (coverage) writeCoverage();
-
 console.log(`${files.length - failed.length}/${files.length} isolated test files passed`);
 if (failed.length) {
   console.error(`Failed files:\n${failed.join('\n')}`);
   process.exitCode = 1;
-}
-
-function writeCoverage() {
-  const reports = files
-    .map((_, index) => join(coverageDir, 'files', String(index), 'lcov.info'))
-    .filter((path) => existsSync(path))
-    .map((path) => readFileSync(path, 'utf8'));
-  // Bun also reports the test files and the scripts they load; only the app counts.
-  const merged = mergeLcov(reports, (path) => path.startsWith('src/'));
-  mkdirSync(coverageDir, { recursive: true });
-  writeFileSync(join(coverageDir, 'lcov.info'), formatLcov(merged));
-  // Bun lists only the files a test loads, so the total leaves out untested
-  // modules nothing imports.
-  const { files: count, lines, hit, percent } = summarizeLcov(merged);
-  const summary = `Frontend line coverage: ${percent.toFixed(1)}% (${hit} of ${lines} lines in ${count} files loaded by the tests)`;
-  console.log(summary);
-  if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${summary}\n`);
 }
