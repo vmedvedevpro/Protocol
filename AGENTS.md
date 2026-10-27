@@ -39,11 +39,11 @@ planned work is tracked in [GitHub issues](https://github.com/vmedvedevpro/Proto
   do. Anywhere else, write an Actually Free one as `upstream #42` or link it.
 - Put new features in new modules and keep edits to upstream files minimal. Keep
   the copyright notices of MIT code ported from other projects.
-- The in-app updater (`src-tauri/src/updater/`) reads only this repository's
+- The in-app updater (`src-tauri/src/updater/`) checks this repository's
   GitHub releases, downloads only when the user clicks Download, and installs
   only on the user's click or on quit, never while `updater::busy` reports
-  work. Do not add other network calls to it; the release feed and signing
-  rules are in [docs/AUTO_UPDATE.md](docs/AUTO_UPDATE.md).
+  work. The release feed and signing rules are in
+  [docs/AUTO_UPDATE.md](docs/AUTO_UPDATE.md).
 - A new long-running operation (recording-adjacent work, inference, a model
   download, an import) registers with the busy registry: a getter its owner
   already keeps, or `updater::busy::hold(BusyReason::…)` for the operation's
