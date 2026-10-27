@@ -242,8 +242,9 @@ downloads happen only on a click. `PRIVACY_POLICY.md` says the same.
 - Frontend: `frontend/tests/model-catalog/` (the card's offer, progress, cancel
   and failure; the list key; the About block; Whisper names, tiers, order and
   re-listing; sizes asked for on mount, shown when they arrive, never guessed;
-  `formatModelSize`) and `tests/updater/panel.test.tsx` (the switch stays
-  where app updates are off).
+  `formatModelSize`; an installed Parakeet v2 card with its update, not
+  selectable) and `tests/updater/panel.test.tsx` (the switch stays where app
+  updates are off).
 - Ignored: `every_built_in_entry_resolves_on_hugging_face` (network).
 
 ## Limits
@@ -259,6 +260,9 @@ downloads happen only on a click. `PRIVACY_POLICY.md` says the same.
   the swap then fails, is rolled back and says to retry.
 - The test load proves the model loads (Whisper on the CPU, one llama token),
   not that it transcribes or summarises well.
-- The UI still hides Parakeet v2 entirely (`isVisibleParakeetModel`, upstream).
+- Parakeet v2 (`listed: false`) is not offered for download or in the model
+  pickers (`isVisibleParakeetModel`, upstream). An installed copy keeps its
+  card in Settings › Transcription, so its update and Delete stay reachable,
+  but the card does not select it.
 - A deleted model's update entry stays in the status until the next check; its
   card no longer shows it.

@@ -376,7 +376,11 @@ export function ParakeetModelManager({
     );
   }
 
-  const visibleModels = models.filter(m => isVisibleParakeetModel(m.name));
+  // Parakeet v2 is not offered any more (`listed: false`), so the native list
+  // has it only while it is on disk. Its card stays so it can be updated or
+  // deleted, but it is not offered as a choice.
+  const visibleModels = models.filter(m => isVisibleParakeetModel(m.name) || m.status !== 'Missing');
+  const selectable = (model: ParakeetModelInfo) => model.status === 'Available' && isVisibleParakeetModel(model.name);
   // The catalog marks the recommended model.
   const recommendedModel = visibleModels.find(m => m.recommended);
   const otherModels = visibleModels.filter(m => m !== recommendedModel);
@@ -415,7 +419,7 @@ export function ParakeetModelManager({
               isSelected={selectedModel === model.name}
               isRecommended={false}
               onSelect={() => {
-                if (model.status === 'Available') {
+                if (selectable(model)) {
                   selectModel(model.name);
                 }
               }}
