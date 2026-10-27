@@ -33,9 +33,11 @@ Everything Meetily – Actually Free offers is here, plus:
   downloads only when you click **Download**, its signature is verified, and it
   installs when you click **Restart and update** or quit the app, never during
   a recording or while a meeting is being processed.
-- **Verified models.** Whisper, Parakeet, the summary models, and the speaker
-  models are downloaded from pinned sources, and every file is checked against
-  a known SHA-256 before Protocol loads it.
+- **Verified models.** Whisper, Parakeet, and the summary models come from a
+  model list in this repository, so models are added and updated without an
+  app release; the speaker models are pinned in each release. Downloads come
+  from Hugging Face at a fixed commit, and every file is checked against its
+  SHA-256 before Protocol loads it.
 - **A lean, locked-down app.** No analytics code, no internal commands the app
   does not use, and no setting that starts an executable of your choice.
 - **One small Windows installer.** About 118 MB. It picks the Vulkan GPU build
@@ -92,9 +94,10 @@ After that, Protocol offers new versions itself; see
 Recordings, transcripts, and settings stay on your computer. Nothing is sent
 anywhere unless you choose a cloud provider for summaries, which then
 processes that content under its own terms. Once a day, unless you turn it
-off, Protocol asks GitHub whether a newer release exists; the request carries
+off, Protocol asks GitHub whether a newer release or model list exists and
+Hugging Face whether the models you downloaded changed; the requests carry
 nothing about you or your meetings. Models, including the repair download of
-the bundled speaker models, are downloaded from Hugging Face at pinned commits.
+the bundled speaker models, are downloaded from Hugging Face.
 See [PRIVACY_POLICY.md](PRIVACY_POLICY.md).
 
 <details>

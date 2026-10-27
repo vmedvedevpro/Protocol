@@ -42,8 +42,9 @@ Data leaves your machine only when **you** choose an action that sends it:
   models, contact Hugging Face (`huggingface.co` and the Hugging Face download
   servers it redirects to). These requests carry no meeting content.
 - **Update checks** (automatic unless you turn them off) read release
-  information from GitHub, and an update downloads only when you click
-  **Download**. They upload nothing.
+  information and the model list from GitHub and the versions of your
+  downloaded models from Hugging Face, and an update downloads only when you
+  click **Download** or **Update**. They upload nothing.
 
 If Protocol detects that the previous session ended unexpectedly, it can create
 a redacted crash-report ZIP at your request. The report excludes recordings,
