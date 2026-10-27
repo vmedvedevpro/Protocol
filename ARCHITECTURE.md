@@ -626,9 +626,11 @@ is MIT (Copyright (c) 2023 CNRS, full text included), and the WeSpeaker
 ResNet34-LM weights and `xvec_transform.npz` are CC BY 4.0. The file names each
 source, its authors and the ONNX conversion. The Windows release verifier checks
 that the payload's `resources/diarization/` holds exactly these files and the
-notices, byte for byte. When a bundled model changes, update this file and
-the Settings credit line together. The other models are downloaded by the user
-from the sources above and are not redistributed, so they need no notices.
+notices, byte for byte; the macOS leg checks the app bundle and the Linux leg
+both the deb and the AppImage for the same five files. When a bundled model
+changes, update this file and the Settings credit line together. The other
+models are downloaded by the user from the sources above and are not
+redistributed, so they need no notices.
 
 Integrity checks:
 
