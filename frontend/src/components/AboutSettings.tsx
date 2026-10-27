@@ -50,9 +50,10 @@ export function AboutSettings() {
         <p className="mt-4 text-sm text-af-text-2 leading-relaxed">
           Records, transcribes and summarizes your meetings on your own machine, with GPU
           acceleration and speaker labels. Cloud models are used only when you configure them
-          with your own key. No account, no telemetry. Protocol checks GitHub for new releases
-          once a day and downloads one only when you click Download; you can turn the check off
-          below.
+          with your own key. No account, no telemetry. Once a day Protocol asks GitHub whether a
+          newer release or model list exists, and Hugging Face whether your downloaded models
+          changed; it downloads an update only when you click Download or Update. You can turn
+          this check off below; lists of models still ask Hugging Face for their download sizes.
         </p>
       </div>
 
