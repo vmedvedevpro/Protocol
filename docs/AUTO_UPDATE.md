@@ -55,7 +55,10 @@ onboarding overview, `PRIVACY_POLICY.md`, `README.md`, and `CHANGELOG.md`.
   checks. A failed manual check does not count, and no retry comes earlier
   than 24 hours after the last completed check. Future timestamps (clock moved
   back) are clamped. No automatic check before
-  onboarding completes. A manual check always runs and joins a check started
+  onboarding completes. The same tick and switch also run the daily model
+  list and model update check, with its own history, also where app updates
+  are off; the switch is shown there too
+  ([MODEL_CATALOG.md](MODEL_CATALOG.md)). A manual check always runs and joins a check started
   less than 5 seconds earlier. The switch is in Settings › About and is stored
   in the plugin store `updater.json` (`autoCheck`, `lastCheckedAt`,
   `lastAttemptAt`, `failures`).
