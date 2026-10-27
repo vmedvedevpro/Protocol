@@ -28,7 +28,7 @@ use crate::updater::prefs::Prefs;
 use crate::updater::{now_ms, schedule};
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -138,13 +138,36 @@ pub struct Status {
     pub sizes_version: u64,
 }
 
+/// A model, as `(engine, id)`.
+type Key = (Engine, String);
+
+/// When each model's last update ended, numbered in the order updates end,
+/// so a check can tell which ended while it ran.
+#[derive(Default)]
+struct Ended {
+    count: u64,
+    by_model: HashMap<Key, u64>,
+}
+
+/// What a check found for the installed models, before it is stored.
+#[derive(Default)]
+struct Checked {
+    found: Vec<Available>,
+    failures: Vec<UpdateFailure>,
+    /// Not checked: being updated, or Hugging Face could not be asked.
+    unchecked: HashSet<Key>,
+    /// Hugging Face answered with an error; the model's offer stays as it was.
+    failed: HashSet<Key>,
+}
+
 pub struct CatalogState {
     dir: PathBuf,
     history: Mutex<History>,
     checking: AtomicBool,
     /// One check at a time; a second one waits and then runs.
     running: tokio::sync::Mutex<()>,
-    operations: Mutex<HashMap<(Engine, String), Operation>>,
+    operations: Mutex<HashMap<Key, Operation>>,
+    ended: Mutex<Ended>,
 }
 
 impl CatalogState {
@@ -152,8 +175,51 @@ impl CatalogState {
         self.history.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
-    fn operations(&self) -> std::sync::MutexGuard<'_, HashMap<(Engine, String), Operation>> {
+    fn operations(&self) -> std::sync::MutexGuard<'_, HashMap<Key, Operation>> {
         self.operations.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn ended(&self) -> std::sync::MutexGuard<'_, Ended> {
+        self.ended.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// The end of a model's update. Recorded before its operation is removed,
+    /// so a check storing its results always sees one or the other.
+    fn update_ended(&self, key: &Key) {
+        {
+            let mut ended = self.ended();
+            ended.count += 1;
+            let count = ended.count;
+            ended.by_model.insert(key.clone(), count);
+        }
+        self.operations().remove(key);
+    }
+
+    /// Stores what a check that started at `started` (`Ended::count`) found.
+    /// A model it has no new answer for, or whose update ran or ended while
+    /// it ran, keeps what the history holds for it now: an update that ended
+    /// has already changed that (a finished one forgot its offer), and the
+    /// check's view of it is older.
+    fn store_check(&self, started: u64, checked: Checked) {
+        let Checked { found, failures, unchecked, failed } = checked;
+        // The only place holding more than one of these locks; always in this order.
+        let ended = self.ended();
+        let operations = self.operations();
+        let mut history = self.history();
+        let current = |engine: Engine, id: &str| {
+            let key = (engine, id.to_string());
+            unchecked.contains(&key)
+                || operations.contains_key(&key)
+                || ended.by_model.get(&key).is_some_and(|at| *at > started)
+        };
+        let offer_stays = |engine: Engine, id: &str| current(engine, id) || failed.contains(&(engine, id.to_string()));
+        let mut updates: Vec<Available> = found.into_iter().filter(|update| !offer_stays(update.engine, &update.id)).collect();
+        updates.extend(history.updates.iter().filter(|update| offer_stays(update.engine, &update.id)).cloned());
+        let mut check_failures: Vec<UpdateFailure> =
+            failures.into_iter().filter(|failure| !current(failure.engine, &failure.id)).collect();
+        check_failures.extend(history.check_failures.iter().filter(|failure| current(failure.engine, &failure.id)).cloned());
+        history.updates = updates;
+        history.check_failures = check_failures;
     }
 
     pub fn status(&self) -> Status {
@@ -216,6 +282,7 @@ pub fn init<R: Runtime>(app: &AppHandle<R>) {
         checking: AtomicBool::new(false),
         running: tokio::sync::Mutex::new(()),
         operations: Mutex::new(HashMap::new()),
+        ended: Mutex::new(Ended::default()),
     });
 }
 
@@ -261,42 +328,30 @@ fn installed_units(models_root: &Path) -> Vec<(Entry, Unit)> {
 /// answer. Fails only when Hugging Face could not be asked.
 async fn check_installed(state: &CatalogState, models_root: &Path, hub: &str) -> Result<(), String> {
     let client = huggingface::client();
-    let (previous, previous_failures) = {
-        let history = state.history();
-        (history.updates.clone(), history.check_failures.clone())
-    };
-    let mut found = Vec::new();
-    let mut failures = Vec::new();
+    let started = state.ended().count;
+    let mut checked = Checked::default();
     let mut unreached = Vec::new();
     for (entry, unit) in installed_units(models_root) {
-        let mine = |engine: Engine, id: &str| engine == entry.engine && id == entry.id;
-        let keep = |found: &mut Vec<Available>, failures: &mut Vec<UpdateFailure>| {
-            found.extend(previous.iter().filter(|update| mine(update.engine, &update.id)).cloned());
-            failures.extend(previous_failures.iter().filter(|failure| mine(failure.engine, &failure.id)).cloned());
-        };
-        if state.operations().contains_key(&(entry.engine, entry.id.clone())) {
-            keep(&mut found, &mut failures);
+        let key = (entry.engine, entry.id.clone());
+        if state.operations().contains_key(&key) {
+            checked.unchecked.insert(key);
             continue;
         }
         match updates::check(&client, hub, &entry, &unit).await {
-            Ok(available) => found.extend(available),
+            Ok(available) => checked.found.extend(available),
             Err(error) if error.downcast_ref::<HubError>().is_some_and(HubError::is_transient) => {
                 log::warn!("[model catalog] could not check {} for updates: {error}", entry.id);
-                keep(&mut found, &mut failures);
+                checked.unchecked.insert(key);
                 unreached.push(format!("{}: {error}", entry.name));
             }
             Err(error) => {
                 log::warn!("[model catalog] checking {} for updates failed: {error}", entry.id);
-                found.extend(previous.iter().filter(|update| mine(update.engine, &update.id)).cloned());
-                failures.push(UpdateFailure { engine: entry.engine, id: entry.id.clone(), message: error.to_string() });
+                checked.failed.insert(key);
+                checked.failures.push(UpdateFailure { engine: entry.engine, id: entry.id.clone(), message: error.to_string() });
             }
         }
     }
-    {
-        let mut history = state.history();
-        history.updates = found;
-        history.check_failures = failures;
-    }
+    state.store_check(started, checked);
     match unreached.len() {
         0 => Ok(()),
         1 => Err(unreached.remove(0)),
@@ -500,7 +555,7 @@ pub fn start_update<R: Runtime>(app: &AppHandle<R>, engine: Engine, id: &str) ->
         let hooks = hooks(app.clone(), &entry);
         let result = updates::run(&api, &files, huggingface::HUB, &entry, &unit, &cancel, hooks).await;
         let Some(state) = app.try_state::<CatalogState>() else { return };
-        state.operations().remove(&(entry.engine, entry.id.clone()));
+        state.update_ended(&(entry.engine, entry.id.clone()));
         match result {
             Ok(resolved) => {
                 log::info!("[model update] {} is now at {}", entry.id, resolved.commit);
@@ -547,6 +602,7 @@ mod tests {
             checking: AtomicBool::new(false),
             running: tokio::sync::Mutex::new(()),
             operations: Mutex::new(HashMap::new()),
+            ended: Mutex::new(Ended::default()),
         }
     }
 
@@ -640,6 +696,62 @@ mod tests {
         let error = check_installed(&state, dir.path(), "http://127.0.0.1:9").await.unwrap_err();
         assert!(error.contains("Couldn't reach Hugging Face") && error.contains("(and 1 more)"), "{error}");
         assert_eq!(*state.history(), history);
+    }
+
+    #[test]
+    fn a_check_does_not_bring_back_an_update_that_ended_while_it_ran() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = state(dir.path());
+        let key: Key = (Engine::Whisper, "tiny".to_string());
+        let offer = Available {
+            engine: Engine::Whisper,
+            id: "tiny".to_string(),
+            from_commit: "a".repeat(40),
+            to_commit: "b".repeat(40),
+            download_bytes: 1,
+        };
+        let start_update = || {
+            let operation = Operation {
+                engine: Engine::Whisper,
+                id: "tiny".to_string(),
+                phase: Phase::Downloading,
+                done_bytes: 0,
+                total_bytes: 0,
+                cancel: CancellationToken::new(),
+            };
+            state.operations().insert(key.clone(), operation);
+        };
+        let finish_update = || {
+            state.update_ended(&key);
+            state.history().forget(Engine::Whisper, "tiny");
+        };
+        let only_unchecked = || Checked { unchecked: HashSet::from([key.clone()]), ..Default::default() };
+
+        // Being updated when the check started, so not checked; done before
+        // the check stored its results.
+        state.history().updates = vec![offer.clone()];
+        start_update();
+        let started = state.ended().count;
+        finish_update();
+        state.store_check(started, only_unchecked());
+        assert!(state.history().updates.is_empty());
+
+        // Checked, then updated while the rest of the check ran.
+        state.history().updates = vec![offer.clone()];
+        let started = state.ended().count;
+        start_update();
+        finish_update();
+        state.store_check(started, Checked { found: vec![offer.clone()], ..Default::default() });
+        assert!(state.history().updates.is_empty());
+
+        // No update ended meanwhile: what the check found is stored, and a
+        // model it did not check keeps its offer.
+        let started = state.ended().count;
+        state.store_check(started, Checked { found: vec![offer.clone()], ..Default::default() });
+        assert_eq!(state.history().updates, [offer.clone()]);
+        let started = state.ended().count;
+        state.store_check(started, only_unchecked());
+        assert_eq!(state.history().updates, [offer]);
     }
 
     #[test]

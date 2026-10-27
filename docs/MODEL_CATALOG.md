@@ -175,7 +175,9 @@ complete check is followed by the next one a day later. Only a check that could
 not ask (no connection, a rate limit, a 5xx answer; `HubError::is_transient`,
 `FetchError::transient`) is retried sooner, with the updater's 1/2/4/6 h
 backoff. A model that was not checked (Hugging Face could not be asked, or the
-model is being updated) keeps what the last check found.
+model is being updated) keeps what the last check found. A check stores its
+results against the status as it is when the check ends, so an update that
+ended meanwhile is not offered again (`CatalogState::store_check`).
 
 **Update** (`model_update_start`, the card's **Update**), in
 `updates::run`:
