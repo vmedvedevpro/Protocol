@@ -1221,6 +1221,7 @@ mod tests {
 
     #[tokio::test]
     async fn scan_marks_partial_model_incomplete_and_exact_model_available() {
+        let _catalog = crate::model_catalog::testing::built_in_catalog();
         let temp = tempfile::tempdir().expect("tempdir");
         let manager = ModelManager::new_with_models_dir(Some(temp.path().to_path_buf()))
             .expect("manager");
@@ -1283,6 +1284,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_download_reports_100_percent_only_after_the_file_matched() {
+        let _catalog = crate::model_catalog::testing::built_in_catalog();
         let temp = tempfile::tempdir().expect("tempdir");
         let manager = ModelManager::new_with_models_dir(Some(temp.path().to_path_buf())).unwrap();
         manager.init().await.unwrap();
@@ -1300,6 +1302,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_download_that_fails_its_check_never_reports_100_percent() {
+        let _catalog = crate::model_catalog::testing::built_in_catalog();
         let temp = tempfile::tempdir().expect("tempdir");
         let manager = ModelManager::new_with_models_dir(Some(temp.path().to_path_buf())).unwrap();
         manager.init().await.unwrap();
@@ -1366,6 +1369,7 @@ mod tests {
     /// so the Error a failed download leaves must reach Settings.
     #[tokio::test]
     async fn the_model_list_serializes_after_a_failed_download() {
+        let _catalog = crate::model_catalog::testing::built_in_catalog();
         let temp = tempfile::tempdir().expect("tempdir");
         let manager = ModelManager::new_with_models_dir(Some(temp.path().to_path_buf())).unwrap();
         manager.init().await.unwrap();
@@ -1385,6 +1389,7 @@ mod tests {
     /// with no readiness check; it must leave a download's file alone.
     #[tokio::test]
     async fn the_live_assistant_keeps_a_partial_or_downloading_model() {
+        let _catalog = crate::model_catalog::testing::built_in_catalog();
         let temp = tempfile::tempdir().expect("tempdir");
         let data_dir = temp.path().to_path_buf();
         let models_dir = super::super::models::get_models_directory(&data_dir);
@@ -1410,6 +1415,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_full_size_model_that_fails_its_hash_is_deleted_and_offered_again() {
+        let _catalog = crate::model_catalog::testing::built_in_catalog();
         let temp = tempfile::tempdir().expect("tempdir");
         let manager = ModelManager::new_with_models_dir(Some(temp.path().to_path_buf())).unwrap();
         let model = get_model_by_name("qwen3.5:2b").expect("model");
@@ -1442,6 +1448,7 @@ mod tests {
 
     #[tokio::test]
     async fn cancel_stops_hashing_a_kept_model_at_once() {
+        let _catalog = crate::model_catalog::testing::built_in_catalog();
         let temp = tempfile::tempdir().expect("tempdir");
         let manager = Arc::new(ModelManager::new_with_models_dir(Some(temp.path().to_path_buf())).unwrap());
         manager.init().await.unwrap();

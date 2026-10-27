@@ -9,8 +9,9 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-/// Tests that swap the catalog in use hold this, so they do not see each
-/// other's catalogs.
+/// Tests that swap or read the catalog in use hold this ([`use_catalog`],
+/// [`built_in_catalog`]), so none sees another's catalog when `cargo test`
+/// runs them on parallel threads.
 pub static ACTIVE_LOCK: Mutex<()> = Mutex::new(());
 
 /// Uses `catalog` until the guard is dropped, then the built-in one again.
@@ -24,6 +25,13 @@ pub fn use_catalog(catalog: Catalog) -> impl Drop {
     let guard = ACTIVE_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     set_active(Arc::new(catalog), Source::Remote);
     Restore(guard)
+}
+
+/// Keeps the built-in catalog in use for a test that reads the catalog in use
+/// (`entries`, `entry`, an engine's model list or download), so a test that
+/// swaps it on another thread cannot change what this one sees.
+pub fn built_in_catalog() -> impl Drop {
+    use_catalog((*built_in()).clone())
 }
 
 /// A valid entry of `engine` named `id` in `repo`, with the engine's files.

@@ -322,6 +322,7 @@ mod tests {
 
     #[test]
     fn every_model_has_its_0_3_0_size_and_order() {
+        let _catalog = crate::model_catalog::testing::built_in_catalog();
         let names: Vec<String> = get_available_models().into_iter().map(|model| model.name).collect();
         assert_eq!(names, ["qwen3.5:2b", "qwen3.5:4b", "gemma3:4b", "gemma3:1b"]);
         for name in &names {
@@ -336,6 +337,7 @@ mod tests {
 
     #[test]
     fn qwen35_models_are_registered_with_expected_metadata() {
+        let _catalog = crate::model_catalog::testing::built_in_catalog();
         let qwen_2b = get_model_by_name("qwen3.5:2b").expect("qwen 2b model should exist");
         assert_eq!(qwen_2b.display_name, "Qwen 3.5 2B (Balanced)");
         assert_eq!(qwen_2b.gguf_file, "Qwen3.5-2B-Q4_K_M.gguf");
@@ -357,6 +359,7 @@ mod tests {
 
     #[test]
     fn gemma_models_use_huggingface_urls_and_gemma3_instruct_sampling() {
+        let _catalog = crate::model_catalog::testing::built_in_catalog();
         let gemma_1b = get_model_by_name("gemma3:1b").expect("gemma 1b model should exist");
         assert_eq!(gemma_1b.gguf_file, "gemma-3-1b-it-Q8_0.gguf");
         // Saved under another name than Hugging Face's.

@@ -416,18 +416,21 @@ mod tests {
 
     #[test]
     fn recommended_summary_model_uses_qwen2b_below_effective_16gb_floor() {
+        let _catalog = crate::model_catalog::testing::built_in_catalog();
         assert_eq!(recommend_summary_model(true, 13), "qwen3.5:2b");
         assert_eq!(recommend_summary_model(false, 13), "qwen3.5:2b");
     }
 
     #[test]
     fn recommended_summary_model_uses_qwen4b_at_effective_16gb_floor() {
+        let _catalog = crate::model_catalog::testing::built_in_catalog();
         assert_eq!(recommend_summary_model(true, 14), "qwen3.5:4b");
         assert_eq!(recommend_summary_model(false, 14), "qwen3.5:4b");
     }
 
     #[test]
     fn available_summary_model_priority_prefers_qwen_over_gemma() {
+        let _catalog = crate::model_catalog::testing::built_in_catalog();
         assert!(summary_model_priority("qwen3.5:4b") > summary_model_priority("qwen3.5:2b"));
         assert!(summary_model_priority("qwen3.5:2b") > summary_model_priority("gemma3:4b"));
         assert!(summary_model_priority("gemma3:4b") > summary_model_priority("gemma3:1b"));

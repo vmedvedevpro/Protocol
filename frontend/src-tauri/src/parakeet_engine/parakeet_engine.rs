@@ -997,6 +997,7 @@ mod tests {
 
     #[tokio::test]
     async fn early_download_failure_releases_ownership() {
+        let _catalog = crate::model_catalog::testing::built_in_catalog();
         let dir = tempfile::tempdir().unwrap();
         let engine = ParakeetEngine::new_with_models_dir(Some(dir.path().to_path_buf())).unwrap();
         assert!(engine.download_model_detailed("not-a-model", None).await.is_err());
@@ -1032,6 +1033,7 @@ mod tests {
 
     #[tokio::test]
     async fn discovery_lists_the_unlisted_v2_only_once_installed() {
+        let _catalog = crate::model_catalog::testing::built_in_catalog();
         let dir = tempfile::tempdir().unwrap();
         let engine = ParakeetEngine::new_with_models_dir(Some(dir.path().to_path_buf())).unwrap();
         let names = |models: Vec<ModelInfo>| models.into_iter().map(|model| model.name).collect::<Vec<_>>();
@@ -1044,6 +1046,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_download_resolves_the_current_commit_and_records_it() {
+        let _catalog = crate::model_catalog::testing::built_in_catalog();
         use crate::model_catalog::testing::Hub;
         const COMMIT: &str = "1111111111111111111111111111111111111111";
         let model = "parakeet-tdt-0.6b-v3-int8";
@@ -1073,6 +1076,7 @@ mod tests {
 
     #[tokio::test]
     async fn load_deletes_a_tampered_file_and_trusts_files_verified_before() {
+        let _catalog = crate::model_catalog::testing::built_in_catalog();
         let temp = tempfile::tempdir().expect("tempdir");
         let model = "parakeet-tdt-0.6b-v2-int8";
         let model_dir = temp.path().join("parakeet").join(model);
@@ -1103,6 +1107,7 @@ mod tests {
 
     #[tokio::test]
     async fn cancel_stops_hashing_a_kept_file_at_once() {
+        let _catalog = crate::model_catalog::testing::built_in_catalog();
         let temp = tempfile::tempdir().expect("tempdir");
         let model = "parakeet-tdt-0.6b-v3-int8";
         let model_dir = temp.path().join("parakeet").join(model);
@@ -1156,6 +1161,7 @@ mod tests {
 
     #[tokio::test]
     async fn v3_validation_requires_exact_published_sizes() {
+        let _catalog = crate::model_catalog::testing::built_in_catalog();
         let temp = tempfile::tempdir().expect("tempdir");
         let model_dir = temp.path().join("parakeet-tdt-0.6b-v3-int8");
         fs::create_dir_all(&model_dir)
@@ -1194,6 +1200,7 @@ mod tests {
 
     #[tokio::test]
     async fn download_published_v3_model() {
+        let _catalog = crate::model_catalog::testing::built_in_catalog();
         if std::env::var_os("PARAKEET_DOWNLOAD_TEST").is_none() {
             return;
         }

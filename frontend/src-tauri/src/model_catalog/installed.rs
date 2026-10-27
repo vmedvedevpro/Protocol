@@ -355,6 +355,7 @@ mod tests {
 
     #[test]
     fn a_0_3_x_install_is_checked_against_the_0_3_0_pins() {
+        let _catalog = crate::model_catalog::testing::built_in_catalog();
         let dir = tempfile::tempdir().unwrap();
         let entry = crate::model_catalog::entry(Engine::Llama, "gemma3:1b").unwrap();
         let file = dir.path().join(&entry.files[0].name);

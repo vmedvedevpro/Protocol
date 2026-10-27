@@ -1348,6 +1348,7 @@ mod tests {
 
     #[tokio::test]
     async fn load_deletes_a_model_that_does_not_match_its_pin() {
+        let _catalog = crate::model_catalog::testing::built_in_catalog();
         let dir = tempfile::tempdir().unwrap();
         let engine = WhisperEngine::new_with_models_dir(Some(dir.path().to_path_buf())).unwrap();
         let pinned = legacy_pin("tiny-q5_1");
@@ -1376,6 +1377,7 @@ mod tests {
     #[cfg(windows)]
     #[tokio::test]
     async fn discovery_does_not_list_a_failed_model_that_could_not_be_deleted() {
+        let _catalog = crate::model_catalog::testing::built_in_catalog();
         use std::os::windows::fs::OpenOptionsExt;
         const FILE_SHARE_READ: u32 = 1;
         let dir = tempfile::tempdir().unwrap();
