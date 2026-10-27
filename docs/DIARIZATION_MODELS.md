@@ -56,6 +56,14 @@ All are float32 tensors; segmentation outputs log-softmax powerset scores (589
 frames per 10 s window). `models.rs` reads the single input and output name of
 each session and checks dtype, rank and the fixed dimensions, so a custom file
 with another interface is refused at load (`a_model_with_another_interface_is_refused_at_load`).
+`xvec_transform.npz` is checked against the embedding the same way: `lda` must be
+[256, n] with n > 0, `mean1` must hold 256 values and `mean2` n, and every array
+must hold exactly the data its header claims, or the transform is refused at load
+as having an unexpected interface. The live path applies it under the `ONLINE`
+mutex, which a misfit file used to poison with an out-of-bounds panic. Tests:
+`the_bundled_xvector_transform_fits_the_embedding`,
+`a_transform_for_another_embedding_size_is_refused_at_load`,
+`xvector_means_of_the_wrong_length_are_refused`, `a_truncated_array_is_refused`.
 The feature front-end (`dsp.rs`) is unchanged.
 
 ## Qualification

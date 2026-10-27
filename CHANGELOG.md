@@ -17,7 +17,9 @@ is inherited from the project Protocol forked from; Protocol did not release it.
   segmentation file matches the original model exactly, where the old one
   differed on about 3 % of frames; the installer grows by 3 MB. Saved voices
   keep working with no re-enrolment. Updating removes the old model files,
-  and custom models in the data folder now need the new file names.
+  and custom models in the data folder now need the new file names; a
+  custom file whose shapes do not fit is refused with an error instead of
+  giving wrong speakers.
 
 ### Fixed
 
