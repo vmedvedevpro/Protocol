@@ -12,7 +12,7 @@ certificate yet).
 | `release.yml` | tag `v*`; manual run and pipeline pull requests as **dry runs** | Validates, runs the checks, builds all three platforms, then creates the draft (tag) or a dry-run artifact |
 | `release-build-windows.yml` | called by `release.yml` | `windows-2022`: CPU + Vulkan installer, native tests, payload check, install/start/uninstall on the runner |
 | `release-build-macos.yml` | called by `release.yml` | `macos-15`: Apple Silicon DMG and updater bundle, native tests, bundle checks, two launches |
-| `release-build-linux.yml` | called by `release.yml` | `ubuntu-22.04`: experimental AppImage and deb, start under Xvfb; native tests do not block yet |
+| `release-build-linux.yml` | called by `release.yml` | `ubuntu-22.04`: experimental AppImage and deb, package checks, start under Xvfb; native tests do not block yet |
 | `release-published.yml` | release published | Downloads the public assets anonymously and checks checksums, `latest.json`, signatures and `/releases/latest` |
 
 Everything a job decides lives in tested scripts under `scripts/release/`

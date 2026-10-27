@@ -339,12 +339,14 @@ onnxruntime and risk duplicate-symbol failures at link time.
 | File | Role |
 |---|---|
 | `dsp.rs` | WAV reader + Kaldi-compatible 80-dim log-mel fbank (Povey window, pre-emphasis 0.97, HTK mel, per-utterance CMN) |
-| `models.rs` | pyannote `segmentation-3.0` (7-class powerset) + WeSpeaker ResNet34 embeddings + VBx LDA transform; includes a minimal `.npz`/`.npy` reader |
+| `models.rs` | pyannote `segmentation-3.0` (7-class powerset) + WeSpeaker ResNet34 embeddings + VBx LDA transform; reads each ONNX file's input/output names and refuses another interface at load; includes a minimal `.npz`/`.npy` reader |
 | `clustering.rs` | Agglomerative clustering, cosine distance, average linkage |
 | `mod.rs` | Offline pipeline + Tauri commands |
 | `online.rs` | Live engine selection and Pyannote/WeSpeaker per-turn clustering |
 | `live_nemotron.rs` | Continuous Nemotron worker, timeline lookup, and shutdown lifecycle |
-| `download.rs` | Repair-path model download from the project's own GitHub release |
+| `download.rs` | Repair-path model download from each file's public source at a pinned commit |
+| `retired.rs` | Startup removal of the 0.3.0 model copies in `<data>/models/diarization/`, by SHA-256 only |
+| `qualification.rs` | Test-only: model-file comparison on public fixtures (ignored) and the voice-profile space pin |
 
 ### Offline pipeline
 
@@ -610,27 +612,32 @@ whose module comment records how each hash was obtained. There are no mirrors.
 | Whisper | Hugging Face `ggerganov/whisper.cpp` (catalog) |
 | Parakeet v2, v3 (INT8) | Hugging Face `istupakov/parakeet-tdt-0.6b-{v2,v3}-onnx` (catalog) |
 | Qwen / Gemma | Hugging Face `unsloth/Qwen3.5-{2B,4B}-GGUF`, `bartowski/google_gemma-3-{1b,4b}-it-GGUF` (catalog) |
-| Pyannote/WeSpeaker | Bundled in the app (`resources/diarization/`); the Settings repair download takes the same files from this repository at `76e9939` |
+| Pyannote segmentation-3.0 | Bundled; Hugging Face `onnx-community/pyannote-segmentation-3.0` @ `733a93b` `onnx/model.onnx` (float32) |
+| WeSpeaker ResNet34-LM | Bundled; Hugging Face `Wespeaker/wespeaker-voxceleb-resnet34-LM` @ `f0c48c2` |
+| VBx x-vector transform | Bundled; Hugging Face `pyannote-community/speaker-diarization-community-1` @ `8a52737` `plda/xvec_transform.npz` |
 | Nemotron-3 | Hugging Face `altunenes/parakeet-rs` @ `4d2a8bc` |
 
 Installed models are updated in place when Hugging Face's files change: the
 new version is downloaded beside the old one, checked, test-loaded by its
 engine and swapped under a journal; any failure keeps the old one.
 
-The two Pyannote ONNX files have no byte-identical upstream copy (they are the
-previous fork's own exports), which is why their repair download comes from
-this repository; `xvec_transform.npz` matches `pyannote-community/speaker-diarization-community-1`
-but is served from the same place to keep one source. Switching to public
-exports would change the model bytes and needs re-qualification.
+The three bundled diarization files are byte-identical to those public files,
+and the Settings repair download takes each from its source. Until 0.3.0 the
+two ONNX files were the previous fork's own exports with no public source; the
+qualification of the swap (issue #23) and how to repeat it are in
+[docs/DIARIZATION_MODELS.md](docs/DIARIZATION_MODELS.md).
 
 The installer redistributes the three Pyannote files, so their notices ship
 beside them in `resources/diarization/THIRD_PARTY_MODELS.txt`: segmentation-3.0
 is MIT (Copyright (c) 2023 CNRS, full text included), and the WeSpeaker
 ResNet34-LM weights and `xvec_transform.npz` are CC BY 4.0. The file names each
-source, its authors and the ONNX conversion. The release verifier checks it like
-`parakeet-rs-LICENSE.txt`. When a bundled model changes, update this file and
-the Settings credit line together. The other models are downloaded by the user
-from the sources above and are not redistributed, so they need no notices.
+source, its authors and the ONNX conversion. The Windows release verifier checks
+that the payload's `resources/diarization/` holds exactly these files and the
+notices, byte for byte; the macOS leg checks the app bundle and the Linux leg
+both the deb and the AppImage for the same five files. When a bundled model
+changes, update this file and the Settings credit line together. The other
+models are downloaded by the user from the sources above and are not
+redistributed, so they need no notices.
 
 Integrity checks:
 

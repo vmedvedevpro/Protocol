@@ -115,11 +115,25 @@ jobs:
           dpkg-deb --contents "$deb" | tee "$contents"
           # tauri-bundler writes the data archive without the usual ./ prefix.
           grep -Eq ' (\./)?usr/bin/protocol$' "$contents"
-          grep -q 'resources/diarization/THIRD_PARTY_MODELS.txt' "$contents"
           if grep -Eq 'runtime-deps|installer-variants' "$contents"; then
             echo "The deb carries the Windows resource folders"
             exit 1
           fi
+          appimage_contents="$RUNNER_TEMP/appimage-contents.txt"
+          offset=$("$appimage" --appimage-offset)
+          unsquashfs -l -o "$offset" "$appimage" > "$appimage_contents"
+          # The bundled speaker models and their notices, as the macOS leg checks
+          # them; without them Pyannote needs the repair download.
+          for name in segmentation-3.0.onnx voxceleb_resnet34_LM.onnx xvec_transform.npz parakeet-rs-LICENSE.txt THIRD_PARTY_MODELS.txt; do
+            if ! grep -q "/resources/diarization/$name\$" "$contents"; then
+              echo "The deb lacks resources/diarization/$name"
+              exit 1
+            fi
+            if ! grep -q "/resources/diarization/$name\$" "$appimage_contents"; then
+              echo "The AppImage lacks resources/diarization/$name"
+              exit 1
+            fi
+          done
 
           log="$RUNNER_TEMP/protocol-launch.log"
           # Own session, so stopping it also stops Xvfb and the app's children.

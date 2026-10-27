@@ -12,6 +12,9 @@ use sqlx::SqlitePool;
 
 use super::models::DiarizationModels;
 
+/// The embedding space saved profiles live in, not a file name: the bundled
+/// export changed after 0.3.0 with the same embeddings, which
+/// `qualification::bundled_embedding_model_keeps_the_voice_profile_space` pins.
 const MODEL: &str = "wespeaker-resnet34-LM/lda-128";
 const MATCH_THRESHOLD: f32 = 0.80;
 const MATCH_MARGIN: f32 = 0.08;

@@ -74,6 +74,11 @@ Var MeetilyBackend
   Delete "$INSTDIR\cudart64_13.dll"
   Delete "$INSTDIR\cublas64_13.dll"
   Delete "$INSTDIR\cublasLt64_13.dll"
+  ; Protocol 0.3.0 bundled these two diarization models; later versions
+  ; bundle public exports under other names (issue #23). Nothing loads the
+  ; old files, and the uninstaller only removes files this version lists.
+  Delete "$INSTDIR\resources\diarization\segmentation-3.0-fp16.onnx"
+  Delete "$INSTDIR\resources\diarization\wespeaker-resnet34-LM.onnx"
   StrCpy $R1 "$INSTDIR\runtime-deps"
   ${If} ${FileExists} "$R1\DirectML.dll"
     CopyFiles /SILENT "$R1\DirectML.dll" "$INSTDIR\"

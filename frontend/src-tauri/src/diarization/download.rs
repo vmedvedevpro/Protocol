@@ -2,7 +2,7 @@
 //!
 //! Supports both:
 //! - Pyannote pipeline (segmentation-3.0 + WeSpeaker + VBx): a repair download of
-//!   the copies bundled with the app, from this repository at a pinned commit
+//!   the copies bundled with the app, from their public sources at pinned commits
 //! - NVIDIA Nemotron-3 model and license, pinned by revision, length and SHA-256.
 //!
 //! Sources, sizes and hashes live in `crate::model_integrity`. Each file is
@@ -11,7 +11,7 @@
 //!
 //! Progress is reported to the UI via `diarization-download-progress` events.
 
-use crate::model_integrity::{self, Pinned, NEMOTRON, PYANNOTE, PYANNOTE_BASE};
+use crate::model_integrity::{self, Pinned, NEMOTRON, PYANNOTE};
 use anyhow::{anyhow, Result};
 use futures_util::StreamExt;
 use serde::Serialize;
@@ -93,6 +93,26 @@ mod tests {
     }
 
     #[test]
+    fn pyannote_download_pins_match_the_loader() {
+        use super::super::models::{EMBEDDING_FILE, SEGMENTATION_FILE, XVEC_TRANSFORM_FILE};
+        let files: Vec<&str> = PYANNOTE.iter().map(|(_, pinned)| pinned.file).collect();
+        assert_eq!(files, [SEGMENTATION_FILE, EMBEDDING_FILE, XVEC_TRANSFORM_FILE]);
+    }
+
+    /// The bundled files are the public ones the repair download fetches, so
+    /// a repaired install runs exactly what a fresh one does.
+    #[test]
+    fn bundled_pyannote_files_are_their_pinned_public_files() {
+        use sha2::{Digest, Sha256};
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("resources/diarization");
+        for (_, pinned) in PYANNOTE {
+            let bytes = std::fs::read(dir.join(pinned.file)).unwrap();
+            assert_eq!(bytes.len() as u64, pinned.size, "{}", pinned.file);
+            assert_eq!(format!("{:x}", Sha256::digest(&bytes)), pinned.sha256, "{}", pinned.file);
+        }
+    }
+
+    #[test]
     fn nemotron_download_pins_match_the_loader() {
         let model = model_integrity::NEMOTRON
             .iter()
@@ -109,13 +129,13 @@ pub async fn download_pyannote_models<R: Runtime>(app: &AppHandle<R>) -> Result<
     let dir = super::diarization_user_model_dir();
     tokio::fs::create_dir_all(&dir).await?;
 
-    let total_bytes: u64 = PYANNOTE.iter().map(|pinned| pinned.size).sum();
+    let total_bytes: u64 = total_download_bytes();
     let mut completed_bytes: u64 = 0;
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(1800))
         .build()?;
 
-    for (index, pinned) in PYANNOTE.iter().enumerate() {
+    for (index, (url, pinned)) in PYANNOTE.iter().enumerate() {
         let name = pinned.file;
         let dest = dir.join(name);
         let file_index = index + 1;
@@ -146,10 +166,8 @@ pub async fn download_pyannote_models<R: Runtime>(app: &AppHandle<R>) -> Result<
             let _ = tokio::fs::remove_file(&dest).await;
         }
 
-        let url = format!("{}/{}", PYANNOTE_BASE, name);
-        log::info!("⬇️ Downloading {} …", name);
-
-        download_single_file(app, &client, &url, &dest, pinned, file_index, PYANNOTE.len(), completed_bytes, total_bytes).await?;
+        log::info!("⬇️ Downloading {} from {} …", name, url);
+        download_single_file(app, &client, url, &dest, pinned, file_index, PYANNOTE.len(), completed_bytes, total_bytes).await?;
         completed_bytes += pinned.size;
     }
 
@@ -343,7 +361,7 @@ pub async fn download_models_for_engine<R: Runtime>(app: &AppHandle<R>, engine: 
 
 /// Total download size in bytes for Pyannote models.
 pub fn total_download_bytes() -> u64 {
-    PYANNOTE.iter().map(|pinned| pinned.size).sum()
+    PYANNOTE.iter().map(|(_, pinned)| pinned.size).sum()
 }
 
 /// Total download size in bytes for Nemotron models.

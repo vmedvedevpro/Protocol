@@ -22,6 +22,20 @@ is inherited from the project Protocol forked from; Protocol did not release it.
   and summaries to finish. Models from 0.3.0 keep working and keep your
   settings.
 
+### Changed
+
+- **Speaker models from public sources**
+  ([#23](https://github.com/vmedvedevpro/Protocol/issues/23)). The bundled
+  Pyannote models are now the published onnx-community export of
+  segmentation-3.0 and WeSpeaker's own ResNet34-LM export, and **Re-download
+  models** in Settings fetches each from its source at a fixed commit. The new
+  segmentation file matches the original model exactly, where the old one
+  differed on about 3 % of frames; the installer grows by 3 MB. Saved voices
+  keep working with no re-enrolment. Updating removes the old model files,
+  and custom models in the data folder now need the new file names; a
+  custom file whose shapes do not fit is refused with an error instead of
+  giving wrong speakers.
+
 ### Fixed
 
 - **Quitting during a recording**
