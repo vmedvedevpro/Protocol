@@ -4,9 +4,9 @@
 models (Whisper ggml, Parakeet INT8) and the built-in summary models (GGUF) the
 app offers are listed in `model-catalog/catalog.json` on this repository's
 `main` branch. The list changes by a pull request, without an app release, and
-installed apps pick it up within a day. A model's version is not in the list:
-the app resolves it from Hugging Face, and offers an update when Hugging Face's
-files differ from the installed ones. Diarization models are not in the
+installed apps pick it up within a day. A model's version and size are not in
+the list: the app resolves them from Hugging Face, and offers an update when
+Hugging Face's files differ from the installed ones. Diarization models are not in the
 catalog; they ship with the app and stay pinned in `model_integrity.rs`.
 
 The owner's decisions behind this (2026-10-27): no signature, key, publish
@@ -27,7 +27,6 @@ checks below.
 | `tier` | `basic` or `advanced` (Whisper: basic models are listed first, the rest under Advanced Models). |
 | `recommended`, `rank`, `min_ram_gb` | Summary models: the recommendation is the recommended model with the highest `rank` that fits in the machine's RAM; "best available" picks the installed model with the highest `rank`. Parakeet: the recommended card. |
 | `listed` | `false`: not offered for new downloads; an installed copy keeps working (Parakeet v2). Default `true`. |
-| `size_mb` | Approximate download size shown before Hugging Face is asked. |
 | `license` | `{ name, url }` (https). |
 | `repo` | The Hugging Face repository, `owner/name`. |
 | `revision` | Optional 40-character commit: the entry stays on it instead of following the default branch. |
@@ -81,12 +80,15 @@ its built-in copy (below), others do not.
   missing from the list in use (removed, or hidden as invalid) keeps its
   built-in entry (`entries_with_installed`).
 - **IPC.** `model_catalog_get_status`, `model_catalog_check_now`,
+  `model_catalog_request_sizes`, `model_catalog_model_size`,
   `model_update_start`, `model_update_cancel`; each change is pushed as
   `model-catalog-changed` with the source, the last check and its error, the
-  hidden entries, the updates found, running updates and failed ones. The
-  Whisper, Parakeet and built-in managers list their models again when the
-  list or a running update changes (`listKey` in `lib/model-catalog.ts`).
-  The history is `<app cache>/model-catalog/state.json`.
+  hidden entries, the updates found, running updates and failed ones, and
+  `sizesVersion`. The Whisper, Parakeet and built-in managers list their
+  models again when the list, a running update or the sizes change
+  (`listKey` in `lib/model-catalog.ts`). The history is
+  `<app cache>/model-catalog/state.json`, written atomically like every file
+  of this module (`model_catalog::write_atomically`).
 
 ## Versions and hashes come from Hugging Face
 
@@ -112,6 +114,35 @@ once every file matched. An unfinished Parakeet or summary download resumes
 from its recorded commit without asking the API, so its kept bytes stay valid;
 Whisper downloads start over. Startup sizes and the hash before load come from
 the complete record.
+
+### Model sizes
+
+The catalog has no sizes; every size the app shows or uses comes from Hugging
+Face or from what is installed (`model_catalog::sizes`, owner decision of
+2026-10-27):
+
+- **An installed model** shows the size of its own files: the install record,
+  or the 0.3.0 pins for a 0.3.x install. Its statuses (Corrupted, Incomplete)
+  compare the file with that exact size, and a file is complete only when its
+  size and its SHA-256 match.
+- **Any other model** shows the size Hugging Face lists for its files now. A
+  model list asks for the sizes it lacks when it is shown
+  (`model_catalog_request_sizes`, from the Whisper, Parakeet and summary
+  managers, and for single models in onboarding and the optional downloads):
+  one `api/models/<repo>` and one tree request per repository (and pinned
+  `revision`), in the background, while the list shows without them. The
+  listing is kept per repository and commit in
+  `<app cache>/model-catalog/sizes.json`, so later lists show sizes at once.
+  The daily or manual check lists those repositories again and forgets the
+  ones no entry uses. This request is part of showing a list, not a check: the
+  automatic-check switch does not gate it.
+- **Unknown** (offline, rate-limited, never listed, or a repository that
+  failed in the last 10 minutes): no size is shown, not a guess or 0.
+  Downloads still work: a download resolves its files when it starts, and its
+  progress reports that exact total.
+
+These sizes are for display only; what a download is checked against is
+always the listing resolved when it starts.
 
 ### Models installed by 0.3.x
 
@@ -163,9 +194,12 @@ update never restarts in its middle.
 
 Automatic requests (with the switch on): once a day the catalog from
 `raw.githubusercontent.com`, and for each installed model `api/models/<repo>`
-and its tree listing on `huggingface.co`, with the user agent
-`Protocol/<version>`. Nothing identifies the installation; downloads happen
-only on a click. `PRIVACY_POLICY.md` says the same.
+and its tree listing on `huggingface.co`, plus the same two requests for each
+repository whose sizes a list asked for before. Showing a model list (Settings,
+onboarding, the optional downloads) asks for the sizes it lacks: the same two
+requests per repository of its models, once, also with the switch off. All use
+the user agent `Protocol/<version>`. Nothing identifies the installation;
+downloads happen only on a click. `PRIVACY_POLICY.md` says the same.
 
 ## Tests
 
@@ -175,19 +209,26 @@ only on a click. `PRIVACY_POLICY.md` says the same.
   `schema` (the shared cases, refused documents, hidden and duplicate entries,
   `min_app_version`), the built-in catalog and fallback to built-in entries of
   installed models, `remote` and `service` (cache, oversized or unreadable
-  answers, the fallback order, the schedule), `huggingface` (current commit and
+  answers, the fallback order, the schedule), `sizes` (one listing per
+  repository, kept and not asked again, a pinned revision, a failed repository
+  not retried at once, the check reading known sizes again and forgetting
+  unused ones), `huggingface` (current commit and
   pinned revision against a local hub, Git files and a blob mismatch, missing
   repositories and files, rate limits, offline), `installed` (0.3.0 pins, complete
   and unfinished records), `updates` (offered only when a file changed, a Git file
   of a 0.3.x install, a full update, a failed test load, a hash mismatch, a
   cancel, a failed and an interrupted swap, recovery). Engine tests:
-  `parakeet_engine` (`a_download_resolves_the_current_commit_and_records_it`,
-  v2 listed only once installed, resume of a recorded download), and the
-  existing Whisper and summary download and load tests, now against 0.3.0 pins.
+  `parakeet_engine` (`a_download_resolves_the_current_commit_and_records_it`
+  with the installed size, v2 listed only once installed and with no size
+  before Hugging Face is asked, resume of a recorded download), the summary
+  scan (exact byte sizes of a partial 0.3.x file and of an installed one), and
+  the existing Whisper and summary download and load tests, now against 0.3.0
+  pins.
 - Frontend: `frontend/tests/model-catalog/` (the card's offer, progress, cancel
   and failure; the list key; the About block; Whisper names, tiers, order and
-  re-listing) and `tests/updater/panel.test.tsx` (the switch stays where app
-  updates are off).
+  re-listing; sizes asked for on mount, shown when they arrive, never guessed;
+  `formatModelSize`) and `tests/updater/panel.test.tsx` (the switch stays
+  where app updates are off).
 - Ignored: `every_built_in_entry_resolves_on_hugging_face` (network).
 
 ## Limits

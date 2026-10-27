@@ -396,6 +396,7 @@ summary models; the feature note is [MODEL_CATALOG.md](MODEL_CATALOG.md).
 | `model_catalog/mod.rs` | The embedded catalog and the one in use; `entries`, `entry`, `offered`, `entries_with_installed` for the engines |
 | `model_catalog/remote.rs`, `service.rs`, `commands.rs` | Fetch from `main` and cache (`<app cache>/model-catalog/`), the daily check on the updater's schedule tick, `model-catalog-changed`, the IPC commands |
 | `model_catalog/huggingface.rs` | Commit, sizes and SHA-256 from the Hugging Face API; blob-id check of Git files |
+| `model_catalog/sizes.rs` | Display sizes of models not installed: one tree listing per repository, asked for by a shown list, kept in `sizes.json`, read again by the check |
 | `model_catalog/installed.rs` | Install records beside each model; the frozen 0.3.0 pins for 0.3.x installs; where a download resumes |
 | `model_catalog/updates.rs` | Update check (no download), staging, test load hooks, journaled swap with rollback, launch recovery |
 | `lib/model-catalog.ts`, `components/ModelUpdateControl.tsx`, `components/updater/ModelCatalogSettings.tsx` | Status mirror, the card's update notice, Settings › About's Models block |
@@ -403,7 +404,10 @@ summary models; the feature note is [MODEL_CATALOG.md](MODEL_CATALOG.md).
 The engines (`whisper_engine.rs`, `parakeet_engine.rs`, `summary_engine/models.rs`
 and `model_manager.rs`) take their lists, display data, expected pins and
 download sources from it; `WHISPER_MODEL_CATALOG` and the engines' pin tables
-are gone. Model updates hold `BusyReason::ModelDownload`, wait for the rest of
+are gone. The catalog has no sizes: `ModelInfo.size_bytes` is the install
+record's (or the 0.3.0 pins') total for an installed model, else
+`sizes::download_size`, and `None` while unknown; Corrupted/Incomplete compare
+with the exact size of the version on record. Model updates hold `BusyReason::ModelDownload`, wait for the rest of
 the busy registry, and swap under the engine lifecycle lock.
 
 ### Model integrity

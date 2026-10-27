@@ -4,7 +4,8 @@
 to send them to a cloud provider or submit a crash report. The only automatic
 network requests are a daily check for a new release and a new model list on
 this project's GitHub page, and for changes to your downloaded models on
-Hugging Face, which you can turn off.**
+Hugging Face, which you can turn off. Showing a list of models also asks
+Hugging Face for the download sizes of the models it offers.**
 
 ## What is collected
 
@@ -45,6 +46,9 @@ Data leaves your machine only when **you** choose an action that sends it:
   information and the model list from GitHub and the versions of your
   downloaded models from Hugging Face, and an update downloads only when you
   click **Download** or **Update**. They upload nothing.
+- **Model sizes.** A list of models (Settings, onboarding, the optional
+  downloads) asks Hugging Face for the file sizes of the models it offers when
+  it does not know them yet. These requests carry no meeting content.
 
 If Protocol detects that the previous session ended unexpectedly, it can create
 a redacted crash-report ZIP at your request. The report excludes recordings,
@@ -87,15 +91,22 @@ Protocol updates itself from this project's GitHub releases.
   `https://raw.githubusercontent.com/vmedvedevpro/Protocol/main/model-catalog/catalog.json`,
   and asks Hugging Face (`huggingface.co/api/models/…`) for the current
   version and file list of each model you have downloaded, to see whether it
-  changed. These requests send your IP address, the time, the user agent
+  changed, and again for the file sizes of the model repositories a list
+  showed before. Showing a list of models (Settings › Transcription and
+  Summaries, onboarding, the optional downloads) asks Hugging Face once for the
+  current version and file list of the repositories of the models it offers,
+  to show their download sizes; this happens when the list is shown, also with
+  the automatic check off, and not again once the sizes are known. These
+  requests send your IP address, the time, the user agent
   `Protocol/<version>` and, to Hugging Face, the names of the model
-  repositories you have installed; nothing about you or your meetings.
+  repositories asked about; nothing about you or your meetings.
   A model update downloads only when you click **Update** on its card.
   GitHub and Hugging Face handle this data under their own privacy policies.
 - **Turning it off.** Settings › About › **Check for app and model updates
   automatically**. With it off, Protocol contacts GitHub and Hugging Face for
   updates only when you click **Check for updates** or **Check for model
-  updates**. Copies installed from the `.deb` package check the same way but
+  updates**; a model list shown for the first time still asks Hugging Face for
+  its sizes. Copies installed from the `.deb` package check the same way but
   only show a link to the new version.
 
 ## Your control
@@ -104,8 +115,9 @@ Delete a meeting in the app and its data is removed locally. Uninstalling the ap
 and deleting its data and recordings folders removes everything.
 
 A downloaded update is kept in the app's cache folder (`updates`) until it is
-installed or replaced by a newer one. The last model list and the results of
-the model checks are kept in the same cache folder (`model-catalog`). That folder also holds `updater.log`, a
+installed or replaced by a newer one. The last model list, the results of the
+model checks and the model sizes read from Hugging Face are kept in the same
+cache folder (`model-catalog`). That folder also holds `updater.log`, a
 short local record of checks, downloads and installs with versions and error
 messages, which you can attach to a bug report. Neither leaves your machine.
 

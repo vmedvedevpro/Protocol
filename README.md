@@ -95,8 +95,9 @@ Recordings, transcripts, and settings stay on your computer. Nothing is sent
 anywhere unless you choose a cloud provider for summaries, which then
 processes that content under its own terms. Once a day, unless you turn it
 off, Protocol asks GitHub whether a newer release or model list exists and
-Hugging Face whether the models you downloaded changed; the requests carry
-nothing about you or your meetings. Models, including the repair download of
+Hugging Face whether the models you downloaded changed, and a list of models
+asks Hugging Face for their download sizes; the requests carry nothing about
+you or your meetings. Models, including the repair download of
 the bundled speaker models, are downloaded from Hugging Face.
 See [PRIVACY_POLICY.md](PRIVACY_POLICY.md).
 

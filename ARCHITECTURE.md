@@ -604,7 +604,10 @@ see [docs/MODEL_CATALOG.md](docs/MODEL_CATALOG.md)). Each entry names a Hugging
 Face repository and files; the commit (or the entry's pinned `revision`) and
 every file's exact size and SHA-256 are read from the Hugging Face API when a
 model is downloaded, and downloads use `resolve/<commit>/<path>`, never a
-branch. Diarization models stay pinned in `src-tauri/src/model_integrity.rs`,
+branch. The sizes a model list shows also come from Hugging Face (one tree
+listing per repository, asked for when the list is shown, kept in the cache
+and refreshed by the daily check) or, for an installed model, from its install
+record; an unknown size is not shown. Diarization models stay pinned in `src-tauri/src/model_integrity.rs`,
 whose module comment records how each hash was obtained. There are no mirrors.
 
 | Model | Source |
@@ -955,7 +958,8 @@ compact top-right indicator that expands on hover or keyboard focus; it must not
 reserve space or shift later onboarding pages. Completion and errors use short
 bottom-right Sonner notifications.
 
-Built-in summary models use exact published byte sizes. Smaller files are
+Built-in summary models use the exact byte size of the version on record (its
+install record, or the 0.3.0 pin). Smaller files are
 `Incomplete`, retained, and resumed with a validated HTTP `Content-Range`; only
 an exact-size file with valid GGUF magic becomes `Available`. Progress reaching
 100 is not completion until validation succeeds and Rust emits `completed`.

@@ -20,7 +20,9 @@ is inherited from the project Protocol forked from; Protocol did not release it.
   checked and loaded once, and replaces it only if that works; otherwise the
   old one stays and the card says why. Updates wait for recordings, imports
   and summaries to finish. Models from 0.3.0 keep working and keep your
-  settings.
+  settings. Model sizes in Settings and onboarding are the exact sizes of the
+  files on Hugging Face (or of your installed copy), read when a list is
+  shown; while Hugging Face cannot be reached, no size is shown.
 
 ### Changed
 
