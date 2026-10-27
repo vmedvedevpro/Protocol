@@ -7,6 +7,12 @@ is inherited from the project Protocol forked from; Protocol did not release it.
 
 ## Protocol — unreleased
 
+## Protocol 0.4.0 — 2026-10-27
+
+Transcription and summary models now update on their own cards, without a new
+app release. The speaker models come from public sources, and quitting during
+a recording asks first instead of losing its end.
+
 ### New
 
 - **Model updates without an app release**
