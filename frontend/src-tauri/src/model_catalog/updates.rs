@@ -36,6 +36,8 @@ const PREVIOUS: &str = "previous";
 const STALL_TIMEOUT: Duration = Duration::from_secs(30);
 
 pub const CANCELLED: &str = "The model update was cancelled";
+/// The model was deleted while its update ran, so it stays deleted.
+pub const REMOVED: &str = "The model was deleted during its update, so the update was not installed";
 
 /// Where a catalog model is installed under the models folder.
 #[derive(Debug, Clone, PartialEq)]
@@ -248,6 +250,12 @@ async fn stage_and_swap(
     if cancel.is_cancelled() {
         return Err(anyhow!(CANCELLED));
     }
+    // Deleted while the update waited (Delete on its card, or uninstalling
+    // the optional Whisper model, which takes the same lock): installing the
+    // new version would bring it back.
+    if unit.installed(entry).is_none() {
+        return Err(anyhow!(REMOVED));
+    }
     swap(unit, &resolved)?;
     drop(guard);
     Ok(resolved)
@@ -346,10 +354,13 @@ fn move_into_place(journal: &Journal, staging: &Path) -> Result<()> {
     for name in &journal.files {
         let installed = journal.dir.join(name);
         model_integrity::clear_mark(&installed);
-        if installed.exists() {
-            std::fs::rename(&installed, previous.join(name))
-                .map_err(|error| anyhow!("{name} is in use and could not be replaced ({error}); retry when the model is not in use"))?;
+        // Deleted since the check before the swap (a Delete that does not
+        // take the engine lock): rolled back, and the model stays deleted.
+        if !installed.exists() {
+            return Err(anyhow!(REMOVED));
         }
+        std::fs::rename(&installed, previous.join(name))
+            .map_err(|error| anyhow!("{name} is in use and could not be replaced ({error}); retry when the model is not in use"))?;
     }
     for name in &journal.files {
         std::fs::rename(staging.join(name), journal.dir.join(name))?;
@@ -677,6 +688,53 @@ mod tests {
         let pressed = cancel.clone();
         pressing.phase = Box::new(move |phase, _, _| if phase == Phase::Installing { pressed.cancel() });
         cancelled_at(cancel, pressing).await;
+    }
+
+    #[tokio::test]
+    async fn a_model_deleted_during_its_update_stays_deleted() {
+        let f = fixture();
+        install(&f.unit, &parakeet_files(&[1u8; 500]), OLD);
+        let hub = serve(&parakeet_files(&[9u8; 700]), NEW).await;
+        let mut deleting = hooks(Ok(()), Arc::default());
+        // Deleted while the update waited for the swap lock.
+        let unit = f.unit.clone();
+        deleting.lock_for_swap = Box::new(move || {
+            Box::pin(async move {
+                std::fs::remove_dir_all(&unit.dir).unwrap();
+                Ok(Box::new(()) as Box<dyn Send>)
+            })
+        });
+        let client = huggingface::client();
+        let error = run(&client, &client, &hub.url, &f.entry, &f.unit, &CancellationToken::new(), deleting).await.unwrap_err();
+        assert_eq!(error.to_string(), REMOVED);
+        assert!(!f.unit.dir.exists());
+        assert!(f.unit.installed(&f.entry).is_none());
+        assert!(!f.unit.staging.exists());
+
+        // One of its files deleted in the middle of the swap: rolled back.
+        let g = fixture();
+        install(&g.unit, &parakeet_files(&[1u8; 500]), OLD);
+        let old_record = installed::read_record(&g.unit.record_path).unwrap();
+        let mut new_record = old_record.clone();
+        new_record.commit = NEW.to_string();
+        std::fs::create_dir_all(&g.unit.staging).unwrap();
+        for name in &g.unit.files {
+            std::fs::write(g.unit.staging.join(name), b"new").unwrap();
+        }
+        std::fs::remove_file(g.unit.path("nemo128.onnx")).unwrap();
+        let journal = Journal {
+            dir: g.unit.dir.clone(),
+            files: g.unit.files.clone(),
+            record_path: g.unit.record_path.clone(),
+            old_record: Some(old_record.clone()),
+            new_record,
+        };
+        assert_eq!(move_into_place(&journal, &g.unit.staging).unwrap_err().to_string(), REMOVED);
+        roll_back(&journal, &g.unit.staging);
+        assert_eq!(content(&g.unit, "encoder-model.int8.onnx"), [1u8; 500]);
+        assert!(!g.unit.path("nemo128.onnx").exists());
+        assert_eq!(installed::read_record(&g.unit.record_path).unwrap(), old_record);
+        assert!(g.unit.installed(&g.entry).is_none());
     }
 
     #[test]

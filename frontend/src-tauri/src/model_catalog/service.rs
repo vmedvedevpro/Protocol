@@ -575,6 +575,10 @@ pub fn start_update<R: Runtime>(app: &AppHandle<R>, engine: Engine, id: &str) ->
                 state.history().forget(entry.engine, &entry.id);
             }
             Err(error) if error.to_string() == updates::CANCELLED => log::info!("[model update] {} cancelled", entry.id),
+            Err(error) if error.to_string() == updates::REMOVED => {
+                log::info!("[model update] {} was deleted during its update; not installed", entry.id);
+                state.history().forget(entry.engine, &entry.id);
+            }
             Err(error) => {
                 log::error!("[model update] {} failed: {error}", entry.id);
                 state.history().update_failures.push(UpdateFailure {

@@ -193,7 +193,10 @@ ended meanwhile is not offered again (`CatalogState::store_check`).
    generates one token (`summary_engine::client::probe_model`; the summary
    helper is stopped first so only one holds memory);
 4. take the engine lifecycle lock (re-checking that nothing started), unload
-   the speech engines or stop the summary helper, and swap under a journal
+   the speech engines or stop the summary helper, check that the model is
+   still installed (a model deleted while its update waited stays deleted:
+   the update ends like a cancel, and a file deleted during the swap rolls it
+   back), and swap under a journal
    (`swap.json`): the installed files move to `previous/`, the new ones take
    their place, the install record is rewritten, markers are written, and the
    staging folder with the previous version is deleted.
