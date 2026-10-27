@@ -8,17 +8,21 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { cn } from '@/lib/utils';
 import { Download, RefreshCw, BadgeAlert, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { formatSummaryModelSizeLabelFromMb } from '@/lib/onboarding-summary-model';
 import type { BuiltInModelStatus } from '@/lib/builtin-ai';
+import { formatModelSize, useModelCatalog } from '@/lib/model-catalog';
+import { ModelUpdateControl } from './ModelUpdateControl';
 
 interface ModelInfo {
   name: string;
   display_name: string;
   status: BuiltInModelStatus;
-  size_mb: number;
+  /** Bytes: the installed file, else Hugging Face's listing; null while unknown. */
+  size_bytes: number | null;
   context_size: number;
   description: string;
   gguf_file: string;
+  /** From the model catalog. */
+  recommended?: boolean;
 }
 
 interface DownloadProgressInfo {
@@ -66,6 +70,9 @@ export function BuiltInModelManager({
       setHasFetched(true);
     }
   };
+
+  // A new model list or a finished model update: list the models again.
+  const catalog = useModelCatalog(() => void fetchModels(), ['llama']);
 
   useEffect(() => {
     fetchModels();
@@ -454,7 +461,7 @@ export function BuiltInModelManager({
                   </p>
                 )}
                 <div className="text-xs text-af-text-3">
-                  <span>{formatSummaryModelSizeLabelFromMb(model.size_mb)} • {model.context_size} tokens</span>
+                  <span>{[formatModelSize(model.size_bytes), `${model.context_size} tokens`].filter(Boolean).join(' • ')}</span>
                 </div>
                 </div>
               </div>
@@ -479,7 +486,7 @@ export function BuiltInModelManager({
                         )}
                       </>
                     ) : (
-                      <span>{formatSummaryModelSizeLabelFromMb(model.size_mb)}</span>
+                      <span>{formatModelSize(model.size_bytes)}</span>
                     )}
                   </div>
                   <div className="w-full h-2.5 bg-af-hover rounded-full overflow-hidden">
@@ -490,6 +497,7 @@ export function BuiltInModelManager({
                   </div>
                 </div>
               )}
+              <ModelUpdateControl catalog={catalog} engine="llama" id={model.name} installed={isAvailable} />
             </div>
           );
         })}

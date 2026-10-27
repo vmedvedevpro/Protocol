@@ -34,12 +34,7 @@ function loadTsModule(filePath) {
   return module.exports;
 }
 
-const {
-  getDownloadTotalMb,
-  getSummaryModelSizeLabel,
-  getSummaryModelSizeMb,
-  resolveOnboardingSummaryModelStatus,
-} = loadTsModule(modulePath);
+const { resolveOnboardingSummaryModelStatus } = loadTsModule(modulePath);
 
 assert.equal(
   JSON.stringify(resolveOnboardingSummaryModelStatus({
@@ -79,16 +74,3 @@ assert.equal(
   }),
   'recommended Qwen should become the selected model when no model is selected yet'
 );
-
-assert.equal(getSummaryModelSizeMb('qwen3.5:2b'), 1221);
-assert.equal(getSummaryModelSizeMb('qwen3.5:4b'), 2614);
-assert.equal(getSummaryModelSizeMb('gemma3:1b'), 1019);
-assert.equal(getSummaryModelSizeMb('unknown:model'), 0);
-
-assert.equal(getSummaryModelSizeLabel('qwen3.5:2b'), '~1.2 GiB');
-assert.equal(getSummaryModelSizeLabel('qwen3.5:4b'), '~2.6 GiB');
-assert.equal(getSummaryModelSizeLabel('unknown:model'), '');
-
-assert.equal(getDownloadTotalMb(0, 'qwen3.5:4b'), 2614);
-assert.equal(getDownloadTotalMb(undefined, 'qwen3.5:2b'), 1221);
-assert.equal(getDownloadTotalMb(512, 'qwen3.5:4b'), 512);

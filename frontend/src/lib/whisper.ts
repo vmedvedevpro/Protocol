@@ -2,11 +2,17 @@
 export interface ModelInfo {
   name: string;
   path: string;
-  size_mb: number;
+  /** Bytes: the installed files, else Hugging Face's listing; null while unknown. */
+  size_bytes: number | null;
   accuracy: ModelAccuracy;
   speed: ProcessingSpeed;
   status: ModelStatus;
   description?: string;
+  /** From the model catalog. */
+  display_name?: string;
+  tier?: 'basic' | 'advanced' | null;
+  recommended?: boolean;
+  languages?: string[];
 }
 
 export type ModelAccuracy = 'High' | 'Good' | 'Decent';
@@ -48,87 +54,6 @@ export interface TranscribeAudioRequest {
   sampleRate: number;
 }
 
-// Model configuration for different use cases
-export const MODEL_CONFIGS: Record<string, Partial<ModelInfo>> = {
-  // Standard f16 models (full precision)
-  'large-v3': {
-    description: 'Highest accuracy, best for important meetings. Slower processing.',
-    size_mb: 2951,
-    accuracy: 'High',
-    speed: 'Slow'
-  },
-  'large-v3-turbo': {
-    description: 'Best accuracy with improved speed.',
-    size_mb: 1549,
-    accuracy: 'High',
-    speed: 'Medium'
-  },
-  'medium': {
-    description: 'Balanced accuracy and speed. Good for most use cases.',
-    size_mb: 1463,
-    accuracy: 'High',
-    speed: 'Slow'
-  },
-  'small': {
-    description: 'Fast processing with good quality. Great for quick transcription.',
-    size_mb: 466,
-    accuracy: 'Good',
-    speed: 'Medium'
-  },
-  'base': {
-    description: 'Good balance of speed and accuracy.',
-    size_mb: 142,
-    accuracy: 'Good',
-    speed: 'Fast'
-  },
-  'tiny': {
-    description: 'Fastest processing, good for real-time use.',
-    size_mb: 39,
-    accuracy: 'Decent',
-    speed: 'Very Fast'
-  },
-
-  // Q5_1 quantized models (balanced speed/accuracy, slightly better quality than Q5_0)
-  'tiny-q5_1': {
-    description: 'Quantized tiny model, ~50% faster processing.',
-    size_mb: 31,
-    accuracy: 'Decent',
-    speed: 'Very Fast'
-  },
-  'base-q5_1': {
-    description: 'Quantized base model, good speed/accuracy balance.',
-    size_mb: 57,
-    accuracy: 'Good',
-    speed: 'Fast'
-  },
-  'small-q5_1': {
-    description: 'Quantized small model, faster than f16 version.',
-    size_mb: 181,
-    accuracy: 'Good',
-    speed: 'Fast'
-  },
-
-  // Q5_0 quantized models (balanced speed/accuracy)
-  'medium-q5_0': {
-    description: 'Quantized medium model, professional quality with better speed.',
-    size_mb: 514,
-    accuracy: 'High',
-    speed: 'Medium'
-  },
-  'large-v3-turbo-q5_0': {
-    description: 'Quantized large turbo model, best balance.',
-    size_mb: 547,
-    accuracy: 'High',
-    speed: 'Medium'
-  },
-  'large-v3-q5_0': {
-    description: 'Quantized large model, best balance of speed and accuracy.',
-    size_mb: 1031,
-    accuracy: 'High',
-    speed: 'Slow'
-  }
-};
-
 // Helper functions
 export function getModelIcon(accuracy: ModelAccuracy): string {
   switch (accuracy) {
@@ -145,13 +70,6 @@ export function getStatusColor(status: ModelStatus): string {
   if (typeof status === 'object' && 'Downloading' in status) return 'blue';
   if (typeof status === 'object' && 'Error' in status) return 'red';
   return 'gray';
-}
-
-export function formatFileSize(sizeMb: number): string {
-  if (sizeMb >= 1000) {
-    return `${(sizeMb / 1000).toFixed(1)}GB`;
-  }
-  return `${sizeMb}MB`;
 }
 
 // Helper function to get model type (f16, q5_1, q5_0, q4_0)

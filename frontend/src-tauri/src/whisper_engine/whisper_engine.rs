@@ -10,7 +10,7 @@ use anyhow::{Result, anyhow};
 use reqwest::Client;
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
-use crate::config::WHISPER_MODEL_CATALOG;
+use crate::model_catalog::{self, huggingface, installed, schema::Engine};
 use crate::model_integrity;
 use super::acceleration::{whisper_context_acceleration_for, WhisperCompiledBackend};
 
@@ -29,11 +29,22 @@ pub enum ModelStatus {
 pub struct ModelInfo {
     pub name: String,
     pub path: PathBuf,
-    pub size_mb: u32,
+    /// Bytes of the installed file, else of the file on Hugging Face
+    /// (`model_catalog::sizes`); `None` while unknown.
+    pub size_bytes: Option<u64>,
     pub accuracy: String,
     pub speed: String,
     pub status: ModelStatus,
     pub description: String,
+    /// From the model catalog, for Settings.
+    #[serde(default)]
+    pub display_name: String,
+    #[serde(default)]
+    pub tier: Option<String>,
+    #[serde(default)]
+    pub recommended: bool,
+    #[serde(default)]
+    pub languages: Vec<String>,
 }
 
 pub struct WhisperEngine {
@@ -190,21 +201,26 @@ impl WhisperEngine {
     pub async fn discover_models(&self) -> Result<Vec<ModelInfo>> {
         let models_dir = &self.models_dir;
         let mut models = Vec::new();
-        // Use centralized model catalog from config.rs
-        let model_configs = WHISPER_MODEL_CATALOG;
+        let entries = model_catalog::offered(Engine::Whisper, |entry| models_dir.join(&entry.single_file().name).exists());
 
-        for &(name, filename, size_mb, accuracy, speed, description) in model_configs {
+        for entry in &entries {
+            let name = entry.id.as_str();
+            let filename = entry.single_file().name.as_str();
             let model_path = models_dir.join(filename);
-            // Startup checks the exact pinned size only; the SHA-256 is checked
-            // on download and before the first load (see crate::model_integrity).
-            let pinned = model_integrity::whisper_model(name);
+            // Startup checks the exact size of the installed version only; the
+            // SHA-256 is checked on download and before the first load (see
+            // crate::model_integrity). A file with no verified version on
+            // record is an unfinished download.
+            let pinned = Self::expected_pin(entry, &model_path);
             let pinned_size = pinned.map(|pinned| pinned.size);
+            // Any other size is unfinished or damaged; 0 when no version is
+            // on record.
+            let expected_size = pinned_size.unwrap_or(0);
             let status = if model_path.exists() {
                 match std::fs::metadata(&model_path) {
                     Ok(metadata) => {
                         let file_size_bytes = metadata.len();
                         let file_size_mb = file_size_bytes / (1024 * 1024);
-                        let expected_min_size_mb = (size_mb as f64 * 0.9) as u64; // Allow 90% of expected size as minimum for more accurate corruption detection
 
                         // A file that failed its check but could not be deleted
                         // still has the pinned size.
@@ -221,7 +237,7 @@ impl WhisperEngine {
                                              filename);
                                     ModelStatus::Corrupted {
                                         file_size: file_size_bytes,
-                                        expected_min_size: (expected_min_size_mb * 1024 * 1024) as u64
+                                        expected_min_size: expected_size,
                                     }
                                 }
                             }
@@ -237,20 +253,20 @@ impl WhisperEngine {
                                         ModelStatus::Downloading { progress: *progress }
                                     }
                                     _ => {
-                                        log::warn!("Model file {} exists but is corrupted ({} MB, expected ~{} MB)",
-                                                 filename, file_size_mb, size_mb);
+                                        log::warn!("Model file {} exists but is corrupted ({} bytes, expected {} bytes)",
+                                                 filename, file_size_bytes, expected_size);
                                         ModelStatus::Corrupted {
                                             file_size: file_size_bytes,
-                                            expected_min_size: (expected_min_size_mb * 1024 * 1024) as u64
+                                            expected_min_size: expected_size,
                                         }
                                     }
                                 }
                             } else {
-                                log::warn!("Model file {} exists but is corrupted ({} MB, expected ~{} MB)",
-                                         filename, file_size_mb, size_mb);
+                                log::warn!("Model file {} exists but is corrupted ({} bytes, expected {} bytes)",
+                                         filename, file_size_bytes, expected_size);
                                 ModelStatus::Corrupted {
                                     file_size: file_size_bytes,
-                                    expected_min_size: (expected_min_size_mb * 1024 * 1024) as u64
+                                    expected_min_size: expected_size,
                                 }
                             }
                         } else {
@@ -263,14 +279,24 @@ impl WhisperEngine {
                 ModelStatus::Missing
             };
             
+            // An installed model shows its own file; any other the file a
+            // download would fetch now.
+            let size_bytes = match status {
+                ModelStatus::Available => pinned_size,
+                _ => model_catalog::sizes::download_size(entry),
+            };
             let model_info = ModelInfo {
                 name: name.to_string(),
                 path: model_path,
-                size_mb: size_mb as u32,
-                accuracy: accuracy.to_string(),
-                speed: speed.to_string(),
+                size_bytes,
+                accuracy: entry.accuracy.clone().unwrap_or_default(),
+                speed: entry.speed.clone().unwrap_or_default(),
                 status,
-                description: description.to_string(),
+                description: entry.description.clone(),
+                display_name: entry.name.clone(),
+                tier: entry.tier.clone(),
+                recommended: entry.recommended,
+                languages: entry.languages.clone(),
             };
             
             models.push(model_info);
@@ -286,6 +312,12 @@ impl WhisperEngine {
         Ok(models)
     }
     
+    /// The size and SHA-256 the installed copy of `entry` at `model_path` was
+    /// verified against: its install record, or the 0.3.0 pin.
+    fn expected_pin(entry: &model_catalog::schema::Entry, model_path: &std::path::Path) -> Option<&'static model_integrity::Pinned> {
+        installed::expected(entry, &installed::record_path_for_file(model_path)).map(|expected| expected.files[0])
+    }
+
     /// Hashes a model installed before SHA-256 pinning, or changed since its
     /// download, once before whisper.cpp parses it. A mismatch deletes the file
     /// and leaves the reason in the model status until the next discovery.
@@ -298,8 +330,9 @@ impl WhisperEngine {
             // load_model reports every other status.
             _ => return Ok(()),
         };
-        let pinned = model_integrity::whisper_model(model_name)
-            .ok_or_else(|| anyhow!("Model {} has no pinned checksum", model_name))?;
+        let pinned = model_catalog::entry(Engine::Whisper, model_name)
+            .and_then(|entry| Self::expected_pin(&entry, &model_path))
+            .ok_or_else(|| anyhow!("Model {} has no verified version on record; download it again", model_name))?;
         if let Err(error) = model_integrity::ensure_verified(pinned, &model_path).await {
             if matches!(error.downcast_ref(), Some(model_integrity::IntegrityError::Mismatch { .. })) {
                 if let Some(model_info) = self.available_models.write().await.get_mut(model_name) {
@@ -930,6 +963,7 @@ impl WhisperEngine {
                     log::warn!("File '{}' does not exist, nothing to delete", model_info.path.display());
                 }
                 model_integrity::clear_mark(&model_info.path);
+                installed::remove_record(&installed::record_path_for_file(&model_info.path));
 
                 // Update model status to Missing
                 {
@@ -953,6 +987,7 @@ impl WhisperEngine {
                     log::warn!("File '{}' does not exist, nothing to delete", model_info.path.display());
                 }
                 model_integrity::clear_mark(&model_info.path);
+                installed::remove_record(&installed::record_path_for_file(&model_info.path));
 
                 // Update model status to Missing
                 {
@@ -973,23 +1008,41 @@ impl WhisperEngine {
     pub async fn download_model(&self, model_name: &str, progress_callback: Option<Box<dyn Fn(u8) + Send>>) -> Result<()> {
         log::info!("Starting download for model: {}", model_name);
 
-        // A pinned commit of ggerganov/whisper.cpp on Hugging Face, and the
-        // size and SHA-256 of each file there: see `crate::model_integrity`.
-        let Some(pinned) = model_integrity::whisper_model(model_name) else {
-            return Err(anyhow!("Unsupported model: {}", model_name));
-        };
-        let model_url = format!("{}/{}", model_integrity::WHISPER_BASE, pinned.file);
-        self.download_pinned(model_name, pinned, &model_url, Client::new(), progress_callback).await
+        self.download_from(huggingface::HUB, &huggingface::client(), Client::new(), model_name, progress_callback).await
     }
 
-    /// Downloads `model_url` as the file `pinned` of `model_name`. Tests pass
-    /// a local URL, their own pin and a client without the system proxy.
+    /// Resolves the catalog entry `model_name` on `hub` (its current commit,
+    /// or its pinned one, and the file's size and SHA-256 there) and downloads
+    /// that commit's file. Whisper downloads start over, so nothing is resumed.
+    async fn download_from(
+        &self,
+        hub: &str,
+        api: &reqwest::Client,
+        client: Client,
+        model_name: &str,
+        progress_callback: Option<Box<dyn Fn(u8) + Send>>,
+    ) -> Result<()> {
+        let Some(entry) = model_catalog::entry(Engine::Whisper, model_name) else {
+            return Err(anyhow!("Unsupported model: {}", model_name));
+        };
+        let resolved = huggingface::resolve(api, hub, &entry).await?;
+        let file = &resolved.files[0];
+        let record_path = installed::record_path_for_file(&self.models_dir.join(&file.name));
+        let record = installed::InstallRecord::from_resolved(&entry.id, &resolved, true);
+        self.download_pinned(model_name, file.pinned, &file.url, client, Some((record_path, record)), progress_callback)
+            .await
+    }
+
+    /// Downloads `model_url` as the file `pinned` of `model_name` and, once it
+    /// matched, writes `record` beside it. Tests pass a local URL, their own
+    /// pin and a client without the system proxy.
     async fn download_pinned(
         &self,
         model_name: &str,
         pinned: &'static model_integrity::Pinned,
         model_url: &str,
         client: Client,
+        record: Option<(PathBuf, installed::InstallRecord)>,
         progress_callback: Option<Box<dyn Fn(u8) + Send>>,
     ) -> Result<()> {
         // Check if download is already in progress for this model
@@ -1060,8 +1113,12 @@ impl WhisperEngine {
             return Err(self.fail_download(model_name, error).await);
         }
         
-        // The file is rewritten in place; its old marker must not outlive it.
+        // The file is rewritten in place; its old marker and record must not
+        // outlive it.
         model_integrity::clear_mark(&file_path);
+        if let Some((record_path, _)) = &record {
+            installed::remove_record(record_path);
+        }
         let mut file = fs::File::create(&file_path).await
             .map_err(|e| anyhow!("Failed to create file: {}", e))?;
         
@@ -1154,6 +1211,12 @@ impl WhisperEngine {
             return Err(self.fail_download(model_name, error).await);
         }
         model_integrity::mark_verified(pinned, &file_path);
+        if let Some((record_path, record)) = &record {
+            if let Err(error) = installed::write_record(record_path, record) {
+                let error = anyhow!("Failed to record the downloaded version of {}: {}", model_name, error);
+                return Err(self.fail_download(model_name, error).await);
+            }
+        }
 
         // Report 100% only after the file matched its pin
         {
@@ -1240,13 +1303,9 @@ impl WhisperEngine {
 mod tests {
     use super::*;
 
-    #[test]
-    fn every_catalog_model_is_pinned() {
-        for &(name, filename, ..) in WHISPER_MODEL_CATALOG {
-            let pinned = model_integrity::whisper_model(name)
-                .unwrap_or_else(|| panic!("{name} has no pinned checksum"));
-            assert_eq!(pinned.file, filename);
-        }
+    /// The 0.3.0 pin of `name`, as a model installed by 0.3.x is checked.
+    fn legacy_pin(name: &str) -> &'static model_integrity::Pinned {
+        &installed::legacy_model(Engine::Whisper, name).unwrap().files[0]
     }
 
     /// Downloads `body` from a local server against `pinned`. Each progress
@@ -1265,7 +1324,7 @@ mod tests {
         };
         let url = model_integrity::testing::serve_once(body).await;
         let client = Client::builder().no_proxy().build().unwrap();
-        let result = engine.download_pinned("test", pinned, &url, client, Some(callback)).await;
+        let result = engine.download_pinned("test", pinned, &url, client, None, Some(callback)).await;
         let reports = reports.lock().unwrap().clone();
         (result, reports)
     }
@@ -1298,9 +1357,10 @@ mod tests {
 
     #[tokio::test]
     async fn load_deletes_a_model_that_does_not_match_its_pin() {
+        let _catalog = crate::model_catalog::testing::built_in_catalog();
         let dir = tempfile::tempdir().unwrap();
         let engine = WhisperEngine::new_with_models_dir(Some(dir.path().to_path_buf())).unwrap();
-        let pinned = model_integrity::whisper_model("tiny-q5_1").unwrap();
+        let pinned = legacy_pin("tiny-q5_1");
         let path = dir.path().join(pinned.file);
         // The exact size and a GGML header pass the startup check; the content
         // is still not the pinned file.
@@ -1326,11 +1386,12 @@ mod tests {
     #[cfg(windows)]
     #[tokio::test]
     async fn discovery_does_not_list_a_failed_model_that_could_not_be_deleted() {
+        let _catalog = crate::model_catalog::testing::built_in_catalog();
         use std::os::windows::fs::OpenOptionsExt;
         const FILE_SHARE_READ: u32 = 1;
         let dir = tempfile::tempdir().unwrap();
         let engine = WhisperEngine::new_with_models_dir(Some(dir.path().to_path_buf())).unwrap();
-        let pinned = model_integrity::whisper_model("tiny-q5_1").unwrap();
+        let pinned = legacy_pin("tiny-q5_1");
         let path = dir.path().join(pinned.file);
         let mut file = std::fs::File::create(&path).unwrap();
         std::io::Write::write_all(&mut file, b"ggml").unwrap();

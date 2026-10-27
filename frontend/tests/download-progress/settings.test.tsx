@@ -12,6 +12,7 @@ let openedUrls: string[];
 const startDownload = mock(() => {});
 const uninstallModel = mock(() => {});
 mock.module('@/contexts/OptionalModelDownloadsContext', () => ({
+  OPTIONAL_WHISPER_MODEL: 'large-v3-turbo-q5_0',
   useOptionalModelDownloads: () => ({ jobs, startDownload, uninstallModel }),
 }));
 mock.module('@/hooks/useLabs', () => ({ useLabs: () => ({ labs: {} }) }));

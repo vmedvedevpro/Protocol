@@ -598,21 +598,31 @@ which bypass the requested destination and behave inconsistently in a webview.
 
 ## 6. Model sources
 
-Every download URL names a commit, and every file its exact size and SHA-256.
-The tables live in `src-tauri/src/model_integrity.rs`, whose module comment
-records how each hash was obtained; there are no `resolve/main` URLs and no
-mirrors.
+Transcription and summary models come from the model catalog,
+`model-catalog/catalog.json` on `main` (embedded in every build, fetched daily;
+see [docs/MODEL_CATALOG.md](docs/MODEL_CATALOG.md)). Each entry names a Hugging
+Face repository and files; the commit (or the entry's pinned `revision`) and
+every file's exact size and SHA-256 are read from the Hugging Face API when a
+model is downloaded, and downloads use `resolve/<commit>/<path>`, never a
+branch. The sizes a model list shows also come from Hugging Face (one tree
+listing per repository, asked for when the list is shown, kept in the cache
+and refreshed by the daily check) or, for an installed model, from its install
+record; an unknown size is not shown. Diarization models stay pinned in `src-tauri/src/model_integrity.rs`,
+whose module comment records how each hash was obtained. There are no mirrors.
 
 | Model | Source |
 |---|---|
-| Whisper | Hugging Face `ggerganov/whisper.cpp` @ `5359861` |
-| Parakeet v2 (INT8) | Hugging Face `istupakov/parakeet-tdt-0.6b-v2-onnx` @ `0bbb45a` |
-| Parakeet v3 (INT8) | Hugging Face `istupakov/parakeet-tdt-0.6b-v3-onnx` @ `8f23f0c` |
-| Qwen / Gemma | Hugging Face `unsloth/Qwen3.5-{2B,4B}-GGUF`, `bartowski/google_gemma-3-{1b,4b}-it-GGUF`, each at a pinned commit |
+| Whisper | Hugging Face `ggerganov/whisper.cpp` (catalog) |
+| Parakeet v2, v3 (INT8) | Hugging Face `istupakov/parakeet-tdt-0.6b-{v2,v3}-onnx` (catalog) |
+| Qwen / Gemma | Hugging Face `unsloth/Qwen3.5-{2B,4B}-GGUF`, `bartowski/google_gemma-3-{1b,4b}-it-GGUF` (catalog) |
 | Pyannote segmentation-3.0 | Bundled; Hugging Face `onnx-community/pyannote-segmentation-3.0` @ `733a93b` `onnx/model.onnx` (float32) |
 | WeSpeaker ResNet34-LM | Bundled; Hugging Face `Wespeaker/wespeaker-voxceleb-resnet34-LM` @ `f0c48c2` |
 | VBx x-vector transform | Bundled; Hugging Face `pyannote-community/speaker-diarization-community-1` @ `8a52737` `plda/xvec_transform.npz` |
 | Nemotron-3 | Hugging Face `altunenes/parakeet-rs` @ `4d2a8bc` |
+
+Installed models are updated in place when Hugging Face's files change: the
+new version is downloaded beside the old one, checked, test-loaded by its
+engine and swapped under a journal; any failure keeps the old one.
 
 The three bundled diarization files are byte-identical to those public files,
 and the Settings repair download takes each from its source. Until 0.3.0 the
@@ -644,7 +654,8 @@ Integrity checks:
   deleted"). The shared download toast shows each of these as "Integrity check
   failed" with the matching outcome. Progress stays below 100% while bytes
   arrive; 100% and "Download completed" follow a matching hash.
-- **Startup.** Discovery checks only the exact pinned size, so startup never
+- **Startup.** Discovery checks only the exact size of the installed version
+  (its install record, or the 0.3.0 pin for a 0.3.x install), so startup never
   reads gigabytes. A file that failed and could not be deleted carries a
   `<file>.rejected` marker, and discovery does not list it as installed.
 - **First load.** A successful check writes `<file>.verified` beside the model
@@ -947,7 +958,8 @@ compact top-right indicator that expands on hover or keyboard focus; it must not
 reserve space or shift later onboarding pages. Completion and errors use short
 bottom-right Sonner notifications.
 
-Built-in summary models use exact published byte sizes. Smaller files are
+Built-in summary models use the exact byte size of the version on record (its
+install record, or the 0.3.0 pin). Smaller files are
 `Incomplete`, retained, and resumed with a validated HTTP `Content-Range`; only
 an exact-size file with valid GGUF magic becomes `Available`. Progress reaching
 100 is not completion until validation succeeds and Rust emits `completed`.

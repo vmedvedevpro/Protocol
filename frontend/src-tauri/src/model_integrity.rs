@@ -6,27 +6,33 @@
 //! the verification markers described below.
 //!
 //! Models are parsed by native code — ggml, ONNX Runtime, llama.cpp — whose
-//! file parsers have had memory-safety bugs. A model fetched from a mutable
-//! `resolve/main` URL with nothing checked is therefore code from whoever
-//! controls that repository today. Every URL below names a commit, and every
-//! file its size and SHA-256.
+//! file parsers have had memory-safety bugs, so no model file is used before
+//! its size and SHA-256 match a pin.
 //!
-//! # Where the pins come from (checked 2026-10-25)
+//! # Where the pins come from
 //!
-//! - Hugging Face: `https://huggingface.co/api/models/<repo>/tree/<commit>?recursive=1`
-//!   lists each file's `size` and, for LFS files, `lfs.oid`, the SHA-256 of
-//!   the content. Files kept in git directly (Parakeet `vocab.txt`, the
-//!   Nemotron license) were downloaded from the pinned commit and hashed; their
-//!   git blob ids match the tree's `oid`. `nemo128.onnx` was downloaded too, to
-//!   confirm that the LFS oid is the SHA-256 of the bytes Hugging Face serves.
-//!   The Whisper, Parakeet and summary pins agree with Talkkeeper's table; the
-//!   Nemotron pins predate this module.
-//! - Pyannote/WeSpeaker (checked 2026-10-26, issue #23): the files bundled in
-//!   `resources/diarization/` are byte-identical to public files at the
-//!   pinned commits below, from the same Hugging Face tree listing, and the
-//!   repair download takes them from there. Until 0.3.0 the two ONNX files
-//!   were the previous fork's own exports with no public source; the
-//!   qualification of the swap is in `docs/DIARIZATION_MODELS.md`.
+//! - Transcription and summary models (#50, owner decision 2026-10-27): from
+//!   Hugging Face at run time, as Ollama and LM Studio do. `crate::model_catalog`
+//!   lists the repositories and files; `model_catalog::huggingface` resolves a
+//!   repository's current commit (or the entry's pinned one), reads each
+//!   file's size and SHA-256 (`lfs.oid`) from the tree listing at that commit
+//!   and downloads from `resolve/<commit>/<path>`, so the bytes cannot change
+//!   mid-download; files kept in Git are fetched and checked against their
+//!   blob id first. Pins made this way are [`intern`]ed. The install record
+//!   (`model_catalog::installed`) keeps what was verified; models installed by
+//!   0.3.x are checked against the 0.3.0 pins kept there.
+//! - Diarization models stay pinned in this file and change only with app
+//!   releases; saved voice profiles and thresholds depend on them.
+//!   - Nemotron (checked 2026-10-25): `https://huggingface.co/api/models/<repo>/tree/<commit>?recursive=1`
+//!     lists each file's `size` and, for LFS files, `lfs.oid`, the SHA-256 of
+//!     the content. The license, kept in Git, was downloaded from the pinned
+//!     commit and hashed; its blob id matches the tree's `oid`.
+//!   - Pyannote/WeSpeaker (checked 2026-10-26, issue #23): the files bundled
+//!     in `resources/diarization/` are byte-identical to public files at the
+//!     pinned commits below, from the same Hugging Face tree listing, and the
+//!     repair download takes them from there. Until 0.3.0 the two ONNX files
+//!     were the previous fork's own exports with no public source; the
+//!     qualification of the swap is in `docs/DIARIZATION_MODELS.md`.
 //!
 //! # Models that are already installed
 //!
@@ -61,91 +67,22 @@ const fn pin(file: &'static str, size: u64, sha256: &'static str) -> Pinned {
     Pinned { file, size, sha256 }
 }
 
-// --- Whisper (ggerganov/whisper.cpp) ---------------------------------------
-
-pub const WHISPER_BASE: &str =
-    "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1";
-
-pub const WHISPER: &[Pinned] = &[
-    pin("ggml-tiny.bin", 77_691_713, "be07e048e1e599ad46341c8d2a135645097a538221678b7acdd1b1919c6e1b21"),
-    pin("ggml-base.bin", 147_951_465, "60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe"),
-    pin("ggml-small.bin", 487_601_967, "1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b"),
-    pin("ggml-medium.bin", 1_533_763_059, "6c14d5adee5f86394037b4e4e8b59f1673b6cee10e3cf0b11bbdbee79c156208"),
-    pin("ggml-large-v3-turbo.bin", 1_624_555_275, "1fc70f774d38eb169993ac391eea357ef47c88757ef72ee5943879b7e8e2bc69"),
-    pin("ggml-large-v3.bin", 3_095_033_483, "64d182b440b98d5203c4f9bd541544d84c605196c4f7b845dfa11fb23594d1e2"),
-    pin("ggml-tiny-q5_1.bin", 32_152_673, "818710568da3ca15689e31a743197b520007872ff9576237bda97bd1b469c3d7"),
-    pin("ggml-base-q5_1.bin", 59_707_625, "422f1ae452ade6f30a004d7e5c6a43195e4433bc370bf23fac9cc591f01a8898"),
-    pin("ggml-small-q5_1.bin", 190_085_487, "ae85e4a935d7a567bd102fe55afc16bb595bdb618e11b2fc7591bc08120411bb"),
-    pin("ggml-medium-q5_0.bin", 539_212_467, "19fea4b380c3a618ec4723c3eef2eb785ffba0d0538cf43f8f235e7b3b34220f"),
-    pin("ggml-large-v3-turbo-q5_0.bin", 574_041_195, "394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2"),
-    pin("ggml-large-v3-q5_0.bin", 1_081_140_203, "d75795ecff3f83b5faa89d1900604ad8c780abd5739fae406de19f23ecd98ad1"),
-];
-
-/// The pin of the Whisper model `name`, stored as `ggml-<name>.bin`.
-pub fn whisper_model(name: &str) -> Option<&'static Pinned> {
-    find(WHISPER, &format!("ggml-{name}.bin"))
-}
-
-// --- Parakeet (istupakov/parakeet-tdt-0.6b-*-onnx) --------------------------
-
-pub const PARAKEET_V2_BASE: &str =
-    "https://huggingface.co/istupakov/parakeet-tdt-0.6b-v2-onnx/resolve/0bbb45a3365852604aef28b538a8f066f4ccaa85";
-pub const PARAKEET_V3_BASE: &str =
-    "https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/8f23f0c03c8761650bdb5b40aaf3e40d2c15f1ce";
-
-/// The INT8 exports, the only Parakeet variants the app offers.
-pub const PARAKEET_V2_INT8: &[Pinned] = &[
-    pin("encoder-model.int8.onnx", 652_184_014, "3e0581fda6ab843888b51e56d7ee78b6d5bc3237ec113af1f732d1d5286aa155"),
-    pin("decoder_joint-model.int8.onnx", 8_998_286, "a449f49acd68979d418651dd2dcb737cc0f1bf0225e009e29ee326354edbf7d3"),
-    pin("nemo128.onnx", 139_764, "a9fde1486ebfcc08f328d75ad4610c67835fea58c73ba57e3209a6f6cf019e9f"),
-    pin("vocab.txt", 9_384, "ec182b70dd42113aff6c5372c75cac58c952443eb22322f57bbd7f53977d497d"),
-];
-
-pub const PARAKEET_V3_INT8: &[Pinned] = &[
-    pin("encoder-model.int8.onnx", 652_183_999, "6139d2fa7e1b086097b277c7149725edbab89cc7c7ae64b23c741be4055aff09"),
-    pin("decoder_joint-model.int8.onnx", 18_202_004, "eea7483ee3d1a30375daedc8ed83e3960c91b098812127a0d99d1c8977667a70"),
-    pin("nemo128.onnx", 139_764, "a9fde1486ebfcc08f328d75ad4610c67835fea58c73ba57e3209a6f6cf019e9f"),
-    pin("vocab.txt", 93_939, "d58544679ea4bc6ac563d1f545eb7d474bd6cfa467f0a6e2c1dc1c7d37e3c35d"),
-];
-
-/// The pinned source and files of the Parakeet model directory `name`.
-pub fn parakeet_model(name: &str) -> Option<(&'static str, &'static [Pinned])> {
-    match name {
-        "parakeet-tdt-0.6b-v2-int8" => Some((PARAKEET_V2_BASE, PARAKEET_V2_INT8)),
-        "parakeet-tdt-0.6b-v3-int8" => Some((PARAKEET_V3_BASE, PARAKEET_V3_INT8)),
-        _ => None,
+/// A pin made at run time (`crate::model_catalog`). `Check` and the markers
+/// hold `&'static` pins, so each distinct pin is allocated once and kept for
+/// the life of the process; a session sees a few dozen at most.
+pub fn intern(file: &str, size: u64, sha256: &str) -> &'static Pinned {
+    static PINS: std::sync::Mutex<Vec<&'static Pinned>> = std::sync::Mutex::new(Vec::new());
+    let mut pins = PINS.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(pinned) = pins.iter().find(|pinned| pinned.file == file && pinned.size == size && pinned.sha256 == sha256) {
+        return pinned;
     }
-}
-
-// --- Summary models (GGUF) --------------------------------------------------
-
-/// Pinned URL and content of each built-in summary model. `file` is the name
-/// on disk, which for the Gemma models differs from the name in the URL.
-pub const SUMMARY: &[(&str, Pinned)] = &[
-    (
-        "https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/f6d5376be1edb4d416d56da11e5397a961aca8ae/Qwen3.5-2B-Q4_K_M.gguf",
-        pin("Qwen3.5-2B-Q4_K_M.gguf", 1_280_835_840, "aaf42c8b7c3cab2bf3d69c355048d4a0ee9973d48f16c731c0520ee914699223"),
-    ),
-    (
-        "https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/e87f176479d0855a907a41277aca2f8ee7a09523/Qwen3.5-4B-Q4_K_M.gguf",
-        pin("Qwen3.5-4B-Q4_K_M.gguf", 2_740_937_888, "00fe7986ff5f6b463e62455821146049db6f9313603938a70800d1fb69ef11a4"),
-    ),
-    (
-        "https://huggingface.co/bartowski/google_gemma-3-4b-it-GGUF/resolve/71506238f970075ca85125cd749c28b1b0eee84e/google_gemma-3-4b-it-Q4_K_M.gguf",
-        pin("gemma-3-4b-it-Q4_K_M.gguf", 2_489_758_112, "4996030242583a40aa151ff93f49ed787ac8c25e4120c3ae4588b2e2a7d1ae94"),
-    ),
-    (
-        "https://huggingface.co/bartowski/google_gemma-3-1b-it-GGUF/resolve/116f76234503685a98f572982177b11d44ec8ff1/google_gemma-3-1b-it-Q8_0.gguf",
-        pin("gemma-3-1b-it-Q8_0.gguf", 1_069_306_624, "375e12a4a18929a641f9744b060d4a7cf4e279530750555828ec0c117870bc96"),
-    ),
-];
-
-/// The pinned URL and content of the built-in summary model stored as `file`.
-pub fn summary_model(file: &str) -> Option<(&'static str, &'static Pinned)> {
-    SUMMARY
-        .iter()
-        .find(|(_, pinned)| pinned.file == file)
-        .map(|(url, pinned)| (*url, pinned))
+    let pinned: &'static Pinned = Box::leak(Box::new(Pinned {
+        file: Box::leak(file.to_string().into_boxed_str()),
+        size,
+        sha256: Box::leak(sha256.to_string().into_boxed_str()),
+    }));
+    pins.push(pinned);
+    pinned
 }
 
 // --- Speaker diarization ----------------------------------------------------
@@ -403,7 +340,9 @@ pub fn clear_mark(path: &Path) {
     let _ = std::fs::remove_file(rejection_path(path));
 }
 
-fn is_marked(pinned: &Pinned, path: &Path) -> bool {
+/// Whether `path` has a valid verification marker for `pinned`: it matched
+/// and has not changed since.
+pub fn is_marked(pinned: &Pinned, path: &Path) -> bool {
     marker_line(pinned, path)
         .is_some_and(|line| std::fs::read_to_string(marker_path(path)).is_ok_and(|found| found == line))
 }
@@ -508,19 +447,20 @@ mod tests {
     };
 
     fn every_pin() -> impl Iterator<Item = &'static Pinned> {
-        WHISPER
-            .iter()
-            .chain(PARAKEET_V2_INT8)
-            .chain(PARAKEET_V3_INT8)
-            .chain(SUMMARY.iter().chain(NEMOTRON).chain(PYANNOTE).map(|(_, pinned)| pinned))
+        NEMOTRON.iter().chain(PYANNOTE).map(|(_, pinned)| pinned)
     }
 
     fn every_url() -> Vec<String> {
-        let mut urls: Vec<String> = WHISPER.iter().map(|p| format!("{WHISPER_BASE}/{}", p.file)).collect();
-        urls.extend(PARAKEET_V2_INT8.iter().map(|p| format!("{PARAKEET_V2_BASE}/{}", p.file)));
-        urls.extend(PARAKEET_V3_INT8.iter().map(|p| format!("{PARAKEET_V3_BASE}/{}", p.file)));
-        urls.extend(SUMMARY.iter().chain(NEMOTRON).chain(PYANNOTE).map(|(url, _)| url.to_string()));
-        urls
+        NEMOTRON.iter().chain(PYANNOTE).map(|(url, _)| url.to_string()).collect()
+    }
+
+    #[test]
+    fn interning_a_pin_twice_returns_the_same_one() {
+        let first = intern("model.bin", 5, HELLO.sha256);
+        let second = intern(&String::from("model.bin"), 5, HELLO.sha256);
+        assert!(std::ptr::eq(first, second));
+        assert!(!std::ptr::eq(first, intern("model.bin", 6, HELLO.sha256)));
+        assert_eq!(*first, Pinned { file: "model.bin", size: 5, sha256: HELLO.sha256 });
     }
 
     #[test]
@@ -731,13 +671,10 @@ mod tests {
 
     /// Streams small pinned files from their real sources through `Check`.
     #[tokio::test]
-    #[ignore = "Downloads about 0.3 MB from Hugging Face"]
+    #[ignore = "Downloads about 0.1 MB from Hugging Face"]
     async fn small_pinned_files_match_what_their_sources_serve() {
         let xvec = PYANNOTE.iter().find(|(_, pinned)| pinned.file == "xvec_transform.npz").unwrap();
         stream_and_check(vec![
-            (format!("{PARAKEET_V2_BASE}/vocab.txt"), find(PARAKEET_V2_INT8, "vocab.txt").unwrap()),
-            (format!("{PARAKEET_V3_BASE}/vocab.txt"), find(PARAKEET_V3_INT8, "vocab.txt").unwrap()),
-            (format!("{PARAKEET_V3_BASE}/nemo128.onnx"), find(PARAKEET_V3_INT8, "nemo128.onnx").unwrap()),
             (xvec.0.to_string(), &xvec.1),
             (NEMOTRON[0].0.to_string(), &NEMOTRON[0].1),
         ])

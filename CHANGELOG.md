@@ -7,6 +7,23 @@ is inherited from the project Protocol forked from; Protocol did not release it.
 
 ## Protocol — unreleased
 
+### New
+
+- **Model updates without an app release**
+  ([#50](https://github.com/vmedvedevpro/Protocol/issues/50)). The
+  transcription and summary models Protocol offers now come from a model list
+  in this repository, which the app reads once a day (with **Check for app and
+  model updates automatically** on) or when you click **Check for model
+  updates** in Settings › About. New models appear in Settings without an
+  update. When Hugging Face publishes changed files for a model you have, its
+  card offers **Update**: the new version downloads beside the old one, is
+  checked and loaded once, and replaces it only if that works; otherwise the
+  old one stays and the card says why. Updates wait for recordings, imports
+  and summaries to finish. Models from 0.3.0 keep working and keep your
+  settings. Model sizes in Settings and onboarding are the exact sizes of the
+  files on Hugging Face (or of your installed copy), read when a list is
+  shown; while Hugging Face cannot be reached, no size is shown.
+
 ### Changed
 
 - **Speaker models from public sources**

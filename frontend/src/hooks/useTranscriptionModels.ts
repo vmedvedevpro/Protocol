@@ -1,10 +1,12 @@
 import { useState, useCallback, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { isVisibleParakeetModel } from '@/lib/parakeet';
+import { formatModelSize } from '@/lib/model-catalog';
 
 export interface RawModelInfo {
   name: string;
-  size_mb: number;
+  /** Bytes of the installed files; null while unknown. */
+  size_bytes: number | null;
   status: 'Available' | 'Missing' | { Downloading: { progress: number } } | { Error: string };
 }
 
@@ -12,7 +14,8 @@ export interface ModelOption {
   provider: 'whisper' | 'parakeet';
   name: string;
   displayName: string;
-  size_mb: number;
+  /** For display, e.g. "142 MB"; empty while unknown. */
+  sizeLabel: string;
 }
 
 interface TranscriptModelConfig {
@@ -57,7 +60,7 @@ export function useTranscriptionModels(transcriptModelConfig: TranscriptModelCon
           provider: 'whisper' as const,
           name: m.name,
           displayName: `🏠 Whisper: ${m.name}`,
-          size_mb: m.size_mb,
+          sizeLabel: formatModelSize(m.size_bytes),
         }));
       setHasWhisperModel(availableWhisper.length > 0);
       allModels.push(...availableWhisper);
@@ -75,7 +78,7 @@ export function useTranscriptionModels(transcriptModelConfig: TranscriptModelCon
           provider: 'parakeet' as const,
           name: m.name,
           displayName: `⚡ Parakeet: ${m.name}`,
-          size_mb: m.size_mb,
+          sizeLabel: formatModelSize(m.size_bytes),
         }));
       setHasParakeetModel(availableParakeet.length > 0);
       allModels.push(...availableParakeet);

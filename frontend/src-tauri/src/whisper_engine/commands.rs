@@ -1,4 +1,3 @@
-use crate::config::WHISPER_MODEL_CATALOG;
 use crate::whisper_engine::{ModelInfo, WhisperEngine};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -284,13 +283,14 @@ fn discover_models_standalone() -> Result<Vec<ModelInfo>, String> {
 
     log::info!("Scanning for Whisper models in: {}", whisper_dir.display());
 
-    // Use centralized model catalog from config.rs
-    let model_configs = WHISPER_MODEL_CATALOG;
+    let entries = crate::model_catalog::offered(crate::model_catalog::schema::Engine::Whisper, |entry| {
+        whisper_dir.join(&entry.single_file().name).exists()
+    });
 
     let mut models = Vec::new();
 
-    for &(name, filename, size_mb, accuracy, speed, description) in model_configs {
-        let model_path = whisper_dir.join(filename);
+    for entry in entries {
+        let model_path = whisper_dir.join(&entry.single_file().name);
         let status = if model_path.exists() {
             match std::fs::metadata(&model_path) {
                 Ok(metadata) => {
@@ -307,14 +307,26 @@ fn discover_models_standalone() -> Result<Vec<ModelInfo>, String> {
             ModelStatus::Missing
         };
 
+        let size_bytes = match status {
+            ModelStatus::Available => crate::model_catalog::installed::expected(
+                &entry,
+                &crate::model_catalog::installed::record_path_for_file(&model_path),
+            )
+            .map(|expected| expected.total_size()),
+            _ => crate::model_catalog::sizes::download_size(&entry),
+        };
         models.push(ModelInfo {
-            name: name.to_string(),
+            name: entry.id,
             path: model_path,
-            size_mb,
+            size_bytes,
             status,
-            accuracy: accuracy.to_string(),
-            speed: speed.to_string(),
-            description: description.to_string(),
+            accuracy: entry.accuracy.unwrap_or_default(),
+            speed: entry.speed.unwrap_or_default(),
+            description: entry.description,
+            display_name: entry.name,
+            tier: entry.tier,
+            recommended: entry.recommended,
+            languages: entry.languages,
         });
     }
 

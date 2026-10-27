@@ -592,5 +592,9 @@ async fn run_scheduler<R: Runtime>(app: AppHandle<R>) {
         if due && state.support.checks() && busy::onboarding_complete() {
             check_now(&app, false).await;
         }
+        // The model catalog follows the same switch and schedule, also where
+        // app updates are not supported.
+        let auto_check = state.prefs().auto_check;
+        crate::model_catalog::service::tick(&app, auto_check).await;
     }
 }

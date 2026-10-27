@@ -55,3 +55,9 @@ jobs:
       # unpinned migration fails at review time, long before a release build.
       - name: Check released migration checksums
         run: node scripts/release/check-migration-checksums.mjs --source git
+      # Installed apps read model-catalog/catalog.json from main, so a broken
+      # entry must not merge; the app applies the same rules when it reads it.
+      - name: Test the model catalog checker
+        run: node --test "scripts/model-catalog/test/*.test.mjs"
+      - name: Check the model catalog
+        run: node scripts/model-catalog/check-catalog.mjs model-catalog/catalog.json

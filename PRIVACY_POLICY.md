@@ -2,15 +2,17 @@
 
 **Short version: your meetings stay on your machine unless you explicitly choose
 to send them to a cloud provider or submit a crash report. The only automatic
-network request is a daily check for a new release on this project's GitHub
-page, which you can turn off.**
+network requests are a daily check for a new release and a new model list on
+this project's GitHub page, and for changes to your downloaded models on
+Hugging Face, which you can turn off. Showing a list of models also asks
+Hugging Face for the download sizes of the models it offers.**
 
 ## What is collected
 
 Protocol has **no analytics, telemetry, or usage tracking**. There is no
 account and no sign-in. The app never sends your audio, transcripts, summaries,
-crash reports, or usage data to the author or anyone else. Its one automatic
-network request is the [update check](#update-checks), which carries no
+crash reports, or usage data to the author or anyone else. Its only automatic
+network requests are the [update checks](#update-checks), which carry no
 information about you or your meetings.
 
 Earlier versions kept a local file, `analytics.json`, with the total number of
@@ -41,8 +43,12 @@ Data leaves your machine only when **you** choose an action that sends it:
   models, contact Hugging Face (`huggingface.co` and the Hugging Face download
   servers it redirects to). These requests carry no meeting content.
 - **Update checks** (automatic unless you turn them off) read release
-  information from GitHub, and an update downloads only when you click
-  **Download**. They upload nothing.
+  information and the model list from GitHub and the versions of your
+  downloaded models from Hugging Face, and an update downloads only when you
+  click **Download** or **Update**. They upload nothing.
+- **Model sizes.** A list of models (Settings, onboarding, the optional
+  downloads) asks Hugging Face for the file sizes of the models it offers when
+  it does not know them yet. These requests carry no meeting content.
 
 If Protocol detects that the previous session ended unexpectedly, it can create
 a redacted crash-report ZIP at your request. The report excludes recordings,
@@ -79,10 +85,29 @@ Protocol updates itself from this project's GitHub releases.
 - **What it never does.** It never uploads anything, and nothing installs until
   you choose **Restart and update** or quit Protocol, never during a recording
   or while a meeting is being processed.
-- **Turning it off.** Settings › About › **Check for updates automatically**.
-  With it off, Protocol contacts GitHub for updates only when you click
-  **Check for updates**. Copies installed from the `.deb` package check the same
-  way but only show a link to the new version.
+- **Models.** With the same daily check, and whenever you click **Check for
+  model updates**, Protocol reads the list of models it offers,
+  `model-catalog/catalog.json`, from
+  `https://raw.githubusercontent.com/vmedvedevpro/Protocol/main/model-catalog/catalog.json`,
+  and asks Hugging Face (`huggingface.co/api/models/…`) for the current
+  version and file list of each model you have downloaded, to see whether it
+  changed, and again for the file sizes of the model repositories a list
+  showed before. Showing a list of models (Settings › Transcription and
+  Summaries, onboarding, the optional downloads) asks Hugging Face once for the
+  current version and file list of the repositories of the models it offers,
+  to show their download sizes; this happens when the list is shown, also with
+  the automatic check off, and not again once the sizes are known. These
+  requests send your IP address, the time, the user agent
+  `Protocol/<version>` and, to Hugging Face, the names of the model
+  repositories asked about; nothing about you or your meetings.
+  A model update downloads only when you click **Update** on its card.
+  GitHub and Hugging Face handle this data under their own privacy policies.
+- **Turning it off.** Settings › About › **Check for app and model updates
+  automatically**. With it off, Protocol contacts GitHub and Hugging Face for
+  updates only when you click **Check for updates** or **Check for model
+  updates**; a model list shown for the first time still asks Hugging Face for
+  its sizes. Copies installed from the `.deb` package check the same way but
+  only show a link to the new version.
 
 ## Your control
 
@@ -90,7 +115,9 @@ Delete a meeting in the app and its data is removed locally. Uninstalling the ap
 and deleting its data and recordings folders removes everything.
 
 A downloaded update is kept in the app's cache folder (`updates`) until it is
-installed or replaced by a newer one. That folder also holds `updater.log`, a
+installed or replaced by a newer one. The last model list, the results of the
+model checks and the model sizes read from Hugging Face are kept in the same
+cache folder (`model-catalog`). That folder also holds `updater.log`, a
 short local record of checks, downloads and installs with versions and error
 messages, which you can attach to a bug report. Neither leaves your machine.
 

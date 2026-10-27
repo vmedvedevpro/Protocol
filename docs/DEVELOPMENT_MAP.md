@@ -385,18 +385,45 @@ Whisper activation into `whisper_download_model(enablePostCall=true)` and adds
 native `uninstall_optional_model` ownership in `optional_models.rs`; see the
 updated native-activation note for locking, settings events, tests, and limits.
 
+### Model catalog and model updates (#50)
+
+`model-catalog/catalog.json` on `main` lists the Whisper, Parakeet and built-in
+summary models; the feature note is [MODEL_CATALOG.md](MODEL_CATALOG.md).
+
+| Owner | Role |
+| --- | --- |
+| `src-tauri/src/model_catalog/schema.rs` | Entry rules (mirrored by `scripts/model-catalog/check-catalog.mjs`, shared cases in `scripts/model-catalog/test/entry-cases.json`); one bad entry is hidden alone |
+| `model_catalog/mod.rs` | The embedded catalog and the one in use; `entries`, `entry`, `offered`, `entries_with_installed` for the engines |
+| `model_catalog/remote.rs`, `service.rs`, `commands.rs` | Fetch from `main` and cache (`<app cache>/model-catalog/`), the daily check on the updater's schedule tick, `model-catalog-changed`, the IPC commands |
+| `model_catalog/huggingface.rs` | Commit, sizes and SHA-256 from the Hugging Face API; blob-id check of Git files |
+| `model_catalog/sizes.rs` | Display sizes of models not installed: one tree listing per repository, asked for by a shown list, kept in `sizes.json`, read again by the check |
+| `model_catalog/installed.rs` | Install records beside each model; the frozen 0.3.0 pins for 0.3.x installs; where a download resumes |
+| `model_catalog/updates.rs` | Update check (no download), staging, test load hooks, journaled swap with rollback, launch recovery |
+| `lib/model-catalog.ts`, `components/ModelUpdateControl.tsx`, `components/updater/ModelCatalogSettings.tsx` | Status mirror, the card's update notice, Settings › About's Models block |
+
+The engines (`whisper_engine.rs`, `parakeet_engine.rs`, `summary_engine/models.rs`
+and `model_manager.rs`) take their lists, display data, expected pins and
+download sources from it; `WHISPER_MODEL_CATALOG` and the engines' pin tables
+are gone. The catalog has no sizes: `ModelInfo.size_bytes` is the install
+record's (or the 0.3.0 pins') total for an installed model, else
+`sizes::download_size`, and `None` while unknown; Corrupted/Incomplete compare
+with the exact size of the version on record. Model updates hold `BusyReason::ModelDownload`, wait for the rest of
+the busy registry, and swap under the engine lifecycle lock.
+
 ### Model integrity
 
-`model_integrity.rs` (ported from leyvanah/Talkkeeper, MIT) owns every model
-download source: commit-pinned URLs plus the exact size and SHA-256 of each file
-for Whisper, Parakeet v2/v3 INT8, the four GGUF summary models, Pyannote/WeSpeaker
-and Nemotron. Its module comment records how the hashes were obtained (Hugging
-Face tree API at the pinned commit, small files downloaded and hashed). The
-Parakeet GitHub mirror is gone. The bundled Pyannote/WeSpeaker files are
-byte-identical to public files (onnx-community segmentation-3.0, WeSpeaker's own
-ResNet34-LM export, pyannote community-1's x-vector transform), and the repair
-download takes each from its source at a pinned commit; their qualification
-against the 0.3.0 files is in [DIARIZATION_MODELS.md](DIARIZATION_MODELS.md).
+`model_integrity.rs` (ported from leyvanah/Talkkeeper, MIT) checks every model
+download against a pin: the exact size and SHA-256 of each file. For the
+catalog's models the pins are resolved from Hugging Face at run time and kept
+in install records (see above); models installed by 0.3.x are checked against
+the 0.3.0 pins in `model_catalog::installed`. Pyannote/WeSpeaker and Nemotron
+stay pinned in `model_integrity.rs` with commit-pinned Hugging Face URLs, and
+its module comment records how their hashes were obtained. The bundled
+Pyannote/WeSpeaker files are byte-identical to public files (onnx-community
+segmentation-3.0, WeSpeaker's own ResNet34-LM export, pyannote community-1's
+x-vector transform), and the repair download takes each from its source at a
+pinned commit; their qualification against the 0.3.0 files is in
+[DIARIZATION_MODELS.md](DIARIZATION_MODELS.md).
 
 Failures are `IntegrityError` values that callers tell apart with
 `downcast_ref`: `WrongSize` (file on disk of another size, kept), `ServerSize`
@@ -467,10 +494,12 @@ commit-pinned), Parakeet and Whisper load-path tests with tampered files,
 the summary tests `the_live_assistant_keeps_a_partial_or_downloading_model`,
 `a_full_size_model_that_fails_its_hash_is_deleted_and_offered_again`,
 `cancel_stops_hashing_a_kept_model_at_once` (with its Parakeet twin
-`cancel_stops_hashing_a_kept_file_at_once`),
+`cancel_stops_hashing_a_kept_file_at_once`; both resume a recorded download, so
+they stay offline),
 `every_status_serializes_with_its_tag_and_round_trips` and
-`the_model_list_serializes_after_a_failed_download`, catalog/pin consistency for
-Whisper, Parakeet, GGUF and Nemotron, `tests/download-progress/errors.test.ts`,
+`the_model_list_serializes_after_a_failed_download`, consistency of the 0.3.0
+pins with the built-in catalog (`model_catalog::installed`) and of the Nemotron
+pins, `tests/download-progress/errors.test.ts`,
 `tests/download-progress/builtin-manager.test.tsx` (an error status shows its
 message, wrapped, and Retry) and `tests/lib/recording-start-errors.test.ts`. The
 delete-failure tests hold the file open without `FILE_SHARE_DELETE` and run on
@@ -483,13 +512,14 @@ follow the progress callback. `progress_of_unchecked_bytes_stays_below_100_perce
 (diarization) and `a_deleted_model_is_logged_as_an_error_and_a_kept_one_as_a_warning`
 (summary client) cover the event percent and the log level.
 The ignored `model_integrity::tests::small_pinned_files_match_what_their_sources_serve`
-streams five small pinned files (about 0.3 MB) from Hugging Face, and
+streams the two small diarization files (about 0.1 MB) from Hugging Face, and
 `pyannote_files_match_what_their_sources_serve` the three Pyannote files (about
 33 MB); run them with `--ignored` when changing a pin.
 `bundled_pyannote_files_are_their_pinned_public_files` (`diarization/download.rs`)
-hashes the bundled copies against the same pins on every test run. Limits: the
-Parakeet and diarization download paths are not exercised against a server (their URLs and
-pins are not injectable), Pyannote copies in the user folder are still not
+hashes the bundled copies against the same pins on every test run. Parakeet
+downloads run against the local Hugging Face stand-in of `model_catalog::testing`.
+Limits: the diarization download paths are not exercised against a server (their
+URLs and pins are not injectable), Pyannote copies in the user folder are still not
 hashed at load, and Nemotron is still hashed on every load by `nemotron.rs`.
 
 ## 5. Acceleration and packaging are separate from ASR selection
@@ -655,6 +685,7 @@ busy. The feature note is [AUTO_UPDATE.md](AUTO_UPDATE.md).
 | `updater/busy.rs` | Busy registry: owner getters (recording, stopping, the meeting save handoff, import, retranscription, summaries, onboarding), RAII `hold` guards (diarization, model downloads), the WebView lease (`recordingSave`, `postCall`, 150 s) |
 | `updater/install.rs` | Install gate (engine lifecycle lock, busy re-check), exit preparation, per-platform install |
 | `updater/engine.rs`, `cache.rs`, `schedule.rs`, `prefs.rs`, `support.rs`, `journal.rs` | Plugin calls and error mapping, the verified download cache and install marker, check timing and backoff, `updater.json` preferences, which installs can update, `updater.log` |
+| `model_catalog/service.rs` | The model list and model update check, run from the same scheduler tick and switch (see [MODEL_CATALOG.md](MODEL_CATALOG.md)) |
 | `tray.rs`, `quit.rs` | Check for Updates, the available or ready version, Restart to Update; Quit through `quit::request`, which saves a running recording first and then calls `updater::quit_app` |
 | `contexts/UpdaterContext.tsx`, `lib/updater.ts` | Snapshot mirror, commands, every user-visible sentence |
 | `components/updater/*` | Sidebar pill and panel, Settings › About block, toasts, `UpdaterActivityReporter` |
@@ -911,6 +942,7 @@ or with standalone TypeScript checking. When using pnpm in this environment,
 | [PR34_NEMOTRON.md](PR34_NEMOTRON.md) | Model provenance, hardening, DirectML qualification, and release numbering. |
 | [V0218_DOWNLOAD_FIX.md](V0218_DOWNLOAD_FIX.md) | Async stack-overflow diagnosis; keep large checksum buffers off the future's inline stack. |
 | [NEMOTRON_NATIVE_ACTIVATION.md](NEMOTRON_NATIVE_ACTIVATION.md) | Native download/activation lifetime regression and verification. |
+| [MODEL_CATALOG.md](MODEL_CATALOG.md) | The model list on `main`, Hugging Face resolution, install records, 0.3.x installs, model updates, tests and limits. |
 | [upstream/UPSTREAM_0_4_1_PORTS.md](upstream/UPSTREAM_0_4_1_PORTS.md) | Selective upstream integration decisions. |
 | [DIARIZATION_MODELS.md](DIARIZATION_MODELS.md) | Pyannote/WeSpeaker file provenance, qualification against the 0.3.0 files, voice-profile continuity, the 0.3.0 upgrade path, and how to repeat the measurements. |
 

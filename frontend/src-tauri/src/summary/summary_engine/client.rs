@@ -166,8 +166,9 @@ pub async fn generate_with_builtin(
     // Resolve model path with caching (avoids repeated filesystem I/O)
     let model_path = get_cached_model_path(app_data_dir, model_name)?;
     // llama.cpp parses this file: hash it once if no download has verified it.
-    let (_, pinned) = crate::model_integrity::summary_model(&model_def.gguf_file)
-        .ok_or_else(|| anyhow!("{} has no pinned checksum", model_def.gguf_file))?;
+    let pinned = models::installed_pin(model_name, &model_path).ok_or_else(|| {
+        anyhow!("{} has no verified version on record. Download it again in Settings.", model_def.display_name)
+    })?;
     let checked = match ModelManager::registered() {
         Some(manager) => manager.verify_before_load(model_name, pinned, &model_path).await,
         // Downloads run in the manager, so without one none is running.
@@ -272,6 +273,47 @@ pub async fn generate_with_builtin(
             }
         }
         Response::Error { message } => Err(anyhow!("Sidecar error: {}", message)),
+    }
+}
+
+/// The test load of a model update (`crate::model_catalog::updates`): loads
+/// `model_path` in a llama-helper of its own and generates one token. The
+/// helper used for summaries is not involved. `cancel` stops the probe, which
+/// can take minutes on a slow machine, and its helper.
+pub(crate) async fn probe_model(model_path: PathBuf, model_def: &models::ModelDef, cancel: &CancellationToken) -> Result<()> {
+    let manager = SidecarManager::new(model_path.parent().map(PathBuf::from).unwrap_or_default())?;
+    let sampling = model_def.sampling.sanitize_for_llama_helper();
+    let request = Request::Generate {
+        prompt: models::format_prompt(&model_def.template, "Answer in one word.", "Ready?")?,
+        max_tokens: Some(1),
+        context_size: Some(512),
+        model_path: Some(model_path.to_string_lossy().to_string()),
+        temperature: Some(sampling.temperature),
+        top_k: Some(sampling.top_k),
+        top_p: Some(sampling.top_p),
+        presence_penalty: Some(sampling.presence_penalty),
+        frequency_penalty: Some(sampling.frequency_penalty),
+        repeat_penalty: Some(sampling.repeat_penalty),
+        penalty_last_n: Some(sampling.penalty_last_n),
+        stop_tokens: Some(sampling.stop_tokens),
+    };
+    let request = serde_json::to_string(&request)?;
+    let answer = tokio::select! {
+        biased;
+        _ = cancel.cancelled() => None,
+        answer = async {
+            manager.ensure_running(model_path.clone()).await?;
+            manager.send_request(request, Duration::from_secs(300)).await
+        } => Some(answer),
+    };
+    // Also on cancel: the helper is a process of its own and outlives the request.
+    if let Err(error) = manager.shutdown().await {
+        log::warn!("Could not stop the llama-helper of a test load: {}", error);
+    }
+    let answer = answer.ok_or_else(|| anyhow!("The test load was cancelled"))?;
+    match serde_json::from_str(&answer?)? {
+        Response::Response { error: None, .. } => Ok(()),
+        Response::Response { error: Some(message), .. } | Response::Error { message } => Err(anyhow!(message)),
     }
 }
 

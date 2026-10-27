@@ -5,6 +5,7 @@ import Image from "next/image"
 import { invoke } from "@tauri-apps/api/core"
 import { Github, Shield, Cpu, Heart } from "lucide-react"
 import { UpdateSettings } from "@/components/updater/UpdateSettings"
+import { ModelCatalogSettings } from "@/components/updater/ModelCatalogSettings"
 
 /**
  * About panel for Protocol. Shows version, a short description, the updates
@@ -49,9 +50,10 @@ export function AboutSettings() {
         <p className="mt-4 text-sm text-af-text-2 leading-relaxed">
           Records, transcribes and summarizes your meetings on your own machine, with GPU
           acceleration and speaker labels. Cloud models are used only when you configure them
-          with your own key. No account, no telemetry. Protocol checks GitHub for new releases
-          once a day and downloads one only when you click Download; you can turn the check off
-          below.
+          with your own key. No account, no telemetry. Once a day Protocol asks GitHub whether a
+          newer release or model list exists, and Hugging Face whether your downloaded models
+          changed; it downloads an update only when you click Download or Update. You can turn
+          this check off below; lists of models still ask Hugging Face for their download sizes.
         </p>
       </div>
 
@@ -75,6 +77,8 @@ export function AboutSettings() {
       </div>
 
       <UpdateSettings />
+
+      <ModelCatalogSettings />
 
       {/* Links */}
       <div className="rounded-2xl border border-af-border bg-af-panel-2/40 p-5 space-y-3">

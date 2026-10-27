@@ -10,9 +10,10 @@ import {
   ParakeetAPI,
   getModelDisplayInfo,
   getModelDisplayName,
-  formatFileSize,
   isVisibleParakeetModel
 } from '../lib/parakeet';
+import { ModelUpdateControl } from './ModelUpdateControl';
+import { formatModelSize, useModelCatalog } from '@/lib/model-catalog';
 
 interface ParakeetModelManagerProps {
   selectedModel?: string;
@@ -39,6 +40,11 @@ export function ParakeetModelManager({
 
   // Progress throttle map to prevent rapid updates
   const progressThrottleRef = useRef<Map<string, { progress: number; timestamp: number }>>(new Map());
+
+  // A new model list or a finished model update: list the models again.
+  const catalog = useModelCatalog(() => {
+    ParakeetAPI.getAvailableModels().then(setModels).catch(() => {});
+  }, ['parakeet']);
 
   // Update refs when props change
   useEffect(() => {
@@ -370,12 +376,16 @@ export function ParakeetModelManager({
     );
   }
 
-  const visibleModels = models.filter(m => isVisibleParakeetModel(m.name));
-  const recommendedModel = visibleModels.find(m =>
-    m.name === 'parakeet-tdt-0.6b-v3-int8'
-  );
-  const otherModels = visibleModels.filter(m =>
-    m.name !== 'parakeet-tdt-0.6b-v3-int8'
+  // Parakeet v2 is not offered any more (`listed: false`), so the native list
+  // has it only while it is on disk. Its card stays so it can be updated or
+  // deleted, but it is not offered as a choice.
+  const visibleModels = models.filter(m => isVisibleParakeetModel(m.name) || m.status !== 'Missing');
+  const selectable = (model: ParakeetModelInfo) => model.status === 'Available' && isVisibleParakeetModel(model.name);
+  // The catalog marks the recommended model.
+  const recommendedModel = visibleModels.find(m => m.recommended);
+  const otherModels = visibleModels.filter(m => m !== recommendedModel);
+  const updateControl = (model: ParakeetModelInfo) => (
+    <ModelUpdateControl catalog={catalog} engine="parakeet" id={model.name} installed={model.status === 'Available'} />
   );
 
   return (
@@ -395,6 +405,7 @@ export function ParakeetModelManager({
           onCancel={() => cancelDownload(recommendedModel.name)}
           onDelete={() => deleteModel(recommendedModel.name)}
           isDownloading={downloadingModels.has(recommendedModel.name)}
+          footer={updateControl(recommendedModel)}
         />
       )}
 
@@ -408,7 +419,7 @@ export function ParakeetModelManager({
               isSelected={selectedModel === model.name}
               isRecommended={false}
               onSelect={() => {
-                if (model.status === 'Available') {
+                if (selectable(model)) {
                   selectModel(model.name);
                 }
               }}
@@ -416,6 +427,7 @@ export function ParakeetModelManager({
               onCancel={() => cancelDownload(model.name)}
               onDelete={() => deleteModel(model.name)}
               isDownloading={downloadingModels.has(model.name)}
+              footer={updateControl(model)}
             />
           ))}
         </div>
@@ -445,6 +457,7 @@ interface ModelCardProps {
   onCancel: () => void;
   onDelete: () => void;
   isDownloading: boolean;
+  footer?: React.ReactNode;
 }
 
 function ModelCard({
@@ -455,11 +468,12 @@ function ModelCard({
   onDownload,
   onCancel,
   onDelete,
-  isDownloading
+  isDownloading,
+  footer
 }: ModelCardProps) {
   const [isHovered, setIsHovered] = useState(false);
   const displayInfo = getModelDisplayInfo(model.name);
-  const displayName = displayInfo?.friendlyName || model.name;
+  const displayName = model.display_name || displayInfo?.friendlyName || model.name;
   const tagline = displayInfo?.tagline || model.description || '';
 
   const isAvailable = model.status === 'Available';
@@ -633,9 +647,9 @@ function ModelCard({
               />
             </div>
             <p className="text-xs text-af-text-3 mt-1">
-              {model.size_mb ? (
+              {model.size_bytes ? (
                 <>
-                  {formatFileSize(model.size_mb * downloadProgress / 100)} / {formatFileSize(model.size_mb)}
+                  {formatModelSize(model.size_bytes * downloadProgress / 100)} / {formatModelSize(model.size_bytes)}
                 </>
               ) : (
                 'Downloading...'
@@ -643,6 +657,7 @@ function ModelCard({
             </p>
           </motion.div>
         )}
+        {footer}
       </div>
     </motion.div>
   );

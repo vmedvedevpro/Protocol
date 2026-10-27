@@ -1,13 +1,17 @@
 'use client';
 
 import { CheckCircle2 } from 'lucide-react';
-import { useOptionalModelDownloads, OptionalModel } from '@/contexts/OptionalModelDownloadsContext';
+import { OPTIONAL_WHISPER_MODEL, useOptionalModelDownloads, OptionalModel } from '@/contexts/OptionalModelDownloadsContext';
+import { formatModelSize, useModelSize } from '@/lib/model-catalog';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Spinner } from '@/components/ui/spinner';
 
 export function OptionalModelDownloads({ activeOnly = false, allowUninstall = false }: { activeOnly?: boolean; allowUninstall?: boolean }) {
   const { jobs, startDownload, uninstallModel } = useOptionalModelDownloads();
+  // The Whisper model is in the model catalog, so its size comes from Hugging
+  // Face; Nemotron is pinned in the app (crate::model_integrity).
+  const whisperSize = formatModelSize(useModelSize('whisper', OPTIONAL_WHISPER_MODEL));
   const models: OptionalModel[] = ['whisper', 'nemotron'];
   const visible = models.filter(model => !activeOnly || jobs[model].status !== 'idle');
   if (!visible.length) return null;
@@ -26,7 +30,9 @@ export function OptionalModelDownloads({ activeOnly = false, allowUninstall = fa
       </div>
       {visible.map(model => {
         const job = jobs[model];
-        const label = model === 'whisper' ? 'Whisper Large v3 Turbo Q5 · ~547 MB' : 'Nemotron-3 diarization · ~382 MB';
+        const label = model === 'whisper'
+          ? `Whisper Large v3 Turbo Q5${whisperSize ? ` · ${whisperSize}` : ''}`
+          : 'Nemotron-3 diarization · ~382 MB';
         return (
           <div key={model} className="space-y-2 rounded-xl border border-af-border bg-af-panel-2 px-4 py-3">
             <div className="flex min-h-8 flex-wrap items-center justify-between gap-3">
