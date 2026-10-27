@@ -13,13 +13,17 @@
 //! entries every time they list or download, so a refreshed catalog applies
 //! without a restart.
 
+pub mod commands;
 pub mod huggingface;
 pub mod installed;
+pub mod remote;
 pub mod schema;
+pub mod service;
 #[cfg(test)]
 pub(crate) mod testing;
 
 use once_cell::sync::Lazy;
+use remote::Source;
 use schema::{Catalog, Engine, Entry};
 use std::sync::{Arc, RwLock};
 
@@ -40,8 +44,9 @@ static BUILT_IN_CATALOG: Lazy<Arc<Catalog>> = Lazy::new(|| match schema::parse(B
     }
 });
 
-/// The catalog in use.
-static ACTIVE: Lazy<RwLock<Arc<Catalog>>> = Lazy::new(|| RwLock::new(BUILT_IN_CATALOG.clone()));
+/// The catalog in use and where it came from; `service` replaces it.
+static ACTIVE: Lazy<RwLock<(Arc<Catalog>, Source)>> =
+    Lazy::new(|| RwLock::new((BUILT_IN_CATALOG.clone(), Source::BuiltIn)));
 
 /// The version entries are compared with (`min_app_version`).
 pub fn app_version() -> &'static str {
@@ -53,7 +58,19 @@ pub fn built_in() -> Arc<Catalog> {
 }
 
 pub fn active() -> Arc<Catalog> {
-    ACTIVE.read().unwrap_or_else(|poisoned| poisoned.into_inner()).clone()
+    ACTIVE.read().unwrap_or_else(|poisoned| poisoned.into_inner()).0.clone()
+}
+
+pub fn source() -> Source {
+    ACTIVE.read().unwrap_or_else(|poisoned| poisoned.into_inner()).1
+}
+
+/// Puts `catalog` in use; returns whether the models it offers changed.
+pub(crate) fn set_active(catalog: Arc<Catalog>, source: Source) -> bool {
+    let mut active = ACTIVE.write().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let changed = active.0.entries != catalog.entries;
+    *active = (catalog, source);
+    changed
 }
 
 /// The entries of `engine` this build can run, in catalog order, including

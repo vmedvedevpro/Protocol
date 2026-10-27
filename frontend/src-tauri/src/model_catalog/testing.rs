@@ -1,8 +1,9 @@
 //! Test helpers: swapping the catalog in use, building entries, and a local
 //! stand-in for the Hugging Face API and file server.
 
+use super::remote::Source;
 use super::schema::{Catalog, CatalogFile, Engine, Entry, License, LlamaParams, Sampling, PARAKEET_FILES};
-use super::{built_in, ACTIVE};
+use super::{built_in, set_active};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -12,20 +13,16 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 /// other's catalogs.
 pub static ACTIVE_LOCK: Mutex<()> = Mutex::new(());
 
-fn set_active(catalog: Arc<Catalog>) {
-    *ACTIVE.write().unwrap_or_else(|poisoned| poisoned.into_inner()) = catalog;
-}
-
 /// Uses `catalog` until the guard is dropped, then the built-in one again.
 pub fn use_catalog(catalog: Catalog) -> impl Drop {
     struct Restore(#[allow(dead_code)] std::sync::MutexGuard<'static, ()>);
     impl Drop for Restore {
         fn drop(&mut self) {
-            set_active(built_in());
+            set_active(built_in(), Source::BuiltIn);
         }
     }
     let guard = ACTIVE_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    set_active(Arc::new(catalog));
+    set_active(Arc::new(catalog), Source::Remote);
     Restore(guard)
 }
 

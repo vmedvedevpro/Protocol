@@ -411,6 +411,10 @@ pub fn run() {
                 log::error!("Failed to create system tray: {}", e);
             }
 
+            // The model catalog: the cached copy until the daily check, which
+            // runs on the updater's schedule (src/model_catalog/).
+            model_catalog::service::init(_app.handle());
+
             // In-app updates: restores a downloaded update, then checks daily
             // while automatic checks are on (src/updater/).
             updater::init(_app.handle());
@@ -772,6 +776,9 @@ pub fn run() {
             updater::commands::updater_install_now,
             updater::commands::updater_set_auto_check,
             updater::commands::updater_set_ui_activity,
+            // Model catalog
+            model_catalog::commands::model_catalog_get_status,
+            model_catalog::commands::model_catalog_check_now,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
