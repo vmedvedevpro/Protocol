@@ -12,7 +12,8 @@ import {
 } from '@/lib/transcription-acceleration';
 import { OnboardingContainer } from '../OnboardingContainer';
 import { useOnboarding } from '@/contexts/OnboardingContext';
-import { useOptionalModelDownloads } from '@/contexts/OptionalModelDownloadsContext';
+import { OPTIONAL_WHISPER_MODEL, useOptionalModelDownloads } from '@/contexts/OptionalModelDownloadsContext';
+import { formatModelSize, useModelSize } from '@/lib/model-catalog';
 import {
   Tooltip,
   TooltipContent,
@@ -23,6 +24,7 @@ import {
 export function SetupOverviewStep() {
   const { goNext } = useOnboarding();
   const { jobs, startDownload } = useOptionalModelDownloads();
+  const whisperSize = formatModelSize(useModelSize('whisper', OPTIONAL_WHISPER_MODEL));
   const [installWhisper, setInstallWhisper] = useState(false);
   const [installNemotron, setInstallNemotron] = useState(false);
   const [isMac, setIsMac] = useState(false);
@@ -233,7 +235,7 @@ export function SetupOverviewStep() {
           <h3 className="text-sm font-medium">Optional upgrades</h3>
           <label className="flex cursor-pointer items-start gap-3 text-sm">
             <Checkbox checked={installWhisper} onCheckedChange={checked => setInstallWhisper(checked === true)} className="mt-0.5" />
-            <span>Whisper for retranscription <span className="rounded-full bg-af-accent/10 px-1.5 py-0.5 text-[11px] font-medium text-af-accent">Recommended</span> <span className="text-af-text-3">{jobs.whisper.status === 'ready' ? '· Installed; enable it' : '· ~547 MB'}</span>
+            <span>Whisper for retranscription <span className="rounded-full bg-af-accent/10 px-1.5 py-0.5 text-[11px] font-medium text-af-accent">Recommended</span> <span className="text-af-text-3">{jobs.whisper.status === 'ready' ? '· Installed; enable it' : whisperSize && `· ${whisperSize}`}</span>
               <span className="mt-0.5 block text-xs leading-5 text-af-text-2">Large v3 Turbo Q5 for post-call enhancement and retranscribing recordings. Parakeet remains the live transcription engine.</span>
             </span>
           </label>

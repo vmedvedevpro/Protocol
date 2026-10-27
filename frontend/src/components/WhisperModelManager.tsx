@@ -7,7 +7,6 @@ import { Check, HardDrive, Target, Zap } from 'lucide-react';
 import {
   ModelInfo,
   ModelStatus,
-  formatFileSize,
   getModelPerformanceBadge,
   isQuantizedModel,
   getModelTagline,
@@ -15,7 +14,7 @@ import {
 } from '../lib/whisper';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { ModelUpdateControl } from './ModelUpdateControl';
-import { useModelCatalog } from '@/lib/model-catalog';
+import { formatModelSize, useModelCatalog } from '@/lib/model-catalog';
 
 interface ModelManagerProps {
   selectedModel?: string;
@@ -47,7 +46,7 @@ export function ModelManager({
   // A new model list or a finished model update: list the models again.
   const catalog = useModelCatalog(() => {
     WhisperAPI.getAvailableModels().then(setModels).catch(() => {});
-  });
+  }, ['whisper']);
 
   // Update refs when props change
   useEffect(() => {
@@ -605,10 +604,12 @@ function ModelCard({
 
             {/* Model Specs */}
             <div className="flex items-center space-x-4 text-sm text-af-text-2 ml-9 mt-1.5">
-              <span className="flex items-center space-x-1">
-                <HardDrive className="h-3.5 w-3.5 text-af-text-4" />
-                <span>{formatFileSize(model.size_mb)}</span>
-              </span>
+              {model.size_bytes ? (
+                <span className="flex items-center space-x-1">
+                  <HardDrive className="h-3.5 w-3.5 text-af-text-4" />
+                  <span>{formatModelSize(model.size_bytes)}</span>
+                </span>
+              ) : null}
               <span className="flex items-center space-x-1">
                 <Target className="h-3.5 w-3.5 text-af-text-4" />
                 <span>{model.accuracy} accuracy</span>
@@ -740,9 +741,9 @@ function ModelCard({
               />
             </div>
             <p className="text-xs text-af-text-3 mt-1">
-              {model.size_mb ? (
+              {model.size_bytes ? (
                 <>
-                  {formatFileSize(model.size_mb * downloadProgress / 100)} / {formatFileSize(model.size_mb)}
+                  {formatModelSize(model.size_bytes * downloadProgress / 100)} / {formatModelSize(model.size_bytes)}
                 </>
               ) : (
                 'Downloading...'

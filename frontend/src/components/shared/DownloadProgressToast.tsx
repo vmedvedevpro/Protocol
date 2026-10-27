@@ -4,7 +4,6 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { toast } from 'sonner';
 import { X, Check, ArrowBigDownDash } from 'lucide-react';
-import { getDownloadTotalMb } from '@/lib/onboarding-summary-model';
 import { useOnboarding } from '@/contexts/OnboardingContext';
 import { useOptionalModelDownloads } from '@/contexts/OptionalModelDownloadsContext';
 
@@ -139,7 +138,7 @@ function DownloadToastContent({
             {/* Progress text */}
             <div className="flex items-center justify-between text-xs text-af-text-3">
               <span>
-                {download.status === 'downloading' && download.downloadedMb !== undefined && download.totalMb !== undefined
+                {download.status === 'downloading' && download.downloadedMb !== undefined && download.totalMb
                   ? `${download.downloadedMb.toFixed(1)} / ${download.totalMb.toFixed(1)} ${unitLabel}`
                   : detail}
               </span>
@@ -249,7 +248,8 @@ export function useDownloadProgressToast() {
         displayName: `Transcription Model (${modelName})`,
         progress,
         downloadedMb: downloaded_mb ?? 0,
-        totalMb: total_mb ?? 670,
+        // From the download's resolved files; 0 (not shown) until it reports.
+        totalMb: total_mb ?? 0,
         speedMbps: speed_mbps ?? 0,
         status: status === 'cancelled'
           ? 'cancelled'
@@ -275,8 +275,6 @@ export function useDownloadProgressToast() {
           modelName,
           displayName: `Transcription Model (${modelName})`,
           progress: 100,
-          downloadedMb: 670,
-          totalMb: 670,
           speedMbps: 0,
           status: 'completed',
         };
@@ -295,7 +293,6 @@ export function useDownloadProgressToast() {
           displayName: `Transcription Model (${modelName})`,
           progress: 0,
           downloadedMb: 0,
-          totalMb: 670,
           speedMbps: 0,
           status: 'error',
           error: categorizeError(error),
@@ -331,7 +328,7 @@ export function useDownloadProgressToast() {
         displayName: `Summary Model (${model})`,
         progress: progress ?? 0,
         downloadedMb: downloaded_mb ?? 0,
-        totalMb: getDownloadTotalMb(total_mb, model),
+        totalMb: total_mb ?? 0,
         speedMbps: speed_mbps ?? 0,
         unitLabel: 'MiB',
         status: status === 'completed'

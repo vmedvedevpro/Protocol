@@ -10,11 +10,10 @@ import {
   ParakeetAPI,
   getModelDisplayInfo,
   getModelDisplayName,
-  formatFileSize,
   isVisibleParakeetModel
 } from '../lib/parakeet';
 import { ModelUpdateControl } from './ModelUpdateControl';
-import { useModelCatalog } from '@/lib/model-catalog';
+import { formatModelSize, useModelCatalog } from '@/lib/model-catalog';
 
 interface ParakeetModelManagerProps {
   selectedModel?: string;
@@ -45,7 +44,7 @@ export function ParakeetModelManager({
   // A new model list or a finished model update: list the models again.
   const catalog = useModelCatalog(() => {
     ParakeetAPI.getAvailableModels().then(setModels).catch(() => {});
-  });
+  }, ['parakeet']);
 
   // Update refs when props change
   useEffect(() => {
@@ -644,9 +643,9 @@ function ModelCard({
               />
             </div>
             <p className="text-xs text-af-text-3 mt-1">
-              {model.size_mb ? (
+              {model.size_bytes ? (
                 <>
-                  {formatFileSize(model.size_mb * downloadProgress / 100)} / {formatFileSize(model.size_mb)}
+                  {formatModelSize(model.size_bytes * downloadProgress / 100)} / {formatModelSize(model.size_bytes)}
                 </>
               ) : (
                 'Downloading...'

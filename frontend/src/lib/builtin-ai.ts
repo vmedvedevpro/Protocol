@@ -4,7 +4,8 @@ export interface BuiltInModelInfo {
   display_name: string;
   status: BuiltInModelStatus;
   path: string;
-  size_mb: number;
+  /** Bytes: the installed file, else Hugging Face's listing; null while unknown. */
+  size_bytes: number | null;
   context_size: number;
   description: string;
   gguf_file: string;
@@ -14,6 +15,7 @@ export type BuiltInModelStatus =
   | { type: 'not_downloaded' }
   | { type: 'downloading', progress: number }
   | { type: 'available' }
+  // Sizes in bytes; an expected size of 0 means no version is on record.
   | { type: 'incomplete', file_size: number, expected_size: number }
   | { type: 'corrupted', file_size: number, expected_min_size: number }
   | { type: 'error', message: string };

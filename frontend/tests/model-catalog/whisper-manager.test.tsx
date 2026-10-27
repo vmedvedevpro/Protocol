@@ -6,13 +6,13 @@ Object.assign(globalThis, { React });
 
 const listeners = new Map<string, (event: { payload: any }) => void>();
 let commands: string[];
-const model = (name: string, display_name: string, tier: 'basic' | null, recommended = false) => ({
-  name, display_name, tier, recommended, path: '', size_mb: 100, accuracy: 'Good', speed: 'Fast', status: 'Missing', languages: ['*'],
+const model = (name: string, display_name: string, tier: 'basic' | null, recommended = false, size_bytes: number | null = 100 * 1024 * 1024) => ({
+  name, display_name, tier, recommended, path: '', size_bytes, accuracy: 'Good', speed: 'Fast', status: 'Missing', languages: ['*'],
 });
 let models: ReturnType<typeof model>[];
 const catalog = (overrides: Record<string, unknown> = {}) => ({
   source: 'built-in', fetchedAt: null, lastCheckedAt: null, checking: false, error: null,
-  hidden: [], updates: [], operations: [], updateFailures: [], ...overrides,
+  hidden: [], updates: [], operations: [], updateFailures: [], sizesVersion: 0, ...overrides,
 });
 
 mock.module('sonner', () => ({ toast: { success: () => {}, error: () => {} } }));
@@ -24,6 +24,7 @@ mock.module('@tauri-apps/api/core', () => ({ invoke: async (command: string) => 
   if (command === 'whisper_get_available_models') return models;
   if (command === 'model_catalog_get_status') return catalog();
   if (command === 'whisper_init') return;
+  if (command === 'model_catalog_request_sizes') return;
   throw new Error(command);
 } }));
 const { ModelManager } = await import('../../src/components/WhisperModelManager');
@@ -59,4 +60,17 @@ test('a new model list or a finished update lists the models again', async () =>
   await act(async () => listeners.get('model-catalog-changed')!({ payload: catalog({ source: 'remote', fetchedAt: 1 }) }));
   expect(listed()).toBe(before + 2);
   expect(text()).toContain('Medium');
+});
+
+test('sizes come from Hugging Face: asked for on mount, shown when they arrive, never guessed', async () => {
+  models = [model('small', 'Small', 'basic', false, null)];
+  await act(async () => { root = create(<ModelManager />); });
+  expect(commands).toContain('model_catalog_request_sizes');
+  expect(text()).not.toContain(' MB');
+  const listed = () => commands.filter((command) => command === 'whisper_get_available_models').length;
+  const before = listed();
+  models = [model('small', 'Small', 'basic', false, 487_601_967)];
+  await act(async () => listeners.get('model-catalog-changed')!({ payload: catalog({ sizesVersion: 1 }) }));
+  expect(listed()).toBe(before + 1);
+  expect(text()).toContain('465 MB');
 });

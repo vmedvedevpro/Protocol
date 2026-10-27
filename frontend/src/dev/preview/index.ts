@@ -371,7 +371,7 @@ function handle(cmd: string, args: Args): unknown {
     case 'get_transcript_history':
       return [];
     case 'parakeet_get_available_models':
-      return [{ name: 'parakeet-tdt-0.6b-v3-int8', status: 'Available', size_mb: 670 }];
+      return [{ name: 'parakeet-tdt-0.6b-v3-int8', status: 'Available', size_bytes: 670_619_706 }];
     case 'api_get_post_call_transcript_config':
       return { provider: 'live', model: '' };
     case 'api_get_vocabulary':

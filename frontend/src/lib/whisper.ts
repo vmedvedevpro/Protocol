@@ -2,7 +2,8 @@
 export interface ModelInfo {
   name: string;
   path: string;
-  size_mb: number;
+  /** Bytes: the installed files, else Hugging Face's listing; null while unknown. */
+  size_bytes: number | null;
   accuracy: ModelAccuracy;
   speed: ProcessingSpeed;
   status: ModelStatus;
@@ -69,13 +70,6 @@ export function getStatusColor(status: ModelStatus): string {
   if (typeof status === 'object' && 'Downloading' in status) return 'blue';
   if (typeof status === 'object' && 'Error' in status) return 'red';
   return 'gray';
-}
-
-export function formatFileSize(sizeMb: number): string {
-  if (sizeMb >= 1000) {
-    return `${(sizeMb / 1000).toFixed(1)}GB`;
-  }
-  return `${sizeMb}MB`;
 }
 
 // Helper function to get model type (f16, q5_1, q5_0, q4_0)

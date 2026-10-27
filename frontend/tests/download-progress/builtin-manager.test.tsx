@@ -13,6 +13,7 @@ mock.module('@tauri-apps/api/core', () => ({ invoke: async (command: string) => 
   commands.push(command);
   if (command === 'builtin_ai_list_models') return models;
   if (command === 'builtin_ai_download_model') return new Promise(() => {});
+  if (command === 'model_catalog_request_sizes') return;
   throw new Error(command);
 } }));
 const { BuiltInModelManager } = await import('../../src/components/BuiltInModelManager');
@@ -20,7 +21,7 @@ const { BuiltInModelManager } = await import('../../src/components/BuiltInModelM
 const message = 'Qwen3.5-2B-Q4_K_M.gguf failed its integrity check and was deleted: its SHA-256 differs from the pin. Download it again.';
 const qwen = (status: object) => ({
   name: 'qwen3.5:2b', display_name: 'Qwen 3.5 2B', status, path: 'fixture.gguf',
-  size_mb: 1200, context_size: 32768, description: '', gguf_file: 'fixture.gguf',
+  size_bytes: 1_280_835_840, context_size: 32768, description: '', gguf_file: 'fixture.gguf',
 });
 const textOf = (node: ReactTestInstance): string =>
   node.children.map((child) => (typeof child === 'string' ? child : textOf(child))).join('');

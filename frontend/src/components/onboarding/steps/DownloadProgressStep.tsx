@@ -9,7 +9,7 @@ import { useOnboarding } from '@/contexts/OnboardingContext';
 import { OptionalModelDownloads } from '@/components/OptionalModelDownloads';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'framer-motion';
-import { getSummaryModelSizeLabel, getSummaryModelSizeMb } from '@/lib/onboarding-summary-model';
+import { formatModelSize, useModelSize } from '@/lib/model-catalog';
 
 const PARAKEET_MODEL = 'parakeet-tdt-0.6b-v3-int8';
 
@@ -38,12 +38,16 @@ export function DownloadProgressStep() {
   } = useOnboarding();
 
   const [isMac, setIsMac] = useState(false);
+  // Sizes come from Hugging Face (or the installed files); a download's
+  // progress events then report its exact total. 0 / null: not known yet.
+  const parakeetBytes = useModelSize('parakeet', PARAKEET_MODEL);
+  const summaryBytes = useModelSize('llama', selectedSummaryModel || recommendedSummaryModel);
 
   const [parakeetState, setParakeetState] = useState<DownloadState>({
     status: parakeetDownloaded ? 'completed' : 'waiting',
     progress: parakeetDownloaded ? 100 : 0,
     downloadedMb: 0,
-    totalMb: 670,
+    totalMb: 0,
     speedMbps: 0,
   });
 
@@ -123,7 +127,6 @@ export function DownloadProgressStep() {
       error: undefined,
       progress: 0,
       downloadedMb: 0,
-      totalMb: getSummaryModelSizeMb(selectedSummaryModel || recommendedSummaryModel),
       speedMbps: 0,
     }));
 
@@ -280,7 +283,7 @@ export function DownloadProgressStep() {
             : 'downloading',
           progress,
           downloadedMb: downloaded_mb ?? prev.downloadedMb,
-          totalMb: (total_mb ?? prev.totalMb) || getSummaryModelSizeMb(model),
+          totalMb: total_mb ?? prev.totalMb,
           speedMbps: speed_mbps ?? prev.speedMbps,
           error: status === 'error' ? error : undefined,
         }));
@@ -299,8 +302,8 @@ export function DownloadProgressStep() {
   }, [selectedSummaryModel]);
 
   useEffect(() => {
-    const modelForSize = selectedSummaryModel || recommendedSummaryModel;
-    if (!modelForSize) return;
+    const model = selectedSummaryModel || recommendedSummaryModel;
+    if (!model) return;
 
     setSummaryState((prev) => ({
       ...prev,
@@ -314,7 +317,6 @@ export function DownloadProgressStep() {
         : prev.status === 'completed'
         ? 0
         : prev.progress,
-      totalMb: prev.totalMb || getSummaryModelSizeMb(modelForSize),
     }));
   }, [selectedSummaryModel, recommendedSummaryModel, summaryModelDownloaded]);
 
@@ -324,7 +326,6 @@ export function DownloadProgressStep() {
         setSummaryState((prev) => ({
           ...prev,
           status: 'downloading',
-          totalMb: getSummaryModelSizeMb(selectedSummaryModel),
         }));
         await startBackgroundDownloads({
           includeParakeet: false,
@@ -374,7 +375,7 @@ export function DownloadProgressStep() {
               <div>
                 <h3 className="font-medium text-af-text">Step {step}: {title}</h3>
                 <p className="mt-0.5 text-xs font-medium text-af-accent">{modelName}</p>
-                <p className="text-sm text-af-text-3">{modelSize}</p>
+                {modelSize && <p className="text-sm text-af-text-3">{modelSize}</p>}
           </div>
         </div>
         <div>
@@ -408,7 +409,9 @@ export function DownloadProgressStep() {
           </div>
           <div className="flex items-center justify-between text-sm">
             <span className="text-af-text-2">
-              {state.downloadedMb.toFixed(1)} {sizeUnit} / {state.totalMb.toFixed(1)} {sizeUnit}
+              {state.totalMb > 0
+                ? `${state.downloadedMb.toFixed(1)} ${sizeUnit} / ${state.totalMb.toFixed(1)} ${sizeUnit}`
+                : 'Downloading…'}
             </span>
             <div className="flex items-center gap-2">
               {state.speedMbps > 0 && (
@@ -461,7 +464,7 @@ export function DownloadProgressStep() {
             PARAKEET_MODEL,
             <Mic className="w-5 h-5 text-af-text-2" />,
             parakeetState,
-            '~670 MB'
+            formatModelSize(parakeetBytes)
           )}
 
           {renderDownloadCard(
@@ -470,7 +473,7 @@ export function DownloadProgressStep() {
             selectedSummaryModel || recommendedSummaryModel || 'Selecting recommended model...',
             <Sparkles className="w-5 h-5 text-af-text-2" />,
             summaryState,
-            getSummaryModelSizeLabel(selectedSummaryModel || recommendedSummaryModel),
+            formatModelSize(summaryBytes),
             'MiB'
           )}
           <OptionalModelDownloads activeOnly />

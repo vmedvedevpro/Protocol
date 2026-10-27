@@ -40,6 +40,7 @@ const base = (overrides: Partial<CatalogStatus> = {}): CatalogStatus => ({
   updates: [],
   operations: [],
   updateFailures: [],
+  sizesVersion: 0,
   ...overrides,
 });
 const update = { engine: 'whisper' as const, id: 'small', fromCommit: 'a'.repeat(40), toCommit: 'b'.repeat(40), downloadBytes: 487_601_967 };
@@ -107,6 +108,16 @@ test('managers list their models again only when the list may have changed', () 
   // Progress alone does not change it.
   expect(lib.listKey({ ...running, operations: [{ ...running.operations[0], doneBytes: 5 }] })).toBe(lib.listKey(running));
   expect(lib.listKey(base({ source: 'remote', fetchedAt: NOW }))).not.toBe(key);
+  // Sizes read from Hugging Face.
+  expect(lib.listKey(base({ sizesVersion: 1 }))).not.toBe(key);
+});
+
+test('model sizes are exact bytes, shown in MB or GB, and nothing while unknown', () => {
+  expect(lib.formatModelSize(null)).toBe('');
+  expect(lib.formatModelSize(0)).toBe('');
+  expect(lib.formatModelSize(9_384)).toBe('1 MB');
+  expect(lib.formatModelSize(487_601_967)).toBe('465 MB');
+  expect(lib.formatModelSize(1_624_555_275)).toBe('1.5 GB');
 });
 
 test('the About block says where the list comes from and checks on click', async () => {

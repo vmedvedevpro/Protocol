@@ -4,6 +4,7 @@ import React from 'react';
 import { toast } from 'sonner';
 import {
   cancelModelUpdate,
+  formatModelSize,
   modelUpdateState,
   phaseLine,
   startModelUpdate,
@@ -18,8 +19,6 @@ interface ModelUpdateControlProps {
   /** Only an installed model can be updated. */
   installed: boolean;
 }
-
-const megabytes = (bytes: number) => `${Math.max(1, Math.round(bytes / (1024 * 1024)))} MB`;
 
 /** The update notice of a model's card: offer, progress, or the last failure. */
 export function ModelUpdateControl({ catalog, engine, id, installed }: ModelUpdateControlProps) {
@@ -52,7 +51,9 @@ export function ModelUpdateControl({ catalog, engine, id, installed }: ModelUpda
           <div className="min-w-0">
             {failure && <p className="text-af-danger" role="alert">{failure.message}</p>}
             {update && !failure && (
-              <p className="text-af-text-2">{`Update available · ${megabytes(update.downloadBytes)} to download`}</p>
+              <p className="text-af-text-2">{formatModelSize(update.downloadBytes)
+                  ? `Update available · ${formatModelSize(update.downloadBytes)} to download`
+                  : 'Update available'}</p>
             )}
           </div>
           {update && (
