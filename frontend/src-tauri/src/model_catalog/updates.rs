@@ -180,6 +180,7 @@ pub async fn run(
     cancel: &CancellationToken,
     hooks: Hooks,
 ) -> Result<Resolved> {
+    log::info!("[model update] {} ({}): started", entry.id, entry.engine.as_str());
     let result = stage_and_swap(api, files_client, hub, entry, unit, cancel, hooks).await;
     if unit.staging.exists() && !unit.staging.join(JOURNAL).exists() {
         let _ = tokio::fs::remove_dir_all(&unit.staging).await;
@@ -218,6 +219,16 @@ async fn stage_and_swap(
     };
     let unchanged = |file: &ResolvedFile| expected.pin(&file.name).is_some_and(|pinned| pinned == file.pinned);
     let downloads: u64 = resolved.files.iter().filter(|file| !unchanged(file)).map(|file| file.pinned.size).sum();
+    let changed = resolved.files.iter().filter(|file| !unchanged(file)).count();
+    // Repository, commits and sizes only: the log never holds a URL.
+    log::info!(
+        "[model update] {}: {} at {} -> {}; downloading {changed} of {} files ({downloads} bytes)",
+        entry.id,
+        entry.repo,
+        expected.commit,
+        resolved.commit,
+        resolved.files.len()
+    );
     ensure_space(&unit.dir, downloads).await?;
     let _ = tokio::fs::remove_dir_all(&unit.staging).await;
     {
@@ -243,19 +254,27 @@ async fn stage_and_swap(
         }
         (hooks.phase)(Phase::Downloading, done, total);
     }
+    log::info!(
+        "[model update] {}: downloaded and verified; {} unchanged files staged from the installed version",
+        entry.id,
+        resolved.files.len() - changed
+    );
 
     (hooks.phase)(Phase::Waiting, total, total);
+    log::info!("[model update] {}: waiting until recordings, imports and summaries have finished", entry.id);
     tokio::select! {
         biased;
         _ = cancel.cancelled() => return Err(anyhow!(CANCELLED)),
         idle = (hooks.wait_idle)() => idle?,
     };
     (hooks.phase)(Phase::Testing, total, total);
+    log::info!("[model update] {}: test-loading the new version", entry.id);
     let loaded = (hooks.test_load)(unit.staging.clone(), cancel.clone()).await;
     if cancel.is_cancelled() {
         return Err(anyhow!(CANCELLED));
     }
     loaded.map_err(|error| anyhow!("The new version did not load, so the installed one was kept: {error}"))?;
+    log::info!("[model update] {}: the new version loaded; waiting for the engines to be free to swap it in", entry.id);
     let guard = tokio::select! {
         biased;
         _ = cancel.cancelled() => return Err(anyhow!(CANCELLED)),
@@ -274,6 +293,7 @@ async fn stage_and_swap(
     if unit.installed(entry).is_none() {
         return Err(anyhow!(REMOVED));
     }
+    log::info!("[model update] {}: swapping in {}", entry.id, resolved.commit);
     swap(unit, &resolved)?;
     drop(guard);
     Ok(resolved)
@@ -333,7 +353,9 @@ async fn download(
     let response = tokio::select! {
         biased;
         _ = cancel.cancelled() => return Err(anyhow!(CANCELLED)),
-        response = client.get(url).send() => response.map_err(|error| anyhow!("Couldn't download {}: {error}", pinned.file))?,
+        // Without the URL: after a redirect it is the CDN's signed one, and the
+        // message reaches the log and the card.
+        response = client.get(url).send() => response.map_err(|error| anyhow!("Couldn't download {}: {}", pinned.file, error.without_url()))?,
     };
     if !response.status().is_success() {
         return Err(anyhow!("Hugging Face answered {} for {}", response.status(), pinned.file));
@@ -354,7 +376,7 @@ async fn download(
         let chunk = match next {
             Err(_) => return Err(anyhow!("The download of {} stalled; check your connection and retry", pinned.file)),
             Ok(None) => break,
-            Ok(Some(chunk)) => chunk.map_err(|error| anyhow!("Couldn't download {}: {error}", pinned.file))?,
+            Ok(Some(chunk)) => chunk.map_err(|error| anyhow!("Couldn't download {}: {}", pinned.file, error.without_url()))?,
         };
         check.update(&chunk)?;
         file.write_all(&chunk).await?;
@@ -398,7 +420,11 @@ fn swap(unit: &Unit, resolved: &Resolved) -> Result<()> {
             for file in &resolved.files {
                 model_integrity::mark_verified(file.pinned, &unit.path(&file.name));
             }
+            log::info!("[model update] {}: installed; deleting the previous version", unit.id);
             finish(&unit.staging);
+            if !unit.staging.exists() {
+                log::info!("[model update] {}: previous version deleted", unit.id);
+            }
         }
         Err(error) => {
             log::error!("[model update] swap of {} failed, rolling back: {error}", unit.id);
@@ -431,15 +457,18 @@ fn move_into_place(journal: &Journal, staging: &Path) -> Result<()> {
 
 /// Puts the previous files and record back.
 fn roll_back(journal: &Journal, staging: &Path) {
+    log::info!("[model update] rolling back in {}: restoring the previous version", journal.dir.display());
     let previous = staging.join(PREVIOUS);
+    let mut restored = 0;
     for name in &journal.files {
         let kept = previous.join(name);
         if kept.exists() {
             let installed = journal.dir.join(name);
             model_integrity::clear_mark(&installed);
             let _ = std::fs::remove_file(&installed);
-            if let Err(error) = std::fs::rename(&kept, &installed) {
-                log::error!("[model update] could not restore {}: {error}", installed.display());
+            match std::fs::rename(&kept, &installed) {
+                Ok(()) => restored += 1,
+                Err(error) => log::error!("[model update] could not restore {}: {error}", installed.display()),
             }
         }
     }
@@ -449,6 +478,7 @@ fn roll_back(journal: &Journal, staging: &Path) {
         }
         None => installed::remove_record(&journal.record_path),
     }
+    log::info!("[model update] rolled back: {restored} files and the previous install record restored");
     finish(staging);
 }
 

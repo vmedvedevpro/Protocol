@@ -216,7 +216,14 @@ takes seconds and finishes first. A swap cut short by a crash is finished (the n
 record is in place) or rolled back at the next launch, and an unfinished update
 download is removed. Whatever the end (installed, cancelled, failed, or
 recovered at launch), `models/.model-updates` itself is removed once it is
-empty. The operation holds `BusyReason::ModelDownload`, so an app
+empty.
+
+The app log (`[model update]`, info level) records each step: the start, the
+repository with the installed and the new commit and what is downloaded, the
+end of the download, waiting for recordings and summaries, the test load, the
+swap, the deletion of the previous version, and a rollback with what it
+restored. It holds no URL: a download error drops reqwest's URL, which after a
+redirect is the CDN's signed one. The operation holds `BusyReason::ModelDownload`, so an app
 update never restarts in its middle.
 
 ## Privacy
