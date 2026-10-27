@@ -55,6 +55,8 @@ impl SamplingParams {
     }
 
     /// Summary-tuned Qwen 3.5 preset: non-greedy with mild repetition controls.
+    /// The model catalog holds the values now; tests check its entries keep them.
+    #[cfg(test)]
     pub fn qwen35_summary(stop_tokens: Vec<String>) -> Self {
         Self {
             temperature: 0.5,
@@ -69,6 +71,8 @@ impl SamplingParams {
     }
 
     /// Gemma 3 instruct preset, matching the prior Gemma sampling behavior.
+    /// The model catalog holds the values now; tests check its entries keep them.
+    #[cfg(test)]
     pub fn gemma3_instruct(stop_tokens: Vec<String>) -> Self {
         Self {
             temperature: 1.0,
