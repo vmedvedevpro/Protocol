@@ -10,6 +10,8 @@ import { Download, RefreshCw, BadgeAlert, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatSummaryModelSizeLabelFromMb } from '@/lib/onboarding-summary-model';
 import type { BuiltInModelStatus } from '@/lib/builtin-ai';
+import { useModelCatalog } from '@/lib/model-catalog';
+import { ModelUpdateControl } from './ModelUpdateControl';
 
 interface ModelInfo {
   name: string;
@@ -19,6 +21,8 @@ interface ModelInfo {
   context_size: number;
   description: string;
   gguf_file: string;
+  /** From the model catalog. */
+  recommended?: boolean;
 }
 
 interface DownloadProgressInfo {
@@ -66,6 +70,9 @@ export function BuiltInModelManager({
       setHasFetched(true);
     }
   };
+
+  // A new model list or a finished model update: list the models again.
+  const catalog = useModelCatalog(() => void fetchModels());
 
   useEffect(() => {
     fetchModels();
@@ -490,6 +497,7 @@ export function BuiltInModelManager({
                   </div>
                 </div>
               )}
+              <ModelUpdateControl catalog={catalog} engine="llama" id={model.name} installed={isAvailable} />
             </div>
           );
         })}

@@ -14,6 +14,8 @@ import {
   WhisperAPI
 } from '../lib/whisper';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
+import { ModelUpdateControl } from './ModelUpdateControl';
+import { useModelCatalog } from '@/lib/model-catalog';
 
 interface ModelManagerProps {
   selectedModel?: string;
@@ -41,6 +43,11 @@ export function ModelManager({
 
   // Progress throttle map to prevent rapid updates
   const progressThrottleRef = useRef<Map<string, { progress: number; timestamp: number }>>(new Map());
+
+  // A new model list or a finished model update: list the models again.
+  const catalog = useModelCatalog(() => {
+    WhisperAPI.getAvailableModels().then(setModels).catch(() => {});
+  });
 
   // Update refs when props change
   useEffect(() => {
@@ -395,21 +402,9 @@ export function ModelManager({
     }
   };
 
-  const getDisplayName = (modelName: string): string => {
-    const modelNameMapping: { [key: string]: string } = {
-      "small": "Small",
-      "medium-q5_0": "Medium",
-      "large-v3-q5_0": "Large V3 Compressed",
-      "large-v3-turbo": "Large V3 Turbo",
-      "large-v3": "Large V3"
-    };
-
-    const basicModelNames = ["small", "medium-q5_0", "large-v3-q5_0", "large-v3-turbo", "large-v3"];
-    if (basicModelNames.includes(modelName)) {
-      return modelNameMapping[modelName] || modelName;
-    }
-    return `Whisper ${modelName}`;
-  };
+  // Names, tiers and recommendations come from the model catalog.
+  const getDisplayName = (modelName: string): string =>
+    models.find((model) => model.name === modelName)?.display_name || `Whisper ${modelName}`;
 
   if (loading) {
     return (
@@ -432,17 +427,18 @@ export function ModelManager({
     );
   }
 
-  const basicModelNames = ["small", "medium-q5_0", "large-v3-q5_0", "large-v3-turbo", "large-v3"];
-  const basicModels = models.filter(m => basicModelNames.includes(m.name))
-    .sort((a, b) => basicModelNames.indexOf(a.name) - basicModelNames.indexOf(b.name));
-  const advancedModels = models.filter(m => !basicModelNames.includes(m.name));
+  const basicModels = models.filter(m => m.tier === 'basic');
+  const advancedModels = models.filter(m => m.tier !== 'basic');
+  const updateControl = (model: ModelInfo) => (
+    <ModelUpdateControl catalog={catalog} engine="whisper" id={model.name} installed={model.status === 'Available'} />
+  );
 
   return (
     <div className={`space-y-3 ${className}`}>
       {/* Basic Models */}
       <div className="space-y-3">
         {basicModels.map((model) => {
-          const isRecommended = model.name === 'base';
+          const isRecommended = model.recommended === true;
           return (
             <ModelCard
               key={model.name}
@@ -459,6 +455,7 @@ export function ModelManager({
               onDelete={() => deleteModel(model.name)}
               isDownloading={downloadingModels.has(model.name)}
               displayName={getDisplayName(model.name)}
+              footer={updateControl(model)}
             />
           );
         })}
@@ -489,6 +486,7 @@ export function ModelManager({
                     onDelete={() => deleteModel(model.name)}
                     isDownloading={downloadingModels.has(model.name)}
                     displayName={getDisplayName(model.name)}
+                    footer={updateControl(model)}
                   />
                 ))}
               </div>
@@ -522,6 +520,7 @@ interface ModelCardProps {
   onDelete: () => void;
   isDownloading: boolean;
   displayName: string;
+  footer?: React.ReactNode;
 }
 
 function ModelCard({
@@ -533,7 +532,8 @@ function ModelCard({
   onCancel,
   onDelete,
   isDownloading,
-  displayName
+  displayName,
+  footer
 }: ModelCardProps) {
   const [isHovered, setIsHovered] = useState(false);
 
@@ -750,6 +750,7 @@ function ModelCard({
             </p>
           </motion.div>
         )}
+        {footer}
       </div>
     </motion.div>
   );

@@ -13,6 +13,8 @@ import {
   formatFileSize,
   isVisibleParakeetModel
 } from '../lib/parakeet';
+import { ModelUpdateControl } from './ModelUpdateControl';
+import { useModelCatalog } from '@/lib/model-catalog';
 
 interface ParakeetModelManagerProps {
   selectedModel?: string;
@@ -39,6 +41,11 @@ export function ParakeetModelManager({
 
   // Progress throttle map to prevent rapid updates
   const progressThrottleRef = useRef<Map<string, { progress: number; timestamp: number }>>(new Map());
+
+  // A new model list or a finished model update: list the models again.
+  const catalog = useModelCatalog(() => {
+    ParakeetAPI.getAvailableModels().then(setModels).catch(() => {});
+  });
 
   // Update refs when props change
   useEffect(() => {
@@ -371,11 +378,11 @@ export function ParakeetModelManager({
   }
 
   const visibleModels = models.filter(m => isVisibleParakeetModel(m.name));
-  const recommendedModel = visibleModels.find(m =>
-    m.name === 'parakeet-tdt-0.6b-v3-int8'
-  );
-  const otherModels = visibleModels.filter(m =>
-    m.name !== 'parakeet-tdt-0.6b-v3-int8'
+  // The catalog marks the recommended model.
+  const recommendedModel = visibleModels.find(m => m.recommended);
+  const otherModels = visibleModels.filter(m => m !== recommendedModel);
+  const updateControl = (model: ParakeetModelInfo) => (
+    <ModelUpdateControl catalog={catalog} engine="parakeet" id={model.name} installed={model.status === 'Available'} />
   );
 
   return (
@@ -395,6 +402,7 @@ export function ParakeetModelManager({
           onCancel={() => cancelDownload(recommendedModel.name)}
           onDelete={() => deleteModel(recommendedModel.name)}
           isDownloading={downloadingModels.has(recommendedModel.name)}
+          footer={updateControl(recommendedModel)}
         />
       )}
 
@@ -416,6 +424,7 @@ export function ParakeetModelManager({
               onCancel={() => cancelDownload(model.name)}
               onDelete={() => deleteModel(model.name)}
               isDownloading={downloadingModels.has(model.name)}
+              footer={updateControl(model)}
             />
           ))}
         </div>
@@ -445,6 +454,7 @@ interface ModelCardProps {
   onCancel: () => void;
   onDelete: () => void;
   isDownloading: boolean;
+  footer?: React.ReactNode;
 }
 
 function ModelCard({
@@ -455,11 +465,12 @@ function ModelCard({
   onDownload,
   onCancel,
   onDelete,
-  isDownloading
+  isDownloading,
+  footer
 }: ModelCardProps) {
   const [isHovered, setIsHovered] = useState(false);
   const displayInfo = getModelDisplayInfo(model.name);
-  const displayName = displayInfo?.friendlyName || model.name;
+  const displayName = model.display_name || displayInfo?.friendlyName || model.name;
   const tagline = displayInfo?.tagline || model.description || '';
 
   const isAvailable = model.status === 'Available';
@@ -643,6 +654,7 @@ function ModelCard({
             </p>
           </motion.div>
         )}
+        {footer}
       </div>
     </motion.div>
   );

@@ -5,6 +5,7 @@ import Image from "next/image"
 import { invoke } from "@tauri-apps/api/core"
 import { Github, Shield, Cpu, Heart } from "lucide-react"
 import { UpdateSettings } from "@/components/updater/UpdateSettings"
+import { ModelCatalogSettings } from "@/components/updater/ModelCatalogSettings"
 
 /**
  * About panel for Protocol. Shows version, a short description, the updates
@@ -75,6 +76,8 @@ export function AboutSettings() {
       </div>
 
       <UpdateSettings />
+
+      <ModelCatalogSettings />
 
       {/* Links */}
       <div className="rounded-2xl border border-af-border bg-af-panel-2/40 p-5 space-y-3">

@@ -7,6 +7,11 @@ export interface ModelInfo {
   speed: ProcessingSpeed;
   status: ModelStatus;
   description?: string;
+  /** From the model catalog. */
+  display_name?: string;
+  tier?: 'basic' | 'advanced' | null;
+  recommended?: boolean;
+  languages?: string[];
 }
 
 export type ModelAccuracy = 'High' | 'Good' | 'Decent';

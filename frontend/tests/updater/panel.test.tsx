@@ -163,6 +163,7 @@ test('a copy that cannot update says why and offers the releases page', async ()
   status = snapshot({ support: { kind: 'off', reason: 'notInstalled' } });
   await mount();
   expect(text()).toContain('not installed by the Protocol installer');
-  expect(root.root.findAllByProps({ 'aria-labelledby': 'auto-check-label' })).toHaveLength(0);
+  // The switch stays: it also turns the daily model checks on and off.
+  expect(root.root.findAllByProps({ 'aria-labelledby': 'auto-check-label' }).length).toBeGreaterThan(0);
   expect(buttons('Open releases page')).toHaveLength(1);
 });

@@ -8,6 +8,10 @@ export interface ParakeetModelInfo {
   status: ModelStatus;
   description?: string;
   quantization: QuantizationType;
+  /** From the model catalog. */
+  display_name?: string;
+  recommended?: boolean;
+  languages?: string[];
 }
 
 export type QuantizationType = 'FP32' | 'Int8';

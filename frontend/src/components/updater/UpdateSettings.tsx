@@ -20,8 +20,9 @@ import { ReleaseNotes } from './ReleaseNotes';
 import { blockedLine, MAC_PERMISSIONS_NOTE, MANUAL_NOTE, RESTART_NOTE } from './UpdatePanel';
 
 export const AUTO_CHECK_DESCRIPTION =
-  'Once a day Protocol asks GitHub whether a newer release exists. If one does, it shows Update available; ' +
-  'Protocol downloads the update only when you click Download, and installs it when you restart or quit, never during a recording.';
+  'Once a day Protocol asks GitHub whether a newer release or a new model list exists, and Hugging Face whether your downloaded models changed. ' +
+  'It shows what it finds here and on the model cards; Protocol downloads an update only when you click Download or Update, ' +
+  'and installs an app update when you restart or quit, never during a recording.';
 
 /** The status line of Settings › About, per state. */
 export function statusLine(status: UpdaterSnapshot, now = Date.now()): string {
@@ -151,25 +152,24 @@ export function UpdateSettings() {
 
       <div className="flex flex-wrap items-center gap-2">{actions}</div>
 
-      {support.kind !== 'off' && (
-        <div className="flex items-start gap-4 border-t border-af-border pt-4">
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-medium text-af-text" id="auto-check-label">Check for updates automatically</p>
-            <p className="mt-0.5 text-[13px] leading-relaxed text-af-text-3">
-              {AUTO_CHECK_DESCRIPTION}{' '}
-              <button type="button" className="text-af-accent hover:underline" onClick={() => openExternal(PRIVACY_URL)}>
-                Privacy policy
-              </button>
-            </p>
-          </div>
-          <Switch
-            className="mt-1"
-            checked={status.autoCheck}
-            onCheckedChange={(checked) => void updater.setAutoCheck(checked)}
-            aria-labelledby="auto-check-label"
-          />
+      {/* Shown even where app updates are off: it also drives model checks. */}
+      <div className="flex items-start gap-4 border-t border-af-border pt-4">
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium text-af-text" id="auto-check-label">Check for app and model updates automatically</p>
+          <p className="mt-0.5 text-[13px] leading-relaxed text-af-text-3">
+            {AUTO_CHECK_DESCRIPTION}{' '}
+            <button type="button" className="text-af-accent hover:underline" onClick={() => openExternal(PRIVACY_URL)}>
+              Privacy policy
+            </button>
+          </p>
         </div>
-      )}
+        <Switch
+          className="mt-1"
+          checked={status.autoCheck}
+          onCheckedChange={(checked) => void updater.setAutoCheck(checked)}
+          aria-labelledby="auto-check-label"
+        />
+      </div>
     </section>
   );
 }
