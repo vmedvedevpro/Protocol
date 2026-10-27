@@ -307,10 +307,18 @@ fn discover_models_standalone() -> Result<Vec<ModelInfo>, String> {
             ModelStatus::Missing
         };
 
+        let size_bytes = match status {
+            ModelStatus::Available => crate::model_catalog::installed::expected(
+                &entry,
+                &crate::model_catalog::installed::record_path_for_file(&model_path),
+            )
+            .map(|expected| expected.total_size()),
+            _ => crate::model_catalog::sizes::download_size(&entry),
+        };
         models.push(ModelInfo {
             name: entry.id,
             path: model_path,
-            size_mb: entry.size_mb as u32,
+            size_bytes,
             status,
             accuracy: entry.accuracy.unwrap_or_default(),
             speed: entry.speed.unwrap_or_default(),

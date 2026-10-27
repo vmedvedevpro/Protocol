@@ -13,10 +13,15 @@
 //! last failed update per model) is kept beside the cached catalog, so
 //! restarts follow the same 24 h schedule and backoff as app updates
 //! (`crate::updater::schedule`) and keep showing what was found.
+//!
+//! The check also reads again the model sizes a list asked Hugging Face for
+//! (`super::sizes`); a list asks for missing ones itself ([`request_sizes`]),
+//! whether automatic checks are on or not, since that is part of showing it.
 
 use super::huggingface;
 use super::remote::{self, Source};
 use super::schema::{Engine, Entry, Hidden};
+use super::sizes;
 use super::updates::{self, Available, Hooks, Phase, Unit};
 use crate::updater::busy::{self, BusyReason};
 use crate::updater::prefs::Prefs;
@@ -117,6 +122,9 @@ pub struct Status {
     pub updates: Vec<Available>,
     pub operations: Vec<Operation>,
     pub update_failures: Vec<UpdateFailure>,
+    /// Changes when model sizes read from Hugging Face changed, so Settings
+    /// lists the models again.
+    pub sizes_version: u64,
 }
 
 pub struct CatalogState {
@@ -151,6 +159,7 @@ impl CatalogState {
             updates: history.updates,
             operations,
             update_failures: history.update_failures,
+            sizes_version: sizes::version(),
         }
     }
 
@@ -184,6 +193,7 @@ pub fn init<R: Runtime>(app: &AppHandle<R>) {
     let (catalog, source) = remote::startup(&dir, super::built_in());
     log::info!("[model catalog] {} models from {:?}", catalog.entries.len(), source);
     super::set_active(catalog, source);
+    sizes::load(&dir);
     let history = std::fs::read(history_file(&dir))
         .ok()
         .and_then(|bytes| serde_json::from_slice(&bytes).ok())
@@ -282,6 +292,10 @@ pub async fn check<R: Runtime>(app: &AppHandle<R>, manual: bool) -> Result<Statu
     }
     // Hugging Face is asked even when GitHub was not reachable.
     let models = check_installed(&state).await;
+    // Display only: a failure leaves the sizes as they were and does not
+    // count against the check.
+    let every: Vec<Entry> = [Engine::Whisper, Engine::Parakeet, Engine::Llama].into_iter().flat_map(super::entries).collect();
+    sizes::refresh(&huggingface::client(), huggingface::HUB, &every).await;
     let result = match (catalog, models) {
         (Ok(_), Ok(())) => Ok(()),
         (Err(error), _) | (Ok(_), Err(error)) => Err(error),
@@ -291,6 +305,30 @@ pub async fn check<R: Runtime>(app: &AppHandle<R>, manual: bool) -> Result<Statu
     state.checking.store(false, Ordering::Release);
     emit(app);
     Ok(state.status())
+}
+
+/// A model list of `engine` (or a line naming the models `ids`) is on screen:
+/// reads the sizes of those listed models that are not known yet from
+/// Hugging Face, in the background, and pushes the status when they arrived.
+pub fn request_sizes<R: Runtime>(app: &AppHandle<R>, engine: Engine, ids: Option<Vec<String>>) {
+    let entries: Vec<Entry> = super::entries(engine)
+        .into_iter()
+        .filter(|entry| entry.listed && ids.as_ref().map_or(true, |ids| ids.contains(&entry.id)))
+        .collect();
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        if sizes::fill(&huggingface::client(), huggingface::HUB, &entries).await {
+            emit(&app);
+        }
+    });
+}
+
+/// The size shown for the model `id`: its installed files (install record or
+/// 0.3.0 pins), else what a download would fetch now; `None` while unknown.
+pub fn model_size(engine: Engine, id: &str) -> Option<u64> {
+    let entry = super::entry(engine, id)?;
+    let unit = Unit::of(&crate::paths::models_dir(), &entry);
+    unit.installed(&entry).map(|expected| expected.total_size()).or_else(|| sizes::download_size(&entry))
 }
 
 /// Called on the updater's schedule tick: runs a daily check while automatic

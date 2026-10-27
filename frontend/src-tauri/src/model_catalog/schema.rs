@@ -87,7 +87,8 @@ pub struct LlamaParams {
 
 /// A model the app can offer. `id` is the value saved in settings, so it never
 /// changes; the version is not here but resolved from Hugging Face (`repo`,
-/// optionally pinned to the commit `revision`).
+/// optionally pinned to the commit `revision`), and so are the files' sizes
+/// (`super::sizes`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Entry {
     pub id: String,
@@ -114,8 +115,6 @@ pub struct Entry {
     /// Summary models: recommended only with at least this much RAM.
     #[serde(default)]
     pub min_ram_gb: Option<f64>,
-    /// Approximate download size for display before Hugging Face is asked.
-    pub size_mb: u64,
     pub license: License,
     pub repo: String,
     #[serde(default)]
@@ -188,9 +187,6 @@ impl Entry {
         }
         if self.min_ram_gb.is_some_and(|gb| !(gb > 0.0)) {
             problems.push("min_ram_gb must be a positive number".to_string());
-        }
-        if self.size_mb == 0 {
-            problems.push("size_mb must be a positive whole number".to_string());
         }
         if !is_text(&self.license.name, 80) || !self.license.url.starts_with("https://") {
             problems.push("license needs a name and an https url".to_string());

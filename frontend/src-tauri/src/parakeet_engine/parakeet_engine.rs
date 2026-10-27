@@ -83,7 +83,9 @@ impl DownloadProgress {
 pub struct ModelInfo {
     pub name: String,
     pub path: PathBuf,
-    pub size_mb: u32,
+    /// Bytes of the installed files, else of the files on Hugging Face
+    /// (`model_catalog::sizes`); `None` while unknown.
+    pub size_bytes: Option<u64>,
     pub quantization: QuantizationType,
     pub speed: String, // Performance description
     pub status: ModelStatus,
@@ -211,10 +213,13 @@ impl ParakeetEngine {
 
         for entry in &entries {
             let name = entry.id.as_str();
-            let size_mb = entry.size_mb;
             // The catalog's only Parakeet format is onnx-tdt-int8.
             let quantization = QuantizationType::Int8;
             let model_path = models_dir.join(name);
+            // The installed version's exact size; `None` with no version on record.
+            let installed_size = Self::expected_files(name, &model_path)
+                .ok()
+                .map(|files| files.iter().map(|pinned| pinned.size).sum::<u64>());
 
             // Check if model is currently downloading
             let status = if active_downloads.contains(name) {
@@ -258,7 +263,7 @@ impl ParakeetEngine {
                             }
                             ModelStatus::Corrupted {
                                 file_size: total_size,
-                                expected_min_size: (size_mb as u64) * 1024 * 1024,
+                                expected_min_size: installed_size.unwrap_or(0),
                             }
                         }
                     }
@@ -269,10 +274,16 @@ impl ParakeetEngine {
                 ModelStatus::Missing
             };
 
+            // An installed model shows its own files; any other the files a
+            // download would fetch now.
+            let size_bytes = match status {
+                ModelStatus::Available => installed_size,
+                _ => model_catalog::sizes::download_size(entry),
+            };
             let model_info = ModelInfo {
                 name: name.to_string(),
                 path: model_path,
-                size_mb: size_mb as u32,
+                size_bytes,
                 quantization: quantization.clone(),
                 speed: entry.speed.clone().unwrap_or_default(),
                 status,
@@ -1037,7 +1048,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let engine = ParakeetEngine::new_with_models_dir(Some(dir.path().to_path_buf())).unwrap();
         let names = |models: Vec<ModelInfo>| models.into_iter().map(|model| model.name).collect::<Vec<_>>();
-        let listed = names(engine.discover_models().await.unwrap());
+        let models = engine.discover_models().await.unwrap();
+        // Not installed, and Hugging Face was not asked: no size, not a guess.
+        assert_eq!(models[0].size_bytes, None);
+        let listed = names(models);
         assert_eq!(listed, ["parakeet-tdt-0.6b-v3-int8"]);
         std::fs::create_dir_all(dir.path().join("parakeet").join("parakeet-tdt-0.6b-v2-int8")).unwrap();
         let listed = names(engine.discover_models().await.unwrap());
@@ -1070,8 +1084,11 @@ mod tests {
         assert_eq!(std::fs::read(model_dir.join("nemo128.onnx")).unwrap(), [3u8; 64]);
         // The record, not the 0.3.0 pins, is what the model is now checked against.
         engine.discover_models().await.unwrap();
-        assert!(matches!(engine.available_models.read().await[model].status, ModelStatus::Available));
+        let info = engine.available_models.read().await[model].clone();
+        assert!(matches!(info.status, ModelStatus::Available));
         assert_eq!(ParakeetEngine::expected_files(model, &model_dir).unwrap()[0].size, 4096);
+        // An installed model shows the size of its own files.
+        assert_eq!(info.size_bytes, Some(4096 + 512 + 64 + 6));
     }
 
     #[tokio::test]

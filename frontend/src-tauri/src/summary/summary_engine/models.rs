@@ -141,10 +141,6 @@ pub struct ModelDef {
     /// Template name for prompt formatting (e.g., "gemma3")
     pub template: String,
 
-    /// Approximate file size in MiB, for display. The exact size and SHA-256
-    /// come from Hugging Face (`crate::model_catalog::huggingface`).
-    pub size_mb: u64,
-
     /// Context window size in tokens (configurable per model!)
     /// This is used for chunking in processor.rs
     pub context_size: u32,
@@ -167,7 +163,6 @@ impl ModelDef {
             display_name: entry.name.clone(),
             gguf_file: entry.single_file().name.clone(),
             template: params.chat_format.clone(),
-            size_mb: entry.size_mb,
             context_size: params.context_size,
             sampling: SamplingParams {
                 temperature: sampling.temperature,
@@ -321,7 +316,7 @@ mod tests {
     }
 
     #[test]
-    fn every_model_has_its_0_3_0_size_and_order() {
+    fn every_model_has_its_0_3_0_file_and_order() {
         let _catalog = crate::model_catalog::testing::built_in_catalog();
         let names: Vec<String> = get_available_models().into_iter().map(|model| model.name).collect();
         assert_eq!(names, ["qwen3.5:2b", "qwen3.5:4b", "gemma3:4b", "gemma3:1b"]);
@@ -329,8 +324,6 @@ mod tests {
             let legacy = installed::legacy_model(Engine::Llama, name).unwrap();
             let model = get_model_by_name(name).unwrap();
             assert_eq!(model.gguf_file, legacy.files[0].file);
-            // Display sizes, rounded either way.
-            assert!(model.size_mb.abs_diff(legacy.files[0].size / (1024 * 1024)) <= 1, "{name}");
             assert_eq!(source(name).0, legacy.repo);
         }
     }
@@ -343,7 +336,6 @@ mod tests {
         assert_eq!(qwen_2b.gguf_file, "Qwen3.5-2B-Q4_K_M.gguf");
         assert_eq!(qwen_2b.template, "qwen3.5_nonthinking");
         assert_eq!(source("qwen3.5:2b"), ("unsloth/Qwen3.5-2B-GGUF".to_string(), "Qwen3.5-2B-Q4_K_M.gguf".to_string()));
-        assert_eq!(qwen_2b.size_mb, 1221);
         assert_eq!(qwen_2b.context_size, 32768);
         assert_eq!(qwen_2b.sampling, SamplingParams::qwen35_summary(vec!["<|im_end|>".to_string()]));
 
@@ -352,7 +344,6 @@ mod tests {
         assert_eq!(qwen_4b.gguf_file, "Qwen3.5-4B-Q4_K_M.gguf");
         assert_eq!(qwen_4b.template, "qwen3.5_nonthinking");
         assert_eq!(source("qwen3.5:4b"), ("unsloth/Qwen3.5-4B-GGUF".to_string(), "Qwen3.5-4B-Q4_K_M.gguf".to_string()));
-        assert_eq!(qwen_4b.size_mb, 2614);
         assert_eq!(qwen_4b.context_size, 32768);
         assert_eq!(qwen_4b.sampling, SamplingParams::qwen35_summary(vec!["<|im_end|>".to_string()]));
     }

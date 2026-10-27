@@ -141,17 +141,22 @@ async fn get(client: &reqwest::Client, url: &str, what: &str) -> Result<reqwest:
 /// The commit the entry resolves to now: its pin, or the head of the
 /// repository's default branch.
 pub async fn current_commit(client: &reqwest::Client, hub: &str, entry: &Entry) -> Result<String, HubError> {
-    if let Some(revision) = &entry.revision {
-        return Ok(revision.clone());
+    match &entry.revision {
+        Some(revision) => Ok(revision.clone()),
+        None => head_commit(client, hub, &entry.repo).await,
     }
-    let what = format!("The repository {}", entry.repo);
-    let info: ModelInfo = get(client, &format!("{hub}/api/models/{}", entry.repo), &what)
+}
+
+/// The head of `repo`'s default branch.
+pub async fn head_commit(client: &reqwest::Client, hub: &str, repo: &str) -> Result<String, HubError> {
+    let what = format!("The repository {repo}");
+    let info: ModelInfo = get(client, &format!("{hub}/api/models/{repo}"), &what)
         .await?
         .json()
         .await
         .map_err(|error| HubError::Unexpected(error.to_string()))?;
     if !is_commit(&info.sha) {
-        return Err(HubError::Unexpected(format!("{} has no commit id", entry.repo)));
+        return Err(HubError::Unexpected(format!("{repo} has no commit id")));
     }
     Ok(info.sha)
 }
@@ -172,6 +177,19 @@ async fn tree(client: &reqwest::Client, hub: &str, repo: &str, commit: &str, dir
         items.append(&mut listed);
     }
     Ok(items)
+}
+
+/// The size in bytes of every file in `dir` of `repo` at `commit`, by path
+/// in the repository: what a model list shows before a download.
+pub async fn file_sizes(
+    client: &reqwest::Client,
+    hub: &str,
+    repo: &str,
+    commit: &str,
+    dir: &str,
+) -> Result<Vec<(String, u64)>, HubError> {
+    let items = tree(client, hub, repo, commit, dir).await?;
+    Ok(items.into_iter().filter(|item| item.kind == "file").map(|item| (item.path, item.size)).collect())
 }
 
 fn next_page(headers: &reqwest::header::HeaderMap) -> Option<String> {

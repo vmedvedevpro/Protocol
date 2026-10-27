@@ -19,6 +19,7 @@ pub mod installed;
 pub mod remote;
 pub mod schema;
 pub mod service;
+pub mod sizes;
 #[cfg(test)]
 pub(crate) mod testing;
 pub mod updates;

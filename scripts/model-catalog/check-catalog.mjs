@@ -77,7 +77,6 @@ export function entryProblems(entry) {
   }
   if (entry.rank !== undefined && !(Number.isInteger(entry.rank) && entry.rank >= 0)) problems.push('rank must be a whole number of 0 or more');
   if (entry.min_ram_gb !== undefined && !(typeof entry.min_ram_gb === 'number' && entry.min_ram_gb > 0)) problems.push('min_ram_gb must be a positive number');
-  if (!(Number.isInteger(entry.size_mb) && entry.size_mb > 0)) problems.push('size_mb must be a positive whole number');
   if (!isObject(entry.license) || !isText(entry.license.name, 80) || typeof entry.license.url !== 'string' || !entry.license.url.startsWith('https://')) {
     problems.push('license needs a name and an https url');
   }

@@ -10,7 +10,6 @@
       "languages": ["*"],
       "accuracy": "Decent",
       "speed": "Very Fast",
-      "size_mb": 74,
       "license": { "name": "MIT", "url": "https://github.com/openai/whisper/blob/main/LICENSE" },
       "repo": "ggerganov/whisper.cpp",
       "files": [{ "name": "ggml-tiny.bin", "path": "ggml-tiny.bin" }]
@@ -21,7 +20,6 @@
       "format": "onnx-tdt-int8",
       "name": "Lightning",
       "languages": ["en", "ru"],
-      "size_mb": 670,
       "license": { "name": "CC-BY-4.0", "url": "https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3" },
       "repo": "istupakov/parakeet-tdt-0.6b-v3-onnx",
       "files": [
@@ -38,7 +36,6 @@
       "name": "Gemma 3 1B (Fast)",
       "languages": ["*"],
       "rank": 1,
-      "size_mb": 1019,
       "license": { "name": "Gemma Terms of Use", "url": "https://ai.google.dev/gemma/terms" },
       "repo": "bartowski/google_gemma-3-1b-it-GGUF",
       "files": [{ "name": "gemma-3-1b-it-Q8_0.gguf", "path": "google_gemma-3-1b-it-Q8_0.gguf" }],
@@ -68,7 +65,6 @@
     { "name": "unknown tier", "base": "whisper", "set": { "tier": "pro" }, "valid": false },
     { "name": "listed is not a boolean", "base": "whisper", "set": { "listed": "no" }, "valid": false },
     { "name": "negative rank", "base": "llama", "set": { "rank": -1 }, "valid": false },
-    { "name": "zero size", "base": "whisper", "set": { "size_mb": 0 }, "valid": false },
     { "name": "license over http", "base": "whisper", "set": { "license.url": "http://example.com" }, "valid": false },
     { "name": "repository without owner", "base": "whisper", "set": { "repo": "whisper.cpp" }, "valid": false },
     { "name": "repository url instead of a name", "base": "whisper", "set": { "repo": "https://huggingface.co/ggerganov/whisper.cpp" }, "valid": false },

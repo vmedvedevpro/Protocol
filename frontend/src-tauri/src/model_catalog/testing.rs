@@ -73,7 +73,6 @@ pub fn entry_for(engine: Engine, id: &str, repo: &str) -> Entry {
         listed: true,
         rank: 0,
         min_ram_gb: None,
-        size_mb: 1,
         license: License { name: "MIT".to_string(), url: "https://example.com/license".to_string() },
         repo: repo.to_string(),
         revision: None,

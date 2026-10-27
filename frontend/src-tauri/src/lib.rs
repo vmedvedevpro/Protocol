@@ -785,6 +785,8 @@ pub fn run() {
             // Model catalog
             model_catalog::commands::model_catalog_get_status,
             model_catalog::commands::model_catalog_check_now,
+            model_catalog::commands::model_catalog_request_sizes,
+            model_catalog::commands::model_catalog_model_size,
             model_catalog::commands::model_update_start,
             model_catalog::commands::model_update_cancel,
         ])

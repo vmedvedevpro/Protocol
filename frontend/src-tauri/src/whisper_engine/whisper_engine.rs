@@ -29,7 +29,9 @@ pub enum ModelStatus {
 pub struct ModelInfo {
     pub name: String,
     pub path: PathBuf,
-    pub size_mb: u32,
+    /// Bytes of the installed file, else of the file on Hugging Face
+    /// (`model_catalog::sizes`); `None` while unknown.
+    pub size_bytes: Option<u64>,
     pub accuracy: String,
     pub speed: String,
     pub status: ModelStatus,
@@ -204,7 +206,6 @@ impl WhisperEngine {
         for entry in &entries {
             let name = entry.id.as_str();
             let filename = entry.single_file().name.as_str();
-            let size_mb = entry.size_mb;
             let model_path = models_dir.join(filename);
             // Startup checks the exact size of the installed version only; the
             // SHA-256 is checked on download and before the first load (see
@@ -212,12 +213,14 @@ impl WhisperEngine {
             // record is an unfinished download.
             let pinned = Self::expected_pin(entry, &model_path);
             let pinned_size = pinned.map(|pinned| pinned.size);
+            // Any other size is unfinished or damaged; 0 when no version is
+            // on record.
+            let expected_size = pinned_size.unwrap_or(0);
             let status = if model_path.exists() {
                 match std::fs::metadata(&model_path) {
                     Ok(metadata) => {
                         let file_size_bytes = metadata.len();
                         let file_size_mb = file_size_bytes / (1024 * 1024);
-                        let expected_min_size_mb = (size_mb as f64 * 0.9) as u64; // Allow 90% of expected size as minimum for more accurate corruption detection
 
                         // A file that failed its check but could not be deleted
                         // still has the pinned size.
@@ -234,7 +237,7 @@ impl WhisperEngine {
                                              filename);
                                     ModelStatus::Corrupted {
                                         file_size: file_size_bytes,
-                                        expected_min_size: (expected_min_size_mb * 1024 * 1024) as u64
+                                        expected_min_size: expected_size,
                                     }
                                 }
                             }
@@ -250,20 +253,20 @@ impl WhisperEngine {
                                         ModelStatus::Downloading { progress: *progress }
                                     }
                                     _ => {
-                                        log::warn!("Model file {} exists but is corrupted ({} MB, expected ~{} MB)",
-                                                 filename, file_size_mb, size_mb);
+                                        log::warn!("Model file {} exists but is corrupted ({} bytes, expected {} bytes)",
+                                                 filename, file_size_bytes, expected_size);
                                         ModelStatus::Corrupted {
                                             file_size: file_size_bytes,
-                                            expected_min_size: (expected_min_size_mb * 1024 * 1024) as u64
+                                            expected_min_size: expected_size,
                                         }
                                     }
                                 }
                             } else {
-                                log::warn!("Model file {} exists but is corrupted ({} MB, expected ~{} MB)",
-                                         filename, file_size_mb, size_mb);
+                                log::warn!("Model file {} exists but is corrupted ({} bytes, expected {} bytes)",
+                                         filename, file_size_bytes, expected_size);
                                 ModelStatus::Corrupted {
                                     file_size: file_size_bytes,
-                                    expected_min_size: (expected_min_size_mb * 1024 * 1024) as u64
+                                    expected_min_size: expected_size,
                                 }
                             }
                         } else {
@@ -276,10 +279,16 @@ impl WhisperEngine {
                 ModelStatus::Missing
             };
             
+            // An installed model shows its own file; any other the file a
+            // download would fetch now.
+            let size_bytes = match status {
+                ModelStatus::Available => pinned_size,
+                _ => model_catalog::sizes::download_size(entry),
+            };
             let model_info = ModelInfo {
                 name: name.to_string(),
                 path: model_path,
-                size_mb: size_mb as u32,
+                size_bytes,
                 accuracy: entry.accuracy.clone().unwrap_or_default(),
                 speed: entry.speed.clone().unwrap_or_default(),
                 status,

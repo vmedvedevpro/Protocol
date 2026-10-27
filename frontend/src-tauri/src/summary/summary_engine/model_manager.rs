@@ -71,10 +71,12 @@ pub enum ModelStatus {
     /// Model is downloaded and ready to use
     Available,
 
-    /// A resumable partial download exists on disk.
+    /// A resumable partial download exists on disk. Sizes in bytes; the
+    /// expected one is the version being downloaded (0: none on record).
     Incomplete { file_size: u64, expected_size: u64 },
 
-    /// Model file is corrupted and needs redownload
+    /// Model file is corrupted and needs redownload. Sizes in bytes; the
+    /// expected one is the installed version's (0: none on record).
     Corrupted { file_size: u64, expected_min_size: u64 },
 
     /// Error occurred with the model. A struct variant: the internally tagged
@@ -98,8 +100,9 @@ pub struct ModelInfo {
     /// File path (if available)
     pub path: PathBuf,
 
-    /// Size in MB
-    pub size_mb: u64,
+    /// Bytes of the installed file, else of the file on Hugging Face
+    /// (`model_catalog::sizes`); `None` while unknown.
+    pub size_bytes: Option<u64>,
 
     /// Context window size in tokens
     pub context_size: u32,
@@ -278,14 +281,17 @@ impl ModelManager {
             // The installed version's exact size; none while a download has
             // not finished.
             let pinned = installed_pin(&model_def.name, &model_path);
+            // The size the file must reach: the installed version's, else the
+            // one an unfinished download is fetching. 0: none on record.
+            let expected_size = pinned.map(|pinned| pinned.size).unwrap_or_else(|| {
+                installed::partial(entry, &installed::record_path_for_file(&model_path))
+                    .map_or(0, |record| record.files.iter().map(|file| file.size).sum())
+            });
             let status = if model_path.exists() {
                 // Check if file size matches expected size (basic validation)
                 match fs::metadata(&model_path).await {
                     Ok(metadata) => {
                         let file_size_bytes = metadata.len();
-                        let file_size_mb = file_size_bytes / (1024 * 1024);
-
-                        let expected_min = (model_def.size_mb as f64 * 0.9) as u64;
 
                         log::info!(
                             "Model '{}': found {} bytes (expected exactly {} bytes)",
@@ -300,8 +306,8 @@ impl ModelManager {
                         if let Some(reason) = rejection {
                             log::warn!("Model '{}': CORRUPTED ({})", model_def.name, reason);
                             ModelStatus::Corrupted {
-                                file_size: file_size_mb,
-                                expected_min_size: model_def.size_mb,
+                                file_size: file_size_bytes,
+                                expected_min_size: expected_size,
                             }
                         } else if Some(file_size_bytes) == pinned.map(|pinned| pinned.size) {
                             match self.validate_gguf_file(&model_path).await {
@@ -312,32 +318,32 @@ impl ModelManager {
                                 Err(error) => {
                                     log::warn!("Model '{}': CORRUPTED ({})", model_def.name, error);
                                     ModelStatus::Corrupted {
-                                        file_size: file_size_mb,
-                                        expected_min_size: model_def.size_mb,
+                                        file_size: file_size_bytes,
+                                        expected_min_size: expected_size,
                                     }
                                 }
                             }
                         } else if pinned.map_or(true, |pinned| file_size_bytes < pinned.size) {
                             log::info!(
-                                "Model '{}': INCOMPLETE ({} MB of approximately {} MB); download can resume",
+                                "Model '{}': INCOMPLETE ({} of {} bytes); download can resume",
                                 model_def.name,
-                                file_size_mb,
-                                model_def.size_mb
+                                file_size_bytes,
+                                expected_size
                             );
                             ModelStatus::Incomplete {
-                                file_size: file_size_mb,
-                                expected_size: model_def.size_mb,
+                                file_size: file_size_bytes,
+                                expected_size,
                             }
                         } else {
                             log::warn!(
-                                "Model '{}': CORRUPTED (size mismatch: {} MB, expected {} MB)",
+                                "Model '{}': CORRUPTED (size mismatch: {} bytes, expected {} bytes)",
                                 model_def.name,
-                                file_size_mb,
-                                model_def.size_mb
+                                file_size_bytes,
+                                expected_size
                             );
                             ModelStatus::Corrupted {
-                                file_size: file_size_mb,
-                                expected_min_size: expected_min,
+                                file_size: file_size_bytes,
+                                expected_min_size: expected_size,
                             }
                         }
                     }
@@ -357,12 +363,18 @@ impl ModelManager {
                 ModelStatus::NotDownloaded
             };
 
+            // An installed model shows its own file; any other the file a
+            // download would fetch now.
+            let size_bytes = match status {
+                ModelStatus::Available => pinned.map(|pinned| pinned.size),
+                _ => model_catalog::sizes::download_size(entry),
+            };
             let model_info = ModelInfo {
                 name: model_def.name.clone(),
                 display_name: model_def.display_name.clone(),
                 status,
                 path: model_path,
-                size_mb: model_def.size_mb,
+                size_bytes,
                 context_size: model_def.context_size,
                 description: model_def.description.clone(),
                 gguf_file: model_def.gguf_file.clone(),
@@ -450,8 +462,8 @@ impl ModelManager {
                         None => ModelStatus::Error { message: error.to_string() },
                         // Still on disk: offer Retry and Delete, as a scan would.
                         Some(_) => ModelStatus::Corrupted {
-                            file_size: pinned.size / (1024 * 1024),
-                            expected_min_size: info.size_mb,
+                            file_size: pinned.size,
+                            expected_min_size: pinned.size,
                         },
                     };
                 }
@@ -573,7 +585,7 @@ impl ModelManager {
                         Ok(()) => true,
                         Err(error) => match error.downcast_ref() {
                             Some(IntegrityError::Cancelled { .. }) => {
-                                self.finish_cancelled_download(model_name, &control, &file_path, model_def.size_mb)
+                                self.finish_cancelled_download(model_name, &control, &file_path, pinned.size)
                                     .await;
                                 return Err(anyhow!("CANCELLED: Download cancelled by user"));
                             }
@@ -599,13 +611,7 @@ impl ModelManager {
                     let mut controls = self.download_controls.write().await;
                     if control.cancelled.load(Ordering::Acquire) {
                         drop(controls);
-                        self.finish_cancelled_download(
-                            model_name,
-                            &control,
-                            &file_path,
-                            model_def.size_mb,
-                        )
-                        .await;
+                        self.finish_cancelled_download(model_name, &control, &file_path, pinned.size).await;
                         return Err(anyhow!("CANCELLED: Download cancelled by user"));
                     }
                     if let Some(install) = &install {
@@ -648,10 +654,10 @@ impl ModelManager {
                     // File is SMALLER than expected - likely partial download
                     // DON'T DELETE - let resume logic handle it
                     log::info!(
-                        "Model '{}' exists but is incomplete ({} MB of approximately {} MB), will resume download",
+                        "Model '{}' exists but is incomplete ({} of {} bytes), will resume download",
                         model_name,
-                        file_size_mb,
-                        model_def.size_mb
+                        metadata.len(),
+                        pinned.size
                     );
                     // Continue to download/resume logic below
                 }
@@ -707,7 +713,7 @@ impl ModelManager {
 
         let response_result = tokio::select! {
             _ = control.notify.notified() => {
-                self.finish_cancelled_download(model_name, &control, &file_path, model_def.size_mb).await;
+                self.finish_cancelled_download(model_name, &control, &file_path, pinned.size).await;
                 return Err(anyhow!("CANCELLED: Download cancelled by user"));
             }
             response = request.send() => response,
@@ -769,7 +775,7 @@ impl ModelManager {
                 Ok(check) => check,
                 Err(error) if matches!(error.downcast_ref(), Some(IntegrityError::Cancelled { .. })) => {
                     // The partial file is untouched and stays for the next resume.
-                    self.finish_cancelled_download(model_name, &control, &file_path, model_def.size_mb).await;
+                    self.finish_cancelled_download(model_name, &control, &file_path, pinned.size).await;
                     return Err(anyhow!("CANCELLED: Download cancelled by user"));
                 }
                 Err(error) => {
@@ -839,7 +845,7 @@ impl ModelManager {
                     let _ = writer.flush().await;
                     drop(writer);
 
-                    self.finish_cancelled_download(model_name, &control, &file_path, model_def.size_mb).await;
+                    self.finish_cancelled_download(model_name, &control, &file_path, pinned.size).await;
 
                     // Use special marker prefix to distinguish cancellation from other errors
                     return Err(anyhow!("CANCELLED: Download cancelled by user"));
@@ -978,32 +984,31 @@ impl ModelManager {
             }
         };
         if final_size != pinned.size || (total_size > 0 && final_size != total_size) {
-            let final_size_mb = final_size / (1024 * 1024);
             log::warn!(
-                "Download ended before model '{}' was complete: {} MB of approximately {} MB",
+                "Download ended before model '{}' was complete: {} of {} bytes",
                 model_name,
-                final_size_mb,
-                model_def.size_mb
+                final_size,
+                pinned.size
             );
             {
                 let mut models = self.available_models.write().await;
                 if let Some(model_info) = models.get_mut(model_name) {
                     model_info.status = ModelStatus::Incomplete {
-                        file_size: final_size_mb,
-                        expected_size: model_def.size_mb,
+                        file_size: final_size,
+                        expected_size: pinned.size,
                     };
                 }
             }
             self.release_download(model_name, &control).await;
             return Err(anyhow!(
-                "Download incomplete: received {} MB of approximately {} MB; retry to resume",
-                final_size_mb,
-                model_def.size_mb
+                "Download incomplete: received {} MB of {} MB; retry to resume",
+                final_size / (1024 * 1024),
+                pinned.size / (1024 * 1024)
             ));
         }
 
         if control.cancelled.load(Ordering::Acquire) {
-            self.finish_cancelled_download(model_name, &control, &file_path, model_def.size_mb).await;
+            self.finish_cancelled_download(model_name, &control, &file_path, pinned.size).await;
             return Err(anyhow!("CANCELLED: Download cancelled by user"));
         }
 
@@ -1063,7 +1068,7 @@ impl ModelManager {
         let mut controls = self.download_controls.write().await;
         if control.cancelled.load(Ordering::Acquire) {
             drop(controls);
-            self.finish_cancelled_download(model_name, &control, &file_path, model_def.size_mb).await;
+            self.finish_cancelled_download(model_name, &control, &file_path, pinned.size).await;
             return Err(anyhow!("CANCELLED: Download cancelled by user"));
         }
         let mut models = self.available_models.write().await;
@@ -1123,6 +1128,7 @@ impl ModelManager {
         self.release_download(model_name, control).await;
     }
 
+    /// `expected_size`: the bytes of the version being downloaded.
     async fn finish_cancelled_download(
         &self,
         model_name: &str,
@@ -1135,7 +1141,7 @@ impl ModelManager {
         if let Some(model_info) = models.get_mut(model_name) {
             model_info.status = if partial_size > 0 {
                 ModelStatus::Incomplete {
-                    file_size: partial_size / (1024 * 1024),
+                    file_size: partial_size,
                     expected_size,
                 }
             } else {
@@ -1232,10 +1238,11 @@ mod tests {
         let partial = fs::File::create(&path).await.expect("partial file");
         partial.set_len(123_456).await.expect("partial size");
         manager.init().await.expect("partial scan");
-        assert!(matches!(
-            manager.get_model_info(&model.name).await.unwrap().status,
-            ModelStatus::Incomplete { .. }
-        ));
+        // Exact sizes in bytes: a 0.3.x partial is completed to the 0.3.0 pin.
+        let info = manager.get_model_info(&model.name).await.unwrap();
+        assert_eq!(info.status, ModelStatus::Incomplete { file_size: 123_456, expected_size: size });
+        // Not installed, and Hugging Face was not asked: no size, not a guess.
+        assert_eq!(info.size_bytes, None);
 
         let mut exact = fs::OpenOptions::new().write(true).open(&path).await.expect("exact file");
         exact.set_len(size).await.expect("exact invalid size");
@@ -1248,10 +1255,9 @@ mod tests {
         exact.write_all(b"GGUF").await.expect("GGUF magic");
         exact.set_len(size).await.expect("exact size");
         manager.scan_models().await.expect("exact scan");
-        assert_eq!(
-            manager.get_model_info(&model.name).await.unwrap().status,
-            ModelStatus::Available
-        );
+        let info = manager.get_model_info(&model.name).await.unwrap();
+        assert_eq!(info.status, ModelStatus::Available);
+        assert_eq!(info.size_bytes, Some(size));
     }
 
     /// Stands in for a GGUF pin, so a test hashes bytes rather than gigabytes.
