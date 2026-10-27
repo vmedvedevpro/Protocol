@@ -13,7 +13,11 @@
 //! entries every time they list or download, so a refreshed catalog applies
 //! without a restart.
 
+pub mod huggingface;
+pub mod installed;
 pub mod schema;
+#[cfg(test)]
+pub(crate) mod testing;
 
 use once_cell::sync::Lazy;
 use schema::{Catalog, Engine, Entry};
@@ -73,6 +77,15 @@ pub fn entries_with_installed(engine: Engine, is_installed: impl Fn(&Entry) -> b
     entries
 }
 
+/// What an engine lists in Settings: the listed entries, and unlisted or
+/// dropped ones whose model `is_installed`.
+pub fn offered(engine: Engine, is_installed: impl Fn(&Entry) -> bool) -> Vec<Entry> {
+    entries_with_installed(engine, &is_installed)
+        .into_iter()
+        .filter(|entry| entry.listed || is_installed(entry))
+        .collect()
+}
+
 /// The entry `id` of `engine`, from the catalog in use or else the built-in one.
 pub fn entry(engine: Engine, id: &str) -> Option<Entry> {
     let find = |catalog: &Catalog| usable(catalog, engine).find(|entry| entry.id == id).cloned();
@@ -84,33 +97,6 @@ fn usable(catalog: &Catalog, engine: Engine) -> impl Iterator<Item = &Entry> {
         .entries
         .iter()
         .filter(move |entry| entry.engine == engine && entry.runs_on(app_version()))
-}
-
-#[cfg(test)]
-pub(crate) mod testing {
-    use super::*;
-    use std::sync::Mutex;
-
-    fn set_active(catalog: Arc<Catalog>) {
-        *ACTIVE.write().unwrap_or_else(|poisoned| poisoned.into_inner()) = catalog;
-    }
-
-    /// Tests that swap the catalog in use hold this, so they do not see each
-    /// other's catalogs.
-    pub static ACTIVE_LOCK: Mutex<()> = Mutex::new(());
-
-    /// Uses `catalog` until the guard is dropped, then the built-in one again.
-    pub fn use_catalog(catalog: Catalog) -> impl Drop {
-        struct Restore(#[allow(dead_code)] std::sync::MutexGuard<'static, ()>);
-        impl Drop for Restore {
-            fn drop(&mut self) {
-                set_active(built_in());
-            }
-        }
-        let guard = ACTIVE_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        set_active(Arc::new(catalog));
-        Restore(guard)
-    }
 }
 
 #[cfg(test)]

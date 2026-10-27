@@ -1,9 +1,10 @@
+use crate::model_catalog::{self, huggingface, installed, schema::Engine};
 use crate::model_integrity::{self, Pinned};
 use crate::parakeet_engine::model::ParakeetModel;
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::fs;
@@ -87,6 +88,13 @@ pub struct ModelInfo {
     pub speed: String, // Performance description
     pub status: ModelStatus,
     pub description: String,
+    /// From the model catalog, for Settings.
+    #[serde(default)]
+    pub display_name: String,
+    #[serde(default)]
+    pub recommended: bool,
+    #[serde(default)]
+    pub languages: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -131,15 +139,21 @@ pub struct ParakeetEngine {
     completed_cancellations: Arc<RwLock<HashSet<String>>>,
     // Active downloads tracking to prevent concurrent downloads
     pub(crate) active_downloads: Arc<RwLock<HashSet<String>>>, // Set of models currently being downloaded
+    /// Where model repositories are resolved; tests use a local server.
+    hub: String,
 }
 
 impl ParakeetEngine {
-    /// The commit-pinned Hugging Face source and files of a model; see
-    /// `crate::model_integrity`. There is no mirror: another host would only be
-    /// one more party able to serve different bytes.
-    fn pinned_model(model_name: &str) -> Result<(&'static str, &'static [Pinned])> {
-        model_integrity::parakeet_model(model_name)
-            .ok_or_else(|| anyhow!("Parakeet model {} has no pinned files", model_name))
+    /// The files the installed copy of `model_name` in `model_dir` was verified
+    /// against: its install record, or the 0.3.0 pins (see
+    /// `crate::model_catalog::installed`). There is no mirror: another host
+    /// would only be one more party able to serve different bytes.
+    fn expected_files(model_name: &str, model_dir: &Path) -> Result<Vec<&'static Pinned>> {
+        let entry = model_catalog::entry(Engine::Parakeet, model_name)
+            .ok_or_else(|| anyhow!("Parakeet model {} is not in the model catalog", model_name))?;
+        installed::expected(&entry, &installed::record_path_for_dir(model_dir))
+            .map(|expected| expected.files)
+            .ok_or_else(|| anyhow!("Parakeet model {} has no verified version on record", model_name))
     }
 
     /// Create a new Parakeet engine with optional custom models directory
@@ -179,6 +193,7 @@ impl ParakeetEngine {
             completed_cancellations: Arc::new(RwLock::new(HashSet::new())),
             // Initialize active downloads tracking
             active_downloads: Arc::new(RwLock::new(HashSet::new())),
+            hub: huggingface::HUB.to_string(),
         })
     }
 
@@ -187,30 +202,18 @@ impl ParakeetEngine {
         let models_dir = &self.models_dir;
         let mut models = Vec::new();
 
-        // Parakeet model configurations
-        // Model name format: parakeet-tdt-0.6b-v{version}-{quantization}
-        // Sizes match actual download sizes (encoder + decoder + preprocessor + vocab)
-        let model_configs = [
-            (
-                "parakeet-tdt-0.6b-v3-int8",
-                670,
-                QuantizationType::Int8,
-                "Ultra Fast (v3)",
-                "Real time on M4 Max, latest version with int8 quantization",
-            ),
-            (
-                "parakeet-tdt-0.6b-v2-int8",
-                661,
-                QuantizationType::Int8,
-                "Fast (v2)",
-                "Previous version with int8 quantization, good balance of speed and accuracy",
-            ),
-        ];
+        // The catalog's Parakeet models; v2 is unlisted and shows only once
+        // installed. Each model is a folder named after its id.
+        let entries = model_catalog::offered(Engine::Parakeet, |entry| models_dir.join(&entry.id).exists());
 
         // Get active downloads to override status
         let active_downloads = self.active_downloads.read().await;
 
-        for (name, size_mb, quantization, speed, description) in model_configs {
+        for entry in &entries {
+            let name = entry.id.as_str();
+            let size_mb = entry.size_mb;
+            // The catalog's only Parakeet format is onnx-tdt-int8.
+            let quantization = QuantizationType::Int8;
             let model_path = models_dir.join(name);
 
             // Check if model is currently downloading
@@ -271,9 +274,12 @@ impl ParakeetEngine {
                 path: model_path,
                 size_mb: size_mb as u32,
                 quantization: quantization.clone(),
-                speed: speed.to_string(),
+                speed: entry.speed.clone().unwrap_or_default(),
                 status,
-                description: description.to_string(),
+                description: entry.description.clone(),
+                display_name: entry.name.clone(),
+                recommended: entry.recommended,
+                languages: entry.languages.clone(),
             };
 
             models.push(model_info);
@@ -289,7 +295,8 @@ impl ParakeetEngine {
         Ok(models)
     }
 
-    /// Validate a model directory: every pinned file exists with its exact size.
+    /// Validate a model directory: every file of the installed version exists
+    /// with its exact size.
     /// This runs at startup, so hashes are left to the download and to the
     /// check before the first load (see `crate::model_integrity`).
     async fn validate_model_directory(&self, model_dir: &PathBuf) -> Result<()> {
@@ -297,7 +304,7 @@ impl ParakeetEngine {
             .file_name()
             .and_then(|name| name.to_str())
             .unwrap_or_default();
-        let (_, pinned_files) = Self::pinned_model(model_name)?;
+        let pinned_files = Self::expected_files(model_name, model_dir)?;
 
         for pinned in pinned_files {
             let file_path = model_dir.join(pinned.file);
@@ -334,7 +341,7 @@ impl ParakeetEngine {
             // load_model reports every other status.
             _ => return Ok(()),
         };
-        let (_, pinned_files) = Self::pinned_model(model_name)?;
+        let pinned_files = Self::expected_files(model_name, &model_dir)?;
         for pinned in pinned_files {
             let file_path = model_dir.join(pinned.file);
             if let Err(error) = model_integrity::ensure_verified(pinned, &file_path).await {
@@ -613,18 +620,42 @@ impl ParakeetEngine {
             }
         }
 
-        let (base_url, pinned_files) = Self::pinned_model(model_name)?;
+        let Some(entry) = model_catalog::entry(Engine::Parakeet, model_name) else {
+            return Err(anyhow!("Parakeet model {} is not in the model catalog", model_name));
+        };
+        let model_dir = &model_info.path;
+        let record_path = installed::record_path_for_dir(model_dir);
+        // The commit and file pins to download: an unfinished download keeps
+        // its own, so the bytes it kept stay valid.
+        let api = huggingface::client();
+        let plan = tokio::select! {
+            _ = cancellation.cancelled() => return Err(anyhow!(DOWNLOAD_CANCELLED_MESSAGE)),
+            plan = installed::plan_download(&api, &self.hub, &entry, &record_path) => plan?,
+        };
+        let pinned_files: Vec<&'static Pinned> = plan.resolved.files.iter().map(|file| file.pinned).collect();
 
         // Create model directory
-        let model_dir = &model_info.path;
         if !model_dir.exists() {
             if let Err(e) = fs::create_dir_all(model_dir).await {
                 return Err(anyhow!("Failed to create model directory: {}", e));
             }
         }
+        if !plan.keep_partial {
+            // Partial files of another version would only fail the final hash.
+            for pinned in &pinned_files {
+                let path = model_dir.join(pinned.file);
+                if fs::metadata(&path).await.is_ok_and(|metadata| metadata.len() < pinned.size) {
+                    let _ = fs::remove_file(&path).await;
+                }
+            }
+        }
+        // Written before any byte, so an interrupted download resumes from the
+        // same commit; it says complete only once every file matched.
+        installed::write_record(&record_path, &installed::InstallRecord::from_resolved(&entry.id, &plan.resolved, false))
+            .map_err(|e| anyhow!("Failed to write the install record of {}: {}", model_name, e))?;
 
         // Optimized HTTP client for large file downloads
-        let client = reqwest::Client::builder()
+        let client = huggingface::builder()
             .tcp_nodelay(true) // Disable Nagle's algorithm for better streaming
             .pool_max_idle_per_host(1) // Keep connection alive
             .timeout(Duration::from_secs(3600)) // 1 hour timeout for large files
@@ -639,7 +670,7 @@ impl ParakeetEngine {
 
         // Check for existing downloads (complete or partial) to calculate resume offset
         let mut already_downloaded: u64 = 0;
-        for pinned in pinned_files {
+        for pinned in &pinned_files {
             if let Ok(metadata) = fs::metadata(model_dir.join(pinned.file)).await {
                 let file_size = metadata.len();
                 // Count all existing bytes (complete files capped at expected size, partial as-is)
@@ -724,7 +755,7 @@ impl ParakeetEngine {
                 resume_size
             );
 
-            let file_url = format!("{}/{}", base_url, filename);
+            let file_url = plan.resolved.files[index].url.clone();
             let (response, resuming) = match super::download_response::artifact_response(
                 &client, &file_url, resume_size, expected_size, cancellation,
             ).await {
@@ -752,7 +783,7 @@ impl ParakeetEngine {
                 model_integrity::Check::new(pinned)
             };
 
-            log::info!("Downloading {} from {}", filename, base_url);
+            log::info!("Downloading {} from {}", filename, file_url);
             let file = if resuming {
                 fs::OpenOptions::new()
                     .append(true)
@@ -887,6 +918,8 @@ impl ParakeetEngine {
         if cancellation.is_cancelled() {
             return Err(anyhow!(DOWNLOAD_CANCELLED_MESSAGE));
         }
+        installed::write_record(&record_path, &installed::InstallRecord::from_resolved(&entry.id, &plan.resolved, true))
+            .map_err(|e| anyhow!("Failed to write the install record of {}: {}", model_name, e))?;
         self.validate_model_directory(model_dir)
             .await
             .map_err(|error| anyhow!("Downloaded Parakeet model failed validation: {}", error))?;
@@ -992,33 +1025,50 @@ mod tests {
         assert!(!retry.is_cancelled());
     }
 
-    #[tokio::test]
-    async fn every_offered_model_downloads_only_from_its_pinned_hugging_face_commit() {
-        let dir = tempfile::tempdir().unwrap();
-        let engine = ParakeetEngine::new_with_models_dir(Some(dir.path().to_path_buf())).unwrap();
-        for model in engine.discover_models().await.unwrap() {
-            assert!(ParakeetEngine::pinned_model(&model.name).is_ok(), "{}", model.name);
-        }
-        assert_eq!(
-            ParakeetEngine::pinned_model("parakeet-tdt-0.6b-v3-int8").unwrap().0,
-            "https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/8f23f0c03c8761650bdb5b40aaf3e40d2c15f1ce"
-        );
-        assert_eq!(
-            ParakeetEngine::pinned_model("parakeet-tdt-0.6b-v2-int8").unwrap().0,
-            "https://huggingface.co/istupakov/parakeet-tdt-0.6b-v2-onnx/resolve/0bbb45a3365852604aef28b538a8f066f4ccaa85"
-        );
-        assert!(ParakeetEngine::pinned_model("parakeet-tdt-0.6b-v3-fp32").is_err());
+    /// The 0.3.0 pins of `model`, as a model installed by 0.3.x is checked.
+    fn legacy_files(model: &str) -> &'static [Pinned] {
+        installed::legacy_model(Engine::Parakeet, model).unwrap().files
     }
 
-    #[test]
-    fn published_int8_sizes_are_exact() {
-        let size = |model: &str, file: &str| {
-            model_integrity::find(ParakeetEngine::pinned_model(model).unwrap().1, file)
-                .unwrap()
-                .size
-        };
-        assert_eq!(size("parakeet-tdt-0.6b-v2-int8", "encoder-model.int8.onnx"), 652_184_014);
-        assert_eq!(size("parakeet-tdt-0.6b-v3-int8", "decoder_joint-model.int8.onnx"), 18_202_004);
+    #[tokio::test]
+    async fn discovery_lists_the_unlisted_v2_only_once_installed() {
+        let dir = tempfile::tempdir().unwrap();
+        let engine = ParakeetEngine::new_with_models_dir(Some(dir.path().to_path_buf())).unwrap();
+        let names = |models: Vec<ModelInfo>| models.into_iter().map(|model| model.name).collect::<Vec<_>>();
+        let listed = names(engine.discover_models().await.unwrap());
+        assert_eq!(listed, ["parakeet-tdt-0.6b-v3-int8"]);
+        std::fs::create_dir_all(dir.path().join("parakeet").join("parakeet-tdt-0.6b-v2-int8")).unwrap();
+        let listed = names(engine.discover_models().await.unwrap());
+        assert_eq!(listed, ["parakeet-tdt-0.6b-v3-int8", "parakeet-tdt-0.6b-v2-int8"]);
+    }
+
+    #[tokio::test]
+    async fn a_download_resolves_the_current_commit_and_records_it() {
+        use crate::model_catalog::testing::Hub;
+        const COMMIT: &str = "1111111111111111111111111111111111111111";
+        let model = "parakeet-tdt-0.6b-v3-int8";
+        let mut hub = Hub::new();
+        hub.repo("istupakov/parakeet-tdt-0.6b-v3-onnx", COMMIT)
+            .lfs_file("encoder-model.int8.onnx", &[1u8; 4096])
+            .lfs_file("decoder_joint-model.int8.onnx", &[2u8; 512])
+            .lfs_file("nemo128.onnx", &[3u8; 64])
+            .git_file("vocab.txt", b"<unk>\n");
+        let hub = hub.serve().await;
+        let dir = tempfile::tempdir().unwrap();
+        let mut engine = ParakeetEngine::new_with_models_dir(Some(dir.path().to_path_buf())).unwrap();
+        engine.hub = hub.url.clone();
+        engine.discover_models().await.unwrap();
+
+        engine.download_model_detailed(model, None).await.unwrap();
+        let model_dir = dir.path().join("parakeet").join(model);
+        let record = installed::read_record(&installed::record_path_for_dir(&model_dir)).unwrap();
+        assert!(record.complete);
+        assert_eq!(record.commit, COMMIT);
+        assert_eq!(std::fs::read(model_dir.join("nemo128.onnx")).unwrap(), [3u8; 64]);
+        // The record, not the 0.3.0 pins, is what the model is now checked against.
+        engine.discover_models().await.unwrap();
+        assert!(matches!(engine.available_models.read().await[model].status, ModelStatus::Available));
+        assert_eq!(ParakeetEngine::expected_files(model, &model_dir).unwrap()[0].size, 4096);
     }
 
     #[tokio::test]
@@ -1027,7 +1077,7 @@ mod tests {
         let model = "parakeet-tdt-0.6b-v2-int8";
         let model_dir = temp.path().join("parakeet").join(model);
         std::fs::create_dir_all(&model_dir).expect("model directory");
-        for pinned in ParakeetEngine::pinned_model(model).unwrap().1 {
+        for pinned in legacy_files(model) {
             let path = model_dir.join(pinned.file);
             // Synchronous so each file is closed before its marker is written.
             std::fs::File::create(&path).unwrap().set_len(pinned.size).unwrap();
@@ -1059,10 +1109,29 @@ mod tests {
         std::fs::create_dir_all(&model_dir).expect("model directory");
         // A complete encoder left by an older build, never verified: 650 MB
         // to hash before the download would move on (and fail: it is zeros).
-        let encoder = model_integrity::find(ParakeetEngine::pinned_model(model).unwrap().1, "encoder-model.int8.onnx")
-            .unwrap();
+        let encoder = model_integrity::find(legacy_files(model), "encoder-model.int8.onnx").unwrap();
         let path = model_dir.join(encoder.file);
         std::fs::File::create(&path).unwrap().set_len(encoder.size).unwrap();
+        // An unfinished download of the 0.3.0 commit: resumed without asking
+        // Hugging Face, so the test stays offline.
+        let legacy = installed::legacy_model(Engine::Parakeet, model).unwrap();
+        let record = installed::InstallRecord {
+            id: model.to_string(),
+            repo: legacy.repo.to_string(),
+            commit: legacy.commit.to_string(),
+            complete: false,
+            files: legacy
+                .files
+                .iter()
+                .map(|pinned| installed::RecordFile {
+                    name: pinned.file.to_string(),
+                    size: pinned.size,
+                    sha256: pinned.sha256.to_string(),
+                    git_oid: None,
+                })
+                .collect(),
+        };
+        installed::write_record(&installed::record_path_for_dir(&model_dir), &record).unwrap();
         let engine = Arc::new(ParakeetEngine::new_with_models_dir(Some(temp.path().to_path_buf())).unwrap());
         engine.discover_models().await.unwrap();
 

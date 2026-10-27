@@ -141,6 +141,7 @@ regex = "1.11.0"
 ndarray = "0.16"
 zip = "2.2"           # Reading .npz (zip of .npy) diarization transforms
 sha2 = "0.10"         # SHA-256 verification for downloaded models
+sha1 = "0.10"         # Git blob ids of small files in Hugging Face listings
 bytes = { version = "1.9.0", features = ["serde"] }
 
 esaxx-rs = "0.1.10"

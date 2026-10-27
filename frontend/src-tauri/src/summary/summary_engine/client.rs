@@ -166,8 +166,9 @@ pub async fn generate_with_builtin(
     // Resolve model path with caching (avoids repeated filesystem I/O)
     let model_path = get_cached_model_path(app_data_dir, model_name)?;
     // llama.cpp parses this file: hash it once if no download has verified it.
-    let (_, pinned) = crate::model_integrity::summary_model(&model_def.gguf_file)
-        .ok_or_else(|| anyhow!("{} has no pinned checksum", model_def.gguf_file))?;
+    let pinned = models::installed_pin(model_name, &model_path).ok_or_else(|| {
+        anyhow!("{} has no verified version on record. Download it again in Settings.", model_def.display_name)
+    })?;
     let checked = match ModelManager::registered() {
         Some(manager) => manager.verify_before_load(model_name, pinned, &model_path).await,
         // Downloads run in the manager, so without one none is running.

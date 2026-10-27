@@ -8,7 +8,6 @@ use std::sync::{Arc, Weak};
 
 use anyhow::{anyhow, Result};
 use once_cell::sync::Lazy;
-use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use tokio::fs::{self, OpenOptions};
@@ -16,7 +15,8 @@ use tokio::io::{AsyncWriteExt, BufWriter};
 use tokio::sync::{Notify, RwLock};
 use tokio::time::timeout;
 
-use super::models::{get_available_models, get_model_by_name, ModelDef};
+use super::models::{get_model_by_name, installed_pin, ModelDef};
+use crate::model_catalog::{self, huggingface, installed, schema::Engine};
 use crate::model_integrity::{self, IntegrityError, Pinned};
 
 // ============================================================================
@@ -109,6 +109,10 @@ pub struct ModelInfo {
 
     /// GGUF filename on disk
     pub gguf_file: String,
+
+    /// From the model catalog, for Settings.
+    #[serde(default)]
+    pub recommended: bool,
 }
 
 // ============================================================================
@@ -138,6 +142,24 @@ pub struct ModelManager {
 
     /// One owner and cancellation signal per active model download.
     download_controls: Arc<RwLock<HashMap<String, Arc<DownloadControl>>>>,
+
+    /// Where model repositories are resolved; tests use a local server.
+    hub: String,
+}
+
+/// What a catalog download writes beside the file: the install record, first
+/// unfinished and then complete, and whether a partial file may be resumed.
+struct Install {
+    record_path: PathBuf,
+    record: installed::InstallRecord,
+    keep_partial: bool,
+}
+
+impl Install {
+    fn write(&self, complete: bool) -> std::io::Result<()> {
+        let record = installed::InstallRecord { complete, ..self.record.clone() };
+        installed::write_record(&self.record_path, &record)
+    }
 }
 
 /// The manager kept in Tauri state, for the summary client, which runs without
@@ -189,6 +211,7 @@ impl ModelManager {
             models_dir,
             available_models: Arc::new(RwLock::new(HashMap::new())),
             download_controls: Arc::new(RwLock::new(HashMap::new())),
+            hub: huggingface::HUB.to_string(),
         })
     }
 
@@ -215,10 +238,14 @@ impl ModelManager {
             self.models_dir.display()
         );
 
-        let model_defs = get_available_models();
+        // Listed catalog models, and unlisted or dropped ones still installed.
+        let entries = model_catalog::offered(Engine::Llama, |entry| {
+            self.models_dir.join(&entry.single_file().name).exists()
+        });
         let mut models_map = HashMap::new();
 
-        for model_def in model_defs {
+        for entry in &entries {
+            let Some(model_def) = ModelDef::from_entry(entry) else { continue };
             let model_path = self.models_dir.join(&model_def.gguf_file);
             log::debug!(
                 "Checking model '{}' at path: {}",
@@ -248,6 +275,9 @@ impl ModelManager {
                 }
             }
 
+            // The installed version's exact size; none while a download has
+            // not finished.
+            let pinned = installed_pin(&model_def.name, &model_path);
             let status = if model_path.exists() {
                 // Check if file size matches expected size (basic validation)
                 match fs::metadata(&model_path).await {
@@ -261,20 +291,19 @@ impl ModelManager {
                             "Model '{}': found {} bytes (expected exactly {} bytes)",
                             model_def.name,
                             file_size_bytes,
-                            model_def.size_bytes
+                            pinned.map_or(0, |pinned| pinned.size)
                         );
 
                         // A file that failed its check but could not be deleted
                         // still has the pinned size.
-                        let rejection = model_integrity::summary_model(&model_def.gguf_file)
-                            .and_then(|(_, pinned)| model_integrity::rejection(pinned, &model_path));
+                        let rejection = pinned.and_then(|pinned| model_integrity::rejection(pinned, &model_path));
                         if let Some(reason) = rejection {
                             log::warn!("Model '{}': CORRUPTED ({})", model_def.name, reason);
                             ModelStatus::Corrupted {
                                 file_size: file_size_mb,
                                 expected_min_size: model_def.size_mb,
                             }
-                        } else if file_size_bytes == model_def.size_bytes {
+                        } else if Some(file_size_bytes) == pinned.map(|pinned| pinned.size) {
                             match self.validate_gguf_file(&model_path).await {
                                 Ok(()) => {
                                     log::info!("Model '{}': AVAILABLE", model_def.name);
@@ -288,7 +317,7 @@ impl ModelManager {
                                     }
                                 }
                             }
-                        } else if file_size_bytes < model_def.size_bytes {
+                        } else if pinned.map_or(true, |pinned| file_size_bytes < pinned.size) {
                             log::info!(
                                 "Model '{}': INCOMPLETE ({} MB of approximately {} MB); download can resume",
                                 model_def.name,
@@ -337,6 +366,7 @@ impl ModelManager {
                 context_size: model_def.context_size,
                 description: model_def.description.clone(),
                 gguf_file: model_def.gguf_file.clone(),
+                recommended: entry.recommended,
             };
 
             models_map.insert(model_def.name.clone(), model_info);
@@ -453,25 +483,40 @@ impl ModelManager {
         log::info!("Starting download for model: {}", model_name);
 
         // Get model definition
-        let Some(model_def) = get_model_by_name(model_name) else {
+        let Some(entry) = model_catalog::entry(Engine::Llama, model_name) else {
             return Err(anyhow!("Unknown model: {}", model_name));
         };
-        // The exact size and SHA-256 of the file at the pinned URL.
-        let Some((_, pinned)) = model_integrity::summary_model(&model_def.gguf_file) else {
-            return Err(anyhow!("{} has no pinned checksum", model_def.gguf_file));
+        let Some(model_def) = ModelDef::from_entry(&entry) else {
+            return Err(anyhow!("Unknown model: {}", model_name));
         };
-        self.download_pinned(model_name, &model_def, pinned, Client::builder(), progress_callback)
+        if self.download_controls.read().await.contains_key(model_name) {
+            return Err(anyhow!("Download already in progress"));
+        }
+        // The commit and the file's exact size and SHA-256 there; an
+        // unfinished download keeps its own (see installed::plan_download).
+        let record_path = installed::record_path_for_file(&self.models_dir.join(&model_def.gguf_file));
+        let plan = installed::plan_download(&huggingface::client(), &self.hub, &entry, &record_path).await?;
+        let file = &plan.resolved.files[0];
+        let install = Install {
+            record_path,
+            record: installed::InstallRecord::from_resolved(&entry.id, &plan.resolved, false),
+            keep_partial: plan.keep_partial,
+        };
+        self.download_pinned(model_name, &model_def, file.pinned, &file.url, Some(install), huggingface::builder(), progress_callback)
             .await
     }
 
-    /// Downloads `model_def` as the file `pinned`, with `client` set up here
-    /// for large files. Tests pass a local URL in `model_def`, their own pin
-    /// and a builder without the system proxy.
+    /// Downloads `url` as the file `pinned` of `model_def`, with `client` set
+    /// up here for large files, and keeps `install`'s record beside it. Tests
+    /// pass a local URL, their own pin and no record.
+    #[allow(clippy::too_many_arguments)]
     async fn download_pinned(
         &self,
         model_name: &str,
         model_def: &ModelDef,
         pinned: &'static Pinned,
+        url: &str,
+        install: Option<Install>,
         client: reqwest::ClientBuilder,
         progress_callback: Option<Box<dyn Fn(DownloadProgress) + Send>>,
     ) -> Result<()> {
@@ -500,6 +545,21 @@ impl ModelManager {
 
         let file_path = self.models_dir.join(&model_def.gguf_file);
 
+        if let Some(install) = &install {
+            // A partial file of another version would only fail the final hash.
+            let partial = fs::metadata(&file_path).await.is_ok_and(|metadata| metadata.len() < pinned.size);
+            if partial && !install.keep_partial {
+                let _ = fs::remove_file(&file_path).await;
+            }
+            // Before any byte, so an interrupted download resumes from the
+            // same commit.
+            if let Err(error) = install.write(false) {
+                let message = format!("Failed to write the install record of {}: {}", model_name, error);
+                self.fail_download(model_name, &control, message.clone()).await;
+                return Err(anyhow!(message));
+            }
+        }
+
         // Check if model already exists and is valid (skip re-download)
         if file_path.exists() {
             if let Ok(metadata) = fs::metadata(&file_path).await {
@@ -507,7 +567,7 @@ impl ModelManager {
 
                 // A complete file is hashed once rather than trusted for its
                 // size; one that does not match is deleted and downloaded again.
-                let verified = metadata.len() == model_def.size_bytes
+                let verified = metadata.len() == pinned.size
                     && self.validate_gguf_file(&file_path).await.is_ok()
                     && match model_integrity::ensure_verified_cancellable(pinned, &file_path, control.cancel_flag()).await {
                         Ok(()) => true,
@@ -548,6 +608,14 @@ impl ModelManager {
                         .await;
                         return Err(anyhow!("CANCELLED: Download cancelled by user"));
                     }
+                    if let Some(install) = &install {
+                        if let Err(error) = install.write(true) {
+                            drop(controls);
+                            let message = format!("Failed to write the install record of {}: {}", model_name, error);
+                            self.fail_download(model_name, &control, message.clone()).await;
+                            return Err(anyhow!(message));
+                        }
+                    }
                     let mut models = self.available_models.write().await;
                     if let Some(model_info) = models.get_mut(model_name) {
                         model_info.status = ModelStatus::Available;
@@ -561,14 +629,14 @@ impl ModelManager {
                     }
 
                     return Ok(());
-                } else if metadata.len() >= model_def.size_bytes {
+                } else if metadata.len() >= pinned.size {
                     // File is LARGER than expected - possibly corrupted or wrong file
                     // Delete and re-download in this case
                     log::warn!(
                         "Model '{}' exists but is too large ({} MB, expected exactly {} bytes), deleting and re-downloading",
                         model_name,
                         file_size_mb,
-                        model_def.size_bytes
+                        pinned.size
                     );
                     // A failed integrity check has already deleted it.
                     if file_path.exists() {
@@ -590,7 +658,7 @@ impl ModelManager {
             }
         }
 
-        log::info!("Downloading from: {}", model_def.download_url);
+        log::info!("Downloading from: {}", url);
         log::info!("Saving to: {}", file_path.display());
 
         // Create models directory if needed
@@ -627,7 +695,7 @@ impl ModelManager {
         };
 
         // Build request with Range header if resuming
-        let mut request = client.get(&model_def.download_url);
+        let mut request = client.get(url);
         if existing_size > 0 {
             log::info!(
                 "Resuming download from byte {} ({:.1} MB)",
@@ -660,7 +728,7 @@ impl ModelManager {
                 .and_then(|value| value.to_str().ok())
                 .unwrap_or_default();
             let expected_prefix = format!("bytes {}-", existing_size);
-            let expected_total = format!("/{}", model_def.size_bytes);
+            let expected_total = format!("/{}", pinned.size);
             if !content_range.starts_with(&expected_prefix) || !content_range.ends_with(&expected_total) {
                 self.fail_download(
                     model_name,
@@ -909,7 +977,7 @@ impl ModelManager {
                 return Err(error.into());
             }
         };
-        if final_size != model_def.size_bytes || (total_size > 0 && final_size != total_size) {
+        if final_size != pinned.size || (total_size > 0 && final_size != total_size) {
             let final_size_mb = final_size / (1024 * 1024);
             log::warn!(
                 "Download ended before model '{}' was complete: {} MB of approximately {} MB",
@@ -968,6 +1036,13 @@ impl ModelManager {
             return Err(error);
         }
         model_integrity::mark_verified(pinned, &file_path);
+        if let Some(install) = &install {
+            if let Err(error) = install.write(true) {
+                let message = format!("Failed to write the install record of {}: {}", model_name, error);
+                self.fail_download(model_name, &control, message.clone()).await;
+                return Err(anyhow!(message));
+            }
+        }
 
         // Completion and 100% are reported only now that the file matched.
         log::info!("Download completed for model: {}", model_name);
@@ -1116,6 +1191,7 @@ impl ModelManager {
             log::info!("Deleted model file: {}", file_path.display());
         }
         model_integrity::clear_mark(&file_path);
+        installed::remove_record(&installed::record_path_for_file(&file_path));
 
         // Update status
         {
@@ -1138,12 +1214,18 @@ impl ModelManager {
 mod tests {
     use super::*;
 
+    /// The 0.3.0 size of `name`, which a 0.3.x install is checked against.
+    fn legacy_size(name: &str) -> u64 {
+        installed::legacy_model(Engine::Llama, name).unwrap().files[0].size
+    }
+
     #[tokio::test]
     async fn scan_marks_partial_model_incomplete_and_exact_model_available() {
         let temp = tempfile::tempdir().expect("tempdir");
         let manager = ModelManager::new_with_models_dir(Some(temp.path().to_path_buf()))
             .expect("manager");
         let model = get_model_by_name("qwen3.5:2b").expect("model");
+        let size = legacy_size(&model.name);
         let path = temp.path().join(&model.gguf_file);
 
         let partial = fs::File::create(&path).await.expect("partial file");
@@ -1155,7 +1237,7 @@ mod tests {
         ));
 
         let mut exact = fs::OpenOptions::new().write(true).open(&path).await.expect("exact file");
-        exact.set_len(model.size_bytes).await.expect("exact invalid size");
+        exact.set_len(size).await.expect("exact invalid size");
         manager.scan_models().await.expect("invalid exact scan");
         assert!(matches!(
             manager.get_model_info(&model.name).await.unwrap().status,
@@ -1163,7 +1245,7 @@ mod tests {
         ));
 
         exact.write_all(b"GGUF").await.expect("GGUF magic");
-        exact.set_len(model.size_bytes).await.expect("exact size");
+        exact.set_len(size).await.expect("exact size");
         manager.scan_models().await.expect("exact scan");
         assert_eq!(
             manager.get_model_info(&model.name).await.unwrap().status,
@@ -1186,16 +1268,15 @@ mod tests {
     ) -> (Result<()>, Vec<(u8, bool)>) {
         let mut model = get_model_by_name("qwen3.5:2b").expect("model");
         model.gguf_file = pinned.file.to_string();
-        model.size_bytes = pinned.size;
-        model.download_url = model_integrity::testing::serve_once(body).await;
+        let url = model_integrity::testing::serve_once(body).await;
         let marker = manager.models_dir.join(format!("{}.verified", pinned.file));
         let reports = Arc::new(std::sync::Mutex::new(Vec::new()));
         let callback: Box<dyn Fn(DownloadProgress) + Send> = {
             let reports = reports.clone();
             Box::new(move |progress| reports.lock().unwrap().push((progress.percent, marker.exists())))
         };
-        let client = Client::builder().no_proxy();
-        let result = manager.download_pinned(&model.name, &model, pinned, client, Some(callback)).await;
+        let client = reqwest::Client::builder().no_proxy();
+        let result = manager.download_pinned(&model.name, &model, pinned, &url, None, client, Some(callback)).await;
         let reports = reports.lock().unwrap().clone();
         (result, reports)
     }
@@ -1370,8 +1451,24 @@ mod tests {
         // hash before the download would move on (and fail: it is zeros).
         let mut file = std::fs::File::create(&path).unwrap();
         std::io::Write::write_all(&mut file, b"GGUF").unwrap();
-        file.set_len(model.size_bytes).unwrap();
+        file.set_len(legacy_size(&model.name)).unwrap();
         drop(file);
+        // An unfinished download of the 0.3.0 commit, so the download plans
+        // without asking Hugging Face and the test stays offline.
+        let legacy = installed::legacy_model(Engine::Llama, &model.name).unwrap();
+        let record = installed::InstallRecord {
+            id: model.name.clone(),
+            repo: legacy.repo.to_string(),
+            commit: legacy.commit.to_string(),
+            complete: false,
+            files: vec![installed::RecordFile {
+                name: legacy.files[0].file.to_string(),
+                size: legacy.files[0].size,
+                sha256: legacy.files[0].sha256.to_string(),
+                git_oid: None,
+            }],
+        };
+        installed::write_record(&installed::record_path_for_file(&path), &record).unwrap();
 
         let download = tokio::spawn({
             let manager = manager.clone();
@@ -1388,7 +1485,7 @@ mod tests {
         let error = download.await.unwrap().unwrap_err().to_string();
         assert!(error.starts_with("CANCELLED:"), "{error}");
         // Neither deleted as a mismatch nor marked as verified.
-        assert_eq!(std::fs::metadata(&path).unwrap().len(), model.size_bytes);
+        assert_eq!(std::fs::metadata(&path).unwrap().len(), legacy_size(&model.name));
         assert!(!temp.path().join(format!("{}.verified", model.gguf_file)).exists());
     }
 }

@@ -1,9 +1,11 @@
 // Model definitions and prompt templates for built-in AI summary generation
 // Designed for easy extension - just add new entries to get_available_models()
 
+use crate::model_catalog::{installed, schema::Engine, schema::Entry};
+use crate::model_integrity::Pinned;
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 // ============================================================================
 // Model Definitions
@@ -139,21 +141,13 @@ pub struct ModelDef {
     /// Template name for prompt formatting (e.g., "gemma3")
     pub template: String,
 
-    /// Download URL (HuggingFace or other source)
-    pub download_url: String,
-
-    /// File size in MiB. The field name is kept for API compatibility.
+    /// Approximate file size in MiB, for display. The exact size and SHA-256
+    /// come from Hugging Face (`crate::model_catalog::huggingface`).
     pub size_mb: u64,
-
-    /// Exact bytes published by the first-party/HuggingFace artifact.
-    pub size_bytes: u64,
 
     /// Context window size in tokens (configurable per model!)
     /// This is used for chunking in processor.rs
     pub context_size: u32,
-
-    /// Model layer count (for GPU offloading calculation)
-    pub layer_count: u32,
 
     /// Sampling parameters for this model
     pub sampling: SamplingParams,
@@ -162,79 +156,53 @@ pub struct ModelDef {
     pub description: String,
 }
 
-/// The commit-pinned URL of a built-in model file; see `crate::model_integrity`.
-fn pinned_url(gguf_file: &str) -> String {
-    crate::model_integrity::summary_model(gguf_file)
-        .map(|(url, _)| url.to_string())
-        .unwrap_or_else(|| panic!("{gguf_file} has no pinned URL"))
+impl ModelDef {
+    /// The definition of a catalog entry. Entries reach here validated
+    /// (`model_catalog::schema`), so a llama entry always has its parameters.
+    pub fn from_entry(entry: &Entry) -> Option<Self> {
+        let params = entry.params.as_ref()?;
+        let sampling = &params.sampling;
+        Some(Self {
+            name: entry.id.clone(),
+            display_name: entry.name.clone(),
+            gguf_file: entry.single_file().name.clone(),
+            template: params.chat_format.clone(),
+            size_mb: entry.size_mb,
+            context_size: params.context_size,
+            sampling: SamplingParams {
+                temperature: sampling.temperature,
+                top_k: sampling.top_k,
+                top_p: sampling.top_p,
+                presence_penalty: sampling.presence_penalty,
+                frequency_penalty: sampling.frequency_penalty,
+                repeat_penalty: sampling.repeat_penalty,
+                penalty_last_n: sampling.penalty_last_n,
+                stop_tokens: params.stop_tokens.clone(),
+            },
+            description: entry.description.clone(),
+        })
+    }
 }
 
-/// Get all available built-in AI models
-/// Add new models here - the system will automatically detect and manage them
+/// Get all available built-in AI models: the model catalog's llama entries
+/// (see `crate::model_catalog`). New models are added to
+/// `model-catalog/catalog.json`, not here.
 pub fn get_available_models() -> Vec<ModelDef> {
-    vec![
-        // Qwen 3.5 2B - Balanced tier
-        ModelDef {
-            name: "qwen3.5:2b".to_string(),
-            display_name: "Qwen 3.5 2B (Balanced)".to_string(),
-            gguf_file: "Qwen3.5-2B-Q4_K_M.gguf".to_string(),
-            template: "qwen3.5_nonthinking".to_string(),
-            download_url: pinned_url("Qwen3.5-2B-Q4_K_M.gguf"),
-            size_mb: 1221,
-            size_bytes: 1_280_835_840,
-            context_size: 32768,
-            layer_count: 24,
-            sampling: SamplingParams::qwen35_summary(vec!["<|im_end|>".to_string()]),
-            description: "Balanced Qwen 3.5 model for built-in summaries. Higher quality with modest local requirements.".to_string(),
-        },
-        // Qwen 3.5 4B - High quality tier
-        ModelDef {
-            name: "qwen3.5:4b".to_string(),
-            display_name: "Qwen 3.5 4B (High Quality)".to_string(),
-            gguf_file: "Qwen3.5-4B-Q4_K_M.gguf".to_string(),
-            template: "qwen3.5_nonthinking".to_string(),
-            download_url: pinned_url("Qwen3.5-4B-Q4_K_M.gguf"),
-            size_mb: 2614,
-            size_bytes: 2_740_937_888,
-            context_size: 32768,
-            layer_count: 32,
-            sampling: SamplingParams::qwen35_summary(vec!["<|im_end|>".to_string()]),
-            description: "High-quality Qwen 3.5 model for built-in summaries. Best local Qwen option in the current lineup.".to_string(),
-        },
-        // Gemma 3 4B - Legacy alternative retained for users who prefer Gemma output.
-        ModelDef {
-            name: "gemma3:4b".to_string(),
-            display_name: "Gemma 3 4B (Balanced)".to_string(),
-            gguf_file: "gemma-3-4b-it-Q4_K_M.gguf".to_string(),
-            template: "gemma3".to_string(),
-            download_url: pinned_url("gemma-3-4b-it-Q4_K_M.gguf"),
-            size_mb: 2374,
-            size_bytes: 2_489_758_112,
-            context_size: 32768,
-            layer_count: 35,
-            sampling: SamplingParams::gemma3_instruct(vec!["<end_of_turn>".to_string()]),
-            description: "Balanced model. Great quality/speed trade-off. Requires ~3.5GB RAM.".to_string(),
-        },
-        // Gemma 3 1B - Visible legacy tier retained for already-shipped users.
-        ModelDef {
-            name: "gemma3:1b".to_string(),
-            display_name: "Gemma 3 1B (Fast)".to_string(),
-            gguf_file: "gemma-3-1b-it-Q8_0.gguf".to_string(),
-            template: "gemma3".to_string(),
-            download_url: pinned_url("gemma-3-1b-it-Q8_0.gguf"),
-            size_mb: 1019,
-            size_bytes: 1_069_306_624,
-            context_size: 32768,
-            layer_count: 26,
-            sampling: SamplingParams::gemma3_instruct(vec!["<end_of_turn>".to_string()]),
-            description: "Fastest model. Runs on any hardware with ~1GB RAM. Good for quick summaries.".to_string(),
-        },
-    ]
+    crate::model_catalog::entries(Engine::Llama).iter().filter_map(ModelDef::from_entry).collect()
 }
 
-/// Get a specific model by name
+/// Get a specific model by name, also one the catalog in use no longer lists
+/// but this build shipped with.
 pub fn get_model_by_name(name: &str) -> Option<ModelDef> {
-    get_available_models().into_iter().find(|m| m.name == name)
+    crate::model_catalog::entry(Engine::Llama, name).as_ref().and_then(ModelDef::from_entry)
+}
+
+/// The size and SHA-256 the installed copy of `model_name` at `model_path`
+/// was verified against: its install record, or the 0.3.0 pin. `None` while
+/// a download has not finished.
+pub fn installed_pin(model_name: &str, model_path: &Path) -> Option<&'static Pinned> {
+    let entry = crate::model_catalog::entry(Engine::Llama, model_name)?;
+    installed::expected(&entry, &installed::record_path_for_file(model_path)).map(|expected| expected.files[0])
 }
 
 /// Get the default model (first in list)
@@ -346,13 +314,23 @@ pub const GENERATION_TIMEOUT_SECS: u64 = 900; // 15 minutes
 mod tests {
     use super::*;
 
+    /// Where the catalog says a model comes from.
+    fn source(name: &str) -> (String, String) {
+        let entry = crate::model_catalog::entry(Engine::Llama, name).unwrap();
+        (entry.repo.clone(), entry.files[0].path.clone())
+    }
+
     #[test]
-    fn every_model_matches_its_pin() {
-        for model in get_available_models() {
-            let (url, pinned) = crate::model_integrity::summary_model(&model.gguf_file)
-                .unwrap_or_else(|| panic!("{} has no pin", model.name));
-            assert_eq!(model.download_url, url);
-            assert_eq!(model.size_bytes, pinned.size, "{}", model.name);
+    fn every_model_has_its_0_3_0_size_and_order() {
+        let names: Vec<String> = get_available_models().into_iter().map(|model| model.name).collect();
+        assert_eq!(names, ["qwen3.5:2b", "qwen3.5:4b", "gemma3:4b", "gemma3:1b"]);
+        for name in &names {
+            let legacy = installed::legacy_model(Engine::Llama, name).unwrap();
+            let model = get_model_by_name(name).unwrap();
+            assert_eq!(model.gguf_file, legacy.files[0].file);
+            // Display sizes, rounded either way.
+            assert!(model.size_mb.abs_diff(legacy.files[0].size / (1024 * 1024)) <= 1, "{name}");
+            assert_eq!(source(name).0, legacy.repo);
         }
     }
 
@@ -362,26 +340,18 @@ mod tests {
         assert_eq!(qwen_2b.display_name, "Qwen 3.5 2B (Balanced)");
         assert_eq!(qwen_2b.gguf_file, "Qwen3.5-2B-Q4_K_M.gguf");
         assert_eq!(qwen_2b.template, "qwen3.5_nonthinking");
-        assert_eq!(
-            qwen_2b.download_url,
-            "https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/f6d5376be1edb4d416d56da11e5397a961aca8ae/Qwen3.5-2B-Q4_K_M.gguf"
-        );
+        assert_eq!(source("qwen3.5:2b"), ("unsloth/Qwen3.5-2B-GGUF".to_string(), "Qwen3.5-2B-Q4_K_M.gguf".to_string()));
         assert_eq!(qwen_2b.size_mb, 1221);
         assert_eq!(qwen_2b.context_size, 32768);
-        assert_eq!(qwen_2b.layer_count, 24);
         assert_eq!(qwen_2b.sampling, SamplingParams::qwen35_summary(vec!["<|im_end|>".to_string()]));
 
         let qwen_4b = get_model_by_name("qwen3.5:4b").expect("qwen 4b model should exist");
         assert_eq!(qwen_4b.display_name, "Qwen 3.5 4B (High Quality)");
         assert_eq!(qwen_4b.gguf_file, "Qwen3.5-4B-Q4_K_M.gguf");
         assert_eq!(qwen_4b.template, "qwen3.5_nonthinking");
-        assert_eq!(
-            qwen_4b.download_url,
-            "https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/e87f176479d0855a907a41277aca2f8ee7a09523/Qwen3.5-4B-Q4_K_M.gguf"
-        );
+        assert_eq!(source("qwen3.5:4b"), ("unsloth/Qwen3.5-4B-GGUF".to_string(), "Qwen3.5-4B-Q4_K_M.gguf".to_string()));
         assert_eq!(qwen_4b.size_mb, 2614);
         assert_eq!(qwen_4b.context_size, 32768);
-        assert_eq!(qwen_4b.layer_count, 32);
         assert_eq!(qwen_4b.sampling, SamplingParams::qwen35_summary(vec!["<|im_end|>".to_string()]));
     }
 
@@ -389,10 +359,8 @@ mod tests {
     fn gemma_models_use_huggingface_urls_and_gemma3_instruct_sampling() {
         let gemma_1b = get_model_by_name("gemma3:1b").expect("gemma 1b model should exist");
         assert_eq!(gemma_1b.gguf_file, "gemma-3-1b-it-Q8_0.gguf");
-        assert_eq!(
-            gemma_1b.download_url,
-            "https://huggingface.co/bartowski/google_gemma-3-1b-it-GGUF/resolve/116f76234503685a98f572982177b11d44ec8ff1/google_gemma-3-1b-it-Q8_0.gguf"
-        );
+        // Saved under another name than Hugging Face's.
+        assert_eq!(source("gemma3:1b").1, "google_gemma-3-1b-it-Q8_0.gguf");
         assert_eq!(gemma_1b.sampling, SamplingParams::gemma3_instruct(vec!["<end_of_turn>".to_string()]));
         assert_eq!(gemma_1b.sampling.temperature, 1.0);
         assert_eq!(gemma_1b.sampling.top_k, 64);
@@ -403,10 +371,8 @@ mod tests {
         assert_eq!(gemma_1b.sampling.penalty_last_n, 0);
 
         let gemma_4b = get_model_by_name("gemma3:4b").expect("gemma 4b model should exist");
-        assert_eq!(
-            gemma_4b.download_url,
-            "https://huggingface.co/bartowski/google_gemma-3-4b-it-GGUF/resolve/71506238f970075ca85125cd749c28b1b0eee84e/google_gemma-3-4b-it-Q4_K_M.gguf"
-        );
+        assert_eq!(gemma_4b.gguf_file, "gemma-3-4b-it-Q4_K_M.gguf");
+        assert_eq!(source("gemma3:4b").1, "google_gemma-3-4b-it-Q4_K_M.gguf");
         assert_eq!(gemma_4b.sampling, SamplingParams::gemma3_instruct(vec!["<end_of_turn>".to_string()]));
         assert_eq!(gemma_4b.sampling.temperature, 1.0);
         assert_eq!(gemma_4b.sampling.top_k, 64);

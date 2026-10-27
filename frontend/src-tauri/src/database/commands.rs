@@ -127,13 +127,13 @@ pub async fn initialize_fresh_database(app: AppHandle) -> Result<(), String> {
     let pool = db_manager.pool();
     
     let default_summary_model = crate::summary::summary_engine::commands::get_recommended_summary_model_for_current_system()
-        .unwrap_or("qwen3.5:2b");
+        .unwrap_or_else(|_| crate::summary::summary_engine::commands::FALLBACK_SUMMARY_MODEL.to_string());
 
     // Default Summary Model: Built-in AI (Qwen recommendation for this system)
     if let Err(e) = crate::database::repositories::setting::SettingsRepository::save_model_config(
         pool,
         "builtin-ai",
-        default_summary_model,
+        &default_summary_model,
         "large-v3", // Default whisper model (unused for builtin but required)
         None,
         None, // summaryMaxTokens: provider default

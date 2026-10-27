@@ -7,28 +7,28 @@ use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 use tokio::sync::Mutex;
 
 use super::model_manager::{DownloadProgress, ModelInfo, ModelManager};
+use crate::model_catalog::schema::Engine;
 
-const QWEN35_4B_RECOMMENDED_RAM_GB: u64 = 14;
+/// Offered when no recommended catalog model fits.
+pub(crate) const FALLBACK_SUMMARY_MODEL: &str = "qwen3.5:2b";
 
-pub(crate) fn summary_model_priority(model_name: &str) -> u8 {
-    match model_name {
-        "qwen3.5:4b" => 4,
-        "qwen3.5:2b" => 3,
-        "gemma3:4b" => 2,
-        "gemma3:1b" => 1,
-        _ => 0,
-    }
+/// Which installed model "best available" picks first: the catalog's `rank`.
+pub(crate) fn summary_model_priority(model_name: &str) -> u32 {
+    crate::model_catalog::entry(Engine::Llama, model_name).map_or(0, |entry| entry.rank)
 }
 
-pub(crate) fn recommend_summary_model(_is_macos: bool, system_ram_gb: u64) -> &'static str {
-    if system_ram_gb >= QWEN35_4B_RECOMMENDED_RAM_GB {
-        "qwen3.5:4b"
-    } else {
-        "qwen3.5:2b"
-    }
+/// Of the catalog's recommended summary models that fit in `system_ram_gb`
+/// (`min_ram_gb`), the one with the highest `rank`.
+pub(crate) fn recommend_summary_model(_is_macos: bool, system_ram_gb: u64) -> String {
+    crate::model_catalog::entries(Engine::Llama)
+        .into_iter()
+        .filter(|entry| entry.listed && entry.recommended)
+        .filter(|entry| entry.min_ram_gb.map_or(true, |gb| system_ram_gb as f64 >= gb))
+        .max_by_key(|entry| entry.rank)
+        .map_or_else(|| FALLBACK_SUMMARY_MODEL.to_string(), |entry| entry.id)
 }
 
-pub(crate) fn get_recommended_summary_model_for_current_system() -> Result<&'static str, String> {
+pub(crate) fn get_recommended_summary_model_for_current_system() -> Result<String, String> {
     let system_ram_gb = get_system_ram_gb()?;
     let is_macos = cfg!(target_os = "macos");
 
@@ -394,7 +394,7 @@ pub async fn builtin_ai_get_recommended_model() -> Result<String, String> {
     let recommended = get_recommended_summary_model_for_current_system()?;
 
     log::info!("Recommended summary model: {}", recommended);
-    Ok(recommended.to_string())
+    Ok(recommended)
 }
 
 /// Get total system RAM in gigabytes
