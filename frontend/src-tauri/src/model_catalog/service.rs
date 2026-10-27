@@ -183,6 +183,19 @@ impl CatalogState {
         self.ended.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
+    /// Cancels the update of `key`, unless it is installing: the update moves
+    /// to that phase under this lock and then looks at Cancel a last time,
+    /// so a Cancel taken here is always seen before the swap.
+    fn cancel(&self, key: &Key) -> Result<(), String> {
+        if let Some(operation) = self.operations().get(key) {
+            if operation.phase == Phase::Installing {
+                return Err("The update is already being installed and can no longer be cancelled".to_string());
+            }
+            operation.cancel.cancel();
+        }
+        Ok(())
+    }
+
     /// The end of a model's update. Recorded before its operation is removed,
     /// so a check storing its results always sees one or the other.
     fn update_ended(&self, key: &Key) {
@@ -456,7 +469,7 @@ fn hooks<R: Runtime>(app: AppHandle<R>, entry: &Entry) -> Hooks {
     let last_push = Mutex::new(Instant::now() - PROGRESS_INTERVAL);
     Hooks {
         wait_idle: Box::new(|| Box::pin(async { wait_until_idle().await; Ok(()) })),
-        test_load: Box::new(move |dir| {
+        test_load: Box::new(move |dir, cancel| {
             Box::pin(async move {
                 match engine {
                     Engine::Whisper => {
@@ -479,7 +492,7 @@ fn hooks<R: Runtime>(app: AppHandle<R>, entry: &Entry) -> Hooks {
                         // Only one llama-helper holds memory at a time.
                         let _ = crate::summary::summary_engine::force_shutdown_sidecar().await;
                         crate::audio::common::mark_llm_unloaded();
-                        crate::summary::summary_engine::client::probe_model(dir.join(file), &model_def).await
+                        crate::summary::summary_engine::client::probe_model(dir.join(file), &model_def, &cancel).await
                     }
                 }
             })
@@ -579,9 +592,7 @@ pub fn start_update<R: Runtime>(app: &AppHandle<R>, engine: Engine, id: &str) ->
 
 pub fn cancel_update<R: Runtime>(app: &AppHandle<R>, engine: Engine, id: &str) -> Result<Status, String> {
     let state = app.try_state::<CatalogState>().ok_or("The model list is still loading")?;
-    if let Some(operation) = state.operations().get(&(engine, id.to_string())) {
-        operation.cancel.cancel();
-    }
+    state.cancel(&(engine, id.to_string()))?;
     Ok(state.status())
 }
 
@@ -752,6 +763,28 @@ mod tests {
         let started = state.ended().count;
         state.store_check(started, only_unchecked());
         assert_eq!(state.history().updates, [offer]);
+    }
+
+    #[test]
+    fn cancel_is_taken_until_the_update_installs() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = state(dir.path());
+        let key: Key = (Engine::Parakeet, "v3".to_string());
+        let token = CancellationToken::new();
+        let operation = Operation {
+            engine: Engine::Parakeet,
+            id: "v3".to_string(),
+            phase: Phase::Installing,
+            done_bytes: 0,
+            total_bytes: 0,
+            cancel: token.clone(),
+        };
+        state.operations().insert(key.clone(), operation);
+        assert!(state.cancel(&key).unwrap_err().contains("can no longer be cancelled"));
+        assert!(!token.is_cancelled());
+        state.operations().get_mut(&key).unwrap().phase = Phase::Testing;
+        assert_eq!(state.cancel(&key), Ok(()));
+        assert!(token.is_cancelled());
     }
 
     #[test]

@@ -151,8 +151,10 @@ pub enum Phase {
 pub struct Hooks {
     /// Waits until recordings, imports and summaries are done.
     pub wait_idle: Box<dyn FnOnce() -> BoxFuture<'static, Result<()>> + Send>,
-    /// Loads the staged model from its folder with the engine.
-    pub test_load: Box<dyn FnOnce(PathBuf) -> BoxFuture<'static, Result<()>> + Send>,
+    /// Loads the staged model from its folder with the engine. A load that
+    /// can take long (a summary model's probe) stops when the token is
+    /// cancelled; a short one may finish first.
+    pub test_load: Box<dyn FnOnce(PathBuf, CancellationToken) -> BoxFuture<'static, Result<()>> + Send>,
     /// Waits until the model may be replaced, unloads it, and returns a guard
     /// held for the swap (the engine lifecycle lock).
     pub lock_for_swap: Box<dyn FnOnce() -> BoxFuture<'static, Result<Box<dyn Send>>> + Send>,
@@ -188,7 +190,11 @@ async fn stage_and_swap(
     hooks: Hooks,
 ) -> Result<Resolved> {
     let expected = unit.installed(entry).ok_or_else(|| anyhow!("{} is not installed", entry.name))?;
+    // Every race with Cancel is `biased`, Cancel first: an unbiased select
+    // picks a ready branch at random, and a Cancel pressed before the swap
+    // must always keep the installed model.
     let resolved = tokio::select! {
+        biased;
         _ = cancel.cancelled() => return Err(anyhow!(CANCELLED)),
         resolved = huggingface::resolve(api, hub, entry) => resolved?,
     };
@@ -220,18 +226,28 @@ async fn stage_and_swap(
 
     (hooks.phase)(Phase::Waiting, total, total);
     tokio::select! {
+        biased;
         _ = cancel.cancelled() => return Err(anyhow!(CANCELLED)),
         idle = (hooks.wait_idle)() => idle?,
     };
     (hooks.phase)(Phase::Testing, total, total);
-    (hooks.test_load)(unit.staging.clone())
-        .await
-        .map_err(|error| anyhow!("The new version did not load, so the installed one was kept: {error}"))?;
+    let loaded = (hooks.test_load)(unit.staging.clone(), cancel.clone()).await;
+    if cancel.is_cancelled() {
+        return Err(anyhow!(CANCELLED));
+    }
+    loaded.map_err(|error| anyhow!("The new version did not load, so the installed one was kept: {error}"))?;
     let guard = tokio::select! {
+        biased;
         _ = cancel.cancelled() => return Err(anyhow!(CANCELLED)),
         guard = (hooks.lock_for_swap)() => guard?,
     };
+    // The app refuses Cancel once the phase is Installing, and moves to it
+    // under the same lock as it takes a Cancel, so a Cancel taken before
+    // this point is seen here.
     (hooks.phase)(Phase::Installing, total, total);
+    if cancel.is_cancelled() {
+        return Err(anyhow!(CANCELLED));
+    }
     swap(unit, &resolved)?;
     drop(guard);
     Ok(resolved)
@@ -247,6 +263,7 @@ async fn download(
     progress: impl Fn(u64),
 ) -> Result<()> {
     let response = tokio::select! {
+        biased;
         _ = cancel.cancelled() => return Err(anyhow!(CANCELLED)),
         response = client.get(url).send() => response.map_err(|error| anyhow!("Couldn't download {}: {error}", pinned.file))?,
     };
@@ -262,6 +279,7 @@ async fn download(
     let mut received = 0u64;
     loop {
         let next = tokio::select! {
+            biased;
             _ = cancel.cancelled() => return Err(anyhow!(CANCELLED)),
             next = tokio::time::timeout(STALL_TIMEOUT, stream.next()) => next,
         };
@@ -472,7 +490,7 @@ mod tests {
 
     fn hooks(test_load: Result<(), &'static str>, phases: Arc<Mutex<Vec<Phase>>>) -> Hooks {
         Hooks {
-            test_load: Box::new(move |dir| {
+            test_load: Box::new(move |dir, _| {
                 Box::pin(async move {
                     assert!(dir.join("encoder-model.int8.onnx").is_file());
                     test_load.map_err(|message| anyhow!(message))
@@ -611,6 +629,54 @@ mod tests {
         assert_eq!(error.to_string(), CANCELLED);
         assert_eq!(content(&f.unit, "encoder-model.int8.onnx"), [1u8; 500]);
         assert!(!f.unit.staging.exists());
+    }
+
+    /// Runs an update whose `hooks` press Cancel at some point, and checks
+    /// that the installed model was kept.
+    async fn cancelled_at(cancel: CancellationToken, hooks: Hooks) {
+        let f = fixture();
+        install(&f.unit, &parakeet_files(&[1u8; 500]), OLD);
+        let hub = serve(&parakeet_files(&[9u8; 700]), NEW).await;
+        let client = huggingface::client();
+        let error = run(&client, &client, &hub.url, &f.entry, &f.unit, &cancel, hooks).await.unwrap_err();
+        assert_eq!(error.to_string(), CANCELLED);
+        assert_eq!(content(&f.unit, "encoder-model.int8.onnx"), [1u8; 500]);
+        assert_eq!(installed::read_record(&f.unit.record_path).unwrap().commit, OLD);
+        assert!(!f.unit.staging.exists());
+    }
+
+    #[tokio::test]
+    async fn a_cancel_before_the_swap_always_keeps_the_installed_version() {
+        // During a test load that cannot stop and succeeds, with the swap
+        // lock free at once: each time, not about half the time.
+        for _ in 0..20 {
+            let cancel = CancellationToken::new();
+            let mut pressing = hooks(Ok(()), Arc::default());
+            let pressed = cancel.clone();
+            pressing.test_load = Box::new(move |_, _| Box::pin(async move { pressed.cancel(); Ok(()) }));
+            cancelled_at(cancel, pressing).await;
+        }
+
+        // A probe that stops on Cancel: reported as the cancel, not as a model
+        // that did not load.
+        let cancel = CancellationToken::new();
+        let mut pressing = hooks(Ok(()), Arc::default());
+        let pressed = cancel.clone();
+        pressing.test_load = Box::new(move |_, token| {
+            Box::pin(async move {
+                pressed.cancel();
+                token.cancelled().await;
+                Err(anyhow!("The test load was cancelled"))
+            })
+        });
+        cancelled_at(cancel, pressing).await;
+
+        // Taken just before the phase became Installing.
+        let cancel = CancellationToken::new();
+        let mut pressing = hooks(Ok(()), Arc::default());
+        let pressed = cancel.clone();
+        pressing.phase = Box::new(move |phase, _, _| if phase == Phase::Installing { pressed.cancel() });
+        cancelled_at(cancel, pressing).await;
     }
 
     #[test]

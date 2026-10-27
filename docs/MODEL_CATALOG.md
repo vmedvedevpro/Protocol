@@ -198,9 +198,14 @@ ended meanwhile is not offered again (`CatalogState::store_check`).
    their place, the install record is rewritten, markers are written, and the
    staging folder with the previous version is deleted.
 
-A failed download, hash, test load or swap, or **Cancel** (until the swap),
-leaves the installed model as it was and removes the staging folder; the card
-shows why with **Try again**. A swap cut short by a crash is finished (the new
+A failed download, hash, test load or swap, or **Cancel**, leaves the
+installed model as it was and removes the staging folder; the card shows why
+with **Try again**. Cancel is taken until the update enters Installing (the
+card then hides it, and `model_update_cancel` refuses it); the update moves
+to that phase under the lock Cancel takes and looks at it once more before the
+swap, every race with it is `biased` towards Cancel, and a summary model's
+probe stops at once (its helper is shut down). A Whisper or Parakeet test load
+takes seconds and finishes first. A swap cut short by a crash is finished (the new
 record is in place) or rolled back at the next launch, and an unfinished update
 download is removed. The operation holds `BusyReason::ModelDownload`, so an app
 update never restarts in its middle.

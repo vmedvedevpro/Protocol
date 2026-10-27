@@ -278,10 +278,10 @@ pub async fn generate_with_builtin(
 
 /// The test load of a model update (`crate::model_catalog::updates`): loads
 /// `model_path` in a llama-helper of its own and generates one token. The
-/// helper used for summaries is not involved.
-pub(crate) async fn probe_model(model_path: PathBuf, model_def: &models::ModelDef) -> Result<()> {
+/// helper used for summaries is not involved. `cancel` stops the probe, which
+/// can take minutes on a slow machine, and its helper.
+pub(crate) async fn probe_model(model_path: PathBuf, model_def: &models::ModelDef, cancel: &CancellationToken) -> Result<()> {
     let manager = SidecarManager::new(model_path.parent().map(PathBuf::from).unwrap_or_default())?;
-    manager.ensure_running(model_path.clone()).await?;
     let sampling = model_def.sampling.sanitize_for_llama_helper();
     let request = Request::Generate {
         prompt: models::format_prompt(&model_def.template, "Answer in one word.", "Ready?")?,
@@ -297,10 +297,20 @@ pub(crate) async fn probe_model(model_path: PathBuf, model_def: &models::ModelDe
         penalty_last_n: Some(sampling.penalty_last_n),
         stop_tokens: Some(sampling.stop_tokens),
     };
-    let answer = manager.send_request(serde_json::to_string(&request)?, Duration::from_secs(300)).await;
+    let request = serde_json::to_string(&request)?;
+    let answer = tokio::select! {
+        biased;
+        _ = cancel.cancelled() => None,
+        answer = async {
+            manager.ensure_running(model_path.clone()).await?;
+            manager.send_request(request, Duration::from_secs(300)).await
+        } => Some(answer),
+    };
+    // Also on cancel: the helper is a process of its own and outlives the request.
     if let Err(error) = manager.shutdown().await {
         log::warn!("Could not stop the llama-helper of a test load: {}", error);
     }
+    let answer = answer.ok_or_else(|| anyhow!("The test load was cancelled"))?;
     match serde_json::from_str(&answer?)? {
         Response::Response { error: None, .. } => Ok(()),
         Response::Response { error: Some(message), .. } | Response::Error { message } => Err(anyhow!(message)),
