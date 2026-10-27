@@ -21,6 +21,7 @@ pub mod schema;
 pub mod service;
 #[cfg(test)]
 pub(crate) mod testing;
+pub mod updates;
 
 use once_cell::sync::Lazy;
 use remote::Source;

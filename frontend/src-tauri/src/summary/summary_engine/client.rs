@@ -276,6 +276,37 @@ pub async fn generate_with_builtin(
     }
 }
 
+/// The test load of a model update (`crate::model_catalog::updates`): loads
+/// `model_path` in a llama-helper of its own and generates one token. The
+/// helper used for summaries is not involved.
+pub(crate) async fn probe_model(model_path: PathBuf, model_def: &models::ModelDef) -> Result<()> {
+    let manager = SidecarManager::new(model_path.parent().map(PathBuf::from).unwrap_or_default())?;
+    manager.ensure_running(model_path.clone()).await?;
+    let sampling = model_def.sampling.sanitize_for_llama_helper();
+    let request = Request::Generate {
+        prompt: models::format_prompt(&model_def.template, "Answer in one word.", "Ready?")?,
+        max_tokens: Some(1),
+        context_size: Some(512),
+        model_path: Some(model_path.to_string_lossy().to_string()),
+        temperature: Some(sampling.temperature),
+        top_k: Some(sampling.top_k),
+        top_p: Some(sampling.top_p),
+        presence_penalty: Some(sampling.presence_penalty),
+        frequency_penalty: Some(sampling.frequency_penalty),
+        repeat_penalty: Some(sampling.repeat_penalty),
+        penalty_last_n: Some(sampling.penalty_last_n),
+        stop_tokens: Some(sampling.stop_tokens),
+    };
+    let answer = manager.send_request(serde_json::to_string(&request)?, Duration::from_secs(300)).await;
+    if let Err(error) = manager.shutdown().await {
+        log::warn!("Could not stop the llama-helper of a test load: {}", error);
+    }
+    match serde_json::from_str(&answer?)? {
+        Response::Response { error: None, .. } => Ok(()),
+        Response::Response { error: Some(message), .. } | Response::Error { message } => Err(anyhow!(message)),
+    }
+}
+
 /// Shutdown the global sidecar (graceful cleanup)
 /// Detaches the current manager and spawns a background task to drain active requests
 pub async fn shutdown_sidecar_gracefully() -> Result<()> {

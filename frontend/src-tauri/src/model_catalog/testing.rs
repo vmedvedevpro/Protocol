@@ -151,14 +151,19 @@ impl RepoBuilder<'_> {
 
     /// A file kept in Git LFS: the listing carries its SHA-256.
     pub fn lfs_file(&mut self, path: &str, content: &[u8]) -> &mut Self {
+        self.lfs_file_serving(path, content, content)
+    }
+
+    /// An LFS file listed as `listed` but served as `served`.
+    pub fn lfs_file_serving(&mut self, path: &str, listed: &[u8], served: &[u8]) -> &mut Self {
         let item = serde_json::json!({
             "type": "file",
             "oid": super::huggingface::git_blob_id(path.as_bytes()),
-            "size": content.len(),
+            "size": listed.len(),
             "path": path,
-            "lfs": { "oid": format!("{:x}", Sha256::digest(content)), "size": content.len(), "pointerSize": 134 },
+            "lfs": { "oid": format!("{:x}", Sha256::digest(listed)), "size": listed.len(), "pointerSize": 134 },
         });
-        self.add(path, item, content)
+        self.add(path, item, served)
     }
 
     /// A file kept in Git: the listing carries only its blob id.

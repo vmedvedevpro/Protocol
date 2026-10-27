@@ -80,18 +80,18 @@ impl std::fmt::Display for HubError {
 
 impl std::error::Error for HubError {}
 
-#[derive(Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 struct ModelInfo {
     sha: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 struct Lfs {
     oid: String,
     size: u64,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 struct TreeItem {
     #[serde(rename = "type")]
     kind: String,
@@ -197,8 +197,21 @@ pub fn git_blob_id(content: &[u8]) -> String {
     format!("{:x}", hasher.finalize())
 }
 
-/// Resolves `entry` at `commit`: every file's size and SHA-256.
-pub async fn resolve_at(client: &reqwest::Client, hub: &str, entry: &Entry, commit: &str) -> Result<Resolved> {
+/// A file of an entry as the listing at a commit shows it.
+#[derive(Debug, Clone)]
+pub struct Listed {
+    /// Name on disk.
+    pub name: String,
+    pub size: u64,
+    /// The SHA-256 of an LFS file; `None` for a file kept in Git.
+    pub sha256: Option<String>,
+    pub git_oid: String,
+    item: TreeItem,
+}
+
+/// Lists the files of `entry` at `commit` without downloading any: what an
+/// update check compares with the installed files.
+pub async fn listing(client: &reqwest::Client, hub: &str, entry: &Entry, commit: &str) -> Result<Vec<Listed>> {
     let mut listings: Vec<(String, Vec<TreeItem>)> = Vec::new();
     let mut files = Vec::new();
     for file in &entry.files {
@@ -212,18 +225,31 @@ pub async fn resolve_at(client: &reqwest::Client, hub: &str, entry: &Entry, comm
             .iter()
             .find(|item| item.kind == "file" && item.path == file.path)
             .ok_or_else(|| HubError::NotFound(format!("{} in {} at commit {commit}", file.path, entry.repo)))?;
-        let url = download_url(hub, &entry.repo, commit, &file.path);
         let sha256 = match &item.lfs {
-            Some(lfs) if lfs.size == item.size && is_sha256(&lfs.oid) => lfs.oid.clone(),
+            Some(lfs) if lfs.size == item.size && is_sha256(&lfs.oid) => Some(lfs.oid.clone()),
             Some(_) => return Err(HubError::Unexpected(format!("the listing of {} is inconsistent", file.path)).into()),
-            None => small_file_sha256(client, &url, item).await?,
+            None => None,
+        };
+        files.push(Listed { name: file.name.clone(), size: item.size, sha256, git_oid: item.oid.clone(), item: item.clone() });
+    }
+    Ok(files)
+}
+
+/// Resolves `entry` at `commit`: every file's size and SHA-256.
+pub async fn resolve_at(client: &reqwest::Client, hub: &str, entry: &Entry, commit: &str) -> Result<Resolved> {
+    let mut files = Vec::new();
+    for (file, listed) in entry.files.iter().zip(listing(client, hub, entry, commit).await?) {
+        let url = download_url(hub, &entry.repo, commit, &file.path);
+        let sha256 = match listed.sha256 {
+            Some(sha256) => sha256,
+            None => small_file_sha256(client, &url, &listed.item).await?,
         };
         files.push(ResolvedFile {
             name: file.name.clone(),
             path: file.path.clone(),
             url,
-            pinned: model_integrity::intern(&file.name, item.size, &sha256),
-            git_oid: item.oid.clone(),
+            pinned: model_integrity::intern(&file.name, listed.size, &sha256),
+            git_oid: listed.git_oid,
         });
     }
     Ok(Resolved { repo: entry.repo.clone(), commit: commit.to_string(), files })

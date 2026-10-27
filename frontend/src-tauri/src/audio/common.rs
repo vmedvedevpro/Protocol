@@ -101,7 +101,7 @@ pub async fn unload_stt_if_idle() {
     STT_LAST_UNLOAD_SECS.store(now_secs(), Ordering::Relaxed);
 }
 
-async fn unload_both_stt_engines() {
+pub(crate) async fn unload_both_stt_engines() {
     {
         use crate::parakeet_engine::commands::PARAKEET_ENGINE;
         let engine = {
