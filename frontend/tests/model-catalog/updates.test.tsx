@@ -136,3 +136,19 @@ test('the About block says where the list comes from and checks on click', async
   await act(async () => pushStatus?.({ payload: base({ checking: true }) }));
   expect(buttons('Check for model updates')[0].props.disabled).toBe(true);
 });
+
+test('hidden entries are counted once however many rules they break', async () => {
+  status = base({
+    hidden: [
+      { index: 2, id: 'small', problem: 'repo must be a Hugging Face repository' },
+      { index: 2, id: 'small', problem: 'files must list one ggml-small.bin' },
+      { index: 5, id: null, problem: 'id must be 1-64 lowercase letters' },
+    ],
+  });
+  const lines = () => root.root.findAll((node) => node.type === 'p')
+    .map((node) => node.children.filter((child) => typeof child === 'string').join(''));
+  await act(async () => { root = create(<ModelCatalogSettings />); });
+  expect(lines()).toContain('2 entries of the model list could not be used by this version.');
+  await act(async () => pushStatus?.({ payload: base({ hidden: status.hidden.slice(0, 2) }) }));
+  expect(lines()).toContain('1 entry of the model list could not be used by this version.');
+});

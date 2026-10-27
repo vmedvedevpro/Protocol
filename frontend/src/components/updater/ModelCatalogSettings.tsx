@@ -29,6 +29,9 @@ export function ModelCatalogSettings() {
       .catch((error) => setFailed(String(error)));
   };
 
+  // An entry that breaks several rules is listed once per problem.
+  const hidden = new Set(status.hidden.map(({ index }) => index)).size;
+
   return (
     <section aria-labelledby="model-updates-heading" className="rounded-2xl border border-af-border bg-af-panel-2/40 p-5 space-y-3">
       <div>
@@ -37,9 +40,9 @@ export function ModelCatalogSettings() {
           {status.checking && <Spinner className="h-3.5 w-3.5" />}
           {catalogLine(status)}
         </p>
-        {status.hidden.length > 0 && (
+        {hidden > 0 && (
           <p className="mt-1 text-[12px] text-af-text-4">
-            {status.hidden.length} entr{status.hidden.length === 1 ? 'y' : 'ies'} of the model list could not be used by this version.
+            {hidden} entr{hidden === 1 ? 'y' : 'ies'} of the model list could not be used by this version.
           </p>
         )}
       </div>
