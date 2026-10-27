@@ -11,7 +11,10 @@ import { checkForModelUpdates, sourceLine, useModelCatalog, type CatalogStatus }
 export function catalogLine(status: CatalogStatus, now = Date.now()): string {
   if (status.checking) return 'Checking for model updates…';
   const updates = status.updates.length;
-  const found = updates === 0 ? 'Your models are up to date.' : `${updates} model update${updates === 1 ? '' : 's'} available on their cards in Settings › Transcription and Summaries.`;
+  const unchecked = status.checkFailures.length;
+  const offered = updates === 0 ? '' : `${updates} model update${updates === 1 ? '' : 's'} available on their cards in Settings › Transcription and Summaries.`;
+  const failed = unchecked === 0 ? '' : `${unchecked} model${unchecked === 1 ? '' : 's'} could not be checked; ${unchecked === 1 ? 'its card says' : 'their cards say'} why.`;
+  const found = offered || failed ? `${offered} ${failed}` : 'Your models are up to date.';
   const checked = status.lastCheckedAt ? ` Last checked ${relativeTime(status.lastCheckedAt, now)}.` : ' Not checked yet.';
   return `${sourceLine(status)} ${status.lastCheckedAt ? found : ''}${checked}`.replace(/\s+/g, ' ').trim();
 }

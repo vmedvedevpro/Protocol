@@ -40,6 +40,7 @@ const base = (overrides: Partial<CatalogStatus> = {}): CatalogStatus => ({
   updates: [],
   operations: [],
   updateFailures: [],
+  checkFailures: [],
   sizesVersion: 0,
   ...overrides,
 });
@@ -100,6 +101,20 @@ test('a failed update shows why and offers another try', async () => {
   expect(calls).toContainEqual(['model_update_start', { engine: 'whisper', id: 'small' }]);
 });
 
+test('a model the check got an error for says so on its card, with any update it had', async () => {
+  const checkFailure = { engine: 'whisper' as const, id: 'small', message: 'owner/whisper was not found on Hugging Face.' };
+  await act(async () => {
+    root = create(<ModelUpdateControl catalog={base({ checkFailures: [checkFailure] })} engine="whisper" id="small" installed />);
+  });
+  expect(text()).toContain("Couldn't check for updates: owner/whisper was not found on Hugging Face.");
+  expect(buttons('Update')).toHaveLength(0);
+  await act(async () => {
+    root.update(<ModelUpdateControl catalog={base({ updates: [update], checkFailures: [checkFailure] })} engine="whisper" id="small" installed />);
+  });
+  expect(text()).toContain('Update available');
+  expect(buttons('Update')).toHaveLength(1);
+});
+
 test('managers list their models again only when the list may have changed', () => {
   const key = lib.listKey(base());
   expect(lib.listKey(base({ checking: true, updates: [update] }))).toBe(key);
@@ -126,6 +141,11 @@ test('the About block says where the list comes from and checks on click', async
     .toBe('Model list from GitHub. Your models are up to date. Last checked 1 hour ago.');
   expect(catalogLine(base({ source: 'cache', lastCheckedAt: NOW, updates: [update] }), NOW)).toContain('1 model update available');
   expect(catalogLine(base({ checking: true }), NOW)).toBe('Checking for model updates…');
+  const checkFailure = { engine: 'parakeet' as const, id: 'parakeet-tdt-0.6b-v2-int8', message: 'gone' };
+  expect(catalogLine(base({ source: 'remote', lastCheckedAt: NOW, checkFailures: [checkFailure] }), NOW))
+    .toBe('Model list from GitHub. 1 model could not be checked; its card says why. Last checked just now.');
+  expect(catalogLine(base({ source: 'remote', lastCheckedAt: NOW, updates: [update], checkFailures: [checkFailure, checkFailure] }), NOW))
+    .toContain('1 model update available on their cards in Settings › Transcription and Summaries. 2 models could not be checked; their cards say why.');
 
   await act(async () => { root = create(<ModelCatalogSettings />); });
   expect(calls.map(([name]) => name)).toContain('model_catalog_get_status');

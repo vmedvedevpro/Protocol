@@ -18,8 +18,8 @@
 //! (`super::sizes`); a list asks for missing ones itself ([`request_sizes`]),
 //! whether automatic checks are on or not, since that is part of showing it.
 
-use super::huggingface;
-use super::remote::{self, Source};
+use super::huggingface::{self, HubError};
+use super::remote::{self, FetchError, Source};
 use super::schema::{Engine, Entry, Hidden};
 use super::sizes;
 use super::updates::{self, Available, Hooks, Phase, Unit};
@@ -55,29 +55,37 @@ pub struct UpdateFailure {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 struct History {
-    /// Unix ms of the last check that reached GitHub and Hugging Face.
+    /// Unix ms of the last check GitHub and Hugging Face answered, even if
+    /// the answer was an error about the model list or one model.
     last_checked_at: Option<i64>,
     last_attempt_at: Option<i64>,
     /// Failed automatic checks since the last completed one.
     failures: u32,
     /// When the catalog in use was fetched, if it came from `main`.
     fetched_at: Option<i64>,
-    /// Why the last check did not complete.
+    /// What went wrong in the last check: why it did not complete, or why
+    /// the model list from `main` could not be used.
     error: Option<String>,
     updates: Vec<Available>,
     update_failures: Vec<UpdateFailure>,
+    /// Installed models Hugging Face answered for with an error in the last
+    /// check (a removed or gated repository, a missing file), shown on their
+    /// cards. They do not fail the check.
+    check_failures: Vec<UpdateFailure>,
 }
 
 impl History {
-    fn record(&mut self, manual: bool, result: &Result<(), String>, now: i64) {
+    /// `completed`: GitHub and Hugging Face answered. Only an incomplete
+    /// check is retried sooner than in a day, with the updater's backoff.
+    fn record(&mut self, manual: bool, completed: bool, error: Option<String>, now: i64) {
         // The updater's rule: a completed check resets the failures, a failed
         // manual one does not count.
         let mut prefs = self.schedule(true);
-        prefs.record_check(manual, result.is_ok(), now);
+        prefs.record_check(manual, completed, now);
         self.last_checked_at = prefs.last_checked_at;
         self.last_attempt_at = prefs.last_attempt_at;
         self.failures = prefs.failures;
-        self.error = result.clone().err();
+        self.error = error;
     }
 
     fn schedule(&self, auto_check: bool) -> Prefs {
@@ -92,6 +100,7 @@ impl History {
     fn forget(&mut self, engine: Engine, id: &str) {
         self.updates.retain(|update| !(update.engine == engine && update.id == id));
         self.update_failures.retain(|failure| !(failure.engine == engine && failure.id == id));
+        self.check_failures.retain(|failure| !(failure.engine == engine && failure.id == id));
     }
 }
 
@@ -122,6 +131,8 @@ pub struct Status {
     pub updates: Vec<Available>,
     pub operations: Vec<Operation>,
     pub update_failures: Vec<UpdateFailure>,
+    /// Installed models the last check got an error for from Hugging Face.
+    pub check_failures: Vec<UpdateFailure>,
     /// Changes when model sizes read from Hugging Face changed, so Settings
     /// lists the models again.
     pub sizes_version: u64,
@@ -159,6 +170,7 @@ impl CatalogState {
             updates: history.updates,
             operations,
             update_failures: history.update_failures,
+            check_failures: history.check_failures,
             sizes_version: sizes::version(),
         }
     }
@@ -210,9 +222,9 @@ pub fn init<R: Runtime>(app: &AppHandle<R>) {
 /// Applies a fetched document: one that can be used becomes the catalog in
 /// use and the cached copy; anything else leaves both as they are. Returns
 /// whether the models offered changed.
-fn apply_fetch(dir: &Path, fetched: Result<Vec<u8>, String>) -> Result<bool, String> {
+fn apply_fetch(dir: &Path, fetched: Result<Vec<u8>, FetchError>) -> Result<bool, FetchError> {
     let bytes = fetched?;
-    let catalog = remote::usable(&bytes).map_err(|error| error.to_string())?;
+    let catalog = remote::usable(&bytes).map_err(|error| FetchError::answered(error.to_string()))?;
     for hidden in &catalog.hidden {
         log::warn!("[model catalog] entry {} ({:?}) hidden: {}", hidden.index, hidden.id, hidden.problem);
     }
@@ -241,34 +253,54 @@ fn installed_units(models_root: &Path) -> Vec<(Entry, Unit)> {
         .collect()
 }
 
-/// Compares every installed model with Hugging Face. A model Hugging Face
-/// could not answer for keeps what the last check found.
-async fn check_installed(state: &CatalogState) -> Result<(), String> {
+/// Compares every installed model under `models_root` with `hub`. A model
+/// that was not checked (being updated, or Hugging Face could not be asked)
+/// keeps what the last check found. An error Hugging Face answered with (a
+/// removed or gated repository, a missing file) is kept for the model's card
+/// and does not fail the check, since asking again sooner would get the same
+/// answer. Fails only when Hugging Face could not be asked.
+async fn check_installed(state: &CatalogState, models_root: &Path, hub: &str) -> Result<(), String> {
     let client = huggingface::client();
-    let previous = state.history().updates.clone();
+    let (previous, previous_failures) = {
+        let history = state.history();
+        (history.updates.clone(), history.check_failures.clone())
+    };
     let mut found = Vec::new();
-    let mut errors = Vec::new();
-    for (entry, unit) in installed_units(&crate::paths::models_dir()) {
-        let busy = state.operations().contains_key(&(entry.engine, entry.id.clone()));
-        let known = previous.iter().filter(|update| update.engine == entry.engine && update.id == entry.id).cloned();
-        if busy {
-            found.extend(known);
+    let mut failures = Vec::new();
+    let mut unreached = Vec::new();
+    for (entry, unit) in installed_units(models_root) {
+        let mine = |engine: Engine, id: &str| engine == entry.engine && id == entry.id;
+        let keep = |found: &mut Vec<Available>, failures: &mut Vec<UpdateFailure>| {
+            found.extend(previous.iter().filter(|update| mine(update.engine, &update.id)).cloned());
+            failures.extend(previous_failures.iter().filter(|failure| mine(failure.engine, &failure.id)).cloned());
+        };
+        if state.operations().contains_key(&(entry.engine, entry.id.clone())) {
+            keep(&mut found, &mut failures);
             continue;
         }
-        match updates::check(&client, huggingface::HUB, &entry, &unit).await {
+        match updates::check(&client, hub, &entry, &unit).await {
             Ok(available) => found.extend(available),
-            Err(error) => {
+            Err(error) if error.downcast_ref::<HubError>().is_some_and(HubError::is_transient) => {
                 log::warn!("[model catalog] could not check {} for updates: {error}", entry.id);
-                found.extend(known);
-                errors.push(format!("{}: {error}", entry.name));
+                keep(&mut found, &mut failures);
+                unreached.push(format!("{}: {error}", entry.name));
+            }
+            Err(error) => {
+                log::warn!("[model catalog] checking {} for updates failed: {error}", entry.id);
+                found.extend(previous.iter().filter(|update| mine(update.engine, &update.id)).cloned());
+                failures.push(UpdateFailure { engine: entry.engine, id: entry.id.clone(), message: error.to_string() });
             }
         }
     }
-    state.history().updates = found;
-    match errors.len() {
+    {
+        let mut history = state.history();
+        history.updates = found;
+        history.check_failures = failures;
+    }
+    match unreached.len() {
         0 => Ok(()),
-        1 => Err(errors.remove(0)),
-        more => Err(format!("{} (and {} more)", errors[0], more - 1)),
+        1 => Err(unreached.remove(0)),
+        more => Err(format!("{} (and {} more)", unreached[0], more - 1)),
     }
 }
 
@@ -288,19 +320,20 @@ pub async fn check<R: Runtime>(app: &AppHandle<R>, manual: bool) -> Result<Statu
             log::info!("[model catalog] fetched from main ({})", if *changed { "changed" } else { "unchanged" });
             state.history().fetched_at = Some(now);
         }
-        Err(error) => log::warn!("[model catalog] fetch failed; keeping the {:?} list: {error}", super::source()),
+        Err(error) => log::warn!("[model catalog] fetch failed; keeping the {:?} list: {}", super::source(), error.message),
     }
     // Hugging Face is asked even when GitHub was not reachable.
-    let models = check_installed(&state).await;
+    let models = check_installed(&state, &crate::paths::models_dir(), huggingface::HUB).await;
     // Display only: a failure leaves the sizes as they were and does not
     // count against the check.
     let every: Vec<Entry> = [Engine::Whisper, Engine::Parakeet, Engine::Llama].into_iter().flat_map(super::entries).collect();
     sizes::refresh(&huggingface::client(), huggingface::HUB, &every).await;
-    let result = match (catalog, models) {
-        (Ok(_), Ok(())) => Ok(()),
-        (Err(error), _) | (Ok(_), Err(error)) => Err(error),
-    };
-    state.history().record(manual, &result, now);
+    // Complete when GitHub and Hugging Face answered, even with a 404 for
+    // the list or an error for one model: asking again sooner than the daily
+    // check would get the same answer.
+    let completed = !catalog.as_ref().is_err_and(|error| error.transient) && models.is_ok();
+    let error = catalog.err().map(|error| error.message).or(models.err());
+    state.history().record(manual, completed, error, now);
     state.save();
     state.checking.store(false, Ordering::Release);
     emit(app);
@@ -507,6 +540,35 @@ mod tests {
         serde_json::json!({ "schema": 1, "models": models }).to_string().into_bytes()
     }
 
+    fn state(dir: &Path) -> CatalogState {
+        CatalogState {
+            dir: dir.to_path_buf(),
+            history: Mutex::new(History::default()),
+            checking: AtomicBool::new(false),
+            running: tokio::sync::Mutex::new(()),
+            operations: Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// Installs a Whisper model `id` at `commit`, as a finished download would.
+    fn install_whisper(models_root: &Path, entry: &Entry, content: &[u8], commit: &str) {
+        let unit = Unit::of(models_root, entry);
+        std::fs::write(unit.path(&unit.files[0]), content).unwrap();
+        let record = super::super::installed::InstallRecord {
+            id: entry.id.clone(),
+            repo: entry.repo.clone(),
+            commit: commit.to_string(),
+            complete: true,
+            files: vec![super::super::installed::RecordFile {
+                name: unit.files[0].clone(),
+                size: content.len() as u64,
+                sha256: crate::model_integrity::testing::pin_of("ggml.bin", content).sha256.to_string(),
+                git_oid: None,
+            }],
+        };
+        super::super::installed::write_record(&unit.record_path, &record).unwrap();
+    }
+
     #[test]
     fn the_fetched_catalog_is_used_and_kept_and_a_failure_changes_nothing() {
         let _catalog = use_catalog((*built_in()).clone());
@@ -519,9 +581,11 @@ mod tests {
         assert_eq!(apply_fetch(dir.path(), Ok(document(3))), Ok(false));
 
         // Unreachable, unreadable or empty: the catalog in use and the cache stay.
-        assert!(apply_fetch(dir.path(), Err("offline".to_string())).is_err());
-        assert!(apply_fetch(dir.path(), Ok(b"<html>".to_vec())).is_err());
-        assert!(apply_fetch(dir.path(), Ok(document(0))).unwrap_err().contains("no list of models"));
+        let offline = FetchError { message: "offline".to_string(), transient: true };
+        assert_eq!(apply_fetch(dir.path(), Err(offline.clone())), Err(offline));
+        // An unusable document is GitHub's answer, not a reason to ask again soon.
+        assert!(!apply_fetch(dir.path(), Ok(b"<html>".to_vec())).unwrap_err().transient);
+        assert!(apply_fetch(dir.path(), Ok(document(0))).unwrap_err().message.contains("no list of models"));
         assert_eq!(crate::model_catalog::active().entries.len(), 3);
         assert_eq!(remote::startup(dir.path(), built_in()).0.entries.len(), 3);
     }
@@ -532,14 +596,50 @@ mod tests {
         assert!(schedule::is_due(&history.schedule(true), 1_000));
         assert!(!schedule::is_due(&history.schedule(false), 1_000));
 
-        history.record(false, &Err("offline".to_string()), 1_000);
+        history.record(false, false, Some("offline".to_string()), 1_000);
         assert_eq!((history.failures, history.error.as_deref()), (1, Some("offline")));
-        history.record(true, &Err("offline".to_string()), 2_000);
+        history.record(true, false, Some("offline".to_string()), 2_000);
         assert_eq!(history.failures, 1);
-        history.record(false, &Ok(()), 3_000);
+        history.record(false, true, None, 3_000);
         assert_eq!((history.failures, history.last_checked_at, history.error.clone()), (0, Some(3_000), None));
         assert!(!schedule::is_due(&history.schedule(true), 3_000 + schedule::CHECK_INTERVAL_MS - 1));
         assert!(schedule::is_due(&history.schedule(true), 3_000 + schedule::CHECK_INTERVAL_MS));
+        // GitHub answered 404: the check completed, the next one is a day later,
+        // and the answer is shown.
+        let answered = Some("GitHub answered 404 Not Found for the model list".to_string());
+        history.record(false, true, answered.clone(), 5_000);
+        assert_eq!((history.failures, history.last_checked_at, history.error.clone()), (0, Some(5_000), answered));
+        assert!(!schedule::is_due(&history.schedule(true), 5_000 + schedule::CHECK_INTERVAL_MS - 1));
+    }
+
+    #[tokio::test]
+    async fn a_model_hugging_face_answered_an_error_for_is_shown_and_does_not_fail_the_check() {
+        use crate::model_catalog::testing::{entry_for, Hub};
+        const OLD: &str = "1111111111111111111111111111111111111111";
+        const NEW: &str = "2222222222222222222222222222222222222222";
+        let tiny = entry_for(Engine::Whisper, "tiny", "owner/whisper");
+        let gone = entry_for(Engine::Whisper, "base", "owner/gone");
+        let _catalog = use_catalog(super::super::schema::Catalog { entries: vec![tiny.clone(), gone.clone()], hidden: Vec::new() });
+        let dir = tempfile::tempdir().unwrap();
+        install_whisper(dir.path(), &tiny, b"old tiny", OLD);
+        install_whisper(dir.path(), &gone, b"old base", OLD);
+        let mut hub = Hub::new();
+        hub.repo("owner/whisper", NEW).lfs_file("ggml-tiny.bin", b"new tiny");
+        let hub = hub.serve().await;
+        let state = state(dir.path());
+
+        // owner/gone is not on the hub: an answer about that one model.
+        assert_eq!(check_installed(&state, dir.path(), &hub.url).await, Ok(()));
+        let history = state.history().clone();
+        assert_eq!(history.updates.iter().map(|update| update.id.as_str()).collect::<Vec<_>>(), ["tiny"]);
+        assert_eq!(history.check_failures.len(), 1);
+        assert_eq!(history.check_failures[0].id, "base");
+        assert!(history.check_failures[0].message.contains("was not found on Hugging Face"), "{:?}", history.check_failures);
+
+        // Hugging Face cannot be asked: the check fails and keeps what it knew.
+        let error = check_installed(&state, dir.path(), "http://127.0.0.1:9").await.unwrap_err();
+        assert!(error.contains("Couldn't reach Hugging Face") && error.contains("(and 1 more)"), "{error}");
+        assert_eq!(*state.history(), history);
     }
 
     #[test]

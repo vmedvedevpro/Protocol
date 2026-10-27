@@ -12,7 +12,7 @@ const model = (name: string, display_name: string, tier: 'basic' | null, recomme
 let models: ReturnType<typeof model>[];
 const catalog = (overrides: Record<string, unknown> = {}) => ({
   source: 'built-in', fetchedAt: null, lastCheckedAt: null, checking: false, error: null,
-  hidden: [], updates: [], operations: [], updateFailures: [], sizesVersion: 0, ...overrides,
+  hidden: [], updates: [], operations: [], updateFailures: [], checkFailures: [], sizesVersion: 0, ...overrides,
 });
 
 mock.module('sonner', () => ({ toast: { success: () => {}, error: () => {} } }));

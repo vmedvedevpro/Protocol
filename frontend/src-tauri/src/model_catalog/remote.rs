@@ -30,25 +30,50 @@ pub fn cache_file(dir: &Path) -> PathBuf {
     dir.join("catalog.json")
 }
 
+/// Why no model list came from `main`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FetchError {
+    pub message: String,
+    /// GitHub could not be asked now (no connection, a server error, a rate
+    /// limit): the check did not complete and is tried again with backoff.
+    /// Any other failure (a 404, an oversized or unreadable document) is
+    /// GitHub's answer until `main` changes.
+    pub transient: bool,
+}
+
+impl FetchError {
+    fn transient(message: String) -> Self {
+        Self { message, transient: true }
+    }
+
+    pub fn answered(message: String) -> Self {
+        Self { message, transient: false }
+    }
+}
+
 /// Downloads the catalog document, at most [`MAX_BYTES`].
-pub async fn fetch(client: &reqwest::Client, url: &str) -> Result<Vec<u8>, String> {
+pub async fn fetch(client: &reqwest::Client, url: &str) -> Result<Vec<u8>, FetchError> {
     let response = client
         .get(url)
         .send()
         .await
-        .map_err(|error| format!("Couldn't reach GitHub for the model list: {error}"))?;
-    if !response.status().is_success() {
-        return Err(format!("GitHub answered {} for the model list", response.status()));
+        .map_err(|error| FetchError::transient(format!("Couldn't reach GitHub for the model list: {error}")))?;
+    let status = response.status();
+    if !status.is_success() {
+        let message = format!("GitHub answered {status} for the model list");
+        let busy = status.is_server_error() || status == reqwest::StatusCode::TOO_MANY_REQUESTS;
+        return Err(if busy { FetchError::transient(message) } else { FetchError::answered(message) });
     }
+    let too_large = || FetchError::answered("The model list on GitHub is too large to be one".to_string());
     if response.content_length().is_some_and(|length| length > MAX_BYTES as u64) {
-        return Err("The model list on GitHub is too large to be one".to_string());
+        return Err(too_large());
     }
     let mut body = Vec::new();
     let mut stream = response.bytes_stream();
     while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|error| format!("Couldn't read the model list from GitHub: {error}"))?;
+        let chunk = chunk.map_err(|error| FetchError::transient(format!("Couldn't read the model list from GitHub: {error}")))?;
         if body.len() + chunk.len() > MAX_BYTES {
-            return Err("The model list on GitHub is too large to be one".to_string());
+            return Err(too_large());
         }
         body.extend_from_slice(&chunk);
     }
@@ -123,10 +148,19 @@ mod tests {
     async fn fetch_reports_errors_and_refuses_oversized_answers() {
         let url = crate::model_integrity::testing::serve_once(vec![b' '; MAX_BYTES + 1]).await;
         let client = crate::model_catalog::huggingface::client();
-        assert!(fetch(&client, &url).await.unwrap_err().contains("too large"));
+        let error = fetch(&client, &url).await.unwrap_err();
+        assert!(error.message.contains("too large") && !error.transient, "{error:?}");
         let url = crate::model_integrity::testing::serve_once(b"{}".to_vec()).await;
         assert_eq!(fetch(&client, &url).await.unwrap(), b"{}");
         let error = fetch(&client, "http://127.0.0.1:9/catalog.json").await.unwrap_err();
-        assert!(error.starts_with("Couldn't reach GitHub"), "{error}");
+        assert!(error.message.starts_with("Couldn't reach GitHub") && error.transient, "{error:?}");
+        // A missing file is an answer; a failing server is not.
+        let mut hub = crate::model_catalog::testing::Hub::new();
+        hub.status("/gone.json", 404);
+        hub.status("/busy.json", 503);
+        let hub = hub.serve().await;
+        let gone = fetch(&client, &format!("{}/gone.json", hub.url)).await.unwrap_err();
+        assert_eq!((gone.message.as_str(), gone.transient), ("GitHub answered 404 Not Found for the model list", false));
+        assert!(fetch(&client, &format!("{}/busy.json", hub.url)).await.unwrap_err().transient);
     }
 }

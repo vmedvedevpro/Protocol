@@ -61,8 +61,19 @@ impl Resolved {
 pub enum HubError {
     Network(String),
     RateLimited,
+    /// A server error (5xx).
+    Unavailable(String),
     NotFound(String),
     Unexpected(String),
+}
+
+impl HubError {
+    /// Hugging Face could not be asked now (no connection, a rate limit, a
+    /// server error), so a later try may get an answer. Any other error is
+    /// Hugging Face's answer about the repository or its files.
+    pub fn is_transient(&self) -> bool {
+        matches!(self, Self::Network(_) | Self::RateLimited | Self::Unavailable(_))
+    }
 }
 
 impl std::fmt::Display for HubError {
@@ -72,6 +83,7 @@ impl std::fmt::Display for HubError {
                 write!(f, "Couldn't reach Hugging Face. Check your connection, VPN, firewall, or proxy, then retry. Details: {detail}")
             }
             Self::RateLimited => write!(f, "Hugging Face is limiting requests right now. Try again in a few minutes."),
+            Self::Unavailable(detail) => write!(f, "Hugging Face is not available right now ({detail}). Try again later."),
             Self::NotFound(what) => write!(f, "{what} was not found on Hugging Face."),
             Self::Unexpected(detail) => write!(f, "Hugging Face sent an unexpected answer: {detail}"),
         }
@@ -134,6 +146,7 @@ async fn get(client: &reqwest::Client, url: &str, what: &str) -> Result<reqwest:
         // Hugging Face answers 401 for a repository that does not exist (or is
         // private or gated), 404 for a missing revision or path.
         reqwest::StatusCode::NOT_FOUND | reqwest::StatusCode::UNAUTHORIZED => Err(HubError::NotFound(what.to_string())),
+        status if status.is_server_error() => Err(HubError::Unavailable(format!("{status} for {url}"))),
         status => Err(HubError::Unexpected(format!("{status} for {url}"))),
     }
 }

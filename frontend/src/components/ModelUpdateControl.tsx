@@ -20,10 +20,10 @@ interface ModelUpdateControlProps {
   installed: boolean;
 }
 
-/** The update notice of a model's card: offer, progress, or the last failure. */
+/** The update notice of a model's card: offer, progress, the last failure, or why it could not be checked. */
 export function ModelUpdateControl({ catalog, engine, id, installed }: ModelUpdateControlProps) {
-  const { operation, update, failure } = modelUpdateState(catalog, engine, id);
-  if (!installed || (!operation && !update && !failure)) return null;
+  const { operation, update, failure, checkFailure } = modelUpdateState(catalog, engine, id);
+  if (!installed || (!operation && !update && !failure && !checkFailure)) return null;
 
   // The card selects its model on click; these controls must not.
   const run = (event: React.MouseEvent, action: () => Promise<unknown>) => {
@@ -54,6 +54,9 @@ export function ModelUpdateControl({ catalog, engine, id, installed }: ModelUpda
               <p className="text-af-text-2">{formatModelSize(update.downloadBytes)
                   ? `Update available · ${formatModelSize(update.downloadBytes)} to download`
                   : 'Update available'}</p>
+            )}
+            {checkFailure && !failure && (
+              <p className="text-af-text-3 [overflow-wrap:anywhere]">{`Couldn't check for updates: ${checkFailure.message}`}</p>
             )}
           </div>
           {update && (

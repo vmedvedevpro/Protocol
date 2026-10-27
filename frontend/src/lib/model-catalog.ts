@@ -44,6 +44,11 @@ export interface CatalogStatus {
   updates: ModelUpdate[];
   operations: UpdateOperation[];
   updateFailures: UpdateFailure[];
+  /**
+   * Installed models Hugging Face answered the last check with an error for
+   * (a removed or gated repository, a missing file). They do not fail it.
+   */
+  checkFailures: UpdateFailure[];
   /** Changes when model sizes read from Hugging Face changed. */
   sizesVersion: number;
 }
@@ -90,6 +95,7 @@ export function modelUpdateState(status: CatalogStatus | null, engine: CatalogEn
     operation: status?.operations.find(same(engine, id)) ?? null,
     update: status?.updates.find(same(engine, id)) ?? null,
     failure: status?.updateFailures.find(same(engine, id)) ?? null,
+    checkFailure: status?.checkFailures.find(same(engine, id)) ?? null,
   };
 }
 
