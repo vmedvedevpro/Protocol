@@ -37,8 +37,9 @@ Data leaves your machine only when **you** choose an action that sends it:
   data-retention terms.
 - If you select a **cloud transcription provider**, your audio is sent to that
   provider.
-- **Model downloads** contact Hugging Face and, to repair the bundled speaker
-  models, this repository on GitHub. These requests carry no meeting content.
+- **Model downloads**, including **Re-download models** for the bundled speaker
+  models, contact Hugging Face (`huggingface.co` and the Hugging Face download
+  servers it redirects to). These requests carry no meeting content.
 - **Update checks** (automatic unless you turn them off) read release
   information from GitHub, and an update downloads only when you click
   **Download**. They upload nothing.
