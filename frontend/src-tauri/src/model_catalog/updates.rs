@@ -6,7 +6,7 @@
 //! changes nothing the app downloads is not an update.
 //!
 //! The update downloads the new version into `<models>/.model-updates/<unit>/`,
-//! beside the installed one (unchanged files are copied from it), checks every
+//! beside the installed one (unchanged files are hard links to it), checks every
 //! file, waits for recordings, imports and summaries to finish, and has the
 //! engine load it (`Hooks::test_load`). Only then does it swap, under
 //! a journal: the installed files move to `previous/`, the new ones take their
@@ -16,7 +16,7 @@
 //! engine lists its models. Until the swap the installed model stays in use,
 //! and any failure leaves it as it was.
 
-use super::huggingface::{self, Resolved};
+use super::huggingface::{self, Resolved, ResolvedFile};
 use super::installed::{self, Expected, InstallRecord};
 use super::schema::{Engine, Entry};
 use crate::model_integrity::{self, Check, Pinned};
@@ -200,6 +200,9 @@ async fn stage_and_swap(
         _ = cancel.cancelled() => return Err(anyhow!(CANCELLED)),
         resolved = huggingface::resolve(api, hub, entry) => resolved?,
     };
+    let unchanged = |file: &ResolvedFile| expected.pin(&file.name).is_some_and(|pinned| pinned == file.pinned);
+    let downloads: u64 = resolved.files.iter().filter(|file| !unchanged(file)).map(|file| file.pinned.size).sum();
+    ensure_space(&unit.dir, downloads).await?;
     let _ = tokio::fs::remove_dir_all(&unit.staging).await;
     tokio::fs::create_dir_all(&unit.staging).await?;
 
@@ -208,12 +211,8 @@ async fn stage_and_swap(
     (hooks.phase)(Phase::Downloading, 0, total);
     for file in &resolved.files {
         let target = unit.staging.join(&file.name);
-        let unchanged = expected.pin(&file.name).is_some_and(|pinned| pinned == file.pinned);
-        if unchanged {
-            // The same bytes: copied from the installed file and hashed again.
-            tokio::fs::copy(unit.path(&file.name), &target).await?;
-            let flag = cancel.clone();
-            model_integrity::ensure_verified_cancellable(file.pinned, &target, move || flag.is_cancelled())
+        if unchanged(file) {
+            stage_unchanged(&unit.path(&file.name), &target, file.pinned, cancel)
                 .await
                 .map_err(|error| if cancel.is_cancelled() { anyhow!(CANCELLED) } else { error })?;
             done += file.pinned.size;
@@ -259,6 +258,48 @@ async fn stage_and_swap(
     swap(unit, &resolved)?;
     drop(guard);
     Ok(resolved)
+}
+
+/// Stages an unchanged file of the installed version at `target`: a hard link
+/// to it (the staging folder is on the same volume), so nothing is copied, and
+/// one verified before is not hashed again. Where linking fails (another
+/// volume, a file system without hard links) it is copied, after a space
+/// check, and the copy is hashed.
+async fn stage_unchanged(installed: &Path, target: &Path, pinned: &'static Pinned, cancel: &CancellationToken) -> Result<()> {
+    let linked = std::fs::hard_link(installed, target).is_ok();
+    if linked && model_integrity::is_marked(pinned, installed) {
+        // The swap marks the file once it is in place.
+        return Ok(());
+    }
+    if !linked {
+        ensure_space(target.parent().unwrap_or(target), pinned.size).await?;
+        tokio::fs::copy(installed, target).await?;
+    }
+    // A failed check deletes only this staged name, never the installed one.
+    let flag = cancel.clone();
+    model_integrity::ensure_verified_cancellable(pinned, target, move || flag.is_cancelled()).await
+}
+
+/// Refuses to stage `needed` bytes on the volume of `dir` when the system
+/// reports less free space (as the app updater does), instead of failing on a
+/// full disk with the operating system's error.
+async fn ensure_space(dir: &Path, needed: u64) -> Result<()> {
+    let dir = dir.to_path_buf();
+    // Enumerating volumes can stall on an unreachable network drive.
+    let free = tokio::task::spawn_blocking(move || crate::updater::engine::free_space(&dir)).await.ok().flatten();
+    check_space(needed, free)
+}
+
+fn check_space(needed: u64, free: Option<u64>) -> Result<()> {
+    const MB: u64 = 1024 * 1024;
+    match free {
+        Some(free) if free < needed => Err(anyhow!(
+            "There is not enough disk space for the update: it needs {} MB, and {} MB are free. Free some space, then try again.",
+            needed.div_ceil(MB),
+            free / MB
+        )),
+        _ => Ok(()),
+    }
 }
 
 /// Streams `url` into `target`, checking it against `pinned` as it arrives.
@@ -572,14 +613,58 @@ mod tests {
         assert_eq!((record.commit.as_str(), record.complete), (NEW, true));
         assert!(!f.unit.staging.exists());
         assert_eq!(*phases.lock().unwrap(), [Phase::Downloading, Phase::Waiting, Phase::Testing, Phase::Installing]);
-        // Unchanged files were copied, not downloaded.
+        // Unchanged files were linked, not downloaded.
         assert_eq!(hub.requests(&format!("/{REPO}/resolve/{NEW}/nemo128.onnx")), 0);
         assert_eq!(hub.requests(&format!("/{REPO}/resolve/{NEW}/encoder-model.int8.onnx")), 1);
+        assert_eq!(content(&f.unit, "nemo128.onnx"), [3u8; 100]);
         // The swapped files are trusted without hashing them again.
         let expected = f.unit.installed(&f.entry).unwrap();
         model_integrity::ensure_verified(expected.pin("encoder-model.int8.onnx").unwrap(), &f.unit.path("encoder-model.int8.onnx"))
             .await
             .unwrap();
+    }
+
+    #[tokio::test]
+    async fn an_unchanged_file_is_linked_and_hashed_only_without_a_marker() {
+        let dir = tempfile::tempdir().unwrap();
+        let installed = dir.path().join("nemo128.onnx");
+        std::fs::write(&installed, [3u8; 100]).unwrap();
+        let pinned = model_integrity::testing::pin_of("nemo128.onnx", &[3u8; 100]);
+        let cancel = CancellationToken::new();
+
+        // Verified before: linked, with no hash and no marker of its own.
+        model_integrity::mark_verified(pinned, &installed);
+        let target = dir.path().join("staged-marked");
+        stage_unchanged(&installed, &target, pinned, &cancel).await.unwrap();
+        assert_eq!(std::fs::read(&target).unwrap(), [3u8; 100]);
+        assert!(!model_integrity::is_marked(pinned, &target));
+        // The same file, not a copy: written through one name, seen through the other.
+        std::fs::write(&installed, [4u8; 100]).unwrap();
+        assert_eq!(std::fs::read(&target).unwrap(), [4u8; 100]);
+        std::fs::write(&installed, [3u8; 100]).unwrap();
+
+        // Never verified: linked and hashed once.
+        model_integrity::clear_mark(&installed);
+        let target = dir.path().join("staged-unmarked");
+        stage_unchanged(&installed, &target, pinned, &cancel).await.unwrap();
+        assert!(model_integrity::is_marked(pinned, &target));
+
+        // An installed file that does not match: the staged name is deleted,
+        // the installed one stays.
+        std::fs::write(&installed, [5u8; 100]).unwrap();
+        let target = dir.path().join("staged-bad");
+        let error = stage_unchanged(&installed, &target, pinned, &cancel).await.unwrap_err();
+        assert!(error.to_string().contains("failed its integrity check"), "{error}");
+        assert!(!target.exists());
+        assert_eq!(std::fs::read(&installed).unwrap(), [5u8; 100]);
+    }
+
+    #[test]
+    fn an_update_needs_the_space_of_its_downloads() {
+        assert!(check_space(700, Some(700)).is_ok());
+        assert!(check_space(700, None).is_ok());
+        let error = check_space(3 * 1024 * 1024 + 1, Some(2 * 1024 * 1024)).unwrap_err().to_string();
+        assert!(error.contains("it needs 4 MB, and 2 MB are free"), "{error}");
     }
 
     #[tokio::test]

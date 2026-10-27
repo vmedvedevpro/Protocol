@@ -340,7 +340,9 @@ pub fn clear_mark(path: &Path) {
     let _ = std::fs::remove_file(rejection_path(path));
 }
 
-fn is_marked(pinned: &Pinned, path: &Path) -> bool {
+/// Whether `path` has a valid verification marker for `pinned`: it matched
+/// and has not changed since.
+pub fn is_marked(pinned: &Pinned, path: &Path) -> bool {
     marker_line(pinned, path)
         .is_some_and(|line| std::fs::read_to_string(marker_path(path)).is_ok_and(|found| found == line))
 }

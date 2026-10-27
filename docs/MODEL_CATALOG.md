@@ -182,9 +182,13 @@ ended meanwhile is not offered again (`CatalogState::store_check`).
 **Update** (`model_update_start`, the card's **Update**), in
 `updates::run`:
 
-1. resolve the current commit; download the files that changed into
-   `models/.model-updates/<engine>-<id>/`, beside the installed model, and copy
-   the unchanged ones from it; every file is checked against its pin;
+1. resolve the current commit; check that the models volume has room for the
+   files that changed (`updater::engine::free_space`, as for app updates);
+   download them into `models/.model-updates/<engine>-<id>/`, beside the
+   installed model, and stage the unchanged ones as hard links to the
+   installed files: nothing is copied, and a file with a valid verification
+   marker is not hashed again (where linking fails, the file is copied after a
+   space check and hashed); every file is checked against its pin;
 2. wait until nothing in the busy registry runs except model downloads and
    onboarding (recordings, imports, retranscription, summaries, post-call
    work);
