@@ -79,14 +79,9 @@ pub fn startup(dir: &Path, built_in: Arc<Catalog>) -> (Arc<Catalog>, Source) {
     }
 }
 
-/// Keeps a fetched document for the next start, through a temporary file so a
-/// crash never leaves half of one.
+/// Keeps a fetched document for the next start.
 pub fn write_cache(dir: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    std::fs::create_dir_all(dir)?;
-    let path = cache_file(dir);
-    let temporary = path.with_extension("json.tmp");
-    std::fs::write(&temporary, bytes)?;
-    std::fs::rename(&temporary, &path)
+    super::write_atomically(&cache_file(dir), bytes)
 }
 
 #[cfg(test)]

@@ -157,8 +157,11 @@ impl CatalogState {
     fn save(&self) {
         let history = self.history().clone();
         let path = history_file(&self.dir);
-        let result = std::fs::create_dir_all(&self.dir)
-            .and_then(|()| std::fs::write(&path, serde_json::to_vec_pretty(&history).unwrap_or_default()));
+        // Atomic: a cut-short write would reset the schedule and the updates
+        // found, and the next start would check at once.
+        let result = serde_json::to_vec_pretty(&history)
+            .map_err(std::io::Error::from)
+            .and_then(|bytes| super::write_atomically(&path, &bytes));
         if let Err(error) = result {
             log::warn!("[model catalog] could not save {}: {error}", path.display());
         }

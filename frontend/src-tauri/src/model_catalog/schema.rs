@@ -139,6 +139,17 @@ static FILE_NAME: Lazy<Regex> = Lazy::new(|| Regex::new(r"^[A-Za-z0-9][A-Za-z0-9
 static LANGUAGE: Lazy<Regex> = Lazy::new(|| Regex::new(r"^(\*|[a-z]{2,3})$").unwrap());
 static VERSION: Lazy<Regex> = Lazy::new(|| Regex::new(r"^\d+\.\d+\.\d+$").unwrap());
 
+/// A full Git commit id as Hugging Face writes it: 40 lowercase hex digits.
+pub fn is_commit(value: &str) -> bool {
+    COMMIT.is_match(value)
+}
+
+/// A SHA-256 as Hugging Face's listing (`lfs.oid`) and install records
+/// write it: 64 lowercase hex digits.
+pub fn is_sha256(value: &str) -> bool {
+    value.len() == 64 && value.bytes().all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+}
+
 fn is_text(value: &str, max: usize) -> bool {
     !value.trim().is_empty() && value.chars().count() <= max
 }
@@ -187,7 +198,7 @@ impl Entry {
         if !REPO.is_match(&self.repo) {
             problems.push("repo must be a Hugging Face repository, owner/name".to_string());
         }
-        if self.revision.as_deref().is_some_and(|revision| !COMMIT.is_match(revision)) {
+        if self.revision.as_deref().is_some_and(|revision| !is_commit(revision)) {
             problems.push("revision must be a full 40-character commit id".to_string());
         }
         if self.min_app_version.as_deref().is_some_and(|version| !VERSION.is_match(version)) {
@@ -454,6 +465,17 @@ mod tests {
         assert_eq!(catalog.entries[0].name, "Whisper tiny");
         assert!(catalog.hidden[1].problem.contains("whisper/tiny is listed twice"));
         assert!(catalog.hidden[2].problem.contains("already used by another summary model"));
+    }
+
+    #[test]
+    fn commits_and_hashes_are_lowercase_hex_of_their_length() {
+        assert!(is_commit(&"0a".repeat(20)));
+        assert!(!is_commit(&"0A".repeat(20)));
+        assert!(!is_commit(&"0a".repeat(21)));
+        assert!(is_sha256(&"f9".repeat(32)));
+        assert!(!is_sha256(&"F9".repeat(32)));
+        assert!(!is_sha256(&"g9".repeat(32)));
+        assert!(!is_sha256(&"f9".repeat(20)));
     }
 
     #[test]

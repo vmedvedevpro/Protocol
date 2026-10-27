@@ -293,10 +293,7 @@ struct Journal {
 }
 
 fn write_journal(staging: &Path, journal: &Journal) -> std::io::Result<()> {
-    let path = staging.join(JOURNAL);
-    let temporary = path.with_extension("json.tmp");
-    std::fs::write(&temporary, serde_json::to_vec_pretty(journal)?)?;
-    std::fs::rename(&temporary, &path)
+    super::write_atomically(&staging.join(JOURNAL), &serde_json::to_vec_pretty(journal)?)
 }
 
 /// Moves the staged files into place. On failure everything is put back.

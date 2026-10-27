@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 use super::huggingface::Resolved;
-use super::schema::{Engine, Entry};
+use super::schema::{is_sha256, Engine, Entry};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RecordFile {
@@ -68,10 +68,6 @@ impl InstallRecord {
     }
 }
 
-fn is_sha256(value: &str) -> bool {
-    value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
-}
-
 /// The record of a single-file model (Whisper, summary).
 pub fn record_path_for_file(file: &Path) -> PathBuf {
     let mut name = file.file_name().unwrap_or_default().to_os_string();
@@ -95,12 +91,8 @@ pub fn read_record(path: &Path) -> Option<InstallRecord> {
     }
 }
 
-/// Writes `record` through a temporary file, so a crash never leaves half a
-/// record behind.
 pub fn write_record(path: &Path, record: &InstallRecord) -> std::io::Result<()> {
-    let temporary = path.with_extension("json.tmp");
-    std::fs::write(&temporary, serde_json::to_vec_pretty(record)?)?;
-    std::fs::rename(&temporary, path)
+    super::write_atomically(path, &serde_json::to_vec_pretty(record)?)
 }
 
 pub fn remove_record(path: &Path) {

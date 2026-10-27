@@ -26,7 +26,23 @@ pub mod updates;
 use once_cell::sync::Lazy;
 use remote::Source;
 use schema::{Catalog, Engine, Entry};
+use std::path::Path;
 use std::sync::{Arc, RwLock};
+
+/// Writes `bytes` to `path` through a temporary file beside it, so a crash or
+/// a full disk never leaves half a file: readers see the old content or the
+/// new one. Every file this module keeps (cache, state, install records,
+/// update journals) is written this way.
+pub(crate) fn write_atomically(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let mut name = path.file_name().unwrap_or_default().to_os_string();
+    name.push(".tmp");
+    let temporary = path.with_file_name(name);
+    std::fs::write(&temporary, bytes)?;
+    std::fs::rename(&temporary, path)
+}
 
 /// The catalog this build was made with.
 const BUILT_IN: &str = include_str!("../../../../model-catalog/catalog.json");
@@ -154,6 +170,16 @@ mod tests {
         assert!(with_installed.iter().any(|entry| entry.id == "tiny"));
         assert!(!entries_with_installed(Engine::Whisper, |_| false).iter().any(|entry| entry.id == "tiny"));
         assert_eq!(entry(Engine::Whisper, "tiny").unwrap().files[0].name, "ggml-tiny.bin");
+    }
+
+    #[test]
+    fn an_atomic_write_replaces_the_file_and_leaves_no_temporary_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("nested").join("state.json");
+        write_atomically(&path, b"first").unwrap();
+        write_atomically(&path, b"second").unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"second");
+        assert_eq!(std::fs::read_dir(path.parent().unwrap()).unwrap().count(), 1);
     }
 
     #[test]

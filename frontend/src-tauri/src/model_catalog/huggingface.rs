@@ -20,7 +20,7 @@ use sha1::Sha1;
 use sha2::{Digest, Sha256};
 use std::time::Duration;
 
-use super::schema::Entry;
+use super::schema::{is_commit, is_sha256, Entry};
 
 /// Where repositories are read from; tests pass a local server instead.
 pub const HUB: &str = "https://huggingface.co";
@@ -124,10 +124,6 @@ pub fn client() -> reqwest::Client {
 
 pub fn download_url(hub: &str, repo: &str, commit: &str, path: &str) -> String {
     format!("{hub}/{repo}/resolve/{commit}/{path}")
-}
-
-fn is_commit(value: &str) -> bool {
-    value.len() == 40 && value.bytes().all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
 }
 
 async fn get(client: &reqwest::Client, url: &str, what: &str) -> Result<reqwest::Response, HubError> {
@@ -259,10 +255,6 @@ pub async fn resolve_at(client: &reqwest::Client, hub: &str, entry: &Entry, comm
 pub async fn resolve(client: &reqwest::Client, hub: &str, entry: &Entry) -> Result<Resolved> {
     let commit = current_commit(client, hub, entry).await?;
     resolve_at(client, hub, entry, &commit).await
-}
-
-fn is_sha256(value: &str) -> bool {
-    value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
 }
 
 /// Fetches a file kept in Git and checks its size and blob id against the
