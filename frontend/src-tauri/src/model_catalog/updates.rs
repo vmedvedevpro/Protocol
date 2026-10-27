@@ -35,6 +35,11 @@ const PREVIOUS: &str = "previous";
 /// A transfer that sends nothing for this long is treated as failed.
 const STALL_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// Held while a staging folder is created and while `.model-updates` is
+/// removed once empty, so the removal cannot take the parent of a staging
+/// folder another update is creating.
+static STAGING_ROOT: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 pub const CANCELLED: &str = "The model update was cancelled";
 /// The model was deleted while its update ran, so it stays deleted.
 pub const REMOVED: &str = "The model was deleted during its update, so the update was not installed";
@@ -179,7 +184,18 @@ pub async fn run(
     if unit.staging.exists() && !unit.staging.join(JOURNAL).exists() {
         let _ = tokio::fs::remove_dir_all(&unit.staging).await;
     }
+    if let Some(root) = unit.staging.parent() {
+        remove_if_empty(root);
+    }
     result
+}
+
+/// Removes `.model-updates` when no update is staged in it, so an update,
+/// whatever its end, leaves no empty folder beside the models.
+fn remove_if_empty(root: &Path) {
+    let _creating = STAGING_ROOT.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    // `remove_dir` removes only an empty folder.
+    let _ = std::fs::remove_dir(root);
 }
 
 async fn stage_and_swap(
@@ -204,7 +220,10 @@ async fn stage_and_swap(
     let downloads: u64 = resolved.files.iter().filter(|file| !unchanged(file)).map(|file| file.pinned.size).sum();
     ensure_space(&unit.dir, downloads).await?;
     let _ = tokio::fs::remove_dir_all(&unit.staging).await;
-    tokio::fs::create_dir_all(&unit.staging).await?;
+    {
+        let _creating = STAGING_ROOT.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        std::fs::create_dir_all(&unit.staging)?;
+    }
 
     let total = resolved.total_size();
     let mut done = 0u64;
@@ -446,7 +465,8 @@ fn finish(staging: &Path) {
 /// record was already written, rolls back any other, and removes unfinished
 /// downloads (an update starts over).
 pub fn recover(models_root: &Path) {
-    let Ok(dirs) = std::fs::read_dir(models_root.join(STAGING_DIR)) else { return };
+    let root = models_root.join(STAGING_DIR);
+    let Ok(dirs) = std::fs::read_dir(&root) else { return };
     for staging in dirs.flatten().map(|dir| dir.path()).filter(|path| path.is_dir()) {
         let journal = std::fs::read(staging.join(JOURNAL))
             .ok()
@@ -468,6 +488,7 @@ pub fn recover(models_root: &Path) {
             }
         }
     }
+    remove_if_empty(&root);
 }
 
 #[cfg(test)]
@@ -612,6 +633,8 @@ mod tests {
         let record = installed::read_record(&f.unit.record_path).unwrap();
         assert_eq!((record.commit.as_str(), record.complete), (NEW, true));
         assert!(!f.unit.staging.exists());
+        // No empty .model-updates is left behind.
+        assert!(!f.unit.staging.parent().unwrap().exists());
         assert_eq!(*phases.lock().unwrap(), [Phase::Downloading, Phase::Waiting, Phase::Testing, Phase::Installing]);
         // Unchanged files were linked, not downloaded.
         assert_eq!(hub.requests(&format!("/{REPO}/resolve/{NEW}/nemo128.onnx")), 0);
@@ -681,6 +704,7 @@ mod tests {
         assert_eq!(content(&f.unit, "encoder-model.int8.onnx"), [1u8; 500]);
         assert_eq!(installed::read_record(&f.unit.record_path).unwrap().commit, OLD);
         assert!(!f.unit.staging.exists());
+        assert!(!f.unit.staging.parent().unwrap().exists());
     }
 
     #[tokio::test]
@@ -739,6 +763,7 @@ mod tests {
         assert_eq!(content(&f.unit, "encoder-model.int8.onnx"), [1u8; 500]);
         assert_eq!(installed::read_record(&f.unit.record_path).unwrap().commit, OLD);
         assert!(!f.unit.staging.exists());
+        assert!(!f.unit.staging.parent().unwrap().exists());
     }
 
     #[tokio::test]
@@ -862,11 +887,18 @@ mod tests {
         assert_eq!(installed::read_record(&f.unit.record_path).unwrap(), new_record);
         assert!(!f.unit.staging.exists());
 
-        // A download cut short is removed.
+        // A download cut short is removed, and with it the empty .model-updates;
+        // a folder that holds anything else stays.
         std::fs::create_dir_all(&f.unit.staging).unwrap();
         std::fs::write(f.unit.staging.join("encoder-model.int8.onnx"), b"part").unwrap();
+        let root = f.unit.staging.parent().unwrap().to_path_buf();
+        std::fs::write(root.join("note.txt"), b"not ours").unwrap();
         recover(f.unit.dir.parent().unwrap().parent().unwrap());
         assert!(!f.unit.staging.exists());
+        assert!(root.join("note.txt").exists());
+        std::fs::remove_file(root.join("note.txt")).unwrap();
+        recover(f.unit.dir.parent().unwrap().parent().unwrap());
+        assert!(!root.exists());
     }
 
     #[test]

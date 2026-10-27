@@ -214,7 +214,9 @@ swap, every race with it is `biased` towards Cancel, and a summary model's
 probe stops at once (its helper is shut down). A Whisper or Parakeet test load
 takes seconds and finishes first. A swap cut short by a crash is finished (the new
 record is in place) or rolled back at the next launch, and an unfinished update
-download is removed. The operation holds `BusyReason::ModelDownload`, so an app
+download is removed. Whatever the end (installed, cancelled, failed, or
+recovered at launch), `models/.model-updates` itself is removed once it is
+empty. The operation holds `BusyReason::ModelDownload`, so an app
 update never restarts in its middle.
 
 ## Privacy
