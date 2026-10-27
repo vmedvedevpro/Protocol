@@ -6,12 +6,13 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { catalogProblems, entryProblems } from '../check-catalog.mjs';
+import { catalogProblems, entryProblems, parseCatalogJson } from '../check-catalog.mjs';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
 const script = join(here, '..', 'check-catalog.mjs');
 const catalogPath = join(here, '..', '..', '..', 'model-catalog', 'catalog.json');
-const { bases, cases } = JSON.parse(readFileSync(join(here, 'entry-cases.json'), 'utf8'));
+// Read as the checker reads a catalog, so `3.0` in a case stays a float.
+const { bases, cases } = parseCatalogJson(readFileSync(join(here, 'entry-cases.json'), 'utf8'));
 
 // The base entry with the case's dotted paths set and removed.
 function caseEntry({ base, set = {}, remove = [] }) {
@@ -40,7 +41,7 @@ for (const shared of cases) {
 }
 
 test('the repository catalog is valid', () => {
-  const { fatal, problems } = catalogProblems(JSON.parse(readFileSync(catalogPath, 'utf8')));
+  const { fatal, problems } = catalogProblems(parseCatalogJson(readFileSync(catalogPath, 'utf8')));
   assert.equal(fatal, null);
   assert.deepEqual(problems, []);
 });
@@ -49,6 +50,14 @@ test('an unknown schema or a document without models cannot be used at all', () 
   assert.match(catalogProblems({ schema: 2, models: [] }).fatal, /schema 2/);
   assert.match(catalogProblems({ schema: 1 }).fatal, /models must be a list/);
   assert.match(catalogProblems([]).fatal, /not a JSON object/);
+});
+
+test('numbers are read as the app reads them', () => {
+  // serde refuses a float where it expects the integer 1, and any number
+  // beyond f64 makes the document unreadable.
+  assert.match(catalogProblems(parseCatalogJson('{"schema": 1.0, "models": []}')).fatal, /written as a fraction/);
+  assert.throws(() => parseCatalogJson('{"schema": 1, "models": [], "rank": 1e400}'), /out of range/);
+  assert.equal(catalogProblems(parseCatalogJson('{"schema": 1, "models": [3.0]}')).problems.length, 1);
 });
 
 test('a broken entry is reported on its own and the first of two duplicates is kept', () => {

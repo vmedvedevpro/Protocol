@@ -39,8 +39,31 @@ const FILE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const LANGUAGE = /^(\*|[a-z]{2,3})$/;
 const VERSION = /^\d+\.\d+\.\d+$/;
 
-const isObject = (value) => typeof value === 'object' && value !== null && !Array.isArray(value);
+const isObject = (value) => typeof value === 'object' && value !== null && !Array.isArray(value) && !(value instanceof Number);
 const isText = (value, max) => typeof value === 'string' && value.trim() !== '' && value.length <= max;
+
+// Numbers as the app's reader (serde) takes them. A whole-number field
+// (u32/i32) refuses a number written with a fraction or an exponent (`3.0`,
+// `1e3`) and one outside its range; a float field (f32) turns a number beyond
+// its range into infinity, which the app's rules refuse. JavaScript reads
+// `3.0` as 3, so parseCatalogJson boxes such numbers (`new Number(3)`): they
+// still count as numbers here, never as whole ones.
+const U32 = [0, 2 ** 32 - 1];
+const I32 = [-(2 ** 31), 2 ** 31 - 1];
+const numberOf = (value) => (value instanceof Number ? value.valueOf() : value);
+const isWhole = (value, [min, max]) => Number.isInteger(value) && value >= min && value <= max;
+const isF32 = (value) => typeof numberOf(value) === 'number' && Number.isFinite(Math.fround(numberOf(value)));
+
+// JSON.parse as the app reads the catalog: a whole number written as a float
+// is boxed (see above), and a number JSON cannot hold (`1e400`) makes the
+// whole document unreadable, as it does for serde_json.
+export function parseCatalogJson(text) {
+  return JSON.parse(text, (_key, value, context) => {
+    if (typeof value !== 'number') return value;
+    if (!Number.isFinite(value)) throw new SyntaxError(`the number ${context?.source} is out of range`);
+    return Number.isInteger(value) && /[.eE]/.test(context?.source ?? '') ? new Number(value) : value;
+  });
+}
 
 // A path inside a Hugging Face repository: relative, no empty, `.` or `..`
 // segments, and segments made of the same characters as a file name.
@@ -75,8 +98,10 @@ export function entryProblems(entry) {
   for (const field of ['recommended', 'listed']) {
     if (entry[field] !== undefined && typeof entry[field] !== 'boolean') problems.push(`${field} must be true or false`);
   }
-  if (entry.rank !== undefined && !(Number.isInteger(entry.rank) && entry.rank >= 0)) problems.push('rank must be a whole number of 0 or more');
-  if (entry.min_ram_gb !== undefined && !(typeof entry.min_ram_gb === 'number' && entry.min_ram_gb > 0)) problems.push('min_ram_gb must be a positive number');
+  if (entry.rank !== undefined && !isWhole(entry.rank, U32)) problems.push('rank must be a whole number from 0 to 4294967295');
+  if (entry.min_ram_gb !== undefined && !(typeof numberOf(entry.min_ram_gb) === 'number' && numberOf(entry.min_ram_gb) > 0)) {
+    problems.push('min_ram_gb must be a positive number');
+  }
   if (!isObject(entry.license) || !isText(entry.license.name, 80) || typeof entry.license.url !== 'string' || !entry.license.url.startsWith('https://')) {
     problems.push('license needs a name and an https url');
   }
@@ -123,19 +148,19 @@ function llamaProblems(params) {
   if (!isObject(params)) return ['params are required for llama'];
   const problems = [];
   if (!CHAT_FORMATS.includes(params.chat_format)) problems.push(`chat_format must be one of ${CHAT_FORMATS.join(', ')}`);
-  if (!(Number.isInteger(params.context_size) && params.context_size >= 512 && params.context_size <= 1048576)) {
+  if (!isWhole(params.context_size, [512, 1048576])) {
     problems.push('context_size must be a whole number from 512 to 1048576');
   }
-  // llama-helper takes top_k and penalty_last_n as integers.
+  // llama-helper takes top_k and penalty_last_n as i32, the others as f32.
   const whole = ['top_k', 'penalty_last_n'];
   if (
     !isObject(params.sampling) ||
     !SAMPLING_FIELDS.every((field) => {
       const value = params.sampling[field];
-      return whole.includes(field) ? Number.isInteger(value) && Math.abs(value) <= 2 ** 31 - 1 : typeof value === 'number' && Number.isFinite(value);
+      return whole.includes(field) ? isWhole(value, I32) : isF32(value);
     })
   ) {
-    problems.push(`sampling needs the numbers ${SAMPLING_FIELDS.join(', ')} (top_k and penalty_last_n whole)`);
+    problems.push(`sampling needs the numbers ${SAMPLING_FIELDS.join(', ')} (top_k and penalty_last_n whole, the others within f32)`);
   }
   if (!Array.isArray(params.stop_tokens) || params.stop_tokens.length === 0 || !params.stop_tokens.every((token) => typeof token === 'string' && token !== '')) {
     problems.push('stop_tokens must list at least one token');
@@ -147,7 +172,10 @@ function llamaProblems(params) {
 // could not use the document at all; otherwise each problem hides one entry.
 export function catalogProblems(document) {
   if (!isObject(document)) return { fatal: 'the catalog is not a JSON object', problems: [] };
-  if (document.schema !== SCHEMA) return { fatal: `schema ${JSON.stringify(document.schema)} is not ${SCHEMA}`, problems: [] };
+  if (document.schema !== SCHEMA) {
+    const written = document.schema instanceof Number ? `${document.schema} written as a fraction` : JSON.stringify(document.schema);
+    return { fatal: `schema ${written} is not ${SCHEMA}`, problems: [] };
+  }
   if (!Array.isArray(document.models)) return { fatal: 'models must be a list', problems: [] };
   const problems = [];
   const ids = new Set();
@@ -176,7 +204,7 @@ function main() {
   const path = resolve(process.argv[2] ?? 'model-catalog/catalog.json');
   let document;
   try {
-    document = JSON.parse(readFileSync(path, 'utf8'));
+    document = parseCatalogJson(readFileSync(path, 'utf8'));
   } catch (error) {
     console.error(`${path}: ${error.message}`);
     process.exit(1);

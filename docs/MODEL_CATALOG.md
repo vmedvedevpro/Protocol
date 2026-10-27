@@ -37,7 +37,11 @@ checks below.
 The rules live twice, kept equal by shared cases:
 `scripts/model-catalog/check-catalog.mjs` (pull requests) and
 `model_catalog::schema` (the app). Both run
-`scripts/model-catalog/test/entry-cases.json`. Of two entries with the same
+`scripts/model-catalog/test/entry-cases.json`. Numbers are read as the app's
+reader takes them: `rank` (u32), `context_size`, `top_k` and `penalty_last_n`
+(i32) are whole numbers written without a fraction or exponent (`3.0` and
+`1e2` are refused) and within their type; the other sampling values must fit
+an f32. Of two entries with the same
 engine and id, or two summary models with the same file name, the first wins.
 An entry that breaks a rule is hidden on its own; only a document that is not
 JSON, has another `schema` or no `models` is refused whole.
