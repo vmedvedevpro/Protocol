@@ -153,6 +153,24 @@ pub fn start<R: tauri::Runtime>(app: tauri::AppHandle<R>) -> Result<()> {
     Ok(())
 }
 
+/// A Pyannote session on the given models, without the local voiceprint or
+/// voice profiles, for the model qualification in `qualification.rs`.
+#[cfg(test)]
+pub(super) fn start_with_models(models: DiarizationModels) {
+    stop();
+    *ONLINE.lock().unwrap() = Some(OnlineDiarizer {
+        models,
+        centroids: Vec::new(),
+        counts: Vec::new(),
+        mic_counts: Vec::new(),
+        last_speaker: 0,
+        last_system_speaker: None,
+        last_mic_speaker: None,
+        profiles: Vec::new(),
+        names: Vec::new(),
+    });
+}
+
 /// End the session and release the model.
 pub fn stop() {
     super::live_nemotron::stop();

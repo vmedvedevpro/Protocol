@@ -7,23 +7,28 @@ keeps the license of the work it comes from, listed below.
 parakeet-rs-LICENSE.txt in this folder is the license of the Sortformer code
 adapted from altunenes/parakeet-rs, not of a model.
 
-The sources below were checked on 2026-10-25. The two ONNX files were
-converted from the original PyTorch models by Meetily - Actually Free
+The sources below were checked on 2026-10-26. Each file is byte-identical to
+the file named under Source at the revision given (SHA-256 below); Settings
+fetches it from there when the bundled copy is missing. Until Protocol 0.3.0
+the two ONNX files were exports made by Meetily - Actually Free
 (https://github.com/TylerBuza/Meetily-ActuallyFree), the project Protocol is
-forked from. It did not record how they were exported (tool, settings, source
-revision), and no byte-identical copy of either file is published upstream.
-Replacing them with public exports is tracked in
+forked from, with no public source; they were replaced in
 https://github.com/vmedvedevpro/Protocol/issues/23.
 
 The models are provided as is, without warranties of any kind; see the
 licenses below.
 
 
-1. segmentation-3.0-fp16.onnx
------------------------------
+1. segmentation-3.0.onnx
+------------------------
 
 Model:      pyannote segmentation-3.0, "Powerset" speaker segmentation
-Source:     https://huggingface.co/pyannote/segmentation-3.0
+Source:     ONNX export (float32) published by onnx-community,
+            https://huggingface.co/onnx-community/pyannote-segmentation-3.0
+            file onnx/model.onnx at revision
+            733a93b6473d019a773298e08cefa686894b1854, released under the MIT
+            license of the original model
+Original:   https://huggingface.co/pyannote/segmentation-3.0
             (license and model card read at revision
             e66f3d3b9eb0873085418a7b813d3b369bf160bb)
 Authors:    trained by Séverin Baroudi with pyannote.audio 3.0.0; method by
@@ -31,19 +36,21 @@ Authors:    trained by Séverin Baroudi with pyannote.audio 3.0.0; method by
             entropy loss for neural speaker diarization", Interspeech 2023
 Copyright:  Copyright (c) 2023 CNRS
 License:    MIT License, full text at the end of this file
-Changes:    converted to ONNX; the file name marks it as float16. The exact
-            export is unknown (see above).
-SHA-256:    b0acba8e4cc30e8ec2bd33075ce95f282d66acab86fb155860d8deddbfacd30c
+Changes:    converted to ONNX by onnx-community; renamed from model.onnx,
+            otherwise byte-identical to the source file
+SHA-256:    057ee564753071c0b09b5b611648b50ac188d50846bff5f01e9f7bbf1591ea25
 
 
-2. wespeaker-resnet34-LM.onnx
------------------------------
+2. voxceleb_resnet34_LM.onnx
+----------------------------
 
 Model:      WeSpeaker ResNet34 r-vector speaker embedding, trained on the
             VoxCeleb2 dev set, after large-margin fine-tuning (ResNet34-LM)
-Source:     https://huggingface.co/Wespeaker/wespeaker-voxceleb-resnet34-LM
-            (revision f0c48c298fd835726c27956a5d617bad7115627e). The same
-            weights are published for pyannote.audio at
+Source:     ONNX export published by the WeSpeaker project,
+            https://huggingface.co/Wespeaker/wespeaker-voxceleb-resnet34-LM
+            file voxceleb_resnet34_LM.onnx at revision
+            f0c48c298fd835726c27956a5d617bad7115627e. The same weights are
+            published for pyannote.audio at
             https://huggingface.co/pyannote/wespeaker-voxceleb-resnet34-LM
 Authors:    the WeSpeaker project, https://github.com/wenet-e2e/wespeaker;
             Hongji Wang, Chengdong Liang, Shuai Wang, Zhengyang Chen, Binbin
@@ -56,10 +63,8 @@ License:    Creative Commons Attribution 4.0 International (CC BY 4.0),
             dataset (https://github.com/wenet-e2e/wespeaker/blob/master/docs/pretrained.md).
             The Apache-2.0 license of the WeSpeaker toolkit covers its code,
             not these weights.
-Changes:    converted to ONNX. The file differs from the project's own
-            voxceleb_resnet34_LM.onnx; the exact export is unknown (see
-            above).
-SHA-256:    992a5632618f11644608dbfbd28d401cd8480713207dc2db9af1c4cfc2c8652e
+Changes:    none; byte-identical to the source file
+SHA-256:    7bb2f06e9df17cdf1ef14ee8a15ab08ed28e8d0ef5054ee135741560df2ec068
 
 
 3. xvec_transform.npz

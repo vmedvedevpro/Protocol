@@ -96,7 +96,7 @@ mod tests {
     #[tokio::test]
     async fn optional_uninstall_preserves_other_files_and_is_repeatable() {
         let directory = tempfile::tempdir().unwrap();
-        for name in ["nemotron3_diar_v3.onnx", "Nemotron-LICENSE.txt", "nemotron3_diar_v3.onnx.part", "segmentation-3.0-fp16.onnx", "recording.mp4"] {
+        for name in ["nemotron3_diar_v3.onnx", "Nemotron-LICENSE.txt", "nemotron3_diar_v3.onnx.part", "segmentation-3.0.onnx", "recording.mp4"] {
             tokio::fs::write(directory.path().join(name), b"fixture").await.unwrap();
         }
         remove_nemotron_files(directory.path()).await.unwrap();
@@ -104,7 +104,7 @@ mod tests {
         assert!(!directory.path().join("nemotron3_diar_v3.onnx").exists());
         assert!(!directory.path().join("Nemotron-LICENSE.txt").exists());
         assert!(!directory.path().join("nemotron3_diar_v3.onnx.part").exists());
-        assert!(directory.path().join("segmentation-3.0-fp16.onnx").exists());
+        assert!(directory.path().join("segmentation-3.0.onnx").exists());
         assert!(directory.path().join("recording.mp4").exists());
     }
 

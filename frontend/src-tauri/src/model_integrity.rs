@@ -21,11 +21,12 @@
 //!   confirm that the LFS oid is the SHA-256 of the bytes Hugging Face serves.
 //!   The Whisper, Parakeet and summary pins agree with Talkkeeper's table; the
 //!   Nemotron pins predate this module.
-//! - Pyannote/WeSpeaker: no byte-identical upstream copy of the two ONNX
-//!   exports exists, so the repair download takes all three files from this
-//!   repository at commit 76e9939, where they are the copies bundled in
-//!   `resources/diarization/`. The pins are their SHA-256, the same values the
-//!   previous fork's release assets carried.
+//! - Pyannote/WeSpeaker (checked 2026-10-26, issue #23): the files bundled in
+//!   `resources/diarization/` are byte-identical to public files at the
+//!   pinned commits below, from the same Hugging Face tree listing, and the
+//!   repair download takes them from there. Until 0.3.0 the two ONNX files
+//!   were the previous fork's own exports with no public source; the
+//!   qualification of the swap is in `docs/DIARIZATION_MODELS.md`.
 //!
 //! # Models that are already installed
 //!
@@ -149,15 +150,25 @@ pub fn summary_model(file: &str) -> Option<(&'static str, &'static Pinned)> {
 
 // --- Speaker diarization ----------------------------------------------------
 
-/// The Pyannote/WeSpeaker files bundled in `resources/diarization/`, served
-/// from this repository at a fixed commit for the Settings repair download.
-pub const PYANNOTE_BASE: &str =
-    "https://raw.githubusercontent.com/vmedvedevpro/Protocol/76e9939e425f0b90fb62d6dd2032e8284fa0c19f/frontend/src-tauri/resources/diarization";
-
-pub const PYANNOTE: &[Pinned] = &[
-    pin("segmentation-3.0-fp16.onnx", 2_977_738, "b0acba8e4cc30e8ec2bd33075ce95f282d66acab86fb155860d8deddbfacd30c"),
-    pin("wespeaker-resnet34-LM.onnx", 26_544_003, "992a5632618f11644608dbfbd28d401cd8480713207dc2db9af1c4cfc2c8652e"),
-    pin("xvec_transform.npz", 134_376, "325f1ce8e48f7e55e9c8aa47e05d2766b7c48c4b25b8de8dd751e7a4cc5fbe8f"),
+/// The Pyannote/WeSpeaker files bundled in `resources/diarization/`, each the
+/// public file at the URL beside it, from which the Settings repair download
+/// takes it. Licenses and attribution: `THIRD_PARTY_MODELS.txt` there.
+pub const PYANNOTE: &[(&str, Pinned)] = &[
+    (
+        // pyannote segmentation-3.0, fp32 ONNX export by onnx-community (MIT).
+        "https://huggingface.co/onnx-community/pyannote-segmentation-3.0/resolve/733a93b6473d019a773298e08cefa686894b1854/onnx/model.onnx",
+        pin("segmentation-3.0.onnx", 5_986_908, "057ee564753071c0b09b5b611648b50ac188d50846bff5f01e9f7bbf1591ea25"),
+    ),
+    (
+        // WeSpeaker ResNet34-LM, the WeSpeaker project's own ONNX export (CC BY 4.0).
+        "https://huggingface.co/Wespeaker/wespeaker-voxceleb-resnet34-LM/resolve/f0c48c298fd835726c27956a5d617bad7115627e/voxceleb_resnet34_LM.onnx",
+        pin("voxceleb_resnet34_LM.onnx", 26_530_309, "7bb2f06e9df17cdf1ef14ee8a15ab08ed28e8d0ef5054ee135741560df2ec068"),
+    ),
+    (
+        // VBx x-vector transform of pyannote community-1 (CC BY 4.0).
+        "https://huggingface.co/pyannote-community/speaker-diarization-community-1/resolve/8a527374977391da736e0daaef26855d949d9685/plda/xvec_transform.npz",
+        pin("xvec_transform.npz", 134_376, "325f1ce8e48f7e55e9c8aa47e05d2766b7c48c4b25b8de8dd751e7a4cc5fbe8f"),
+    ),
 ];
 
 /// NVIDIA Nemotron-3 Diarization (altunenes/parakeet-rs) and its model
@@ -501,17 +512,14 @@ mod tests {
             .iter()
             .chain(PARAKEET_V2_INT8)
             .chain(PARAKEET_V3_INT8)
-            .chain(PYANNOTE)
-            .chain(SUMMARY.iter().map(|(_, pinned)| pinned))
-            .chain(NEMOTRON.iter().map(|(_, pinned)| pinned))
+            .chain(SUMMARY.iter().chain(NEMOTRON).chain(PYANNOTE).map(|(_, pinned)| pinned))
     }
 
     fn every_url() -> Vec<String> {
         let mut urls: Vec<String> = WHISPER.iter().map(|p| format!("{WHISPER_BASE}/{}", p.file)).collect();
         urls.extend(PARAKEET_V2_INT8.iter().map(|p| format!("{PARAKEET_V2_BASE}/{}", p.file)));
         urls.extend(PARAKEET_V3_INT8.iter().map(|p| format!("{PARAKEET_V3_BASE}/{}", p.file)));
-        urls.extend(PYANNOTE.iter().map(|p| format!("{PYANNOTE_BASE}/{}", p.file)));
-        urls.extend(SUMMARY.iter().chain(NEMOTRON).map(|(url, _)| url.to_string()));
+        urls.extend(SUMMARY.iter().chain(NEMOTRON).chain(PYANNOTE).map(|(url, _)| url.to_string()));
         urls
     }
 
@@ -723,17 +731,29 @@ mod tests {
 
     /// Streams small pinned files from their real sources through `Check`.
     #[tokio::test]
-    #[ignore = "Downloads about 0.3 MB from Hugging Face and GitHub"]
+    #[ignore = "Downloads about 0.3 MB from Hugging Face"]
     async fn small_pinned_files_match_what_their_sources_serve() {
-        use futures_util::StreamExt;
-        let dir = tempfile::tempdir().unwrap();
-        let sources = [
+        let xvec = PYANNOTE.iter().find(|(_, pinned)| pinned.file == "xvec_transform.npz").unwrap();
+        stream_and_check(vec![
             (format!("{PARAKEET_V2_BASE}/vocab.txt"), find(PARAKEET_V2_INT8, "vocab.txt").unwrap()),
             (format!("{PARAKEET_V3_BASE}/vocab.txt"), find(PARAKEET_V3_INT8, "vocab.txt").unwrap()),
             (format!("{PARAKEET_V3_BASE}/nemo128.onnx"), find(PARAKEET_V3_INT8, "nemo128.onnx").unwrap()),
-            (format!("{PYANNOTE_BASE}/xvec_transform.npz"), find(PYANNOTE, "xvec_transform.npz").unwrap()),
+            (xvec.0.to_string(), &xvec.1),
             (NEMOTRON[0].0.to_string(), &NEMOTRON[0].1),
-        ];
+        ])
+        .await;
+    }
+
+    /// The three Pyannote/WeSpeaker files, which are also bundled with the app.
+    #[tokio::test]
+    #[ignore = "Downloads about 33 MB from Hugging Face"]
+    async fn pyannote_files_match_what_their_sources_serve() {
+        stream_and_check(PYANNOTE.iter().map(|(url, pinned)| (url.to_string(), pinned)).collect()).await;
+    }
+
+    async fn stream_and_check(sources: Vec<(String, &'static Pinned)>) {
+        use futures_util::StreamExt;
+        let dir = tempfile::tempdir().unwrap();
         for (url, pinned) in sources {
             let response = reqwest::get(&url).await.unwrap().error_for_status().unwrap();
             let mut check = Check::new(pinned);
