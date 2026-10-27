@@ -257,8 +257,10 @@ export function SetupOverviewStep() {
             Let's Go
           </Button>
           <p className="text-center text-xs leading-5 text-af-text-3">
-            Protocol checks GitHub once a day for a new release and downloads it only when you
-            click Download. You can turn the check off in Settings › About.
+            Once a day Protocol asks GitHub whether a newer release or model list exists, and
+            Hugging Face whether your downloaded models changed. It downloads an update only when
+            you click Download or Update. You can turn this check off in Settings › About; lists
+            of models still ask Hugging Face for their download sizes.
           </p>
           <div className="text-center">
             <button

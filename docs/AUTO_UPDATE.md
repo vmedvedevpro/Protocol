@@ -41,7 +41,12 @@ lock). The button is disabled while a check, download or install runs.
 Every text that describes the feature says that the download waits for a click:
 Settings › About (identity card and switch description), the panel, the
 onboarding overview, `PRIVACY_POLICY.md`, `README.md`, and `CHANGELOG.md`.
-`tests/updater/wording.test.ts` pins the Settings and panel sentences.
+`tests/updater/wording.test.ts` pins the Settings and panel sentences. The
+identity card, the switch description and the onboarding overview also name
+what the same switch checks for models (the model list on GitHub, the
+installed models on Hugging Face), and the overview and the identity card
+that model lists ask Hugging Face for sizes whether the switch is on or not
+([MODEL_CATALOG.md](MODEL_CATALOG.md#model-sizes)).
 
 ## Decisions
 
