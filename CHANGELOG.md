@@ -30,12 +30,19 @@ is inherited from the project Protocol forked from; Protocol did not release it.
   per-meeting folders correctly); Local AI, Meeting detection and Summaries
   explain themselves without STT, LLM or Title Case labels. In a small window
   the section list shrinks to icons so the settings keep their width.
-- **Standard Windows installer.** Setup uses Tauri's own pages instead of the
-  dark theme inherited from Actually Free, whose welcome and finish pages were
-  cut off. Existing installs upgrade in place: same folder, same entry in
-  Installed apps, same Vulkan or CPU choice. The uninstaller's box for deleting
-  app data now says what it deletes (transcripts, summaries, voice profiles,
-  models and settings); recordings are kept.
+- **The README shows the app**
+  ([#57](https://github.com/vmedvedevpro/Protocol/issues/57)): a live
+  recording, a meeting with its speakers, action items and summary, the
+  speech models in Settings, and the **Ctrl+K** search, next to the features
+  they show.
+- **Standard Windows installer**
+  ([#44](https://github.com/vmedvedevpro/Protocol/issues/44)). Setup uses
+  Tauri's own pages instead of the dark theme inherited from Actually Free,
+  whose welcome and finish pages were cut off. Existing installs upgrade in
+  place: same folder, same entry in Installed apps, same Vulkan or CPU choice.
+  The uninstaller's box for deleting app data now says what it deletes
+  (transcripts, summaries, voice profiles, models and settings); recordings
+  are kept.
 
 ## Protocol 0.4.0 — 2026-10-27
 

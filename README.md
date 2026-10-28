@@ -38,6 +38,9 @@ Everything Meetily – Actually Free offers is here, plus:
   app release; the speaker models are pinned in each release. Downloads come
   from Hugging Face at a fixed commit, and every file is checked against its
   SHA-256 before Protocol loads it.
+
+  ![Settings › Transcription: the installed Parakeet and Whisper models with their badges, and further Whisper models from the model list with their sizes, one of them downloading](docs/media/settings-speech-models.png)
+
 - **A lean, locked-down app.** No analytics code, no internal commands the app
   does not use, and no setting that starts an executable of your choice.
 - **One small Windows installer.** About 118 MB. It picks the Vulkan GPU build
@@ -54,6 +57,9 @@ Everything Meetily – Actually Free offers is here, plus:
 - **Transcription on your machine.** Live transcription with Parakeet, and
   optional Whisper for a more accurate pass after the call. Import existing
   audio files too.
+
+  ![A recording starts and its transcript fills in line by line while the call goes on, each new voice listed as a speaker of its own](docs/media/live-transcript.gif)
+
 - **Who said what.** Your microphone is always **You**; remote voices are told
   apart with Pyannote/WeSpeaker or the optional Nemotron model. Rename and
   merge speakers during or after a call, link them to contacts, and let
@@ -62,9 +68,15 @@ Everything Meetily – Actually Free offers is here, plus:
   models (built-in models or Ollama) or a provider you connect with your own
   key: Claude, OpenAI, Groq, OpenRouter, or any compatible endpoint. Ask
   questions about a meeting and use your own summary templates.
+
+  ![A saved meeting: the transcript with each speaker's name, and beside it the notes, action items with owners and due dates, and the AI summary](docs/media/meeting-transcript-and-notes.png)
+
 - **Your meeting library.** History, groups, contacts, a **Ctrl+K** command
   bar, and export to PDF, Word, Markdown (with YAML frontmatter), text, or
   JSON.
+
+  ![Ctrl+K search for "retention" finds an action item and a line said in a meeting; Enter opens the meeting at that line](docs/media/search-jump-to-moment.gif)
+
 - **Labs.** Opt-in meeting detection and automatic recording, waveform
   scrubbing, clean transcripts, a Whisper silence guard, and Parakeet on the
   GPU through DirectML.
