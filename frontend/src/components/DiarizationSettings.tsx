@@ -7,16 +7,17 @@ import { listen, UnlistenFn } from "@tauri-apps/api/event"
 import { toast } from "sonner"
 import {
   Users,
-  CheckCircle2,
-  AlertCircle,
+  AlertTriangle,
+  ChevronDown,
   FolderOpen,
   Download,
-  Cpu,
-  Sliders,
-  ExternalLink,
-  Check,
+  SlidersHorizontal,
 } from "lucide-react"
 import { Button } from "./ui/button"
+import { ConfirmDialog } from "./ui/confirm-dialog"
+import { RowNote, SettingRow, SettingsGroup } from "./settings/SettingsGroup"
+import { cn } from "@/lib/utils"
+import { formatModelSize } from "@/lib/model-catalog"
 import { OPTIONAL_MODEL_PREFERENCES_CHANGED } from '@/lib/optional-model-activation';
 import { useOptionalModelDownloads } from '@/contexts/OptionalModelDownloadsContext';
 
@@ -65,14 +66,15 @@ function CreditLink({ href, children }: { href: string; children: React.ReactNod
 }
 
 /**
- * Speaker diarization status and configuration panel.
- * Supports choosing between Pyannote (bundled/lightweight) and NVIDIA Nemotron-3 (Sortformer v3).
- * Fully themed for both light and dark mode using Meetily semantic variables.
+ * Settings › Transcription › Speakers: which engine identifies speakers
+ * (bundled Pyannote, or NVIDIA Nemotron-3 downloaded on demand), its status
+ * and download, Nemotron's threshold, and the model files and credits.
  */
 export function DiarizationSettings() {
   const [status, setStatus] = useState<DiarizationEngineStatus | null>(null);
   const [isPyannoteDownloading, setIsDownloading] = useState(false);
-  const { jobs, startDownload } = useOptionalModelDownloads();
+  const { jobs, startDownload, uninstallModel } = useOptionalModelDownloads();
+  const [confirmRemove, setConfirmRemove] = useState(false);
   const nemotronJob = jobs.nemotron;
   const isNemotronDownloading = nemotronJob.status === 'downloading' || nemotronJob.status === 'activating';
   const isDownloading = isPyannoteDownloading || isNemotronDownloading || nemotronJob.status === 'uninstalling';
@@ -122,7 +124,11 @@ export function DiarizationSettings() {
     try {
       await invoke('set_diarization_engine', { engine });
       window.dispatchEvent(new Event(OPTIONAL_MODEL_PREFERENCES_CHANGED));
-      toast.success(`Diarization engine switched to ${engine === 'nemotron' ? 'NVIDIA Nemotron-3' : 'Pyannote'}`);
+      if (engine === 'nemotron' && status?.nemotron_available === false) {
+        toast.info('NVIDIA Nemotron is chosen', { description: 'Download it to identify speakers with it.' });
+      } else {
+        toast.success(`Speakers are now identified with ${engine === 'nemotron' ? 'NVIDIA Nemotron' : 'Pyannote'}`);
+      }
       refreshStatus();
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -207,171 +213,114 @@ export function DiarizationSettings() {
   const isPyannote = activeEngine === 'pyannote';
   const isNemotron = activeEngine === 'nemotron';
 
-  const currentAvailable = isPyannote
-    ? status?.pyannote_available ?? false
-    : status?.nemotron_available ?? false;
-
-  const downloadBytes = isPyannote
-    ? status?.pyannote_download_size ?? 0
-    : status?.nemotron_download_size ?? 0;
+  const pyannoteBytes = status?.pyannote_download_size ?? 0;
+  const nemotronBytes = status?.nemotron_download_size ?? 0;
+  const nemotronInstalled = status?.nemotron_available === true;
+  const threshold = status?.nemotron_threshold ?? 0.50;
 
   return (
-    <div className="rounded-2xl border border-af-border bg-af-panel-2/40 p-5 text-af-text">
-      {/* Title & Top Status Badge */}
-      <div className="flex flex-wrap items-start justify-between gap-4 mb-4">
-        <div className="min-w-0 flex-1 basis-64">
-          <h3 className="text-[15px] font-semibold text-af-text mb-2 flex items-center gap-2">
-            <Users className="w-5 h-5 text-af-accent" />
-            Speaker Identification
-          </h3>
-          <p className="text-sm text-af-text-2">
-            Labels your transcript with <strong>Speaker 1/2/3…</strong> by analyzing voices in the
-            recording. Runs entirely on-device. Open a meeting and click{' '}
-            <strong>Speakers</strong> above the transcript to run it.
-          </p>
-        </div>
-        {status !== null && (
-          <span
-            className={`flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium ${
-              currentAvailable ? 'bg-af-success/10 text-af-success' : 'bg-af-warning/10 text-af-warning'
-            }`}
-          >
-            {currentAvailable ? <CheckCircle2 className="w-3.5 h-3.5" /> : <AlertCircle className="w-3.5 h-3.5" />}
-            {currentAvailable ? 'Ready' : 'Models missing'}
-          </span>
-        )}
-      </div>
-
-      {/* Engine Selection: Pyannote vs Nemotron-3 */}
-      <div className="mt-4 mb-5">
-        <label className="text-[11px] font-semibold text-af-text-3 mb-2.5 block uppercase tracking-wider">
-          Diarization Engine
-        </label>
-        <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,16rem),1fr))] gap-3">
-          {/* Pyannote card */}
-          <button
-            type="button"
-            onClick={() => handleSelectEngine('pyannote')}
+    <SettingsGroup title="Speakers">
+      <SettingRow
+        icon={Users}
+        title="Speaker identification"
+        description={
+          <>
+            After each recording, Protocol works out who said what. Your microphone is always labeled You; other
+            voices become Speaker 1, 2, 3… until you name them. To redo one meeting, use Identify speakers again in
+            its ··· menu. Everything runs on this computer.
+          </>
+        }
+      >
+        <div role="radiogroup" aria-label="Speaker identification engine" className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,15rem),1fr))] gap-3">
+          <EngineOption
+            value="pyannote"
+            checked={isPyannote}
             disabled={isSwitching || isDownloading}
-            className={`group flex min-w-0 flex-col items-stretch p-4 rounded-xl text-left cursor-pointer relative disabled:cursor-default ${
-              isPyannote
-                ? 'af-select-card-active-blue'
-                : 'af-select-card'
-            }`}
+            onSelect={() => handleSelectEngine('pyannote')}
+            title="Pyannote"
+            subtitle="Built in"
+            description="Works well for most meetings. Nothing to download."
+            status={
+              status === null ? null : status.pyannote_available ? (
+                <StatusDot tone="success">Ready</StatusDot>
+              ) : (
+                <StatusDot tone="warning">Files missing</StatusDot>
+              )
+            }
           >
-            <div className="flex flex-wrap items-center justify-between gap-2 mb-2.5">
-              <div className="flex min-w-0 flex-1 basis-44 items-center gap-2.5">
-                <span className={`shrink-0 p-2 rounded-lg transition-colors ${
-                  isPyannote
-                    ? 'bg-af-accent text-af-on-accent'
-                    : 'bg-af-active text-af-text-2 group-hover:text-af-text'
-                }`}>
-                  <Users className="w-4 h-4" />
-                </span>
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-semibold text-af-text">
-                      Pyannote
-                    </span>
-                    {status?.pyannote_available && (
-                      <span className="rounded-full bg-af-success/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-af-success">
-                        Ready
-                      </span>
-                    )}
-                  </div>
-                  <span className="text-[11px] text-af-text-3 font-medium">
-                    Clustering Diarization
-                  </span>
+            {status?.pyannote_available === false && !isDownloading && (
+              <div className="space-y-2.5">
+                <p className="text-xs leading-relaxed text-af-text-2">
+                  The bundled speaker models couldn&apos;t be found. You can re-download them
+                  {pyannoteBytes > 0 && <> (~{formatMB(pyannoteBytes)})</>} from their public sources on
+                  Hugging Face, each at a fixed commit — files are verified with SHA-256.
+                </p>
+                <Button size="sm" variant="secondary" onClick={() => handleDownload('pyannote')}>
+                  <Download />
+                  Re-download models
+                </Button>
+              </div>
+            )}
+            {isPyannoteDownloading && (
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-2 text-xs font-medium text-af-text">
+                  <Spinner className="h-3.5 w-3.5" />
+                  {progress?.status === 'verifying'
+                    ? `Verifying ${progress.file}…`
+                    : progress?.file
+                      ? `Downloading ${progress.file} (${progress.file_index}/${progress.file_count})`
+                      : 'Starting download…'}
+                </div>
+                <div className="h-1.5 w-full overflow-hidden rounded-full bg-af-hover">
+                  <div
+                    className="h-full rounded-full bg-af-accent transition-[width] duration-150"
+                    style={{ width: `${Math.max(2, progress?.percent ?? 0)}%` }}
+                  />
+                </div>
+                <div className="flex justify-between text-[11px] tabular-nums text-af-text-3">
+                  <span>{progress && progress.total > 0 ? `${formatMB(progress.downloaded)} / ${formatMB(progress.total)}` : ''}</span>
+                  <span>{(progress?.percent ?? 0).toFixed(0)}%</span>
                 </div>
               </div>
-              <div className="ml-auto flex shrink-0 items-center gap-2 whitespace-nowrap">
-                {isPyannote ? (
-                  <span className="inline-flex items-center gap-1 rounded-full border border-af-accent/40 bg-af-accent/10 px-2.5 py-1 text-[11px] font-medium text-af-accent">
-                    <Check className="w-3.5 h-3.5" /> Active
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center rounded-full border border-af-border-strong px-2.5 py-1 text-[11px] font-medium text-af-text-2 transition-colors group-hover:text-af-text">
-                    Select
-                  </span>
-                )}
-              </div>
-            </div>
-            <p className="text-xs text-af-text-2 leading-relaxed mt-1">
-              Bundled segmentation-3.0 with WeSpeaker ResNet34 embeddings & agglomerative clustering.
-            </p>
-            <div className="mt-3.5 pt-2.5 border-t border-af-border flex flex-wrap items-center justify-between gap-2 text-[11px]">
-              <span className="px-2 py-0.5 rounded bg-af-panel text-af-text-3 border border-af-border font-medium">
-                Bundled with app
-              </span>
-              <span className="font-medium text-af-accent px-2 py-0.5 rounded bg-af-accent/10">
-                  Local CPU
-              </span>
-            </div>
-          </button>
+            )}
+          </EngineOption>
 
-          {/* Nemotron-3 card */}
-          <button
-            type="button"
-            onClick={() => handleSelectEngine('nemotron')}
+          <EngineOption
+            value="nemotron"
+            checked={isNemotron}
             disabled={isSwitching || isDownloading}
-            className={`group flex min-w-0 flex-col items-stretch p-4 rounded-xl text-left cursor-pointer relative disabled:cursor-default ${
-              isNemotron
-                ? 'af-select-card-active-purple'
-                : 'af-select-card'
-            }`}
-          >
-            <div className="flex flex-wrap items-center justify-between gap-2 mb-2.5">
-              <div className="flex min-w-0 flex-1 basis-44 items-center gap-2.5">
-                <span className={`shrink-0 p-2 rounded-lg transition-colors ${
-                  isNemotron
-                    ? 'bg-af-accent text-af-on-accent'
-                    : 'bg-af-active text-af-text-2 group-hover:text-af-text'
-                }`}>
-                  <Cpu className="w-4 h-4" />
+            onSelect={() => handleSelectEngine('nemotron')}
+            title="NVIDIA Nemotron"
+            subtitle={nemotronInstalled ? 'Installed' : nemotronBytes > 0 ? `${formatModelSize(nemotronBytes)} download` : 'Download needed'}
+            description="Better when people talk over each other, and labels up to 8 speakers live during the call. Uses the GPU on Windows when it can."
+            status={
+              status === null || isNemotronDownloading ? null : nemotronJob.status === 'uninstalling' ? (
+                <span role="status" className="inline-flex items-center gap-1.5 text-xs text-af-text-2">
+                  <Spinner className="h-3 w-3" /> Removing…
                 </span>
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-semibold text-af-text">
-                      NVIDIA Nemotron-3
-                    </span>
-                    {status?.nemotron_available && !isNemotronDownloading && (
-                      <span className="rounded-full bg-af-success/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-af-success">
-                        Ready
-                      </span>
-                    )}
-                  </div>
-                  <span className="text-[11px] text-af-text-3 font-medium">
-                    Sortformer v3 Neural
-                  </span>
-                </div>
-              </div>
-              <div className="ml-auto flex shrink-0 items-center gap-2 whitespace-nowrap">
-                {isNemotron ? (
-                  <span className="inline-flex items-center gap-1 rounded-full border border-af-accent/40 bg-af-accent/10 px-2.5 py-1 text-[11px] font-medium text-af-accent">
-                    <Check className="w-3.5 h-3.5" /> Active
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center rounded-full border border-af-border-strong px-2.5 py-1 text-[11px] font-medium text-af-text-2 transition-colors group-hover:text-af-text">
-                    Select
-                  </span>
-                )}
-              </div>
-            </div>
-            <p className="text-xs text-af-text-2 leading-relaxed mt-1">
-                Post-call speaker detection with overlapping speech support. Windows uses DirectML GPU acceleration when available, with CPU fallback.
-            </p>
-            <div className="mt-3.5 pt-2.5 border-t border-af-border flex flex-wrap items-center justify-between gap-2 text-[11px]">
-              <span className="px-2 py-0.5 rounded bg-af-panel text-af-text-3 border border-af-border font-medium">
-                Sortformer v3
-              </span>
-              <span className="font-medium text-af-accent px-2 py-0.5 rounded bg-af-accent/10">
-                Overlap detection
-              </span>
-            </div>
+              ) : nemotronInstalled ? (
+                <StatusDot tone="success">Ready</StatusDot>
+              ) : (
+                <StatusDot tone={isNemotron ? 'warning' : 'muted'}>Not installed</StatusDot>
+              )
+            }
+            actions={
+              status === null || isNemotronDownloading || nemotronJob.status === 'uninstalling' ? null : nemotronInstalled ? (
+                <Button size="xs" variant="ghost" onClick={() => setConfirmRemove(true)} aria-label="Remove NVIDIA Nemotron">
+                  Remove
+                </Button>
+              ) : (
+                <Button size="xs" variant={isNemotron ? 'primary' : 'secondary'} onClick={() => handleDownload('nemotron')} disabled={isDownloading}>
+                  <Download />
+                  Download
+                </Button>
+              )
+            }
+          >
             {isNemotronDownloading && (
-              <div className="mt-4 border-t border-af-border pt-3">
+              <div>
                 <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-medium text-af-text">
-                  <span>{nemotronJob.status === 'activating' ? 'Enabling model…' : nemotronJob.detail ?? 'Downloading…'}</span>
+                  <span>{nemotronJob.status === 'activating' ? 'Switching to Nemotron…' : nemotronJob.detail ?? 'Downloading…'}</span>
                   <span className="tabular-nums">{Math.round(nemotronJob.progress)}%</span>
                 </div>
                 {nemotronJob.file && <p className="mt-1 break-all text-[11px] text-af-text-3">{nemotronJob.file}</p>}
@@ -385,175 +334,77 @@ export function DiarizationSettings() {
                 </div>
               </div>
             )}
-            {nemotronJob.error && <p className="mt-3 break-words text-xs text-af-danger">{nemotronJob.error}</p>}
-          </button>
+            {isNemotron && status?.nemotron_available === false && !isNemotronDownloading && (
+              <RowNote tone="warning" icon={AlertTriangle}>
+                Nemotron is chosen but not downloaded, so speakers can&apos;t be identified yet. Download it, or choose Pyannote.
+              </RowNote>
+            )}
+            {nemotronJob.error && <RowNote tone="danger">{nemotronJob.error}</RowNote>}
+          </EngineOption>
         </div>
-      </div>
-
-      {/* Engine Status Details */}
-      {isPyannote && (
-        <>
-          {status?.pyannote_available === true && (
-            <p className="mt-2 text-sm text-af-text-3">
-              Models ship with the app — nothing to download.
-            </p>
-          )}
-
-          {/* Missing Pyannote models */}
-          {status?.pyannote_available === false && !isDownloading && (
-            <div className="mt-4 rounded-xl bg-af-warning/10 p-4">
-              <p className="text-sm text-af-text mb-3 leading-relaxed">
-                The bundled speaker models couldn&apos;t be found. You can re-download them
-                {downloadBytes > 0 && <> (~{formatMB(downloadBytes)})</>} from their public sources on
-                Hugging Face, each at a fixed commit — files are verified with SHA-256.
-              </p>
-              <Button size="sm" onClick={() => handleDownload('pyannote')} className="bg-af-accent text-af-on-accent hover:bg-af-accent-hover">
-                <Download size={16} className="mr-1.5" />
-                Re-download models
-              </Button>
-            </div>
-          )}
-        </>
-      )}
+      </SettingRow>
 
       {isNemotron && (
-        <div className="space-y-4">
-          {status?.nemotron_available === true && (
-            <div className="text-sm text-af-text-2 flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 text-af-success" />
-              <span>Nemotron-3 Sortformer model ready on-device.</span>
-            </div>
-          )}
-
-          {/* Missing Nemotron models */}
-          {status?.nemotron_available === false && !isDownloading && (
-            <div className="mt-4 rounded-xl bg-af-warning/10 p-4">
-              <p className="text-sm text-af-text mb-3 leading-relaxed">
-                The Nemotron-3 Diarization model (~{formatMB(downloadBytes)}) runs fully on-device.
-                Download once to install the SHA-256 verified model and its license.
-              </p>
-              <Button size="sm" onClick={() => handleDownload('nemotron')} className="h-auto min-h-9 whitespace-normal bg-af-accent text-af-on-accent hover:bg-af-accent-hover">
-                <Download size={16} className="mr-1.5" />
-                Download Nemotron-3 models (~{formatMB(downloadBytes)})
-              </Button>
-            </div>
-          )}
-
-          {/* Nemotron Fine-tuning / Configuration */}
-          <div className="mt-3.5 p-4 border border-af-border rounded-xl bg-af-panel-2 space-y-4">
-            <div className="text-[11px] font-semibold text-af-text-3 flex items-center gap-2 uppercase tracking-wider">
-              <Sliders className="w-4 h-4 text-af-accent" />
-              Nemotron-3 Detection Settings
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-xs font-medium text-af-text-2">Speaker channels</span>
-                  <span className="text-xs font-mono font-medium px-2 py-0.5 rounded-md bg-af-active text-af-text tabular-nums">
-                    8
-                  </span>
-                </div>
-                <span className="text-[11px] text-af-text-3 block mt-1">
-                  Nemotron tracks up to 8 remote speakers live and refines labels after recording. Microphone audio remains labeled You. Live engine changes apply to the next recording.
-                </span>
-              </div>
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-xs font-medium text-af-text-2">Speech Threshold</span>
-                  <span className="text-xs font-mono font-medium px-2 py-0.5 rounded-md bg-af-active text-af-text tabular-nums">
-                    {(status?.nemotron_threshold ?? 0.50).toFixed(2)}
-                  </span>
-                </div>
-                <input
-                  type="range"
-                  min={0.10}
-                  max={0.90}
-                  step={0.05}
-                  value={status?.nemotron_threshold ?? 0.50}
-                  onChange={(e) => handleUpdateConfig({ nemotronThreshold: parseFloat(e.target.value) })}
-                  className="af-volume"
-                  style={{ '--fill': `${(((status?.nemotron_threshold ?? 0.50) - 0.10) / 0.80) * 100}%` } as React.CSSProperties}
-                />
-                <span className="text-[11px] text-af-text-3 block mt-1">
-                  Sensitivity for active speech frames (default: 0.50).
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Live Download Progress */}
-      {isPyannoteDownloading && (
-        <div className="mt-4 rounded-xl border border-af-accent/40 bg-af-accent/10 p-4">
-          <div className="flex items-center gap-2 text-sm font-medium text-af-accent">
-            <Spinner className="w-4 h-4" />
-            {progress?.status === 'verifying'
-              ? `Verifying ${progress.file}…`
-              : progress?.file
-                ? `Downloading ${progress.file} (${progress.file_index}/${progress.file_count})`
-                : 'Starting download…'}
-          </div>
-
-          <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-af-accent/10">
-            <div
-              className="h-full bg-af-accent transition-[width] duration-150"
-              style={{ width: `${Math.max(2, progress?.percent ?? 0)}%` }}
-            />
-          </div>
-
-          <div className="mt-1.5 flex justify-between text-xs text-af-accent">
-            <span>
-              {progress && progress.total > 0
-                ? `${formatMB(progress.downloaded)} / ${formatMB(progress.total)}`
-                : ''}
+        <SettingRow
+          icon={SlidersHorizontal}
+          title="Speech threshold"
+          description="How sure Nemotron must be that someone is speaking. Raise it if background noise turns into a speaker; lower it if quiet voices are missed. The default is 0.50."
+          control={
+            <span className="rounded-md bg-af-active px-2 py-0.5 font-mono text-xs font-medium tabular-nums text-af-text">
+              {threshold.toFixed(2)}
             </span>
-            <span className="font-semibold tabular-nums">{(progress?.percent ?? 0).toFixed(0)}%</span>
-          </div>
-        </div>
+          }
+        >
+          <input
+            type="range"
+            min={0.10}
+            max={0.90}
+            step={0.05}
+            value={threshold}
+            aria-label="Speech threshold"
+            onChange={(e) => handleUpdateConfig({ nemotronThreshold: parseFloat(e.target.value) })}
+            className="af-volume w-full max-w-md"
+            style={{ '--fill': `${((threshold - 0.10) / 0.80) * 100}%` } as React.CSSProperties}
+          />
+        </SettingRow>
       )}
 
-      {/* Model folder info */}
-      {status?.model_dir && (
-        <div className="mt-4 p-3 border border-af-border rounded-xl bg-af-panel-2">
-          <div className="flex items-center justify-between mb-1.5">
-            <div className="text-xs font-medium text-af-text-2 flex items-center gap-1.5">
-              <FolderOpen className="w-3.5 h-3.5" />
-              Model Directory
+      {/* Rendered while closed, so the credits stay in the page for screen readers and tests. */}
+      <details className="group px-5 py-3.5">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-[13px] font-medium text-af-text-2 transition-colors hover:text-af-text [&::-webkit-details-marker]:hidden">
+          Model files and credits
+          <ChevronDown className="h-4 w-4 text-af-text-4 transition-transform group-open:rotate-180" />
+        </summary>
+        <div className="mt-3 space-y-3">
+          {status?.model_dir && (
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-xs font-medium text-af-text-2">Speaker model folder</span>
+                <Button size="xs" variant="ghost" onClick={handleOpenFolder}>
+                  <FolderOpen />
+                  Open folder
+                </Button>
+              </div>
+              <p className="break-all rounded-lg border border-af-border bg-af-panel px-3 py-2 font-mono text-xs text-af-text-2">
+                {status.model_dir}
+              </p>
+              <p className="text-xs leading-relaxed text-af-text-3">
+                {isPyannote ? (
+                  <>
+                    Drop your own <code>segmentation-3.0.onnx</code>,{' '}
+                    <code>voxceleb_resnet34_LM.onnx</code> and <code>xvec_transform.npz</code> here to
+                    override the bundled models.
+                  </>
+                ) : (
+                  <>
+                    Drop your own <code>nemotron3_diar_v3.onnx</code> and <code>nemo128.onnx</code> here to
+                    override the downloaded models.
+                  </>
+                )}
+              </p>
             </div>
-            <button
-              type="button"
-              onClick={handleOpenFolder}
-              className="text-xs text-af-accent hover:text-af-accent-hover flex items-center gap-1 font-medium cursor-pointer transition-colors"
-            >
-              <ExternalLink className="w-3.5 h-3.5" />
-              Open in Explorer
-            </button>
-          </div>
-          <div className="text-xs text-af-text-2 break-all font-mono p-2 rounded-lg bg-af-panel border border-af-border">
-            {status.model_dir}
-          </div>
-          <div className="mt-2 text-xs text-af-text-3 leading-relaxed">
-            {isPyannote ? (
-              <>
-                Drop your own <code>segmentation-3.0.onnx</code>,{' '}
-                <code>voxceleb_resnet34_LM.onnx</code> and <code>xvec_transform.npz</code> here to
-                override the bundled models.
-              </>
-            ) : (
-              <>
-                Drop your own <code>nemotron3_diar_v3.onnx</code> and <code>nemo128.onnx</code> here to
-                override the downloaded models.
-              </>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Attribution footer */}
-      <p className="mt-4 text-xs text-af-text-4 leading-relaxed">
-        {isPyannote ? (
-          <>
+          )}
+          <p className="text-xs leading-relaxed text-af-text-4">
             Models:{' '}
             <CreditLink href="https://huggingface.co/pyannote/segmentation-3.0">pyannote segmentation-3.0</CreditLink>{' '}
             by CNRS (<CreditLink href="https://huggingface.co/pyannote/segmentation-3.0/blob/main/LICENSE">MIT</CreditLink>) ·{' '}
@@ -565,14 +416,104 @@ export function DiarizationSettings() {
             <CreditLink href="https://huggingface.co/onnx-community/pyannote-segmentation-3.0">onnx-community</CreditLink>,
             embeddings by the WeSpeaker project. Notices ship with the app in{' '}
             <code>resources/diarization/THIRD_PARTY_MODELS.txt</code>.
-          </>
-        ) : (
-          <>
-            Models: NVIDIA Nemotron-3 Diarization (Sortformer v3) · NeMo 128 Mel-spectrogram. Credit to
-            NVIDIA Corporation.
-          </>
-        )}
-      </p>
+          </p>
+          <p className="text-xs leading-relaxed text-af-text-4">
+            NVIDIA Nemotron-3 Diarization (Sortformer v3) and the NeMo 128 mel-spectrogram model are credited to NVIDIA
+            Corporation; their license downloads with them.
+          </p>
+        </div>
+      </details>
+
+      <ConfirmDialog
+        open={confirmRemove}
+        onOpenChange={setConfirmRemove}
+        title="Remove NVIDIA Nemotron?"
+        description={`${nemotronBytes > 0 ? `This frees about ${formatModelSize(nemotronBytes)}. ` : ''}Pyannote identifies speakers from then on. You can download Nemotron again at any time.`}
+        confirmLabel="Remove"
+        variant="danger"
+        onConfirm={() => uninstallModel('nemotron')}
+      />
+    </SettingsGroup>
+  );
+}
+
+function StatusDot({ tone, children }: { tone: 'success' | 'warning' | 'muted'; children: React.ReactNode }) {
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center gap-1.5 text-xs font-medium',
+        tone === 'success' && 'text-af-success',
+        tone === 'warning' && 'text-af-warning',
+        tone === 'muted' && 'text-af-text-3',
+      )}
+    >
+      <span className="h-1.5 w-1.5 rounded-full bg-current" />
+      {children}
+    </span>
+  );
+}
+
+/**
+ * One engine to choose. The radio and its text form the label; status and
+ * actions sit beside it, outside the label, so no button is nested in another.
+ */
+function EngineOption({
+  value,
+  checked,
+  disabled,
+  onSelect,
+  title,
+  subtitle,
+  description,
+  status,
+  actions,
+  children,
+}: {
+  value: string;
+  checked: boolean;
+  disabled?: boolean;
+  onSelect: () => void;
+  title: string;
+  subtitle: string;
+  description: string;
+  status?: React.ReactNode;
+  actions?: React.ReactNode;
+  children?: React.ReactNode;
+}) {
+  const id = `diarization-engine-${value}`;
+  return (
+    <div
+      className={cn(
+        'flex min-w-0 flex-col gap-3 rounded-xl border p-3.5 transition-colors',
+        checked ? 'border-af-accent bg-af-accent/[0.07] ring-1 ring-af-accent/40' : 'border-af-border bg-af-panel hover:border-af-border-strong',
+      )}
+    >
+      <label htmlFor={id} className={cn('flex items-start gap-3', disabled ? 'cursor-default' : 'cursor-pointer')}>
+        <input
+          id={id}
+          type="radio"
+          name="diarization-engine"
+          value={value}
+          checked={checked}
+          disabled={disabled}
+          onChange={onSelect}
+          className="mt-0.5 h-4 w-4 shrink-0 accent-af-accent"
+        />
+        <span className="min-w-0 flex-1">
+          <span className="flex flex-wrap items-baseline gap-x-2">
+            <span className="text-sm font-semibold text-af-text">{title}</span>
+            <span className="text-[11px] text-af-text-4">{subtitle}</span>
+          </span>
+          <span className="mt-1 block text-xs leading-relaxed text-af-text-3">{description}</span>
+        </span>
+      </label>
+      {(status || actions) && (
+        <div className="flex min-h-7 flex-wrap items-center justify-between gap-2 pl-7">
+          {status ?? <span />}
+          {actions}
+        </div>
+      )}
+      {children && <div className="space-y-2 pl-7 empty:hidden">{children}</div>}
     </div>
   );
 }

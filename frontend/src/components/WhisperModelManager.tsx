@@ -1,24 +1,33 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
-import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
-import { Check, HardDrive, Target, Zap } from 'lucide-react';
+import { ChevronDown } from 'lucide-react';
 import {
   ModelInfo,
   ModelStatus,
-  getModelPerformanceBadge,
-  isQuantizedModel,
-  getModelTagline,
   WhisperAPI
 } from '../lib/whisper';
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
+import { Button } from '@/components/ui/button';
 import { ModelUpdateControl } from './ModelUpdateControl';
-import { formatModelSize, useModelCatalog } from '@/lib/model-catalog';
+import { ModelList, ModelRow } from './settings/ModelRow';
+import { useModelCatalog } from '@/lib/model-catalog';
+import { speechModelDescription, speechModelName } from '@/lib/speech-models';
 
 interface ModelManagerProps {
   selectedModel?: string;
+  /** Runs when a download finishes (with its name) and when the selected model is removed (with ''). */
   onModelSelect?: (modelName: string) => void | boolean | Promise<void | boolean>;
+  /** Runs after any model was removed from disk. */
+  onModelRemoved?: (modelName: string) => void;
+  /**
+   * Removes a model another owner manages (the optional post-call model is
+   * uninstalled natively); true when it took the removal. Its native event
+   * lists the models again here.
+   */
+  removeModel?: (modelName: string) => boolean;
+  /** Where an installed model is in use, shown on its row ("Used after meetings"). */
+  usageFor?: (modelName: string) => string[];
   className?: string;
   autoSave?: boolean;
 }
@@ -26,6 +35,9 @@ interface ModelManagerProps {
 export function ModelManager({
   selectedModel,
   onModelSelect,
+  onModelRemoved,
+  removeModel,
+  usageFor,
   className = '',
   autoSave = false
 }: ModelManagerProps) {
@@ -34,7 +46,7 @@ export function ModelManager({
   const [error, setError] = useState<string | null>(null);
   const [initialized, setInitialized] = useState(false);
   const [downloadingModels, setDownloadingModels] = useState<Set<string>>(new Set());
-  const [hasUserSelection, setHasUserSelection] = useState(false);
+  const [showMore, setShowMore] = useState(false);
 
   // Refs for stable callbacks
   const onModelSelectRef = useRef(onModelSelect);
@@ -354,26 +366,8 @@ export function ModelManager({
     }
   };
 
-  const selectModel = async (modelName: string) => {
-    setHasUserSelection(true);
-
-    if (onModelSelect) {
-      const accepted = await onModelSelect(modelName);
-      if (accepted === false) return;
-    }
-
-    if (autoSave) {
-      const saved = await saveModelSelection(modelName);
-      if (!saved) return;
-    }
-
-    const displayName = getDisplayName(modelName);
-    toast.success(`Switched to ${displayName}`, {
-      duration: 3000
-    });
-  };
-
   const deleteModel = async (modelName: string) => {
+    if (removeModel?.(modelName)) return;
     const displayName = getDisplayName(modelName);
 
     try {
@@ -388,6 +382,7 @@ export function ModelManager({
         duration: 3000
       });
 
+      onModelRemoved?.(modelName);
       // If deleted model was selected, clear selection
       if (selectedModel === modelName && onModelSelect) {
         onModelSelect('');
@@ -407,12 +402,9 @@ export function ModelManager({
 
   if (loading) {
     return (
-      <div className={`space-y-3 ${className}`}>
-        <div className="animate-pulse space-y-3">
-          <div className="h-20 bg-af-panel-2 rounded-lg"></div>
-          <div className="h-20 bg-af-panel-2 rounded-lg"></div>
-          <div className="h-20 bg-af-panel-2 rounded-lg"></div>
-        </div>
+      <div className={`space-y-2 ${className}`}>
+        <div className="af-skeleton h-14 rounded-xl" />
+        <div className="af-skeleton h-14 rounded-xl" />
       </div>
     );
   }
@@ -426,333 +418,54 @@ export function ModelManager({
     );
   }
 
-  const basicModels = models.filter(m => m.tier === 'basic');
-  const advancedModels = models.filter(m => m.tier !== 'basic');
-  const updateControl = (model: ModelInfo) => (
-    <ModelUpdateControl catalog={catalog} engine="whisper" id={model.name} installed={model.status === 'Available'} />
+  // The list shows what is on this computer (or on its way) and the catalog's
+  // recommendation; every other model waits behind "More models", the
+  // catalog's basic tier first. Catalog order otherwise.
+  const onDisk = (model: ModelInfo) => model.status !== 'Missing' && !(typeof model.status === 'object' && 'Error' in model.status);
+  const mainModels = [
+    ...models.filter(onDisk),
+    ...models.filter((model) => !onDisk(model) && model.recommended),
+  ];
+  const rest = models.filter((model) => !mainModels.includes(model));
+  const moreModels = [
+    ...rest.filter((model) => model.tier === 'basic'),
+    ...rest.filter((model) => model.tier !== 'basic'),
+  ];
+  const row = (model: ModelInfo) => (
+    <ModelRow
+      key={model.name}
+      name={speechModelName('whisper', model.name, model.display_name)}
+      description={speechModelDescription(model.description)}
+      facts={[`${model.accuracy} accuracy`, `${model.speed} speed`]}
+      sizeBytes={model.size_bytes}
+      status={model.status}
+      recommended={model.recommended === true}
+      usage={usageFor?.(model.name)}
+      onDownload={() => downloadModel(model.name)}
+      onCancel={() => cancelDownload(model.name)}
+      onRemove={() => deleteModel(model.name)}
+      footer={<ModelUpdateControl catalog={catalog} engine="whisper" id={model.name} installed={model.status === 'Available'} />}
+    />
   );
 
   return (
-    <div className={`space-y-3 ${className}`}>
-      {/* Basic Models */}
-      <div className="space-y-3">
-        {basicModels.map((model) => {
-          const isRecommended = model.recommended === true;
-          return (
-            <ModelCard
-              key={model.name}
-              model={model}
-              isSelected={selectedModel === model.name}
-              isRecommended={isRecommended}
-              onSelect={() => {
-                if (model.status === 'Available') {
-                  selectModel(model.name);
-                }
-              }}
-              onDownload={() => downloadModel(model.name)}
-              onCancel={() => cancelDownload(model.name)}
-              onDelete={() => deleteModel(model.name)}
-              isDownloading={downloadingModels.has(model.name)}
-              displayName={getDisplayName(model.name)}
-              footer={updateControl(model)}
-            />
-          );
-        })}
-      </div>
-
-      {/* Advanced Models */}
-      {advancedModels.length > 0 && (
-        <Accordion type="single" collapsible className="w-full">
-          <AccordionItem value="advanced-models">
-            <AccordionTrigger>
-              <span className='text-lg'>Advanced Models</span>
-            </AccordionTrigger>
-            <AccordionContent>
-              <div className="space-y-3 pt-4">
-                {advancedModels.map((model) => (
-                  <ModelCard
-                    key={model.name}
-                    model={model}
-                    isSelected={selectedModel === model.name}
-                    isRecommended={false}
-                    onSelect={() => {
-                      if (model.status === 'Available') {
-                        selectModel(model.name);
-                      }
-                    }}
-                    onDownload={() => downloadModel(model.name)}
-                    onCancel={() => cancelDownload(model.name)}
-                    onDelete={() => deleteModel(model.name)}
-                    isDownloading={downloadingModels.has(model.name)}
-                    displayName={getDisplayName(model.name)}
-                    footer={updateControl(model)}
-                  />
-                ))}
-              </div>
-            </AccordionContent>
-          </AccordionItem>
-        </Accordion>
-      )}
-
-      {/* Helper text */}
-      {selectedModel && (
-        <motion.div
-          initial={{ opacity: 0, y: -5 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="text-xs text-af-text-3 text-center pt-2"
-        >
-          Using {getDisplayName(selectedModel)} for transcription
-        </motion.div>
+    <div className={`space-y-2 ${className}`}>
+      {mainModels.length > 0 && <ModelList label="Whisper models">{mainModels.map(row)}</ModelList>}
+      {moreModels.length > 0 && (
+        <>
+          <Button
+            variant="ghost"
+            size="xs"
+            onClick={() => setShowMore((open) => !open)}
+            aria-expanded={showMore}
+            className="text-af-text-3"
+          >
+            <ChevronDown className={`transition-transform ${showMore ? 'rotate-180' : ''}`} />
+            {showMore ? 'Fewer models' : mainModels.length === 0 ? `Show ${moreModels.length} models` : `${moreModels.length} more model${moreModels.length === 1 ? '' : 's'}`}
+          </Button>
+          {showMore && <ModelList label="More Whisper models">{moreModels.map(row)}</ModelList>}
+        </>
       )}
     </div>
-  );
-}
-
-// Model Card Component
-interface ModelCardProps {
-  model: ModelInfo;
-  isSelected: boolean;
-  isRecommended: boolean;
-  onSelect: () => void;
-  onDownload: () => void;
-  onCancel: () => void;
-  onDelete: () => void;
-  isDownloading: boolean;
-  displayName: string;
-  footer?: React.ReactNode;
-}
-
-function ModelCard({
-  model,
-  isSelected,
-  isRecommended,
-  onSelect,
-  onDownload,
-  onCancel,
-  onDelete,
-  isDownloading,
-  displayName,
-  footer
-}: ModelCardProps) {
-  const [isHovered, setIsHovered] = useState(false);
-
-  const isAvailable = model.status === 'Available';
-  const isMissing = model.status === 'Missing';
-  const isError = typeof model.status === 'object' && 'Error' in model.status;
-  const isCorrupted = typeof model.status === 'object' && 'Corrupted' in model.status;
-  const downloadProgress =
-    typeof model.status === 'object' && 'Downloading' in model.status
-      ? model.status.Downloading
-      : null;
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 5 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.2 }}
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
-      className={`
-        relative rounded-lg border-2 transition-all cursor-pointer
-        ${isSelected && isAvailable
-          ? 'border-af-accent/40 bg-af-accent/10'
-          : isAvailable
-            ? 'border-[var(--af-border)] bg-[var(--af-panel-2)] hover:border-[var(--af-border-strong)]'
-            : 'border-[var(--af-border)] bg-[var(--af-panel-2)]'
-        }
-        ${isAvailable ? '' : 'cursor-default'}
-      `}
-      onClick={() => {
-        if (isAvailable) onSelect();
-      }}
-    >
-      {/* Recommended Badge */}
-      {isRecommended && (
-        <div className="absolute -top-2 -right-2 bg-af-accent text-af-on-accent text-xs px-2 py-0.5 rounded-full font-medium">
-          Recommended
-        </div>
-      )}
-
-      <div className="p-3">
-        <div className="flex items-start justify-between mb-2">
-          <div className="flex-1">
-            {/* Model Name and Tagline */}
-            <div className="flex items-center gap-2 flex-wrap mb-2">
-              <h3 className="font-semibold text-af-text">{displayName}</h3>
-              <span className="text-sm text-af-text-3">•</span>
-              <span className="text-sm text-af-text-3">{getModelTagline(model.name, model.speed, model.accuracy)}</span>
-              {isSelected && isAvailable && (
-                <motion.span
-                  initial={{ scale: 0 }}
-                  animate={{ scale: 1 }}
-                  className="bg-af-accent text-af-on-accent px-2 py-0.5 rounded-full text-xs font-medium flex items-center gap-1"
-                >
-                  <Check className="h-3 w-3" />
-                </motion.span>
-              )}
-              {isQuantizedModel(model.name) && (
-                <span className={`px-2 py-0.5 rounded-full text-xs ${getModelPerformanceBadge(model.name).color === 'green'
-                  ? 'bg-af-success/10 text-af-success'
-                  : getModelPerformanceBadge(model.name).color === 'orange'
-                    ? 'bg-af-warning/10 text-af-warning'
-                    : 'bg-af-panel-2 text-af-text-2'
-                  }`}>
-                  {getModelPerformanceBadge(model.name).label}
-                </span>
-              )}
-            </div>
-
-            {/* Model Specs */}
-            <div className="flex items-center space-x-4 text-sm text-af-text-2 ml-9 mt-1.5">
-              {model.size_bytes ? (
-                <span className="flex items-center space-x-1">
-                  <HardDrive className="h-3.5 w-3.5 text-af-text-4" />
-                  <span>{formatModelSize(model.size_bytes)}</span>
-                </span>
-              ) : null}
-              <span className="flex items-center space-x-1">
-                <Target className="h-3.5 w-3.5 text-af-text-4" />
-                <span>{model.accuracy} accuracy</span>
-              </span>
-              <span className="flex items-center space-x-1">
-                <Zap className="h-3.5 w-3.5 text-af-text-4" />
-                <span>{model.speed} processing</span>
-              </span>
-            </div>
-          </div>
-
-          {/* Status/Action */}
-          <div className="ml-4 flex items-center gap-2">
-            {isAvailable && (
-              <>
-                <div className="flex items-center gap-1.5 text-af-success">
-                  <div className="w-2 h-2 bg-af-success rounded-full"></div>
-                  <span className="text-xs font-medium">Ready</span>
-                </div>
-                <AnimatePresence>
-                  {isHovered && (
-                    <motion.button
-                      initial={{ opacity: 0, scale: 0.8 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      exit={{ opacity: 0, scale: 0.8 }}
-                      transition={{ duration: 0.15 }}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onDelete();
-                      }}
-                      className="text-af-text-4 hover:text-af-danger transition-colors p-1"
-                      title="Delete model to free up space"
-                    >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                      </svg>
-                    </motion.button>
-                  )}
-                </AnimatePresence>
-              </>
-            )}
-
-            {isMissing && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onDownload();
-                }}
-                className="bg-af-accent text-af-on-accent px-3 py-1.5 rounded-md text-sm font-medium hover:bg-af-accent-hover transition-colors"
-              >
-                Download
-              </button>
-            )}
-
-            {downloadProgress === null && isError && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onDownload();
-                }}
-                className="bg-af-danger text-white px-3 py-1.5 rounded-md text-sm font-medium hover:bg-af-danger transition-colors"
-              >
-                Retry
-              </button>
-            )}
-
-            {isCorrupted && (
-              <div className="flex gap-2">
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onDelete();
-                  }}
-                  className="bg-af-warning text-white px-3 py-1.5 rounded-md text-sm font-medium hover:bg-af-warning transition-colors"
-                >
-                  Delete
-                </button>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onDownload();
-                  }}
-                  className="bg-af-accent text-af-on-accent px-3 py-1.5 rounded-md text-sm font-medium hover:bg-af-accent-hover transition-colors"
-                >
-                  Re-download
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Full-width Download Progress Bar - PROMINENT */}
-        {downloadProgress !== null && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            exit={{ opacity: 0, height: 0 }}
-            className="mt-3 pt-3 border-t border-af-border"
-          >
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-medium text-af-accent">Downloading...</span>
-                <span className="text-sm font-semibold text-af-accent">{Math.round(downloadProgress)}%</span>
-              </div>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onCancel();
-                }}
-                className="text-xs text-af-text-2 hover:text-af-danger font-medium transition-colors px-2 py-1 rounded hover:bg-af-danger/10"
-                title="Cancel download"
-              >
-                Cancel
-              </button>
-            </div>
-            <div
-              className="h-3 w-full overflow-hidden rounded-full border border-af-accent/40 bg-af-elevated/70 p-px shadow-inner"
-              role="progressbar"
-              aria-label={`Downloading ${displayName}`}
-              aria-valuemin={0}
-              aria-valuemax={100}
-              aria-valuenow={Math.round(downloadProgress)}
-            >
-              <motion.div
-                className="h-full rounded-full bg-af-panel-2 shadow-[0_0_10px_rgba(59,130,246,0.7)]"
-                initial={{ width: 0 }}
-                animate={{ width: `${downloadProgress}%` }}
-                transition={{ duration: 0.3, ease: 'easeOut' }}
-              />
-            </div>
-            <p className="text-xs text-af-text-3 mt-1">
-              {model.size_bytes ? (
-                <>
-                  {formatModelSize(model.size_bytes * downloadProgress / 100)} / {formatModelSize(model.size_bytes)}
-                </>
-              ) : (
-                'Downloading...'
-              )}
-            </p>
-          </motion.div>
-        )}
-        {footer}
-      </div>
-    </motion.div>
   );
 }

@@ -1,19 +1,24 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { Spinner } from '@/components/ui/spinner';
+import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { OPTIONAL_MODEL_PREFERENCES_CHANGED } from '@/lib/optional-model-activation';
-import { useOptionalModelDownloads } from '@/contexts/OptionalModelDownloadsContext';
-import { BookOpen, Check, CheckCircle2, ChevronDown, Clock3, Languages, Radio, Zap } from 'lucide-react';
+import { AlertTriangle, AudioLines, BookOpen, Check, Download, Globe, Radio, Zap } from 'lucide-react';
 import { toast } from 'sonner';
-import { Textarea } from './ui/textarea';
+import { OPTIONAL_MODEL_PREFERENCES_CHANGED } from '@/lib/optional-model-activation';
+import { OPTIONAL_WHISPER_MODEL, useOptionalModelDownloads } from '@/contexts/OptionalModelDownloadsContext';
+import { Badge } from './ui/badge';
 import { Button } from './ui/button';
-import { Label } from './ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+import { Spinner } from './ui/spinner';
 import { Switch } from './ui/switch';
+import { Textarea } from './ui/textarea';
 import { RecordingPreferences } from './RecordingSettings';
 import { ModelManager } from './WhisperModelManager';
 import { ParakeetModelManager } from './ParakeetModelManager';
+import { LANGUAGES } from './LanguageSelection';
+import { RowNote, SettingRow, SettingsGroup } from './settings/SettingsGroup';
 import type { RawModelInfo } from '@/hooks/useTranscriptionModels';
-import { isVisibleParakeetModel } from '@/lib/parakeet';
+import { formatModelSize, useModelSize } from '@/lib/model-catalog';
+import { getModelDisplayInfo } from '@/lib/parakeet';
+import { installedSpeechModels, speechModelLabel, speechModelLanguages, type InstalledSpeechModel, type SpeechEngine } from '@/lib/speech-models';
 import { useLabs } from '@/hooks/useLabs';
 
 export interface TranscriptModelProps {
@@ -25,7 +30,12 @@ export interface TranscriptModelProps {
 export interface TranscriptSettingsProps {
     transcriptModelConfig: TranscriptModelProps;
     setTranscriptModelConfig: (config: TranscriptModelProps) => void;
+    /** Runs after the live model was saved (the recorder's setup dialog closes on it). */
     onModelSelect?: () => void;
+    /** The meeting language Whisper transcribes in; the row is left out without it. */
+    language?: { value: string; onChange: (code: string) => void; disabled?: boolean };
+    /** Rendered between the vocabulary and the model lists (Settings puts Speakers there). */
+    speakerSettings?: ReactNode;
 }
 
 interface VocabularyConfig {
@@ -38,23 +48,31 @@ interface PostCallTranscriptConfig {
     model: string;
 }
 
-interface InstalledModel {
-    provider: 'whisper' | 'parakeet';
-    name: string;
-}
+type InstalledModel = InstalledSpeechModel;
 
 const DEFAULT_POST_CALL_CONFIG: PostCallTranscriptConfig = {
     provider: 'live',
     model: '',
 };
 
-export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelConfig, onModelSelect }: TranscriptSettingsProps) {
-    const { jobs } = useOptionalModelDownloads();
+const keyOf = (provider: SpeechEngine, name: string) => `${provider}:${name}`;
+const labelOf = (model: InstalledModel) => speechModelLabel(model.provider, model.name, model.displayName);
+// A saved model that is not installed has no catalog name at hand; Parakeet's are known here.
+const missingLabel = (provider: SpeechEngine, name: string) =>
+    speechModelLabel(provider, name, provider === 'parakeet' ? getModelDisplayInfo(name)?.friendlyName : undefined);
+const AUTO_LANGUAGE_NAMES: Record<string, string> = {
+    auto: 'Detect automatically',
+    'auto-translate': 'Detect and translate to English',
+};
+
+export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelConfig, onModelSelect, language, speakerSettings }: TranscriptSettingsProps) {
+    const { jobs, startDownload, uninstallModel } = useOptionalModelDownloads();
     const whisperJob = jobs.whisper;
     const isWhisperDownloading = whisperJob.status === 'downloading' || whisperJob.status === 'activating';
+    const optionalWhisperSize = formatModelSize(useModelSize('whisper', OPTIONAL_WHISPER_MODEL));
     const [uiProvider, setUiProvider] = useState<TranscriptModelProps['provider']>(transcriptModelConfig.provider);
-    const [whisperManagerOpen, setWhisperManagerOpen] = useState(false);
     const [installedModels, setInstalledModels] = useState<InstalledModel[]>([]);
+    const [installedLoaded, setInstalledLoaded] = useState(false);
     const [isSavingLive, setIsSavingLive] = useState(false);
     const [postCallConfig, setPostCallConfig] = useState<PostCallTranscriptConfig>(DEFAULT_POST_CALL_CONFIG);
     const [isLoadingPostCall, setIsLoadingPostCall] = useState(true);
@@ -62,6 +80,7 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
     const [postCallSaved, setPostCallSaved] = useState(false);
     const [postCallError, setPostCallError] = useState<string | null>(null);
     const [vocabulary, setVocabulary] = useState('');
+    const [savedVocabulary, setSavedVocabulary] = useState('');
     const [isSavingVocabulary, setIsSavingVocabulary] = useState(false);
     const [vocabularySaved, setVocabularySaved] = useState(false);
     const [vocabularyError, setVocabularyError] = useState<string | null>(null);
@@ -72,7 +91,8 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
     const liveSaveInFlightRef = useRef(false);
     const postCallSaveInFlightRef = useRef(false);
     const postCallRevisionRef = useRef(0);
-    const postCallSectionRef = useRef<HTMLDivElement>(null);
+    const afterMeetingRef = useRef<HTMLDivElement>(null);
+    const modelsRef = useRef<HTMLElement>(null);
 
     useEffect(() => {
         let disposed = false;
@@ -101,14 +121,15 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
         try {
             const prefs = await invoke<RecordingPreferences>('get_recording_preferences');
             await invoke('set_recording_preferences', { preferences: { ...prefs, real_time_transcription: checked } });
-            toast.success(checked ? 'Faster transcription enabled' : 'Standard transcription enabled', {
+            toast.success(checked ? 'Faster live text is on' : 'Faster live text is off', {
                 description: checked
-                    ? 'Audio chunks will be streamed ~3.5s with rapid pause detection.'
-                    : 'Audio chunks will use standard pause detection.'
+                    ? 'Words appear sooner while you record.'
+                    : 'Live text uses the standard pace.'
             });
         } catch (e) {
             console.error('Failed to update real-time transcription preference:', e);
-            toast.error('Failed to update streaming preference');
+            setRealTimeTranscription(!checked);
+            toast.error('Could not change faster live text');
         }
     };
 
@@ -117,14 +138,8 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
             invoke<RawModelInfo[]>('whisper_get_available_models').catch(() => []),
             invoke<RawModelInfo[]>('parakeet_get_available_models').catch(() => []),
         ]);
-        setInstalledModels([
-            ...parakeetModels
-                .filter((model) => model.status === 'Available' && isVisibleParakeetModel(model.name))
-                .map((model) => ({ provider: 'parakeet' as const, name: model.name })),
-            ...whisperModels
-                .filter((model) => model.status === 'Available')
-                .map((model) => ({ provider: 'whisper' as const, name: model.name })),
-        ]);
+        setInstalledModels(installedSpeechModels(whisperModels, parakeetModels));
+        setInstalledLoaded(true);
     }, []);
 
     useEffect(() => {
@@ -137,13 +152,13 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
         if (whisperJob.status === 'ready' || whisperJob.status === 'idle' || whisperJob.status === 'activation-error') void refreshInstalledModels();
     }, [whisperJob.status, refreshInstalledModels]);
 
+    // The Enhance transcript dialog links here to install Whisper.
     useEffect(() => {
         const requestedSection = sessionStorage.getItem('meetily-settings-transcription-section');
         sessionStorage.removeItem('meetily-settings-transcription-section');
         sessionStorage.removeItem('meetily-settings-transcription-provider');
         if (requestedSection === 'post-call') {
-            setWhisperManagerOpen(true);
-            window.setTimeout(() => postCallSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
+            window.setTimeout(() => afterMeetingRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
         }
     }, []);
 
@@ -154,7 +169,7 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
             .then((config) => { if (revision === postCallRevisionRef.current) setPostCallConfig(config || DEFAULT_POST_CALL_CONFIG); })
             .catch((error) => {
                 console.error('Failed to load post-call transcription config:', error);
-                setPostCallError('Could not load the post-call model preference.');
+                setPostCallError('Could not load the after-meeting model.');
             })
             .finally(() => setIsLoadingPostCall(false));
     }, [refreshInstalledModels]);
@@ -166,6 +181,7 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
                 if (vocabularyRevisionRef.current === revision) {
                     setVocabulary(config.global || '');
                 }
+                setSavedVocabulary(config.global || '');
             })
             .catch((error) => {
                 console.error('Failed to load vocabulary:', error);
@@ -238,31 +254,32 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
         }
     };
 
-    const handlePostCallWhisperSelect = async (modelName: string) => {
-        void refreshInstalledModels();
-        if (!modelName) {
-            if (postCallConfig.provider === 'whisper') {
-                const saved = await savePostCallConfig(DEFAULT_POST_CALL_CONFIG);
-                if (!saved) return false;
-            }
-            if (uiProvider === 'localWhisper') {
-                const parakeetFallback = installedModels.find((model) => model.provider === 'parakeet');
-                if (parakeetFallback) {
-                    await saveLiveConfig('parakeet', parakeetFallback.name);
-                }
-            }
-            return true;
-        }
-        const saved = await savePostCallConfig({ provider: 'whisper', model: modelName });
-        if (!saved) return false;
-        return true;
-    };
-
-    const handleParakeetModelSelect = async (modelName: string) => {
+    // A finished download becomes the model for the step it suits: Parakeet
+    // while recording, Whisper after the meeting.
+    const handleParakeetDownloaded = async (modelName: string) => {
         if (!modelName) return;
         const saved = await saveLiveConfig('parakeet', modelName);
         void refreshInstalledModels();
         return saved;
+    };
+
+    const handleWhisperDownloaded = async (modelName: string) => {
+        void refreshInstalledModels();
+        if (!modelName) return true;
+        return savePostCallConfig({ provider: 'whisper', model: modelName });
+    };
+
+    // A removed model must not stay chosen: after meetings falls back to the
+    // live model, and live Whisper falls back to Parakeet when it is installed.
+    const handleWhisperRemoved = async (modelName: string) => {
+        void refreshInstalledModels();
+        if (postCallConfig.provider === 'whisper' && postCallConfig.model === modelName) {
+            await savePostCallConfig(DEFAULT_POST_CALL_CONFIG);
+        }
+        if (uiProvider === 'localWhisper' && transcriptModelConfig.model === modelName) {
+            const parakeetFallback = installedModels.find((model) => model.provider === 'parakeet');
+            if (parakeetFallback) await saveLiveConfig('parakeet', parakeetFallback.name);
+        }
     };
 
     const saveVocabulary = async () => {
@@ -275,6 +292,7 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
             if (vocabularyRevisionRef.current === revision) {
                 setVocabulary(normalized);
             }
+            setSavedVocabulary(normalized);
             setVocabularySaved(true);
             window.setTimeout(() => setVocabularySaved(false), 2000);
         } catch (error) {
@@ -284,365 +302,243 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
         }
     };
 
-    const installedWhisperModels = installedModels.filter((model) => model.provider === 'whisper');
-    const installedParakeetModel = installedModels.find((model) => model.provider === 'parakeet');
-    const liveWhisperModel = installedWhisperModels.find((model) => model.name === transcriptModelConfig.model)
-        || (postCallConfig.provider === 'whisper'
-            ? installedWhisperModels.find((model) => model.name === postCallConfig.model)
-            : undefined)
-        || installedWhisperModels[0];
-    const effectivePostCallProvider = postCallConfig.provider === 'live'
-        ? (uiProvider === 'localWhisper' ? 'whisper' : 'parakeet')
-        : postCallConfig.provider;
-    const effectivePostCallModel = postCallConfig.provider === 'live'
-        ? transcriptModelConfig.model
-        : postCallConfig.model;
-    const postCallWhisperModel = installedWhisperModels.find((model) => model.name === effectivePostCallModel)
-        || installedWhisperModels[0];
-    const openWhisperManager = () => {
-        setWhisperManagerOpen(true);
-        window.setTimeout(() => postCallSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
+    const liveEngine: SpeechEngine | null = uiProvider === 'localWhisper' ? 'whisper' : uiProvider === 'parakeet' ? 'parakeet' : null;
+    const liveKey = liveEngine ? keyOf(liveEngine, transcriptModelConfig.model) : '';
+    const liveModel = installedModels.find((model) => keyOf(model.provider, model.name) === liveKey);
+
+    // The model enhancement will actually run with, chosen the way
+    // PostCallProcessingWorker's resolveEnhancementModel chooses it.
+    const followsLive = postCallConfig.provider === 'live';
+    const afterEngine: SpeechEngine | null = followsLive ? liveEngine : postCallConfig.provider as SpeechEngine;
+    const afterName = followsLive ? transcriptModelConfig.model : postCallConfig.model;
+    const afterExact = afterEngine ? installedModels.find((model) => model.provider === afterEngine && model.name === afterName) : undefined;
+    const afterModel = afterExact
+        ?? (afterEngine
+            ? installedModels.find((model) => model.provider === afterEngine)
+            : installedModels.find((model) => model.provider === 'parakeet') ?? installedModels[0]);
+    const afterKey = followsLive ? 'live' : keyOf(postCallConfig.provider as SpeechEngine, postCallConfig.model);
+
+    const installedWhisper = installedModels.filter((model) => model.provider === 'whisper');
+    const usesWhisper = liveModel?.provider === 'whisper' || afterModel?.provider === 'whisper';
+
+    const usageFor = (engine: SpeechEngine) => (name: string) => [
+        ...(liveModel?.provider === engine && liveModel.name === name ? ['During meetings'] : []),
+        ...(afterModel?.provider === engine && afterModel.name === name ? ['After meetings'] : []),
+    ];
+
+    const chooseLive = (key: string) => {
+        const model = installedModels.find((entry) => keyOf(entry.provider, entry.name) === key);
+        if (!model || isSavingLive) return;
+        void saveLiveConfig(model.provider === 'whisper' ? 'localWhisper' : 'parakeet', model.name);
     };
 
-    return (
-        <div className="space-y-6 pb-6">
-            <section className="space-y-4 rounded-2xl border border-af-border bg-af-panel-2/40 p-5 text-af-text">
-                <div className="flex items-start gap-3">
-                    <Radio className="mt-0.5 h-5 w-5 shrink-0 text-af-accent" />
-                    <div className="min-w-0 flex-1">
-                        <h3 className="font-semibold">Live transcription</h3>
-                        <p className="mt-1 text-sm text-muted-foreground">
-                            Choose the model used while recording. Parakeet is recommended for most live meetings; Whisper remains available when manual language control and broader coverage matter more than speed.
-                        </p>
-                    </div>
-                </div>
+    const chooseAfter = (key: string) => {
+        if (isLoadingPostCall || isSavingPostCall) return;
+        if (key === 'live') {
+            void savePostCallConfig(DEFAULT_POST_CALL_CONFIG);
+            return;
+        }
+        const model = installedModels.find((entry) => keyOf(entry.provider, entry.name) === key);
+        if (model) void savePostCallConfig({ provider: model.provider, model: model.name });
+    };
 
-                <div
-                    className={`space-y-4 rounded-xl border p-4 transition-colors ${installedParakeetModel && !isSavingLive ? 'cursor-pointer hover:border-[var(--af-accent)]' : ''} ${uiProvider === 'parakeet'
-                    ? 'border-[var(--af-accent)] bg-[var(--af-accent-soft)] ring-1 ring-af-accent/50'
-                    : 'border-[var(--af-border-strong)] bg-[var(--af-panel-2)]'}`}
-                    role={installedParakeetModel ? 'button' : undefined}
-                    tabIndex={installedParakeetModel ? 0 : undefined}
-                    aria-pressed={uiProvider === 'parakeet'}
-                    onClick={() => {
-                        if (installedParakeetModel && !isSavingLive) {
-                            void saveLiveConfig('parakeet', installedParakeetModel.name);
-                        }
-                    }}
-                    onKeyDown={(event) => {
-                        if (installedParakeetModel && !isSavingLive && (event.key === 'Enter' || event.key === ' ')) {
-                            event.preventDefault();
-                            void saveLiveConfig('parakeet', installedParakeetModel.name);
-                        }
-                    }}
-                >
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div className="flex min-w-0 items-start gap-3">
-                            <Zap className="mt-0.5 h-5 w-5 shrink-0 text-af-warning" />
-                            <div>
-                                <div className="flex flex-wrap items-center gap-2">
-                                    <h4 className="font-semibold">Parakeet</h4>
-                                    <span className="rounded-full bg-af-success/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-af-success">
-                                        Recommended for live
-                                    </span>
-                                    {labs.parakeetGpu && (
-                                        <span className="rounded-full border border-af-accent/30 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-af-accent">
-                                            GPU · Labs
-                                        </span>
-                                    )}
-                                </div>
-                                <p className="mt-1 text-sm text-[var(--af-text-2)]">
-                                    Best for live meetings: lower latency, lighter resource use, strong real-time accuracy, and contextual vocabulary hints.
-                                </p>
-                            </div>
-                        </div>
-                        {uiProvider === 'parakeet' ? (
-                            <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-af-accent/40 bg-af-accent/10 px-2.5 py-1 text-xs font-medium text-af-accent">
-                                <CheckCircle2 className="h-3.5 w-3.5" /> Selected for live
-                            </span>
-                        ) : installedParakeetModel ? (
-                            <span className="rounded-full border border-[var(--af-border-strong)] px-2.5 py-1 text-xs font-medium text-[var(--af-text-2)]">
-                                Click to select
-                            </span>
-                        ) : (
-                            <span className="text-xs text-[var(--af-text-3)]">Download below</span>
-                        )}
-                    </div>
-                    <div className={isSavingLive ? 'pointer-events-none opacity-70' : ''} onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>
-                        <ParakeetModelManager
-                            selectedModel={uiProvider === 'parakeet' ? transcriptModelConfig.model : undefined}
-                            onModelSelect={handleParakeetModelSelect}
-                            autoSave={false}
-                        />
-                    </div>
-                </div>
+    const scrollToModels = () => modelsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
-                <div
-                    className={`space-y-4 rounded-xl border p-4 transition-colors ${liveWhisperModel && !isSavingLive ? 'cursor-pointer hover:border-[var(--af-accent)]' : ''} ${uiProvider === 'localWhisper'
-                    ? 'border-[var(--af-accent)] bg-[var(--af-accent-soft)] ring-1 ring-af-accent/50'
-                    : 'border-[var(--af-border-strong)] bg-[var(--af-panel-2)]'}`}
-                    role={liveWhisperModel ? 'button' : undefined}
-                    tabIndex={liveWhisperModel ? 0 : undefined}
-                    aria-pressed={uiProvider === 'localWhisper'}
-                    onClick={() => {
-                        if (liveWhisperModel && !isSavingLive) {
-                            void saveLiveConfig('localWhisper', liveWhisperModel.name);
-                        }
-                    }}
-                    onKeyDown={(event) => {
-                        if (liveWhisperModel && !isSavingLive && (event.key === 'Enter' || event.key === ' ')) {
-                            event.preventDefault();
-                            void saveLiveConfig('localWhisper', liveWhisperModel.name);
-                        }
-                    }}
-                >
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div className="flex min-w-0 items-start gap-3">
-                            <Languages className="mt-0.5 h-5 w-5 shrink-0 text-af-accent" />
-                            <div>
-                                <div className="flex flex-wrap items-center gap-2">
-                                    <h4 className="font-semibold">Whisper</h4>
-                                    <span className="rounded-full bg-af-accent/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-af-accent">
-                                        Better for post-call
-                                    </span>
-                                    {labs.whisperSilenceGuard && (
-                                        <span className="rounded-full border border-af-accent/30 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-af-accent">
-                                            Silence guard · Labs
-                                        </span>
-                                    )}
-                                </div>
-                                <p className="mt-1 text-sm text-[var(--af-text-2)]">
-                                    Best as a post-call second pass. Whisper is slower and heavier during live meetings, but supports manual language selection and broad multilingual transcription.
-                                </p>
-                            </div>
-                        </div>
-                        {uiProvider === 'localWhisper' ? (
-                            <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-af-accent/40 bg-af-accent/10 px-2.5 py-1 text-xs font-medium text-af-accent">
-                                <CheckCircle2 className="h-3.5 w-3.5" /> Selected for live
-                            </span>
-                        ) : liveWhisperModel ? (
-                            <span className="rounded-full border border-[var(--af-border-strong)] px-2.5 py-1 text-xs font-medium text-[var(--af-text-2)]">
-                                Click to select
-                            </span>
-                        ) : null}
-                    </div>
-                    {liveWhisperModel ? (
-                        <p className="text-xs text-[var(--af-text-3)]">
-                            Uses Whisper: {liveWhisperModel.name}. Change the installed model under Manage Whisper models below.
-                        </p>
-                    ) : (
-                        <Button type="button" variant="outline" className="w-full" onClick={(event) => {
-                            event.stopPropagation();
-                            openWhisperManager();
-                        }}>
-                            Install Whisper for post-call or live use
-                        </Button>
-                    )}
-                </div>
+    const modelItems = (missing?: { key: string; label: string }) => (
+        <>
+            {installedModels.map((model) => (
+                <SelectItem key={keyOf(model.provider, model.name)} value={keyOf(model.provider, model.name)}>
+                    {labelOf(model)}
+                </SelectItem>
+            ))}
+            {missing && (
+                <SelectItem value={missing.key} disabled>
+                    {missing.label} (not installed)
+                </SelectItem>
+            )}
+        </>
+    );
 
-                {/* Faster Transcription Toggle */}
-                <div className="flex items-center justify-between gap-3 rounded-xl border border-[var(--af-border-strong)] bg-[var(--af-panel)] p-4">
-                    <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2 font-semibold">
-                            <Zap className="h-4 w-4 text-af-warning" />
-                            Faster transcription
-                        </div>
-                        <p className="mt-1 text-xs text-[var(--af-text-2)]">
-                            Streams transcript chunks frequently (~3.5s with rapid 350ms pause detection) for lower latency.
-                        </p>
-                        <p className="mt-1.5 text-xs text-af-warning font-medium">
-                            Disclaimer: This may cause additional speakers to show up when using diarization.
-                        </p>
-                    </div>
-                    <Switch
-                        checked={realTimeTranscription}
-                        onCheckedChange={handleToggleRealTime}
-                        className="shrink-0"
-                    />
-                </div>
-            </section>
+    // A Labs speech option that is on is named on the step whose engine it changes.
+    const labsBadge = (engine: SpeechEngine) =>
+        engine === 'parakeet'
+            ? labs.parakeetGpu && <Badge variant="accent" size="xs" className="ml-1.5 align-middle">GPU · Labs</Badge>
+            : labs.whisperSilenceGuard && <Badge variant="accent" size="xs" className="ml-1.5 align-middle">Silence guard · Labs</Badge>;
 
-            <section ref={postCallSectionRef} className="scroll-mt-6 space-y-4 rounded-2xl border border-af-border bg-af-panel-2/40 p-5 text-af-text">
-                <div className="flex items-start gap-3">
-                    <Clock3 className="mt-0.5 h-5 w-5 shrink-0 text-af-accent" />
-                    <div className="min-w-0 flex-1">
-                        <h3 className="font-semibold">Post-call retranscription</h3>
-                        <p className="mt-1 text-sm text-muted-foreground">
-                            Choose the default for automatic enhancement after recording. You can still override it for each meeting.
-                        </p>
-                    </div>
-                </div>
+    const engineNote = (model: InstalledModel) => model.provider === 'parakeet' ? (
+        <RowNote>
+            <span>
+                {`Fast and light on your computer. Recognizes ${speechModelLanguages(model.languages)?.toLowerCase() ?? 'European languages'} and detects which one is spoken.`}
+            </span>
+            {labsBadge('parakeet')}
+        </RowNote>
+    ) : (
+        <RowNote>
+            <span>
+                Slower and heavier while recording; on a slower computer the live text can fall behind. Recognizes about 100 languages.
+            </span>
+            {labsBadge('whisper')}
+        </RowNote>
+    );
 
-                <div
-                    className={`space-y-3 rounded-xl border p-4 transition-colors ${postCallWhisperModel && !isLoadingPostCall && !isSavingPostCall ? 'cursor-pointer hover:border-[var(--af-accent)]' : ''} ${effectivePostCallProvider === 'whisper'
-                    ? 'border-[var(--af-accent)] bg-[var(--af-accent-soft)] ring-1 ring-af-accent/50'
-                    : 'border-[var(--af-border-strong)] bg-[var(--af-panel-2)]'}`}
-                    role={postCallWhisperModel ? 'button' : undefined}
-                    tabIndex={postCallWhisperModel ? 0 : undefined}
-                    aria-pressed={effectivePostCallProvider === 'whisper'}
-                    onClick={() => {
-                        if (postCallWhisperModel && !isLoadingPostCall && !isSavingPostCall) {
-                            void savePostCallConfig({ provider: 'whisper', model: postCallWhisperModel.name });
-                        }
-                    }}
-                    onKeyDown={(event) => {
-                        if (postCallWhisperModel && !isLoadingPostCall && !isSavingPostCall && (event.key === 'Enter' || event.key === ' ')) {
-                            event.preventDefault();
-                            void savePostCallConfig({ provider: 'whisper', model: postCallWhisperModel.name });
-                        }
-                    }}
-                >
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div className="flex min-w-0 items-start gap-3">
-                            <Languages className="mt-0.5 h-5 w-5 shrink-0 text-af-accent" />
-                            <div>
-                                <div className="flex flex-wrap items-center gap-2">
-                                    <h4 className="font-semibold">Whisper</h4>
-                                    <span className="rounded-full bg-af-accent/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-af-accent">
-                                        Recommended for post-call
-                                    </span>
-                                        <span className="rounded-full bg-af-accent/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-af-accent">
-                                            Prompt-based hints
-                                    </span>
-                                    {labs.whisperSilenceGuard && (
-                                        <span className="rounded-full border border-af-accent/30 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-af-accent">
-                                            Silence guard · Labs
-                                        </span>
-                                    )}
-                                </div>
-                                <p className="mt-1 text-sm text-[var(--af-text-2)]">
-                                    Whisper is slower and uses more resources, but offers a different post-call pass for difficult audio and manual language control. It uses your global vocabulary as an initial prompt.
-                                </p>
-                            </div>
-                        </div>
-                        {effectivePostCallProvider === 'whisper' ? (
-                            <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-af-accent/40 bg-af-accent/10 px-2.5 py-1 text-xs font-medium text-af-accent">
-                                <CheckCircle2 className="h-3.5 w-3.5" /> Selected for post-call
-                            </span>
-                        ) : postCallWhisperModel ? (
-                            <span className="rounded-full border border-[var(--af-border-strong)] px-2.5 py-1 text-xs font-medium text-[var(--af-text-2)]">
-                                Click to select
-                            </span>
-                        ) : null}
-                    </div>
-                    {isWhisperDownloading ? (
-                        <div className="space-y-2 border-t border-af-border pt-3">
-                            <div className="flex flex-wrap items-center justify-between gap-2 text-sm font-medium">
-                                <span>{whisperJob.status === 'activating' ? 'Enabling model…' : 'Downloading Whisper…'}</span>
-                                <span className="tabular-nums">{Math.round(whisperJob.progress)}%</span>
-                            </div>
-                            <div role="progressbar" aria-label="Whisper download progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={whisperJob.progress} className="h-1.5 overflow-hidden rounded-full bg-af-hover">
-                                <div className="h-full rounded-full bg-af-accent transition-[width] duration-150" style={{ width: `${whisperJob.progress}%` }} />
-                            </div>
-                        </div>
-                    ) : postCallWhisperModel ? (
-                        <p className="text-xs text-[var(--af-text-3)]">
-                            Uses Whisper: {postCallWhisperModel.name}. Change the specific model under Manage Whisper models below.
-                        </p>
-                    ) : (
-                        <Button type="button" variant="outline" className="w-full" onClick={(event) => {
-                            event.stopPropagation();
-                            openWhisperManager();
-                        }}>
-                            Install a Whisper model
-                        </Button>
-                    )}
-                </div>
+    const whisperOffer = isWhisperDownloading ? (
+        <div className="space-y-2 rounded-xl border border-af-border bg-af-panel px-3.5 py-3">
+            <div className="flex flex-wrap items-center justify-between gap-2 text-[13px] font-medium text-af-text">
+                <span className="inline-flex items-center gap-2">
+                    {whisperJob.status === 'activating' && <Spinner className="h-3.5 w-3.5" />}
+                    {whisperJob.status === 'activating' ? 'Switching to Whisper…' : 'Downloading Whisper Large V3 Turbo…'}
+                </span>
+                <span className="tabular-nums text-af-text-2">{Math.round(whisperJob.progress)}%</span>
+            </div>
+            <div role="progressbar" aria-label="Whisper download progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={whisperJob.progress} className="h-1.5 overflow-hidden rounded-full bg-af-hover">
+                <div className="h-full rounded-full bg-af-accent transition-[width] duration-150" style={{ width: `${whisperJob.progress}%` }} />
+            </div>
+            <p className="text-xs text-af-text-3">You can keep using Protocol. After meetings switches to Whisper when the download finishes.</p>
+        </div>
+    ) : (whisperJob.status === 'error' || whisperJob.status === 'activation-error') && installedWhisper.length === 0 ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-af-danger/30 bg-af-danger/[0.06] px-3.5 py-3">
+            <p role="alert" className="min-w-0 flex-1 basis-60 text-xs text-af-danger [overflow-wrap:anywhere]">
+                {whisperJob.status === 'activation-error' ? 'Whisper downloaded, but Protocol could not switch to it. ' : 'Whisper could not be downloaded. '}
+                {whisperJob.error}
+            </p>
+            <Button variant="secondary" size="sm" onClick={() => startDownload('whisper')}>Retry</Button>
+        </div>
+    ) : installedLoaded && installedWhisper.length === 0 ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-af-accent/25 bg-af-accent/[0.06] px-3.5 py-3">
+            <div className="min-w-0 flex-1 basis-60">
+                <p className="text-[13px] font-medium text-af-text">Get a cleaner transcript with Whisper</p>
+                <p className="mt-0.5 text-xs leading-relaxed text-af-text-3">
+                    Whisper Large V3 Turbo is slower than Parakeet but often more accurate on the full recording. Protocol uses it here once it is downloaded.
+                </p>
+            </div>
+            <Button variant="primary" size="sm" onClick={() => startDownload('whisper')}>
+                <Download />
+                Download{optionalWhisperSize ? ` · ${optionalWhisperSize}` : ''}
+            </Button>
+        </div>
+    ) : null;
 
-                <div
-                    className={`space-y-3 rounded-xl border p-4 transition-colors ${installedParakeetModel && !isLoadingPostCall && !isSavingPostCall ? 'cursor-pointer hover:border-[var(--af-accent)]' : ''} ${effectivePostCallProvider === 'parakeet'
-                    ? 'border-[var(--af-accent)] bg-[var(--af-accent-soft)] ring-1 ring-af-accent/50'
-                    : 'border-[var(--af-border-strong)] bg-[var(--af-panel-2)]'}`}
-                    role={installedParakeetModel ? 'button' : undefined}
-                    tabIndex={installedParakeetModel ? 0 : undefined}
-                    aria-pressed={effectivePostCallProvider === 'parakeet'}
-                    onClick={() => {
-                        if (installedParakeetModel && !isLoadingPostCall && !isSavingPostCall) {
-                            void savePostCallConfig({ provider: 'parakeet', model: installedParakeetModel.name });
-                        }
-                    }}
-                    onKeyDown={(event) => {
-                        if (installedParakeetModel && !isLoadingPostCall && !isSavingPostCall && (event.key === 'Enter' || event.key === ' ')) {
-                            event.preventDefault();
-                            void savePostCallConfig({ provider: 'parakeet', model: installedParakeetModel.name });
-                        }
-                    }}
-                >
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div className="flex min-w-0 items-start gap-3">
-                            <Zap className="mt-0.5 h-5 w-5 shrink-0 text-af-warning" />
-                            <div>
-                                <div className="flex flex-wrap items-center gap-2">
-                                    <h4 className="font-semibold">Parakeet</h4>
-                                    <span className="rounded-full bg-af-success/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-af-success">
-                                        Fast and accurate
-                                    </span>
-                                    {labs.parakeetGpu && (
-                                        <span className="rounded-full border border-af-accent/30 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-af-accent">
-                                            GPU · Labs
-                                        </span>
-                                    )}
-                                </div>
-                                <p className="mt-1 text-sm text-[var(--af-text-2)]">
-                                    Finishes post-call enhancement sooner and uses fewer resources while maintaining strong accuracy. It applies global and meeting vocabulary through contextual biasing.
-                                </p>
-                            </div>
-                        </div>
-                        {effectivePostCallProvider === 'parakeet' ? (
-                            <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-af-accent/40 bg-af-accent/10 px-2.5 py-1 text-xs font-medium text-af-accent">
-                                <CheckCircle2 className="h-3.5 w-3.5" /> Selected for post-call
-                            </span>
-                        ) : installedParakeetModel ? (
-                            <span className="rounded-full border border-[var(--af-border-strong)] px-2.5 py-1 text-xs font-medium text-[var(--af-text-2)]">
-                                Click to select
-                            </span>
-                        ) : (
-                            <span className="text-xs text-[var(--af-text-3)]">Install Parakeet above</span>
-                        )}
-                    </div>
-                </div>
+    const speechGroup = (
+        <SettingsGroup title="Speech to text" key="speech">
+            <SettingRow
+                icon={Radio}
+                title="During the meeting"
+                description="Writes the live transcript while you record."
+                control={
+                    <Select value={installedModels.length === 0 ? '' : liveKey} onValueChange={chooseLive} disabled={isSavingLive || installedModels.length === 0} name="live-model">
+                        <SelectTrigger className="w-72 max-w-full" aria-label="Model during the meeting">
+                            <SelectValue placeholder={installedLoaded ? 'No speech model installed' : 'Loading…'} />
+                        </SelectTrigger>
+                        <SelectContent>
+                            {modelItems(liveEngine && liveKey && !liveModel ? { key: liveKey, label: missingLabel(liveEngine, transcriptModelConfig.model) } : undefined)}
+                        </SelectContent>
+                    </Select>
+                }
+            >
+                {installedLoaded && installedModels.length === 0 ? (
+                    <RowNote tone="warning" icon={AlertTriangle}>
+                        No speech model is on this computer yet, so recording can&apos;t start.{' '}
+                        <button type="button" onClick={scrollToModels} className="font-medium underline underline-offset-2">Download Parakeet</button>
+                    </RowNote>
+                ) : liveModel ? (
+                    engineNote(liveModel)
+                ) : installedLoaded ? (
+                    <RowNote tone="warning" icon={AlertTriangle}>
+                        The chosen model is not on this computer. Choose another one, or download it again under Speech models.
+                    </RowNote>
+                ) : null}
+            </SettingRow>
 
-                <div className="min-h-5 text-xs">
+            <SettingRow
+                ref={afterMeetingRef}
+                icon={AudioLines}
+                title="After the meeting"
+                description="When a recording is saved, Protocol transcribes it again in full for a cleaner transcript. To redo one meeting, use Enhance transcript in its ··· menu."
+                control={
+                    <Select value={afterKey} onValueChange={chooseAfter} disabled={isLoadingPostCall || isSavingPostCall || installedModels.length === 0} name="after-meeting-model">
+                        <SelectTrigger className="w-72 max-w-full" aria-label="Model after the meeting">
+                            <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="live">Same as during the meeting</SelectItem>
+                            {modelItems(!followsLive && !afterExact ? { key: afterKey, label: missingLabel(postCallConfig.provider as SpeechEngine, postCallConfig.model) } : undefined)}
+                        </SelectContent>
+                    </Select>
+                }
+            >
+                <div className="space-y-2.5">
                     {postCallError ? (
-                        <span className="text-af-danger">{postCallError}</span>
+                        <RowNote tone="danger" icon={AlertTriangle}>{postCallError}</RowNote>
                     ) : postCallSaved ? (
-                        <span className="inline-flex items-center gap-1 text-af-success"><Check className="h-3.5 w-3.5" /> Post-call default saved</span>
-                    ) : postCallConfig.provider === 'live' ? (
-                        <span className="text-[var(--af-text-3)]">This currently follows your live model. Choosing either card makes post-call selection independent.</span>
+                        <RowNote tone="success" icon={Check}>Saved</RowNote>
+                    ) : !isLoadingPostCall && installedLoaded && installedModels.length > 0 ? (
+                        !afterModel ? (
+                            <RowNote tone="danger" icon={AlertTriangle}>
+                                {`No ${afterEngine === 'whisper' ? 'Whisper' : 'speech'} model is installed, so transcripts can't be improved after meetings. Choose another model.`}
+                            </RowNote>
+                        ) : !afterExact && !followsLive ? (
+                            <RowNote tone="warning" icon={AlertTriangle}>
+                                {`${missingLabel(postCallConfig.provider as SpeechEngine, postCallConfig.model)} is not on this computer, so ${labelOf(afterModel)} is used instead.`}
+                            </RowNote>
+                        ) : followsLive ? (
+                            <RowNote>
+                                <span>{`Uses ${labelOf(afterModel)}.`}</span>
+                                {labsBadge(afterModel.provider)}
+                            </RowNote>
+                        ) : labsBadge(afterModel.provider) ? (
+                            <RowNote>{labsBadge(afterModel.provider)}</RowNote>
+                        ) : null
                     ) : null}
+                    {whisperOffer}
                 </div>
+            </SettingRow>
 
-                <details
-                    open={whisperManagerOpen}
-                    onToggle={(event) => setWhisperManagerOpen(event.currentTarget.open)}
-                    className="group rounded-lg border border-[var(--af-border-strong)] bg-[var(--af-panel-2)]"
+            {language && (
+                <SettingRow
+                    icon={Globe}
+                    title="Meeting language"
+                    description="The language people speak. Choosing it helps Whisper; Parakeet always detects the language itself."
+                    control={
+                        <Select value={language.value} onValueChange={language.onChange} disabled={language.disabled} name="meeting-language">
+                            <SelectTrigger className="w-72 max-w-full" aria-label="Meeting language">
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {LANGUAGES.map((entry) => (
+                                    <SelectItem key={entry.code} value={entry.code}>
+                                        {AUTO_LANGUAGE_NAMES[entry.code] ?? entry.name}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    }
                 >
-                    <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-medium">
-                        <span>Install or manage Whisper models</span>
-                        <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform group-open:rotate-180" />
-                    </summary>
-                    <div className={`border-t border-[var(--af-border)] bg-[var(--af-panel-2)] px-4 py-4 ${isSavingPostCall ? 'pointer-events-none opacity-70' : ''}`}>
-                        <ModelManager
-                            selectedModel={effectivePostCallProvider === 'whisper' ? effectivePostCallModel : undefined}
-                            onModelSelect={handlePostCallWhisperSelect}
-                            autoSave={false}
-                        />
-                    </div>
-                </details>
-            </section>
+                    {language.disabled ? (
+                        <RowNote>The language can&apos;t change while a recording is running.</RowNote>
+                    ) : !usesWhisper && installedLoaded ? (
+                        <RowNote>Your models detect the language themselves, so this applies only when Whisper transcribes.</RowNote>
+                    ) : null}
+                </SettingRow>
+            )}
 
-            <section className="space-y-3 rounded-xl border border-[var(--af-border)] bg-[var(--af-panel-2)] p-4 text-[var(--af-text)]">
-                <div className="flex items-start gap-3">
-                    <BookOpen className="mt-0.5 h-4 w-4 shrink-0 text-af-accent" />
-                    <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                            <Label htmlFor="transcription-vocabulary" className="text-sm font-medium">Global vocabulary hints</Label>
-                        </div>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                            Help Parakeet or Whisper recognize names, companies, products, acronyms, and technical terms. Parakeet uses contextual phrase boosting; Whisper uses up to 224 prompt tokens.
-                        </p>
-                    </div>
-                </div>
+            <SettingRow
+                icon={Zap}
+                title="Faster live text"
+                description="Shows words sooner by cutting speech into shorter pieces (up to 3.5 s instead of 6 s). Shorter pieces can split one person into extra speakers."
+                control={<Switch checked={realTimeTranscription} onCheckedChange={handleToggleRealTime} aria-label="Faster live text" />}
+            />
+        </SettingsGroup>
+    );
+
+    const vocabularyDirty = vocabulary !== savedVocabulary;
+    const vocabularyGroup = (
+        <SettingsGroup title="Vocabulary" key="vocabulary">
+            <SettingRow
+                icon={BookOpen}
+                title="Words to recognize"
+                htmlFor="transcription-vocabulary"
+                description="Names, companies, products and acronyms that should be spelled exactly, one per line. Used during and after meetings. Whisper reads only the start of a long list, so put the most important words first."
+            >
                 <Textarea
                     id="transcription-vocabulary"
                     value={vocabulary}
@@ -658,22 +554,70 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
                     placeholder={'Protocol\nTauri\nKubernetes\nOKR'}
                     className="resize-y"
                 />
-                <div className="flex items-center justify-between gap-3">
+                <div className="mt-2 flex items-center justify-between gap-3">
                     <div className="min-h-5 text-xs">
                         {vocabularyError ? (
                             <span className="text-af-danger">{vocabularyError}</span>
                         ) : vocabularySaved ? (
                             <span className="inline-flex items-center gap-1 text-af-success"><Check className="h-3.5 w-3.5" /> Saved</span>
                         ) : (
-                            <span className="text-muted-foreground">{vocabulary.length}/1000 characters</span>
+                            <span className="text-af-text-3 tabular-nums">
+                                {vocabularyDirty ? 'Unsaved changes · ' : ''}{vocabulary.length}/1000 characters
+                            </span>
                         )}
                     </div>
-                    <Button type="button" size="sm" onClick={saveVocabulary} disabled={isSavingVocabulary}>
-                        {isSavingVocabulary && <Spinner className="mr-2 h-4 w-4 " />}
-                        Save vocabulary
+                    <Button type="button" size="sm" onClick={saveVocabulary} disabled={!vocabularyDirty} loading={isSavingVocabulary}>
+                        Save
                     </Button>
                 </div>
-            </section>
-        </div>
+            </SettingRow>
+        </SettingsGroup>
     );
+
+    const modelsGroup = (
+        <SettingsGroup
+            key="models"
+            ref={modelsRef}
+            title="Speech models"
+            description="The models on this computer. A download keeps going while you use the rest of Protocol."
+        >
+            <SettingRow title="Parakeet" description="Fast enough for live transcripts. Recommended while recording.">
+                <div className={isSavingLive ? 'pointer-events-none opacity-70' : ''}>
+                    <ParakeetModelManager
+                        onModelSelect={handleParakeetDownloaded}
+                        onModelRemoved={() => void refreshInstalledModels()}
+                        usageFor={usageFor('parakeet')}
+                        autoSave={false}
+                    />
+                </div>
+            </SettingRow>
+            <SettingRow title="Whisper" description="Slower, but often more accurate on a full recording, and knows about 100 languages. Recommended after meetings.">
+                <div className={isSavingPostCall ? 'pointer-events-none opacity-70' : ''}>
+                    <ModelManager
+                        onModelSelect={handleWhisperDownloaded}
+                        onModelRemoved={(name) => void handleWhisperRemoved(name)}
+                        removeModel={(name) => {
+                            // Native uninstall refuses during a recording and resets
+                            // every choice that used the model before deleting it.
+                            if (name !== OPTIONAL_WHISPER_MODEL) return false;
+                            uninstallModel('whisper');
+                            return true;
+                        }}
+                        usageFor={usageFor('whisper')}
+                        autoSave={false}
+                    />
+                </div>
+            </SettingRow>
+        </SettingsGroup>
+    );
+
+    // With nothing installed, downloading a model is the only thing to do
+    // here, so the model lists come first. Keys keep each group mounted.
+    const needsSetup = installedLoaded && installedModels.length === 0;
+    const speakers = speakerSettings ? <Fragment key="speakers">{speakerSettings}</Fragment> : null;
+    const groups = needsSetup
+        ? [modelsGroup, speechGroup, vocabularyGroup, speakers]
+        : [speechGroup, vocabularyGroup, speakers, modelsGroup];
+
+    return <div className="space-y-8">{groups}</div>;
 }

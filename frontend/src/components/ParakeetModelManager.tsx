@@ -1,23 +1,27 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
-import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
-import { Check } from 'lucide-react';
 import {
   ParakeetModelInfo,
   ModelStatus,
   ParakeetAPI,
   getModelDisplayInfo,
-  getModelDisplayName,
   isVisibleParakeetModel
 } from '../lib/parakeet';
 import { ModelUpdateControl } from './ModelUpdateControl';
-import { formatModelSize, useModelCatalog } from '@/lib/model-catalog';
+import { ModelList, ModelRow } from './settings/ModelRow';
+import { useModelCatalog } from '@/lib/model-catalog';
+import { speechModelDescription, speechModelLanguages, speechModelName } from '@/lib/speech-models';
 
 interface ParakeetModelManagerProps {
   selectedModel?: string;
+  /** Runs when a download finishes (with its name) and when the selected model is removed (with ''). */
   onModelSelect?: (modelName: string) => void | boolean | Promise<void | boolean>;
+  /** Runs after any model was removed from disk. */
+  onModelRemoved?: (modelName: string) => void;
+  /** Where an installed model is in use, shown on its row ("Used during meetings"). */
+  usageFor?: (modelName: string) => string[];
   className?: string;
   autoSave?: boolean;
 }
@@ -25,6 +29,8 @@ interface ParakeetModelManagerProps {
 export function ParakeetModelManager({
   selectedModel,
   onModelSelect,
+  onModelRemoved,
+  usageFor,
   className = '',
   autoSave = false
 }: ParakeetModelManagerProps) {
@@ -309,24 +315,6 @@ export function ParakeetModelManager({
     }
   };
 
-  const selectModel = async (modelName: string) => {
-    if (onModelSelect) {
-      const accepted = await onModelSelect(modelName);
-      if (accepted === false) return;
-    }
-
-    if (autoSave) {
-      const saved = await saveModelSelection(modelName);
-      if (!saved) return;
-    }
-
-    const displayInfo = getModelDisplayInfo(modelName);
-    const displayName = displayInfo?.friendlyName || modelName;
-    toast.success(`Switched to ${displayName}`, {
-      duration: 3000
-    });
-  };
-
   const deleteModel = async (modelName: string) => {
     const displayInfo = getModelDisplayInfo(modelName);
     const displayName = displayInfo?.friendlyName || modelName;
@@ -343,6 +331,7 @@ export function ParakeetModelManager({
         duration: 3000
       });
 
+      onModelRemoved?.(modelName);
       // If deleted model was selected, clear selection
       if (selectedModel === modelName && onModelSelect) {
         onModelSelect('');
@@ -358,11 +347,8 @@ export function ParakeetModelManager({
 
   if (loading) {
     return (
-      <div className={`space-y-3 ${className}`}>
-        <div className="animate-pulse space-y-3">
-          <div className="h-20 bg-af-panel-2 rounded-lg"></div>
-          <div className="h-20 bg-af-panel-2 rounded-lg"></div>
-        </div>
+      <div className={`space-y-2 ${className}`}>
+        <div className="af-skeleton h-14 rounded-xl" />
       </div>
     );
   }
@@ -377,288 +363,36 @@ export function ParakeetModelManager({
   }
 
   // Parakeet v2 is not offered any more (`listed: false`), so the native list
-  // has it only while it is on disk. Its card stays so it can be updated or
-  // deleted, but it is not offered as a choice.
+  // has it only while it is on disk. Its row stays so it can be updated or
+  // removed; the model pickers do not offer it (isVisibleParakeetModel).
   const visibleModels = models.filter(m => isVisibleParakeetModel(m.name) || m.status !== 'Missing');
-  const selectable = (model: ParakeetModelInfo) => model.status === 'Available' && isVisibleParakeetModel(model.name);
-  // The catalog marks the recommended model.
+  // The catalog marks the recommended model; it is listed first.
   const recommendedModel = visibleModels.find(m => m.recommended);
-  const otherModels = visibleModels.filter(m => m !== recommendedModel);
-  const updateControl = (model: ParakeetModelInfo) => (
-    <ModelUpdateControl catalog={catalog} engine="parakeet" id={model.name} installed={model.status === 'Available'} />
-  );
+  const ordered = recommendedModel ? [recommendedModel, ...visibleModels.filter(m => m !== recommendedModel)] : visibleModels;
 
   return (
-    <div className={`space-y-3 ${className}`}>
-      {/* Recommended Model */}
-      {recommendedModel && (
-        <ModelCard
-          model={recommendedModel}
-          isSelected={selectedModel === recommendedModel.name}
-          isRecommended={true}
-          onSelect={() => {
-            if (recommendedModel.status === 'Available') {
-              selectModel(recommendedModel.name);
-            }
-          }}
-          onDownload={() => downloadModel(recommendedModel.name)}
-          onCancel={() => cancelDownload(recommendedModel.name)}
-          onDelete={() => deleteModel(recommendedModel.name)}
-          isDownloading={downloadingModels.has(recommendedModel.name)}
-          footer={updateControl(recommendedModel)}
-        />
-      )}
-
-      {/* Other Models */}
-      {otherModels.length > 0 && (
-        <div className="space-y-3">
-          {otherModels.map(model => (
-            <ModelCard
+    <div className={className}>
+      <ModelList label="Parakeet models">
+        {ordered.map(model => {
+          const displayInfo = getModelDisplayInfo(model.name);
+          return (
+            <ModelRow
               key={model.name}
-              model={model}
-              isSelected={selectedModel === model.name}
-              isRecommended={false}
-              onSelect={() => {
-                if (selectable(model)) {
-                  selectModel(model.name);
-                }
-              }}
+              name={speechModelName('parakeet', model.name, model.display_name || displayInfo?.friendlyName)}
+              description={speechModelDescription(displayInfo?.tagline || model.description)}
+              facts={[speechModelLanguages(model.languages), !isVisibleParakeetModel(model.name) && 'No longer offered']}
+              sizeBytes={model.size_bytes}
+              status={model.status}
+              recommended={model === recommendedModel}
+              usage={usageFor?.(model.name)}
               onDownload={() => downloadModel(model.name)}
               onCancel={() => cancelDownload(model.name)}
-              onDelete={() => deleteModel(model.name)}
-              isDownloading={downloadingModels.has(model.name)}
-              footer={updateControl(model)}
+              onRemove={() => deleteModel(model.name)}
+              footer={<ModelUpdateControl catalog={catalog} engine="parakeet" id={model.name} installed={model.status === 'Available'} />}
             />
-          ))}
-        </div>
-      )}
-
-      {/* Helper text */}
-      {selectedModel && (
-        <motion.div
-          initial={{ opacity: 0, y: -5 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="text-xs text-af-text-3 text-center pt-2"
-        >
-          Using {getModelDisplayName(selectedModel)} for transcription
-        </motion.div>
-      )}
+          );
+        })}
+      </ModelList>
     </div>
-  );
-}
-
-// Model Card Component
-interface ModelCardProps {
-  model: ParakeetModelInfo;
-  isSelected: boolean;
-  isRecommended: boolean;
-  onSelect: () => void;
-  onDownload: () => void;
-  onCancel: () => void;
-  onDelete: () => void;
-  isDownloading: boolean;
-  footer?: React.ReactNode;
-}
-
-function ModelCard({
-  model,
-  isSelected,
-  isRecommended,
-  onSelect,
-  onDownload,
-  onCancel,
-  onDelete,
-  isDownloading,
-  footer
-}: ModelCardProps) {
-  const [isHovered, setIsHovered] = useState(false);
-  const displayInfo = getModelDisplayInfo(model.name);
-  const displayName = model.display_name || displayInfo?.friendlyName || model.name;
-  const tagline = displayInfo?.tagline || model.description || '';
-
-  const isAvailable = model.status === 'Available';
-  const isMissing = model.status === 'Missing';
-  const isError = typeof model.status === 'object' && 'Error' in model.status;
-  const isCorrupted = typeof model.status === 'object' && 'Corrupted' in model.status;
-  const downloadProgress =
-    typeof model.status === 'object' && 'Downloading' in model.status
-      ? model.status.Downloading
-      : null;
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 5 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.2 }}
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
-      className={`
-        relative rounded-lg border-2 transition-all cursor-pointer
-        ${isSelected && isAvailable
-          ? 'border-af-accent/40 bg-af-accent/10'
-          : isAvailable
-            ? 'border-[var(--af-border)] bg-[var(--af-panel-2)] hover:border-[var(--af-border-strong)]'
-            : 'border-[var(--af-border)] bg-[var(--af-panel-2)]'
-        }
-        ${isAvailable ? '' : 'cursor-default'}
-      `}
-      onClick={() => {
-        if (isAvailable) onSelect();
-      }}
-    >
-      {/* Recommended Badge */}
-      {isRecommended && (
-        <div className="absolute -top-2 -right-2 bg-af-accent text-af-on-accent text-xs px-2 py-0.5 rounded-full font-medium">
-          Recommended
-        </div>
-      )}
-
-      <div className="p-4">
-        <div className="flex items-start justify-between mb-3">
-          <div className="flex-1">
-            {/* Model Name */}
-            <div className="flex items-center gap-2 mb-1">
-              <h3 className="font-semibold text-af-text">{displayName}</h3>
-              {isSelected && isAvailable && (
-                <motion.span
-                  initial={{ scale: 0 }}
-                  animate={{ scale: 1 }}
-                  className="bg-af-accent text-af-on-accent px-2 py-0.5 rounded-full text-xs font-medium flex items-center gap-1"
-                >
-                  <Check className="h-3 w-3" />
-                </motion.span>
-              )}
-            </div>
-
-            {/* Tagline */}
-            <p className="text-sm text-af-text-2 ml-9">{tagline}</p>
-          </div>
-
-          {/* Status/Action */}
-          <div className="ml-4 flex items-center gap-2">
-            {isAvailable && (
-              <>
-                <div className="flex items-center gap-1.5 text-af-success">
-                  <div className="w-2 h-2 bg-af-success rounded-full"></div>
-                  <span className="text-xs font-medium">Ready</span>
-                </div>
-                <AnimatePresence>
-                  {isHovered && (
-                    <motion.button
-                      initial={{ opacity: 0, scale: 0.8 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      exit={{ opacity: 0, scale: 0.8 }}
-                      transition={{ duration: 0.15 }}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onDelete();
-                      }}
-                      className="text-af-text-4 hover:text-af-danger transition-colors p-1"
-                      title="Delete model to free up space"
-                    >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                      </svg>
-                    </motion.button>
-                  )}
-                </AnimatePresence>
-              </>
-            )}
-
-            {isMissing && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onDownload();
-                }}
-                className="bg-af-accent text-af-on-accent px-3 py-1.5 rounded-md text-sm font-medium hover:bg-af-accent-hover transition-colors"
-              >
-                Download
-              </button>
-            )}
-
-            {downloadProgress === null && isError && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onDownload();
-                }}
-                className="bg-af-danger text-white px-3 py-1.5 rounded-md text-sm font-medium hover:bg-af-danger transition-colors"
-              >
-                Retry
-              </button>
-            )}
-
-            {isCorrupted && (
-              <div className="flex gap-2">
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onDelete();
-                  }}
-                  className="bg-af-warning text-white px-3 py-1.5 rounded-md text-sm font-medium hover:bg-af-warning transition-colors"
-                >
-                  Delete
-                </button>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onDownload();
-                  }}
-                  className="bg-af-accent text-af-on-accent px-3 py-1.5 rounded-md text-sm font-medium hover:bg-af-accent-hover transition-colors"
-                >
-                  Re-download
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Full-width Download Progress Bar - PROMINENT */}
-        {downloadProgress !== null && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            exit={{ opacity: 0, height: 0 }}
-            className="mt-3 pt-3 border-t border-af-border"
-          >
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-medium text-af-accent">Downloading...</span>
-                <span className="text-sm font-semibold text-af-accent">{Math.round(downloadProgress)}%</span>
-              </div>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onCancel();
-                }}
-                className="text-xs text-af-text-2 hover:text-af-danger font-medium transition-colors px-2 py-1 rounded hover:bg-af-danger/10"
-                title="Cancel download"
-              >
-                Cancel
-              </button>
-            </div>
-            <div className="w-full h-2 bg-af-hover rounded-full overflow-hidden">
-              <motion.div
-                className="h-full bg-af-panel-2 rounded-full"
-                initial={{ width: 0 }}
-                animate={{ width: `${downloadProgress}%` }}
-                transition={{ duration: 0.3, ease: 'easeOut' }}
-              />
-            </div>
-            <p className="text-xs text-af-text-3 mt-1">
-              {model.size_bytes ? (
-                <>
-                  {formatModelSize(model.size_bytes * downloadProgress / 100)} / {formatModelSize(model.size_bytes)}
-                </>
-              ) : (
-                'Downloading...'
-              )}
-            </p>
-          </motion.div>
-        )}
-        {footer}
-      </div>
-    </motion.div>
   );
 }
