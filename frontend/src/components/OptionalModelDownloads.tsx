@@ -31,7 +31,7 @@ export function OptionalModelDownloads({ activeOnly = false, allowUninstall = fa
       {visible.map(model => {
         const job = jobs[model];
         const label = model === 'whisper'
-          ? `Whisper Large v3 Turbo Q5${whisperSize ? ` · ${whisperSize}` : ''}`
+          ? `Whisper Large V3 Turbo Compressed${whisperSize ? ` · ${whisperSize}` : ''}`
           : 'Nemotron-3 diarization · ~382 MB';
         return (
           <div key={model} className="space-y-2 rounded-xl border border-af-border bg-af-panel-2 px-4 py-3">

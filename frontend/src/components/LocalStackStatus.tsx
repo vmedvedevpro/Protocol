@@ -1,14 +1,17 @@
 'use client';
 
 /**
- * Settings → Local stack. Live snapshot of what is loaded on this machine:
- * Whisper/Parakeet STT, disk use, idle unload, free-all memory.
+ * Settings › Local AI. Live snapshot of what is loaded on this machine:
+ * the Parakeet and Whisper speech models, idle unload and freeing memory,
+ * disk use, and the network policy.
  */
 
 import { useCallback, useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { toast } from 'sonner';
-import { Cpu, HardDrive, RefreshCw, Trash2, Zap, Shield, Network } from 'lucide-react';
+import { AudioLines, HardDrive, MemoryStick, Shield, Zap } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { SettingRow, SettingsGroup } from '@/components/settings/SettingsGroup';
 import {
   formatWhisperBackend,
   getWhisperBackend,
@@ -53,8 +56,15 @@ function formatBytes(n?: number): string {
   return `${mb.toFixed(0)} MB`;
 }
 
+function formatIdle(secs?: number): string {
+  if (secs == null) return '—';
+  if (secs < 60) return `${secs} s`;
+  const minutes = Math.round(secs / 60);
+  return `${minutes} min`;
+}
+
 function formatAgo(unixSecs?: number): string {
-  if (!unixSecs) return 'never';
+  if (!unixSecs) return 'not yet';
   const ago = Math.max(0, Math.floor(Date.now() / 1000) - unixSecs);
   if (ago < 60) return `${ago}s ago`;
   if (ago < 3600) return `${Math.floor(ago / 60)}m ago`;
@@ -91,7 +101,7 @@ export function LocalStackStatus() {
     setBusy(true);
     try {
       await invoke('force_unload_stt_models');
-      toast.success('STT models unloaded');
+      toast.success('Speech models unloaded');
       await refresh();
     } catch (e) {
       toast.error(typeof e === 'string' ? e : 'Unload failed (recording in progress?)');
@@ -104,7 +114,7 @@ export function LocalStackStatus() {
     setBusy(true);
     try {
       await invoke('force_unload_all_models');
-      toast.success('Freed STT + local LLM memory');
+      toast.success('Speech and summary models unloaded');
       await refresh();
     } catch (e) {
       toast.error(typeof e === 'string' ? e : 'Free-all failed (recording in progress?)');
@@ -113,148 +123,92 @@ export function LocalStackStatus() {
     }
   };
 
+  const whisperAccelerated = whisperBackend != null && whisperBackend !== 'CPU';
+
   return (
-    <div className="space-y-6">
-      <div>
-        <h3 className="text-base font-semibold text-[var(--af-text)]">Local stack</h3>
-        <p className="mt-1 text-sm text-[var(--af-text-3)]">
-          What is loaded on this PC. STT and the local LLM never stay loaded together,
-          so their model memory is not shared.
-        </p>
-      </div>
+    <div className="space-y-8">
+      <p className="text-[13px] leading-relaxed text-af-text-3">
+        What is loaded on this computer right now. Speech models and the local summary model never stay loaded at the
+        same time, so they don&apos;t compete for memory. This page updates by itself.
+      </p>
 
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div className="rounded-2xl border border-af-border bg-af-panel-2/40 p-4">
-          <div className="mb-2 flex items-center gap-2 text-sm font-medium text-[var(--af-text)]">
-            <Zap size={16} className="text-af-warning" /> Live STT (Parakeet preferred)
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Pill
-              ok={!!status?.parakeet.loaded}
-              label={status?.parakeet.loaded ? 'Loaded' : 'Unloaded'}
-            />
-            <Pill ok={parakeetBackend === 'DirectML'} label={parakeetBackend === 'DirectML' ? 'DirectML encoder' : 'CPU'} />
-            {status?.parakeet.model && (
-              <span className="text-xs text-[var(--af-text-2)]">{status.parakeet.model}</span>
-            )}
-          </div>
-        </div>
+      <SettingsGroup title="Speech models">
+        <SettingRow
+          icon={Zap}
+          title="Parakeet"
+          description={status?.parakeet.model ? `Model: ${status.parakeet.model}` : 'Fast speech model, used while recording.'}
+          control={
+            <span className="flex flex-wrap items-center justify-end gap-1.5">
+              <Pill ok={!!status?.parakeet.loaded} label={status?.parakeet.loaded ? 'Loaded' : 'Not loaded'} />
+              <Pill ok={parakeetBackend === 'DirectML'} label={parakeetBackend === 'DirectML' ? 'GPU (DirectML encoder)' : 'CPU'} />
+            </span>
+          }
+        >
+          {parakeetBackend === 'DirectML' && (
+            <p className="text-xs text-af-text-3">Parakeet sends supported encoder operations to DirectML. Its decoder and preprocessor use the CPU.</p>
+          )}
+        </SettingRow>
+        <SettingRow
+          icon={AudioLines}
+          title="Whisper"
+          description={status?.whisper.model ? `Model: ${status.whisper.model}` : 'Accurate speech model, usually used after meetings.'}
+          control={
+            <span className="flex flex-wrap items-center justify-end gap-1.5">
+              <Pill ok={!!status?.whisper.loaded} label={status?.whisper.loaded ? 'Loaded' : 'Not loaded'} />
+              <Pill ok={whisperAccelerated} label={whisperBackendLabel} />
+            </span>
+          }
+        >
+          <p className="text-xs text-af-text-3">Whisper&apos;s acceleration was chosen for this computer when Protocol was installed.</p>
+        </SettingRow>
+      </SettingsGroup>
 
-        <div className="rounded-2xl border border-af-border bg-af-panel-2/40 p-4">
-          <div className="mb-2 flex items-center gap-2 text-sm font-medium text-[var(--af-text)]">
-            <Cpu size={16} className="text-af-accent" /> Post-call STT (Whisper)
+      <SettingsGroup title="Memory">
+        <SettingRow
+          icon={MemoryStick}
+          title="Unload when idle"
+          description={`Speech models unload after ${formatIdle(status?.sttIdleUnloadSecs)} without use, the summary model after ${formatIdle(status?.llmIdleUnloadSecs)}.`}
+        >
+          <div className="space-y-3">
+            <p className="text-xs leading-relaxed text-af-text-3">
+              {`Last unloaded: speech models ${formatAgo(status?.sttLastUnloadSecs)}, summary model ${formatAgo(status?.llmLastUnloadSecs)}.`}
+              {status?.vramHintMb ? ` The speech models loaded now use about ${status.vramHintMb} MB.` : ''}
+            </p>
+            {status?.recording && <p className="text-xs text-af-warning">A recording is running, so nothing is unloaded until it ends.</p>}
+            <div className="flex flex-wrap gap-2">
+              <Button variant="secondary" size="sm" disabled={busy || !!status?.recording} onClick={() => void unloadStt()}>
+                Unload speech models
+              </Button>
+              <Button variant="secondary" size="sm" disabled={busy || !!status?.recording} onClick={() => void freeAll()}>
+                Free all memory
+              </Button>
+            </div>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Pill
-              ok={!!status?.whisper.loaded}
-              label={status?.whisper.loaded ? 'Loaded' : 'Unloaded'}
-            />
-            <Pill ok={whisperBackend != null && whisperBackend !== 'CPU'} label={whisperBackendLabel} />
-            {status?.whisper.model && (
-              <span className="text-xs text-[var(--af-text-2)]">{status.whisper.model}</span>
-            )}
-          </div>
-        </div>
+        </SettingRow>
+      </SettingsGroup>
 
-        <div className="rounded-2xl border border-af-border bg-af-panel-2/40 p-4">
-          <div className="mb-2 flex items-center gap-2 text-sm font-medium text-[var(--af-text)]">
-            <HardDrive size={16} className="text-af-accent" /> Disk
-          </div>
-          <p className="text-xs text-[var(--af-text-2)]">
-            Models: <strong>{formatBytes(status?.modelsDirBytes)}</strong>
-            {' · '}
-            App data: <strong>{formatBytes(status?.dataDirBytes)}</strong>
-          </p>
+      <SettingsGroup title="Storage and privacy">
+        <SettingRow
+          icon={HardDrive}
+          title="Disk"
+          description={`Models ${formatBytes(status?.modelsDirBytes)} · App data ${formatBytes(status?.dataDirBytes)}`}
+        >
           {status?.modelsDir && (
-            <p className="mt-1 truncate text-[11px] text-[var(--af-text-3)]" title={status.modelsDir}>
+            <p className="truncate font-mono text-[11px] text-af-text-3" title={status.modelsDir}>
               {status.modelsDir}
             </p>
           )}
-        </div>
-
-        <div className="rounded-2xl border border-af-border bg-af-panel-2/40 p-4">
-          <div className="mb-2 flex items-center gap-2 text-sm font-medium text-[var(--af-text)]">
-            <Cpu size={16} className="text-af-accent" /> Transcription acceleration
-          </div>
-          <div className="space-y-2 text-xs text-[var(--af-text-2)]">
-            <div className="flex items-center justify-between gap-3">
-              <span>Whisper</span>
-              <Pill
-                ok={whisperBackend != null && whisperBackend !== 'CPU'}
-                label={status?.whisper.loaded ? `${whisperBackendLabel} active` : whisperBackendLabel}
-              />
-            </div>
-            <div className="flex items-center justify-between gap-3">
-              <span>Parakeet</span>
-              <Pill ok={parakeetBackend === 'DirectML'} label={parakeetBackend === 'DirectML' ? 'DirectML encoder' : 'CPU'} />
-            </div>
-          </div>
-          <p className="mt-2 text-[11px] text-[var(--af-text-3)]">
-            Whisper acceleration was auto-selected for this installation. Estimated STT model
-            memory loaded: ~{status?.vramHintMb ?? 0} MB.
-          </p>
-          {parakeetBackend === 'DirectML' && <p className="mt-1 text-[11px] text-[var(--af-text-3)]">
-            Parakeet sends supported encoder operations to DirectML. Its decoder and preprocessor use CPU.
-          </p>}
-        </div>
-
-        <div className="rounded-2xl border border-af-border bg-af-panel-2/40 p-4">
-          <div className="mb-2 flex items-center gap-2 text-sm font-medium text-[var(--af-text)]">
-            <RefreshCw size={16} className="text-[var(--af-text-3)]" /> Idle unload
-          </div>
-          <p className="text-xs text-[var(--af-text-2)]">
-            STT after {status?.sttIdleUnloadSecs ?? '—'}s · LLM after{' '}
-            {status?.llmIdleUnloadSecs ?? '—'}s
-          </p>
-          <p className="mt-1 text-[11px] text-[var(--af-text-3)]">
-            Last STT unload: {formatAgo(status?.sttLastUnloadSecs)} · Last LLM unload:{' '}
-            {formatAgo(status?.llmLastUnloadSecs)}
-          </p>
-          {status?.recording && (
-            <p className="mt-1 text-xs text-af-warning">Recording — unload is paused.</p>
-          )}
-        </div>
-
-        <div className="rounded-2xl border border-af-border bg-af-panel-2/40 p-4">
-          <div className="mb-2 flex items-center gap-2 text-sm font-medium text-[var(--af-text)]">
-            <Network size={16} className="text-af-success" /> Network
-          </div>
-          <div className="flex items-center gap-2">
-            <Shield size={14} className="text-af-success" />
-            <Pill ok label="Local-first · no telemetry" />
-          </div>
-          <p className="mt-2 text-xs text-[var(--af-text-3)]">
-            {status?.networkNote ||
-              'Nothing leaves this PC unless you add a cloud API key and choose that provider for summaries.'}
-          </p>
-        </div>
-      </div>
-
-      <div className="flex flex-wrap gap-2">
-        <button
-          type="button"
-          onClick={() => void refresh()}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--af-border-strong)] px-3 py-2 text-sm text-[var(--af-text-2)] hover:bg-[var(--af-hover)]"
-        >
-          <RefreshCw size={14} /> Refresh
-        </button>
-        <button
-          type="button"
-          disabled={busy || !!status?.recording}
-          onClick={() => void unloadStt()}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--af-border-strong)] px-3 py-2 text-sm text-[var(--af-text-2)] hover:bg-[var(--af-hover)] disabled:opacity-40"
-        >
-          <Trash2 size={14} /> Unload STT
-        </button>
-        <button
-          type="button"
-          disabled={busy || !!status?.recording}
-          onClick={() => void freeAll()}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--af-accent)] px-3 py-2 text-sm font-medium text-white hover:brightness-110 disabled:opacity-40"
-        >
-          <Trash2 size={14} /> Free all memory
-        </button>
-      </div>
+        </SettingRow>
+        <SettingRow
+          icon={Shield}
+          title="Network"
+          description={
+            status?.networkNote ||
+            'Nothing leaves this computer unless you add a cloud API key and choose that provider for summaries.'
+          }
+          control={<Pill ok label="Local-first · no telemetry" />}
+        />
+      </SettingsGroup>
     </div>
   );
 }

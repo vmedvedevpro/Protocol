@@ -26,7 +26,7 @@ const SelectTrigger = React.forwardRef<
     ref={ref}
     className={cn(
       fieldClass,
-      "flex items-center justify-between gap-2 whitespace-nowrap text-left data-[placeholder]:text-af-text-4 [&>span]:line-clamp-1",
+      "flex items-center justify-between gap-2 whitespace-nowrap text-left data-[placeholder]:text-af-text-4 [&>span]:min-w-0 [&>span]:truncate",
       "data-[state=open]:border-af-accent data-[state=open]:ring-[3px] data-[state=open]:ring-af-accent/15",
       className
     )}

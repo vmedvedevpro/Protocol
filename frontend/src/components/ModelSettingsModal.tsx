@@ -814,7 +814,7 @@ export function ModelSettingsModal({
     <div>
       <div className="space-y-4">
         <div>
-          <Label>Summarization Model</Label>
+          <Label>Provider and model</Label>
           <div className="flex space-x-2 mt-1">
             <Select
               value={modelConfig.provider}
@@ -972,7 +972,7 @@ export function ModelSettingsModal({
             </div>
 
             <div>
-              <Label htmlFor="custom-model">Model Name *</Label>
+              <Label htmlFor="custom-model">Model name *</Label>
               <Input
                 id="custom-model"
                 value={customOpenAIModel}
@@ -1003,7 +1003,7 @@ export function ModelSettingsModal({
                 className="flex items-center justify-between cursor-pointer py-2"
                 onClick={() => setIsCustomOpenAIAdvancedOpen(!isCustomOpenAIAdvancedOpen)}
               >
-                <Label className="cursor-pointer">Advanced Options</Label>
+                <Label className="cursor-pointer">Advanced options</Label>
                 {isCustomOpenAIAdvancedOpen ? (
                   <ChevronUp className="h-4 w-4 text-muted-foreground" />
                 ) : (
@@ -1014,7 +1014,7 @@ export function ModelSettingsModal({
               {isCustomOpenAIAdvancedOpen && (
                 <div className="space-y-3 pl-2 border-l-2 border-muted mt-2">
                   <div>
-                    <Label htmlFor="custom-max-tokens">Max Tokens</Label>
+                    <Label htmlFor="custom-max-tokens">Max tokens</Label>
                     <Input
                       id="custom-max-tokens"
                       type="number"
@@ -1155,7 +1155,7 @@ export function ModelSettingsModal({
               className="flex items-center justify-between cursor-pointer py-2"
               onClick={() => setIsEndpointSectionCollapsed(!isEndpointSectionCollapsed)}
             >
-              <Label className="cursor-pointer">Custom Endpoint (optional)</Label>
+              <Label className="cursor-pointer">Custom endpoint (optional)</Label>
               {isEndpointSectionCollapsed ? (
                 <ChevronDown className="h-4 w-4 text-muted-foreground" />
               ) : (
@@ -1210,7 +1210,7 @@ export function ModelSettingsModal({
                     ) : (
                       <>
                         <RefreshCw className="mr-2 h-4 w-4" />
-                        Fetch Models
+                        Fetch models
                       </>
                     )}
                   </Button>
@@ -1218,7 +1218,7 @@ export function ModelSettingsModal({
                 {ollamaEndpointChanged && !error && (
                   <Alert className="mt-3 border-af-warning/35 bg-af-warning/10">
                     <AlertDescription className="text-af-text">
-                      Endpoint changed. Please click "Fetch Models" to load models from the new endpoint before saving.
+                      Endpoint changed. Click "Fetch models" to load the models from the new endpoint before saving.
                     </AlertDescription>
                   </Alert>
                 )}
@@ -1230,7 +1230,7 @@ export function ModelSettingsModal({
         {modelConfig.provider === 'ollama' && (
           <div>
             <div className="flex items-center justify-between mb-4">
-              <h4 className="text-sm font-bold">Available Ollama Models</h4>
+              <h4 className="text-sm font-semibold">Available Ollama models</h4>
               {lastFetchedEndpoint && models.length > 0 && (
                 <div className="flex items-center gap-2 text-sm">
                   <span className="text-muted-foreground">Using:</span>
@@ -1275,7 +1275,7 @@ export function ModelSettingsModal({
                       Download Ollama
                     </Button>
                     <div className="text-sm text-muted-foreground text-center">
-                      After installing Ollama, restart this application and click "Fetch Models" to continue.
+                      After installing Ollama, restart Protocol and click "Fetch models" to continue.
                     </div>
                   </div>
                 ) : (
@@ -1284,8 +1284,8 @@ export function ModelSettingsModal({
                     <Alert className="mb-4">
                       <AlertDescription>
                         {ollamaEndpointChanged
-                          ? 'Endpoint changed. Click "Fetch Models" to load models from the new endpoint.'
-                          : 'No models found. Download a recommended model or click "Fetch Models" to load available Ollama models.'}
+                          ? 'Endpoint changed. Click "Fetch models" to load the models from the new endpoint.'
+                          : 'No models found. Download a recommended model, or click "Fetch models" to list the models Ollama has.'}
                       </AlertDescription>
                     </Alert>
                     {!ollamaEndpointChanged && (

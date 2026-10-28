@@ -193,9 +193,9 @@ export function RetranscribeDialog({
         async (event) => {
           if (event.payload.meeting_id === meetingId) {
             setIsProcessing(false);
-            toast.success(
-              `Retranscription complete! ${event.payload.segments_count} segments created.`
-            );
+            toast.success('Transcript enhanced', {
+              description: `${event.payload.segments_count} lines transcribed again.`,
+            });
             announceChange('people');
             onCompleteRef.current?.();
             onOpenChangeRef.current(false);
@@ -243,11 +243,11 @@ export function RetranscribeDialog({
 
   const handleStartRetranscription = async () => {
     if (!listenersReady) {
-      setError('Retranscription is still initializing. Please try again.');
+      setError('Still getting ready. Try again in a moment.');
       return;
     }
     if (!meetingFolderPath) {
-      setError('Meeting folder path not available');
+      setError("This meeting's recording folder can't be found.");
       return;
     }
 
@@ -279,7 +279,7 @@ export function RetranscribeDialog({
         await invoke('cancel_retranscription_command');
         setIsProcessing(false);
         setProgress(null);
-        toast.info('Retranscription cancelled');
+        toast.info('Enhancing cancelled');
       } catch (err) {
         console.error('Failed to cancel retranscription:', err);
       }
@@ -335,17 +335,17 @@ export function RetranscribeDialog({
             {isProcessing ? (
               <>
                 <Spinner className="h-5 w-5 text-af-accent" />
-                Retranscribing...
+                Enhancing the transcript…
               </>
             ) : error ? (
               <>
                 <AlertCircle className="h-5 w-5 text-af-danger" />
-                Retranscription Failed
+                Could not enhance the transcript
               </>
             ) : (
               <>
                 <RefreshCw className="h-5 w-5 text-af-accent" />
-                Retranscribe Meeting
+                Enhance transcript
               </>
             )}
           </DialogTitle>
@@ -353,8 +353,8 @@ export function RetranscribeDialog({
             {isProcessing
               ? progress?.message || 'Processing audio...'
               : error
-                ? 'An error occurred during retranscription'
-                : 'Re-process the audio with a different model, language, or vocabulary hints'}
+                ? 'Something went wrong while transcribing the recording again.'
+                : "Transcribe this meeting's recording again, with another model, language or vocabulary."}
           </DialogDescription>
         </DialogHeader>
 
@@ -564,7 +564,7 @@ export function RetranscribeDialog({
                 disabled={!meetingFolderPath || !listenersReady || isClearingMeetingVocabulary || loadingModels || !selectedModelDetails}
               >
                 <RefreshCw className="h-4 w-4 mr-2" />
-                Start Retranscription
+                Enhance transcript
               </Button>
             </>
           )}

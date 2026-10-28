@@ -222,8 +222,9 @@ export function RecordingSettings({ onSave }: RecordingSettingsProps) {
               Open folder
             </Button>
           </div>
-          <p className="mt-3 text-xs text-af-text-4">
-            Saved as {preferences.file_format.toUpperCase()} files named recording_YYYYMMDD_HHMMSS.{preferences.file_format}.
+          <p className="mt-3 text-xs leading-relaxed text-af-text-4">
+            Each meeting gets its own folder here, named after the meeting and when it started, with its audio as{' '}
+            {preferences.file_format.toUpperCase()} files. Models and the meeting database stay in Protocol&apos;s app data folder.
           </p>
         </div>
       ) : (

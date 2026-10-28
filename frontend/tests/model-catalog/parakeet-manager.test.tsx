@@ -32,24 +32,33 @@ let root: ReactTestRenderer;
 const text = () => JSON.stringify(root.toJSON());
 const textOf = (node: ReactTestInstance): string =>
   node.children.map((child) => (typeof child === 'string' ? child : textOf(child))).join('');
-// The card of the model named `name`: the outermost clickable box holding it.
-const card = (name: string) => root.root.findAll((node) =>
-  node.type === 'div' && typeof node.props.onClick === 'function' && textOf(node).includes(name))[0];
+// The row of the model named `name`.
+const row = (name: string) => root.root.findAll((node) => node.type === 'li' && textOf(node).includes(name))[0];
 beforeEach(() => {
   commands = [];
   Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: { getItem: () => null, setItem: () => {} } });
 });
 afterEach(async () => { await act(async () => root?.unmount()); });
 
-test('an installed Parakeet v2 keeps its card, with its update, but is not offered as a choice', async () => {
+test('an installed Parakeet v2 keeps its row, with its update, marked as no longer offered', async () => {
   const onModelSelect = mock(() => {});
   models = [model('parakeet-tdt-0.6b-v3-int8', 'Multilingual', 'Available', true), model(v2, 'Compact', 'Available')];
   await act(async () => { root = create(<ParakeetModelManager onModelSelect={onModelSelect} />); });
-  expect(textOf(card('Compact'))).toContain('Update available');
-  await act(async () => card('Compact').props.onClick());
+  expect(textOf(row('Compact'))).toContain('Update available');
+  expect(textOf(row('Compact'))).toContain('No longer offered');
+  expect(textOf(row('Multilingual'))).not.toContain('No longer offered');
+  // Rows never choose a model: the pickers in Settings do, and they leave v2
+  // out (tests/lib/speech-models.test.ts).
+  expect(root.root.findAll((node) => node.type === 'li' && typeof node.props.onClick === 'function')).toHaveLength(0);
   expect(onModelSelect).not.toHaveBeenCalled();
-  await act(async () => card('Multilingual').props.onClick());
-  expect(onModelSelect).toHaveBeenCalledWith('parakeet-tdt-0.6b-v3-int8');
+});
+
+test('a row says where its model is in use', async () => {
+  models = [model('parakeet-tdt-0.6b-v3-int8', 'Multilingual', 'Available', true)];
+  await act(async () => {
+    root = create(<ParakeetModelManager usageFor={(name) => (name === 'parakeet-tdt-0.6b-v3-int8' ? ['During meetings'] : [])} />);
+  });
+  expect(textOf(row('Multilingual'))).toContain('During meetings');
 });
 
 test('Parakeet v2 is not listed once it is not on disk', async () => {

@@ -95,7 +95,7 @@ export function ImportAudioDialog({
   } = useTranscriptionModels(transcriptModelConfig);
 
   const handleImportComplete = useCallback((result: ImportResult) => {
-    toast.success(`Import complete! ${result.segments_count} segments created.`);
+    toast.success('Recording imported', { description: `${result.segments_count} transcript lines.` });
 
     // Refresh meetings list then navigate to the imported meeting
     refetchMeetings();

@@ -236,7 +236,7 @@ export function SetupOverviewStep() {
           <label className="flex cursor-pointer items-start gap-3 text-sm">
             <Checkbox checked={installWhisper} onCheckedChange={checked => setInstallWhisper(checked === true)} className="mt-0.5" />
             <span>Whisper for retranscription <span className="rounded-full bg-af-accent/10 px-1.5 py-0.5 text-[11px] font-medium text-af-accent">Recommended</span> <span className="text-af-text-3">{jobs.whisper.status === 'ready' ? '· Installed; enable it' : whisperSize && `· ${whisperSize}`}</span>
-              <span className="mt-0.5 block text-xs leading-5 text-af-text-2">Large v3 Turbo Q5 for post-call enhancement and retranscribing recordings. Parakeet remains the live transcription engine.</span>
+              <span className="mt-0.5 block text-xs leading-5 text-af-text-2">Large V3 Turbo Compressed transcribes each recording again after the meeting, for a cleaner transcript. Parakeet still writes the live transcript.</span>
             </span>
           </label>
           <label className="flex cursor-pointer items-start gap-3 text-sm">

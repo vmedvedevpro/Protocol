@@ -2,22 +2,21 @@
 
 import { useEffect, useState } from "react"
 import { Switch } from "./ui/switch"
-import { FolderCog, FolderOpen } from "lucide-react"
-import { invoke } from "@tauri-apps/api/core"
-import { toast } from "sonner"
+import { Input } from "./ui/input"
+import { Bell, Palette, UserRound } from "lucide-react"
 import { useConfig, NotificationSettings } from "@/contexts/ConfigContext"
 import { ThemePicker } from "@/components/settings/ThemePicker"
+import { SettingRow, SettingsGroup } from "@/components/settings/SettingsGroup"
 
 export function PreferenceSettings() {
+  // The recordings folder is set in Settings › Recording.
   const {
     notificationSettings,
     storageLocations,
     isLoadingPreferences,
     loadPreferences,
     updateNotificationSettings,
-    updateRecordingsLocation,
   } = useConfig();
-  const [isChoosingRecordingsFolder, setIsChoosingRecordingsFolder] = useState(false);
 
   const [notificationsEnabled, setNotificationsEnabled] = useState<boolean | null>(null);
   const [isInitialLoad, setIsInitialLoad] = useState(true);
@@ -95,172 +94,72 @@ export function PreferenceSettings() {
     handleUpdateNotificationSettings();
   }, [notificationsEnabled, notificationSettings, isInitialLoad, previousNotificationsEnabled, updateNotificationSettings])
 
-  const handleOpenFolder = async (folderType: 'database' | 'models' | 'recordings') => {
-    try {
-      switch (folderType) {
-        case 'database':
-          await invoke('open_database_folder');
-          break;
-        case 'models':
-          await invoke('open_models_folder');
-          break;
-        case 'recordings':
-          await invoke('open_recordings_folder');
-          break;
-      }
-    } catch (error) {
-      console.error(`Failed to open ${folderType} folder:`, error);
-    }
-  };
-
-  const handleChangeRecordingsFolder = async () => {
-    if (isChoosingRecordingsFolder) return;
-
-    setIsChoosingRecordingsFolder(true);
-    try {
-      const selectedFolder = await invoke<string | null>('select_recording_folder');
-      if (!selectedFolder) return;
-
-      const preferences = await invoke<Record<string, unknown> & { save_folder: string }>(
-        'get_recording_preferences',
-      );
-      await invoke('set_recording_preferences', {
-        preferences: { ...preferences, save_folder: selectedFolder },
-      });
-      updateRecordingsLocation(selectedFolder);
-      toast.success('Recordings folder updated');
-    } catch (error) {
-      console.error('Failed to change recordings folder:', error);
-      toast.error('Could not update recordings folder', {
-        description: String(error),
-      });
-    } finally {
-      setIsChoosingRecordingsFolder(false);
-    }
-  };
+  const loading = (
+    <div className="space-y-3">
+      <div className="af-skeleton h-40 rounded-2xl" />
+      <div className="af-skeleton h-20 rounded-2xl" />
+    </div>
+  );
 
   // Show loading only if we're actually loading and don't have cached data
   if (isLoadingPreferences && !notificationSettings && !storageLocations) {
-    return <div className="max-w-2xl mx-auto p-6">Loading Preferences...</div>
+    return loading
   }
 
   // Show loading if notificationsEnabled hasn't been determined yet
   if (notificationsEnabled === null && !isLoadingPreferences) {
-    return <div className="max-w-2xl mx-auto p-6">Loading Preferences...</div>
+    return loading
   }
 
   // Ensure we have a boolean value for the Switch component
   const notificationsEnabledValue = notificationsEnabled ?? false;
 
   return (
-    <div className="space-y-6">
-      {/* Appearance / Theme Section */}
-      <div className="rounded-2xl border border-af-border bg-af-panel-2/40 p-5">
-        <h3 className="text-[15px] font-semibold text-af-text mb-1">Theme</h3>
-        <p className="text-sm text-af-text-2 mb-4">Applies to every window, including the floating recording bar.</p>
-        <ThemePicker />
-      </div>
+    <div className="space-y-8">
+      <SettingsGroup title="Appearance">
+        <SettingRow icon={Palette} title="Theme" description="Applies to every window, including the floating recording bar.">
+          <ThemePicker />
+        </SettingRow>
+      </SettingsGroup>
 
-      {/* Your Name Section */}
-      <div className="rounded-2xl border border-af-border bg-af-panel-2/40 p-5">
-        <h3 className="text-[15px] font-semibold text-af-text mb-2">Your Name</h3>
-        <p className="text-sm text-af-text-2 mb-3">
-          Labels your microphone in transcripts as <strong>You ({userName || 'Name'})</strong>. Your audio is
-          always tagged as you; other participants are labelled separately (&quot;Guest&quot;, and Speaker 1/2/3 once
-          voice diarization is enabled).
-        </p>
-        <input
-          type="text"
-          value={userName}
-          onChange={(e) => saveUserName(e.target.value)}
-          placeholder="e.g. Tyler"
-          className="w-full max-w-sm rounded-lg border border-af-border px-3 py-2 text-sm focus:border-af-accent/40 focus:outline-none"
+      <SettingsGroup title="You">
+        <SettingRow
+          icon={UserRound}
+          title="Your name"
+          htmlFor="settings-user-name"
+          description={
+            <>
+              Your microphone is labeled <strong className="font-medium text-af-text-2">You ({userName || 'Name'})</strong> in
+              transcripts. Other voices are labeled by speaker until you name them.
+            </>
+          }
+          control={
+            <Input
+              id="settings-user-name"
+              type="text"
+              value={userName}
+              onChange={(e) => saveUserName(e.target.value)}
+              placeholder="e.g. Tyler"
+              className="w-56 max-w-full"
+            />
+          }
         />
-      </div>
+      </SettingsGroup>
 
-      {/* Notifications Section */}
-      <div className="rounded-2xl border border-af-border bg-af-panel-2/40 p-5">
-        <div className="flex items-center justify-between">
-          <div>
-            <h3 className="text-[15px] font-semibold text-af-text mb-2">Notifications</h3>
-            <p className="text-sm text-af-text-2">Enable or disable notifications of start and end of meeting</p>
-          </div>
-          <Switch checked={notificationsEnabledValue} onCheckedChange={setNotificationsEnabled} />
-        </div>
-      </div>
-
-      {/* Data Storage Locations Section */}
-      <div className="rounded-2xl border border-af-border bg-af-panel-2/40 p-5">
-        <h3 className="text-[15px] font-semibold text-af-text mb-4">Data Storage Locations</h3>
-        <p className="text-sm text-af-text-2 mb-6">
-          View and access where Protocol stores your data
-        </p>
-
-        <div className="space-y-4">
-          {/* Database Location */}
-          {/* <div className="p-4 border rounded-lg bg-af-panel-2">
-            <div className="font-medium mb-2">Database</div>
-            <div className="text-sm text-af-text-2 mb-3 break-all font-mono text-xs">
-              {storageLocations?.database || 'Loading...'}
-            </div>
-            <button
-              onClick={() => handleOpenFolder('database')}
-              className="flex items-center gap-2 px-3 py-2 text-sm border border-af-border-strong rounded-md hover:bg-af-panel-2 transition-colors"
-            >
-              <FolderOpen className="w-4 h-4" />
-              Open Folder
-            </button>
-          </div> */}
-
-          {/* Models Location */}
-          {/* <div className="p-4 border rounded-lg bg-af-panel-2">
-            <div className="font-medium mb-2">Whisper Models</div>
-            <div className="text-sm text-af-text-2 mb-3 break-all font-mono text-xs">
-              {storageLocations?.models || 'Loading...'}
-            </div>
-            <button
-              onClick={() => handleOpenFolder('models')}
-              className="flex items-center gap-2 px-3 py-2 text-sm border border-af-border-strong rounded-md hover:bg-af-panel-2 transition-colors"
-            >
-              <FolderOpen className="w-4 h-4" />
-              Open Folder
-            </button>
-          </div> */}
-
-          {/* Recordings Location */}
-          <div className="p-4 border rounded-lg bg-af-panel-2">
-            <div className="font-medium mb-2">Meeting Recordings</div>
-            <div className="text-sm text-af-text-2 mb-3 break-all font-mono text-xs">
-              {storageLocations?.recordings || 'Loading...'}
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <button
-                onClick={handleChangeRecordingsFolder}
-                disabled={isChoosingRecordingsFolder}
-                className="flex items-center gap-2 px-3 py-2 text-sm border border-af-border-strong rounded-md hover:bg-af-panel-2 transition-colors disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                <FolderCog className="w-4 h-4" />
-                {isChoosingRecordingsFolder ? 'Choosing...' : 'Change Folder'}
-              </button>
-              <button
-                onClick={() => handleOpenFolder('recordings')}
-                className="flex items-center gap-2 px-3 py-2 text-sm border border-af-border-strong rounded-md hover:bg-af-panel-2 transition-colors"
-              >
-                <FolderOpen className="w-4 h-4" />
-                Open Folder
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <div className="mt-4 p-3 bg-af-accent/10 rounded-md">
-          <p className="text-xs text-af-accent">
-            <strong>Portable core data:</strong> Models, database, and templates use Protocol&apos;s app data
-            folder. Recordings stay in the user-facing folder shown above so they remain easy to find,
-            play, and back up.
-          </p>
-        </div>
-      </div>
+      <SettingsGroup title="Notifications">
+        <SettingRow
+          icon={Bell}
+          title="Recording started and stopped"
+          description="Show a system notification when a recording starts or stops."
+          control={
+            <Switch
+              checked={notificationsEnabledValue}
+              onCheckedChange={setNotificationsEnabled}
+              aria-label="Notify when a recording starts or stops"
+            />
+          }
+        />
+      </SettingsGroup>
     </div>
   )
 }

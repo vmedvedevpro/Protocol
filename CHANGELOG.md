@@ -7,6 +7,30 @@ is inherited from the project Protocol forked from; Protocol did not release it.
 
 ## Protocol — unreleased
 
+### Changed
+
+- **Settings › Transcription, reorganized** around a meeting. Choose the model
+  that writes the live transcript (**During the meeting**) and the one that
+  transcribes the recording again once it is saved (**After the meeting**),
+  then the meeting language (before, only in the record card's dialog),
+  **Faster live text** and the words to recognize. Speakers and the speech
+  model lists follow. Each model now appears once, with its download, progress
+  and **Remove** (always visible, and asked for confirmation) on its row; the
+  separate *Optional model downloads* block is gone, and its Whisper and
+  Nemotron downloads sit on the steps that use them. Settings says when a
+  chosen model is not installed and which model runs instead.
+- **Clearer model names.** The Whisper model Protocol recommends after
+  meetings is now *Large V3 Turbo Compressed*, listed first with a
+  Recommended badge instead of hidden under Advanced Models, and every Whisper
+  model follows the *Large V3* / *Large V3 Compressed* naming. The Enhance
+  transcript dialog uses the same name as its menu item and names models
+  instead of showing their ids.
+- **Plainer Settings.** Every page uses the same rows. General no longer
+  repeats the recordings folder (it is in Recording, which now describes the
+  per-meeting folders correctly); Local AI, Meeting detection and Summaries
+  explain themselves without STT, LLM or Title Case labels. In a small window
+  the section list shrinks to icons so the settings keep their width.
+
 ## Protocol 0.4.0 — 2026-10-27
 
 Transcription and summary models now update on their own cards, without a new

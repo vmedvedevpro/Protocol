@@ -24,8 +24,8 @@ checks below.
 | `name`, `description` | Display text (≤ 80 and ≤ 300 characters). |
 | `languages` | `["*"]` or language codes. |
 | `accuracy`, `speed` | Short display labels (Whisper, Parakeet). |
-| `tier` | `basic` or `advanced` (Whisper: basic models are listed first, the rest under Advanced Models). |
-| `recommended`, `rank`, `min_ram_gb` | Summary models: the recommendation is the recommended model with the highest `rank` that fits in the machine's RAM; "best available" picks the installed model with the highest `rank`. Parakeet: the recommended card. |
+| `tier` | `basic` or `advanced` (Whisper: Settings lists the installed models and the recommended one; the rest wait behind *more models*, basic first). |
+| `recommended`, `rank`, `min_ram_gb` | Summary models: the recommendation is the recommended model with the highest `rank` that fits in the machine's RAM; "best available" picks the installed model with the highest `rank`. Parakeet and Whisper: the Recommended badge, listed first. |
 | `listed` | `false`: not offered for new downloads; an installed copy keeps working (Parakeet v2). Default `true`. |
 | `license` | `{ name, url }` (https). |
 | `repo` | The Hugging Face repository, `owner/name`. |
@@ -283,7 +283,7 @@ downloads happen only on a click. `PRIVACY_POLICY.md` says the same.
   not that it transcribes or summarises well.
 - Parakeet v2 (`listed: false`) is not offered for download or in the model
   pickers (`isVisibleParakeetModel`, upstream). An installed copy keeps its
-  card in Settings › Transcription, so its update and Delete stay reachable,
-  but the card does not select it.
+  row in Settings › Transcription, marked *No longer offered*, so its update
+  and Remove stay reachable; rows never select a model.
 - A deleted model's update entry stays in the status until the next check; its
   card no longer shows it.

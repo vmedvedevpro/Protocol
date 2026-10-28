@@ -2,12 +2,16 @@ import { useState, useCallback, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { isVisibleParakeetModel } from '@/lib/parakeet';
 import { formatModelSize } from '@/lib/model-catalog';
+import { speechModelLabel } from '@/lib/speech-models';
 
 export interface RawModelInfo {
   name: string;
   /** Bytes of the installed files; null while unknown. */
   size_bytes: number | null;
   status: 'Available' | 'Missing' | { Downloading: { progress: number } } | { Error: string };
+  /** From the model catalog. */
+  display_name?: string;
+  languages?: string[];
 }
 
 export interface ModelOption {
@@ -59,7 +63,7 @@ export function useTranscriptionModels(transcriptModelConfig: TranscriptModelCon
         .map((m) => ({
           provider: 'whisper' as const,
           name: m.name,
-          displayName: `🏠 Whisper: ${m.name}`,
+          displayName: speechModelLabel('whisper', m.name, m.display_name),
           sizeLabel: formatModelSize(m.size_bytes),
         }));
       setHasWhisperModel(availableWhisper.length > 0);
@@ -77,7 +81,7 @@ export function useTranscriptionModels(transcriptModelConfig: TranscriptModelCon
         .map((m) => ({
           provider: 'parakeet' as const,
           name: m.name,
-          displayName: `⚡ Parakeet: ${m.name}`,
+          displayName: speechModelLabel('parakeet', m.name, m.display_name),
           sizeLabel: formatModelSize(m.size_bytes),
         }));
       setHasParakeetModel(availableParakeet.length > 0);

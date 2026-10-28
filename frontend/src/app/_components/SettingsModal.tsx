@@ -74,6 +74,7 @@ export function SettingsModals({ modals, messages, onClose }: SettingsModalsProp
               transcriptModelConfig={transcriptModelConfig}
               setTranscriptModelConfig={setTranscriptModelConfig}
               onModelSelect={() => onClose('modelSelector')}
+              language={{ value: selectedLanguage, onChange: setSelectedLanguage, disabled: isRecording }}
             />
           </div>
           <DialogFooter className="items-center border-t border-af-border px-6 py-4 sm:justify-between">

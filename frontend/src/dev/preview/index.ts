@@ -11,6 +11,7 @@ import { mockIPC, mockWindows } from '@tauri-apps/api/mocks';
 import { MotionGlobalConfig } from 'framer-motion';
 import * as fx from './fixtures';
 import { handleLiveCommand } from './live';
+import { handleSpeechCommand } from './models';
 import { CUSTOM_CHROME_CLASS } from '@/lib/window-chrome';
 
 type Args = Record<string, any>;
@@ -327,6 +328,8 @@ let storeRid = 1;
 function handle(cmd: string, args: Args): unknown {
   const liveResult = handleLiveCommand(cmd, args);
   if (liveResult !== undefined) return liveResult;
+  const speechResult = handleSpeechCommand(cmd, args);
+  if (speechResult !== undefined) return speechResult;
   // @tauri-apps/plugin-store: an empty store that accepts writes.
   if (cmd.startsWith('plugin:store|')) {
     if (cmd === 'plugin:store|load' || cmd === 'plugin:store|get_store') return storeRid++;
@@ -365,17 +368,10 @@ function handle(cmd: string, args: Args): unknown {
     case 'get_default_recordings_folder_path':
       return 'C:/Users/preview/Music/protocol-recordings';
     case 'get_ollama_models':
-    case 'whisper_get_available_models':
     case 'builtin_ai_list_models':
     case 'get_meeting_history':
     case 'get_transcript_history':
       return [];
-    case 'parakeet_get_available_models':
-      return [{ name: 'parakeet-tdt-0.6b-v3-int8', status: 'Available', size_bytes: 670_619_706 }];
-    case 'api_get_post_call_transcript_config':
-      return { provider: 'live', model: '' };
-    case 'api_get_vocabulary':
-      return { global: '', meeting: '' };
     case 'parakeet_has_available_models':
     case 'parakeet_is_model_loaded':
     case 'builtin_ai_is_model_ready':
@@ -465,8 +461,6 @@ function handle(cmd: string, args: Args): unknown {
       return new Promise((resolve) => setTimeout(() => resolve(previewPeaks(String(args.filePath).slice(PREVIEW_AUDIO.length))), 300));
     case 'api_get_model_config':
       return { provider: 'ollama', model: 'llama3.2:3b', whisperModel: 'large-v3', apiKey: null, ollamaEndpoint: null };
-    case 'api_get_transcript_config':
-      return { provider: 'parakeet', model: 'parakeet-tdt-0.6b-v3-int8', apiKey: null };
     case 'api_list_templates':
       return [
         { id: 'standard_meeting', name: 'Standard meeting', description: 'Summary, decisions, action items' },

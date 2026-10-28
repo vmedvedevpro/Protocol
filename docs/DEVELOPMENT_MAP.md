@@ -372,8 +372,8 @@ verified download **and persists engine activation in native code**. On success
 it emits `diarization-engine-changed`. This prevents page reloads from discarding
 a required preference save in an abandoned JS completion callback.
 
-The native event updates the optional-download card, Diarization Settings, and
-open speaker dialogs. The frontend `optional-model-preferences-changed` DOM event
+The native event updates Settings › Transcription › Speakers, onboarding's
+optional-download card, and open speaker dialogs. The frontend `optional-model-preferences-changed` DOM event
 also refreshes preference views for frontend-triggered changes. These events are
 different transports; neither is itself the persisted source of truth.
 
@@ -384,6 +384,14 @@ later fixes supersede earlier behavior. The post-v0.2.18 follow-up moves optiona
 Whisper activation into `whisper_download_model(enablePostCall=true)` and adds
 native `uninstall_optional_model` ownership in `optional_models.rs`; see the
 updated native-activation note for locking, settings events, tests, and limits.
+
+### Settings › Transcription
+
+The page is organized by meeting step: *During the meeting* and *After the
+meeting* pickers (live and post-call models), meeting language, faster live
+text, vocabulary, Speakers, and the Parakeet and Whisper model lists. The
+optional Whisper and Nemotron downloads live on the steps that use them. Owners,
+data flow, tests and limits are in [SETTINGS_UX.md](SETTINGS_UX.md).
 
 ### Model catalog and model updates (#50)
 

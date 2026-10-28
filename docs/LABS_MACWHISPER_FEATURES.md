@@ -32,8 +32,8 @@ used:
   share instead of counting it twice; profiles saved before shares were kept
   count as one earlier share. Renaming, merging or deleting a contact updates,
   combines or removes their voice.
-- Whisper silence guard and Parakeet GPU: tagged on the engine they change in
-  Settings > Transcription.
+- Whisper silence guard and Parakeet GPU: tagged in Settings > Transcription
+  on the step (during or after the meeting) whose engine they change.
 - Clean transcript: a Clean/Verbatim switch in the meeting player. With Labs
   off the transcript still hides simple fillers, as before.
 
