@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Globe, Pin } from 'lucide-react';
+import { Pin } from 'lucide-react';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { LanguagePickerPopover } from '@/components/LanguagePickerPopover';
 import { useRecentLanguages } from '@/hooks/useRecentLanguages';
@@ -16,15 +16,8 @@ export function SummaryLanguageSettings() {
   };
 
   return (
-    <div className="rounded-2xl border border-af-border bg-af-panel-2/40 p-5 relative">
-      <div className="flex items-center gap-2 mb-2">
-        <Globe size={18} className="text-af-text-3" />
-        <h3 className="text-[15px] font-semibold text-af-text">Summary Language</h3>
-      </div>
-      <p className="text-sm text-af-text-2 mb-4">
-        Pin one language as the default for new meetings. Unpinned languages remain as
-        quick-switch options in the summary generator. Auto uses the dominant transcript language.
-      </p>
+    // The language chips of Settings › Summaries; the row around them names them.
+    <div className="relative">
 
       <div className="flex flex-wrap items-center gap-2">
         {recents.map((code) => {
@@ -93,8 +86,10 @@ export function SummaryLanguageSettings() {
 
       <p className="text-xs text-af-text-4 mt-3">
         {pinned
-          ? `Default: ${labelForCode(pinned)} - click it again to unset. Max 5 quick-switch options.`
-          : 'Click any language to set it as your default. Max 5 quick-switch options.'}
+          ? `New meetings are summarized in ${labelForCode(pinned)}. Click it again to unpin. Up to 5 languages.`
+          : recents.length > 0
+            ? 'Click a language to pin it. Up to 5 languages.'
+            : 'Up to 5 languages.'}
       </p>
     </div>
   );

@@ -7,6 +7,8 @@ import { ModelConfig, ModelSettingsModal } from '@/components/ModelSettingsModal
 import { SummaryLanguageSettings } from '@/components/SummaryLanguageSettings';
 import { Switch } from './ui/switch';
 import { useConfig } from '@/contexts/ConfigContext';
+import { Globe, Sparkles } from 'lucide-react';
+import { SettingRow, SettingsGroup } from '@/components/settings/SettingsGroup';
 
 interface SummaryModelSettingsProps {
   refetchTrigger?: number; // Change this to trigger refetch
@@ -124,32 +126,36 @@ export function SummaryModelSettings({ refetchTrigger }: SummaryModelSettingsPro
   };
 
   return (
-    <div className='flex flex-col gap-4'>
-      <div className="rounded-2xl border border-af-border bg-af-panel-2/40 p-5">
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <h3 className="text-[15px] font-semibold text-af-text">Summarize automatically</h3>
-            <p className="mt-0.5 text-[13px] leading-relaxed text-af-text-3">Write a summary as soon as a recording is saved. When off, generate one from the meeting page whenever you like.</p>
-          </div>
-          <Switch checked={isAutoSummary} onCheckedChange={toggleIsAutoSummary} className="shrink-0" />
-        </div>
-      </div>
-
-      <SummaryLanguageSettings />
-
-      <div className="rounded-2xl border border-af-border bg-af-panel-2/40 p-5">
-        <h3 className="text-[15px] font-semibold text-af-text">Summary model</h3>
-        <p className="mb-5 mt-0.5 text-[13px] leading-relaxed text-af-text-3">
-          Writes summaries and answers Ask AI. Local models keep everything on this computer; a cloud provider receives the parts of a meeting it needs.
-        </p>
-
-        <ModelSettingsModal
-          modelConfig={modelConfig}
-          setModelConfig={setModelConfig}
-          onSave={handleSaveModelConfig}
-          skipInitialFetch={true}
+    <div className="space-y-8">
+      <SettingsGroup title="Summaries">
+        <SettingRow
+          icon={Sparkles}
+          title="Summarize automatically"
+          description="Write a summary as soon as a recording is saved. When off, write one from the meeting page whenever you like."
+          control={<Switch checked={isAutoSummary} onCheckedChange={toggleIsAutoSummary} aria-label="Summarize automatically" />}
         />
-      </div>
+        <SettingRow
+          icon={Globe}
+          title="Summary language"
+          description="Without a pinned language, summaries are written in the language most of the meeting was spoken in. Add languages to switch between them quickly when you summarize; pin one to use it for every new meeting."
+        >
+          <SummaryLanguageSettings />
+        </SettingRow>
+      </SettingsGroup>
+
+      <SettingsGroup
+        title="Summary model"
+        description="Writes summaries and answers Ask AI. Local models keep everything on this computer; a cloud provider receives the parts of a meeting it needs."
+      >
+        <div className="p-5">
+          <ModelSettingsModal
+            modelConfig={modelConfig}
+            setModelConfig={setModelConfig}
+            onSave={handleSaveModelConfig}
+            skipInitialFetch={true}
+          />
+        </div>
+      </SettingsGroup>
     </div>
   );
 }
