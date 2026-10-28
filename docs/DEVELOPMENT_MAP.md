@@ -570,6 +570,24 @@ with vswhere and uses Ninja when present. With #31's updater configuration in
 workflow signs the final file again. Output: `dist\protocol-windows-x64-setup.exe`
 and `dist\SHA256SUMS.txt`.
 
+The installer is Tauri's standard one (#44): `windows/installer.nsi` is the
+stock template of the CLI in `pnpm-lock.yaml` (2.12.4) and `windows/English.nsh`
+its stock English text, with Protocol's changes marked `; Protocol:` (uninstall
+key, install folder, branding text, `data\` on the uninstaller's delete-data
+choice and that checkbox's wording; see `ARCHITECTURE.md` §8). A Tauri CLI
+update re-bases both files on the new stock ones. The uninstall hook deletes
+the files the hooks installed, which the bundle's file list does not name.
+Checked for #44 on Windows 11 at 200 % scaling with QA-identity installers
+(`Protocol QA`) built from one universal build: the new setup run
+interactively over an install made by 0.4.0's template and hooks (default
+"Uninstall before installing", which runs the old uninstaller), then with
+`/P /UPDATE`, kept the folder, a single uninstall entry with the new
+`DisplayVersion`, the saved `BackendOverride=cpu` and `data\`; a fresh install
+chose Vulkan and kept it through `/P /UPDATE`; the uninstaller with the
+delete-data box removed the folder, both registry keys, the shortcuts and the
+identifier folders, and without it left only `data\`. The updater's own
+end-to-end run is the `Updater end-to-end` workflow.
+
 The bundled `protocol.exe` is the CPU build. `installer-hooks.nsh`
 (`Meetily_SelectBackend`) runs `protocol-vulkan-probe.exe` and replaces
 `protocol.exe` with the Vulkan build only when it finds a usable device, writes
@@ -665,9 +683,9 @@ beside an installed upstream build without sharing state:
 | Surface | Value | Owner |
 | --- | --- | --- |
 | Bundle identifier, Windows AUMID | `io.github.vmedvedevpro.protocol` | `tauri.conf.json`, `notifications/native_windows.rs` |
-| Product name, install folder | `Protocol`, `%LOCALAPPDATA%\vmedvedevpro\Protocol` | `tauri.conf.json`, `windows/installer.nsi` |
-| Installer registry key | `HKCU\Software\vmedvedevpro\Protocol` (install folder, `BackendOverride`) | `bundle.publisher` + product name; `windows/installer-hooks.nsh` |
-| Uninstall entry | `HKCU\…\Uninstall\io.github.vmedvedevpro.protocol` | `windows/installer.nsi` (`UNINSTKEY`) |
+| Product name, install folder | `Protocol`, `%LOCALAPPDATA%\vmedvedevpro\Protocol` | `tauri.conf.json`, `windows/installer.nsi` (`INSTALLDIRNAME`, a `; Protocol:` change to Tauri's stock template) |
+| Installer registry key | `HKCU\Software\vmedvedevpro\Protocol` (install folder, `BackendOverride`) | `bundle.publisher` + product name (stock `MANUPRODUCTKEY`); `windows/installer-hooks.nsh` |
+| Uninstall entry | `HKCU\…\Uninstall\io.github.vmedvedevpro.protocol` | `windows/installer.nsi` (`UNINSTKEY`, a `; Protocol:` change to Tauri's stock template) |
 | Fallback data root | OS data dir `/vmedvedevpro/Protocol` | `paths.rs` (`FALLBACK_PUBLISHER`, `FALLBACK_APP_NAME`) |
 | Default recordings folder | `protocol-recordings` | `audio/recording_preferences.rs` |
 | Cargo package and executable | `protocol`, `protocol.exe`; installer variants `protocol-vulkan.exe`, `protocol-vulkan-probe.exe` | `src-tauri/Cargo.toml`, `build-universal-windows.ps1`, `windows/installer-hooks.nsh` |

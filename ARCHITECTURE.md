@@ -768,14 +768,26 @@ install page's percentage timer that upstream wrapped around the installer were
 removed in #15. The timer ran on the UI thread and used the registers and the
 stack that the install section shares, so it could corrupt them mid-install.
 
+The template is Tauri's stock `installer.nsi` of the CLI in
+`frontend/pnpm-lock.yaml` (2.12.4) with Protocol's changes marked
+`; Protocol:` (#44): the uninstall key, the install folder, the branding text
+and `data\` on the delete-data choice, all described below. Actually Free's dark
+skin and its custom welcome, folder and finish pages are gone, and so are its
+update-mode delay, settings broadcast and shortcut refresh. When the Tauri CLI
+changes, start from the new version's stock file and apply the marked changes
+again. `English.nsh` is the same CLI's English text with only the uninstaller's
+delete-data checkbox reworded.
+
 ### Setup path
 
 ```text
 release.yml (tag) -> release-build-windows.yml -> build-universal-windows.ps1
   -> Vulkan variant (cargo build --features vulkan) -> installer-variants\
   -> its bundle-type marker patched to nsis; probe built; runtime deps staged
-  -> tauri build bundles the CPU build as protocol.exe
-  -> a person (or the updater) runs protocol-windows-x64-setup.exe
+  -> tauri build bundles the CPU build as protocol.exe (stock template + hooks)
+  -> a person runs protocol-windows-x64-setup.exe: welcome, reinstall choice
+     over an existing install, folder, install, finish (Tauri's stock pages);
+     the updater runs it with /P /UPDATE: the install page only
   -> hooks: Visual C++ runtime, DirectML, Vulkan probe, Vulkan or CPU
 ```
 
@@ -783,8 +795,9 @@ Relevant files:
 
 | File | Responsibility |
 |---|---|
-| `frontend/src-tauri/windows/installer.nsi` | Tauri NSIS template: the install/update engine and its pages |
-| `frontend/src-tauri/windows/installer-hooks.nsh` | Dependency checks, runtime staging, Vulkan/CPU selection, the saved backend override |
+| `frontend/src-tauri/windows/installer.nsi` | Tauri's stock NSIS template (CLI 2.12.4) with the `; Protocol:` changes: the install/update engine and its pages |
+| `frontend/src-tauri/windows/English.nsh` | Tauri's English installer text; only the delete-data checkbox differs |
+| `frontend/src-tauri/windows/installer-hooks.nsh` | Dependency checks, runtime staging, Vulkan/CPU selection, the saved backend override, uninstalling what the hooks installed |
 | `frontend/scripts/build-universal-windows.ps1` | Builds the Vulkan variant and the CPU bundle, writes the setup and its checksum |
 | `frontend/scripts/stage-runtime-deps.ps1` | Stages DirectML and the pinned Visual C++ redistributable |
 | `frontend/scripts/verify-windows-release.mjs` | Checks the setup's payload without installing it |
@@ -796,11 +809,28 @@ generic product name cannot collide with another app's folder and Labs bundles
 folder instead of sharing executables and `data` with the main install. Setup
 restores a previously registered install path from
 `HKCU\Software\vmedvedevpro\Protocol` (NSIS `${MANUPRODUCTKEY}`:
-`bundle.publisher` and `productName` from `tauri.conf.json`). The uninstall hook
-removes the publisher folder once it is empty. The uninstall entry is keyed by the
+`bundle.publisher` and `productName` from `tauri.conf.json`), so an existing
+install is upgraded in its own folder. The uninstall entry is keyed by the
 bundle identifier (`HKCU\…\Uninstall\io.github.vmedvedevpro.protocol`), not the
 product name. These values must stay distinct from upstream Meetily builds,
-otherwise setup offers, and overwrites, their folder.
+otherwise setup offers, and overwrites, their folder. Both the key name and the
+default folder are `; Protocol:` changes to the stock template, which would use
+`…\Uninstall\Protocol` and `%LOCALAPPDATA%\Protocol`; installs since 0.3.0 are
+registered under these.
+
+The app keeps its data in `data\` inside the install folder (`paths.rs`): the
+meeting database, downloaded models, voice profiles, settings and crash
+reports. Uninstalling leaves it, and with it the install folder, unless the
+uninstaller's box "Delete transcripts, summaries, voice profiles, models and
+settings" is ticked. Then it also deletes `data\`, Tauri's
+`%APPDATA%\io.github.vmedvedevpro.protocol` and
+`%LOCALAPPDATA%\io.github.vmedvedevpro.protocol` (plugin stores, WebView
+profile, update cache) and `HKCU\Software\vmedvedevpro\Protocol`. Recordings
+live in the recordings folder (`Music\protocol-recordings` by default) and are
+never deleted. The uninstaller deletes only the files the bundle lists, so the
+uninstall hook deletes what the install hook added (`DirectML.dll`, and the
+CUDA DLLs of a pre-0.3.0 install), then the install folder and the publisher
+folder, each only once it is empty.
 
 Backend selection belongs to `installer-hooks.nsh`. The package bundles the CPU
 build as `protocol.exe` and stages only `protocol-vulkan.exe` and the probe; the
@@ -887,19 +917,16 @@ installer-only and is removed with the staged variants after selection.
 
 The in-app updater runs the installer with `/P /UPDATE` (passive, update mode),
 plus `/R` after **Restart and update** so it starts the new version; after a
-quit it starts nothing. Passive mode shows only the progress window.
-With `/UPDATE` the installer uses `Protocol Setup`, `Updating Protocol`, and
-`Updating app files` instead of the setup wording, and a blue progress bar. Keep
-the verbose NSIS extraction log collapsed and preserve the stock MUI header font
-metrics so title/subtitle rectangles do not overlap at scaled DPI. Progress is
-NSIS's own bar; do not add timers (`nsDialogs::CreateTimer`) to the install page,
-since their callbacks share `$0`–`$R9` and the stack with the running section.
-Setup-only pages and all hardware/runtime decisions are shared with the normal
-installer.
-Every install/update rewrites uninstall-key `DisplayVersion`, then broadcasts a
-shell/settings change notification. Without that notification, an Installed
-Apps window left open during an update can continue showing the previous
-version even though the registry and executable already contain the new one.
+quit it starts nothing. Passive mode skips every page except Tauri's stock
+install page, which shows NSIS's progress bar and closes itself when done. In
+update mode the stock template keeps the existing Start menu and desktop
+shortcuts as they are and skips the WebView2 setup; all hardware/runtime
+decisions in the hooks are the same as in a normal install. Do not add timers
+(`nsDialogs::CreateTimer`) to the install page, since their callbacks share
+`$0`–`$R9` and the stack with the running section.
+Every install/update rewrites uninstall-key `DisplayVersion`. The stock template
+sends no settings-change notification, so an Installed apps page left open
+during an update can keep showing the previous version until it is reopened.
 
 ### In-app updates
 
@@ -1035,10 +1062,12 @@ On Windows, `io.github.vmedvedevpro.protocol` is also the single shell identity:
 it is Tauri's bundle identifier, the installer shortcut AUMID, and the explicit
 process AUMID (`notifications/native_windows.rs`) set before any windows are
 created. Changing it detaches the app from upstream Meetily's single-instance
-lock, WebView storage, and plugin stores. Setup runs recreate Start Menu
-shortcuts (and any existing desktop shortcut) with `protocol.exe,0` as the
-explicit icon source, then call `SHChangeNotify`; application startup must not
-replace those installer-owned shortcuts with PNG-backed WScript shortcuts.
+lock, WebView storage, and plugin stores. Setup creates the Start menu
+shortcut, and the desktop shortcut when its finish-page box stays ticked
+(always in a silent or passive first install), with that AUMID, as Tauri's
+stock template does; updates leave existing shortcuts alone. Application
+startup must not replace those installer-owned shortcuts with PNG-backed
+WScript shortcuts.
 
 ---
 

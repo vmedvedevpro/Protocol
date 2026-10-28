@@ -180,7 +180,8 @@ register here (AGENTS.md).
   `%TEMP%\<productName>-<version>-updater-XXXX` and runs it with
   `ShellExecuteW` as `/P /UPDATE` plus `/R` for **Restart and update**, then
   calls `std::process::exit(0)`, so `RunEvent::Exit` does not run (hence
-  `prepare_exit`). The passive NSIS window shows "Updating Protocol"; the
+  `prepare_exit`). The passive NSIS window is Tauri's stock install page with
+  its progress bar, and it closes itself when done; the
   installer's running-app check and hooks stop only this install's
   executable. The plugin never deletes its temp folder; the scheduler removes
   folders matching `<productName>-*-updater-*` on its first tick.
