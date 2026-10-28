@@ -30,6 +30,11 @@ is inherited from the project Protocol forked from; Protocol did not release it.
   per-meeting folders correctly); Local AI, Meeting detection and Summaries
   explain themselves without STT, LLM or Title Case labels. In a small window
   the section list shrinks to icons so the settings keep their width.
+- **The README shows the app**
+  ([#57](https://github.com/vmedvedevpro/Protocol/issues/57)): a live
+  recording, a meeting with its speakers, action items and summary, the
+  speech models in Settings, and the **Ctrl+K** search, next to the features
+  they show.
 
 ## Protocol 0.4.0 — 2026-10-27
 
