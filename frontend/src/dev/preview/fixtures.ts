@@ -173,11 +173,18 @@ function linesFor(meetingId: string): Array<[string, string]> {
 }
 
 export function transcriptsFor(meetingId: string): PreviewTranscript[] {
+  const lines = linesFor(meetingId);
+  const durations = lines.map(([, text]) => Math.max(3, Math.round(text.split(' ').length / 2.6)));
+  // The lines are excerpts spread over the whole meeting, so the header, the
+  // player and the library agree on how long it ran.
+  const length = meetings.find((entry) => entry.id === meetingId)?.duration_seconds ?? 0;
+  const spoken = durations.reduce((sum, duration) => sum + duration, 0);
+  const gap = Math.max(1.5, Math.round((length - 8 - spoken) / Math.max(1, lines.length - 1)));
   let cursor = 4;
-  return linesFor(meetingId).map(([speaker, text], index) => {
-    const duration = Math.max(3, Math.round(text.split(' ').length / 2.6));
+  return lines.map(([speaker, text], index) => {
+    const duration = durations[index];
     const start = cursor;
-    cursor += duration + 1.5;
+    cursor += duration + gap;
     return {
       id: `${meetingId}-t${index}`,
       text,
