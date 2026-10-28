@@ -88,6 +88,24 @@ test('Settings shows both background downloads before they are selected and refr
   expect(setLive).not.toHaveBeenCalled();
 });
 
+test('a Whisper download that could not become the after-meeting model says so and retries', async () => {
+  // The file is on disk, so Whisper counts as installed; the failure must still show.
+  nativeWhisperAvailable = true;
+  jobs.whisper = { status: 'activation-error', progress: 100, error: 'Model downloaded, but could not enable it: disk full' };
+  await act(async () => { root = create(<App />); });
+  expect(text()).toContain('Whisper Large V3 Turbo Compressed downloaded, but Protocol could not switch to it.');
+  expect(text()).toContain('disk full');
+  const label = (node: any): string => node.children.map((child: any) => (typeof child === 'string' ? child : label(child))).join('');
+  const retry = root.root.find((node) => node.type === 'button' && label(node) === 'Retry');
+  await act(async () => retry.props.onClick());
+  expect(startDownload).toHaveBeenCalledWith('whisper');
+
+  // Once After the meeting uses the model, there is nothing left to retry.
+  postCall = { provider: 'whisper', model: 'large-v3-turbo-q5_0' };
+  await act(async () => { root.unmount(); root = create(<App />); });
+  expect(text()).not.toContain('could not switch to it');
+});
+
 test('removing an optional model targets only that model', async () => {
   nativeWhisperAvailable = true; nativeNemotronAvailable = true; activeEngine = 'nemotron';
   jobs.whisper = { status: 'ready', progress: 100, enabled: true };

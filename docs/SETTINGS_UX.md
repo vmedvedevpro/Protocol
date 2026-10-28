@@ -36,6 +36,9 @@ With no speech model installed the model lists come first.
      Without any Whisper model it offers the optional Whisper download
      (`OptionalModelDownloadsContext.startDownload('whisper')`, which enables
      it natively) and shows its progress (`aria-label="Whisper download progress"`).
+     When that download finished but could not become the after-meeting model
+     (`activation-error`), the row says so with Retry even though the model is
+     now on disk, until After the meeting uses it.
    - *Meeting language*: `ConfigContext.selectedLanguage` (localStorage
      `primaryLanguage`, synced with `set_language_preference`), the same value
      the record card's language dialog edits. Disabled while recording.

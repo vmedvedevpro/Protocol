@@ -387,6 +387,10 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
     );
 
     const offeredWhisper = optionalWhisperName ? `Whisper ${optionalWhisperName}` : 'Whisper';
+    // The model is on disk by then, so this shows with Whisper installed,
+    // until a retry succeeds or After the meeting is set to that model.
+    const whisperActivationFailed = whisperJob.status === 'activation-error'
+        && !(postCallConfig.provider === 'whisper' && postCallConfig.model === OPTIONAL_WHISPER_MODEL);
     const whisperOffer = isWhisperDownloading ? (
         <div className="space-y-2 rounded-xl border border-af-border bg-af-panel px-3.5 py-3">
             <div className="flex flex-wrap items-center justify-between gap-2 text-[13px] font-medium text-af-text">
@@ -401,12 +405,13 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
             </div>
             <p className="text-xs text-af-text-3">You can keep using Protocol. After meetings switches to Whisper when the download finishes.</p>
         </div>
-    ) : (whisperJob.status === 'error' || whisperJob.status === 'activation-error') && installedWhisper.length === 0 ? (
+    ) : whisperActivationFailed || (whisperJob.status === 'error' && installedWhisper.length === 0) ? (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-af-danger/30 bg-af-danger/[0.06] px-3.5 py-3">
             <p role="alert" className="min-w-0 flex-1 basis-60 text-xs text-af-danger [overflow-wrap:anywhere]">
-                {whisperJob.status === 'activation-error' ? 'Whisper downloaded, but Protocol could not switch to it. ' : 'Whisper could not be downloaded. '}
+                {whisperActivationFailed ? `${offeredWhisper} downloaded, but Protocol could not switch to it. ` : `${offeredWhisper} could not be downloaded. `}
                 {whisperJob.error}
             </p>
+            {/* Native code finds the model on disk and only retries the switch. */}
             <Button variant="secondary" size="sm" onClick={() => startDownload('whisper')}>Retry</Button>
         </div>
     ) : installedLoaded && installedWhisper.length === 0 ? (
