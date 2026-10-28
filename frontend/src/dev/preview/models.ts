@@ -63,6 +63,8 @@ const speech = {
   postCall: fresh ? { provider: 'live', model: '' } : { provider: 'whisper', model: 'large-v3-turbo-q5_0' },
   vocabulary: fresh ? '' : 'Protocol\nTauri\nKubernetes\nOKR',
   timers: new Map<string, ReturnType<typeof setInterval>>(),
+  /** Ends a running Whisper download the way native cancel does. */
+  cancels: new Map<string, () => void>(),
 };
 if (!fresh) speech.whisper.set('large-v3-turbo-q5_0', 'Available');
 
@@ -95,7 +97,14 @@ function whisperModels() {
 function download(kind: 'whisper' | 'parakeet', name: string, postCallManaged = false): Promise<null> {
   const progressEvent = kind === 'whisper' ? 'model-download-progress' : 'parakeet-model-download-progress';
   const completeEvent = kind === 'whisper' ? 'model-download-complete' : 'parakeet-model-download-complete';
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
+    if (kind === 'whisper') {
+      speech.cancels.set(name, () => {
+        const error = 'Download cancelled by user';
+        void emit('model-download-error', { modelName: name, error, postCallManaged });
+        reject(`Failed to download model: ${error}`);
+      });
+    }
     let progress = 0;
     const set = (status: Status) => (kind === 'whisper' ? speech.whisper.set(name, status) : (speech.parakeet = status));
     set({ Downloading: 0 });
@@ -106,6 +115,7 @@ function download(kind: 'whisper' | 'parakeet', name: string, postCallManaged = 
       if (progress < 100) return;
       clearInterval(timer);
       speech.timers.delete(name);
+      speech.cancels.delete(name);
       void emit(completeEvent, { modelName: name, postCallManaged });
       resolve(null);
     }, 250);
@@ -116,8 +126,11 @@ function download(kind: 'whisper' | 'parakeet', name: string, postCallManaged = 
 function cancel(kind: 'whisper' | 'parakeet', name: string) {
   clearInterval(speech.timers.get(name));
   speech.timers.delete(name);
-  if (kind === 'whisper') speech.whisper.set(name, 'Missing');
-  else speech.parakeet = 'Missing';
+  if (kind === 'whisper') {
+    speech.whisper.set(name, 'Missing');
+    speech.cancels.get(name)?.();
+    speech.cancels.delete(name);
+  } else speech.parakeet = 'Missing';
   if (kind === 'parakeet') void emit('parakeet-model-download-progress', { modelName: name, progress: 0, status: 'cancelled' });
   return true;
 }
@@ -144,7 +157,11 @@ export function handleSpeechCommand(cmd: string, args: Record<string, any>): unk
       return speech.parakeet === 'Available';
     case 'whisper_download_model': {
       const pending = download('whisper', args.modelName, !!args.enablePostCall);
-      if (!args.enablePostCall) return null;
+      // A manual download reports through events; its command has returned.
+      if (!args.enablePostCall) {
+        pending.catch(() => {});
+        return null;
+      }
       // Optional setup: native code saves the post-call default once the file matched.
       return pending.then(() => {
         speech.postCall = { provider: 'whisper', model: args.modelName };
