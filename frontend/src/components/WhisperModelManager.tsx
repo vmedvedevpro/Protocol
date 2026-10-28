@@ -54,6 +54,8 @@ export function ModelManager({
   const [initialized, setInitialized] = useState(false);
   const [downloadingModels, setDownloadingModels] = useState<Set<string>>(new Set());
   const [showMore, setShowMore] = useState(false);
+  // Names in the main list when the models first loaded, in that order.
+  const firstListed = useRef<string[] | null>(null);
 
   // Refs for stable callbacks
   const onModelSelectRef = useRef(onModelSelect);
@@ -436,13 +438,22 @@ export function ModelManager({
     );
   }
 
-  // The list shows what is on this computer (or on its way) and the catalog's
-  // recommendation; every other model waits behind "More models", the
-  // catalog's basic tier first. Catalog order otherwise.
-  const onDisk = (model: ModelInfo) => model.status !== 'Missing' && !(typeof model.status === 'object' && 'Error' in model.status);
+  // The list shows what was on this computer (or on its way) when it first
+  // loaded, then the catalog's recommendation; every other model waits behind
+  // "More models", the catalog's basic tier first. A row keeps its place while
+  // it downloads, fails or finishes, so it never moves away from the pointer;
+  // with "More models" closed, such a row shows in the list instead.
+  const inUse = (model: ModelInfo) => model.status !== 'Missing';
+  if (firstListed.current === null && models.length > 0) {
+    firstListed.current = [
+      ...models.filter(inUse),
+      ...models.filter((model) => !inUse(model) && model.recommended),
+    ].map((model) => model.name);
+  }
+  const pinned = firstListed.current ?? [];
   const mainModels = [
-    ...models.filter(onDisk),
-    ...models.filter((model) => !onDisk(model) && model.recommended),
+    ...pinned.flatMap((name) => models.filter((model) => model.name === name)),
+    ...(showMore ? [] : models.filter((model) => !pinned.includes(model.name) && inUse(model))),
   ];
   const rest = models.filter((model) => !mainModels.includes(model));
   const moreModels = [

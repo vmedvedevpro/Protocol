@@ -52,7 +52,10 @@ With no speech model installed the model lists come first.
    closed *Model files and credits* section that still renders its contents.
 4. **Speech models**: `ParakeetModelManager` and `ModelManager` (Whisper).
    The Whisper list shows models on disk and the catalog's recommendation; the
-   rest wait behind *N more models*, the basic tier first. Badges say where a
+   rest wait behind *N more models*, the basic tier first. Which list a row is
+   in is settled when the models first load, so a row that starts downloading,
+   fails or finishes keeps its place; with *more models* closed, such a row
+   shows in the main list so its progress or Retry stays in view. Badges say where a
    model is in use (*During meetings*, *After meetings*). A finished download
    still becomes the model for its step: Parakeet while recording, Whisper
    after meetings. Removing the optional Whisper model goes through

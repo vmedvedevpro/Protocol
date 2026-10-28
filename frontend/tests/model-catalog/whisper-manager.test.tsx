@@ -35,6 +35,14 @@ const text = () => JSON.stringify(root.toJSON());
 const showMore = () => act(async () => {
   root.root.find((node) => node.type === 'button' && node.props['aria-expanded'] === false).props.onClick();
 });
+const showFewer = () => act(async () => {
+  root.root.find((node) => node.type === 'button' && node.props['aria-expanded'] === true).props.onClick();
+});
+// Model names in one of the two lists ("Whisper models", "More Whisper models").
+const namesIn = (label: string): string[] => {
+  const list = root.root.findAll((node) => node.type === 'ul' && node.props['aria-label'] === label)[0];
+  return list ? list.findAll((node) => node.type === 'span' && node.props.className?.includes('font-semibold')).map((node) => node.children.join('')) : [];
+};
 beforeEach(() => {
   commands = [];
   models = [model('small', 'Small', 'basic'), model('large-v3-turbo', 'Large V3 Turbo', 'basic', true)];
@@ -94,4 +102,21 @@ test('sizes come from Hugging Face: asked for on mount, shown when they arrive, 
   await act(async () => listeners.get('model-catalog-changed')!({ payload: catalog({ sizesVersion: 1 }) }));
   expect(listed()).toBe(before + 1);
   expect(text()).toContain('465 MB');
+});
+
+test('a row keeps its place while it downloads and fails, and shows in the list once More models closes', async () => {
+  await act(async () => { root = create(<ModelManager />); });
+  await showMore();
+  expect(namesIn('Whisper models')).toEqual(['Large V3 Turbo']);
+  expect(namesIn('More Whisper models')).toEqual(['Small']);
+  // Download from the open "More models": the row stays under the pointer.
+  await act(async () => listeners.get('model-download-progress')!({ payload: { modelName: 'small', progress: 30 } }));
+  expect(namesIn('More Whisper models')).toEqual(['Small']);
+  await act(async () => listeners.get('model-download-error')!({ payload: { modelName: 'small', error: 'Network unavailable' } }));
+  expect(namesIn('More Whisper models')).toEqual(['Small']);
+  // Closing "More models" must not hide the failed download and its Retry.
+  await showFewer();
+  expect(namesIn('Whisper models')).toEqual(['Large V3 Turbo', 'Small']);
+  expect(text()).toContain('Network unavailable');
+  expect(text()).toContain('Retry');
 });
