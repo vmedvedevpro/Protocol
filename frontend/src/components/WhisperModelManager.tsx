@@ -26,6 +26,12 @@ interface ModelManagerProps {
    * lists the models again here.
    */
   removeModel?: (modelName: string) => boolean;
+  /**
+   * Downloads a model another owner manages (the optional post-call model is
+   * downloaded and enabled natively); true when it took the download. Its
+   * native progress events still update the row.
+   */
+  startModelDownload?: (modelName: string) => boolean;
   /** Where an installed model is in use, shown on its row ("Used after meetings"). */
   usageFor?: (modelName: string) => string[];
   className?: string;
@@ -37,6 +43,7 @@ export function ModelManager({
   onModelSelect,
   onModelRemoved,
   removeModel,
+  startModelDownload,
   usageFor,
   className = '',
   autoSave = false
@@ -224,11 +231,14 @@ export function ModelManager({
         (event) => {
           const { modelName, error } = event.payload;
           const displayName = getDisplayName(modelName);
+          // Cancel ends the native download with an error too; cancelDownload
+          // already reset the row and said so.
+          const cancelled = error.includes('Download cancelled by user');
 
           setModels(prevModels =>
             prevModels.map(model =>
               model.name === modelName
-                ? { ...model, status: (error.startsWith('Model downloaded, but could not enable it:') ? 'Available' : { Error: error }) as ModelStatus }
+                ? { ...model, status: (cancelled ? 'Missing' : error.startsWith('Model downloaded, but could not enable it:') ? 'Available' : { Error: error }) as ModelStatus }
                 : model
             )
           );
@@ -242,7 +252,7 @@ export function ModelManager({
           // Clean up throttle data
           progressThrottleRef.current.delete(modelName);
 
-          if (event.payload.postCallManaged) return;
+          if (event.payload.postCallManaged || cancelled) return;
 
           toast.error(`Failed to download ${displayName}`, {
             description: error,
@@ -329,6 +339,14 @@ export function ModelManager({
 
   const downloadModel = async (modelName: string) => {
     if (downloadingModels.has(modelName)) return;
+    if (startModelDownload?.(modelName)) {
+      setModels(prevModels =>
+        prevModels.map(model =>
+          model.name === modelName ? { ...model, status: { Downloading: 0 } as ModelStatus } : model
+        )
+      );
+      return;
+    }
 
     const displayName = getDisplayName(modelName);
 

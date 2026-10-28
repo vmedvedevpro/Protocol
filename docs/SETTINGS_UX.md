@@ -60,6 +60,10 @@ With no speech model installed the model lists come first.
    processing; resets every choice that used it); other Whisper models use
    `whisper_delete_corrupted_model`, after which `TranscriptSettings` moves
    *After the meeting* back to `live` and live Whisper to Parakeet.
+   Downloading the optional Whisper model from its row (`startModelDownload`)
+   starts the same `startDownload('whisper')` job as the offer in *After the
+   meeting*, so there is one transfer and native code enables it; Cancel on the
+   row returns that job to idle rather than to an error.
 
 `OptionalModelDownloads` is no longer part of Settings; onboarding still shows
 it (`activeOnly`). Labs speech options that are on are badged on the step whose

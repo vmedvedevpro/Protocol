@@ -614,6 +614,13 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
                             uninstallModel('whisper');
                             return true;
                         }}
+                        startModelDownload={(name) => {
+                            // The same job as the offer above: one download, and native
+                            // code makes it the after-meeting model even if Settings closes.
+                            if (name !== OPTIONAL_WHISPER_MODEL) return false;
+                            startDownload('whisper');
+                            return true;
+                        }}
                         usageFor={usageFor('whisper')}
                         autoSave={false}
                     />

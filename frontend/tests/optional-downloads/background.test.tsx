@@ -89,6 +89,20 @@ test('a failed optional download can be retried without restarting setup', async
   expect(current.jobs.nemotron.status).toBe('ready');
 });
 
+test('a Whisper download cancelled from its Settings row returns to idle, not to an error', async () => {
+  await act(async () => { root = create(<App page="settings" />); });
+  await act(async () => current.startDownload('whisper'));
+  const cancelled = 'Download cancelled by user';
+  await act(async () => listeners.get('model-download-error')!({ payload: { modelName: 'large-v3-turbo-q5_0', error: cancelled } }));
+  await act(async () => pending.get('whisper_download_model')!.reject(`Failed to download model: ${cancelled}` as any));
+  expect(current.jobs.whisper).toMatchObject({ status: 'idle', progress: 0 });
+  expect(current.jobs.whisper.error).toBeUndefined();
+  // A real failure still reports.
+  await act(async () => current.startDownload('whisper'));
+  await act(async () => pending.get('whisper_download_model')!.reject('Failed to download model: Network unavailable' as any));
+  expect(current.jobs.whisper.status).toBe('error');
+});
+
 test('activation errors stay retryable without reporting the model enabled', async () => {
   whisperStatus = 'Available';
   activationFails = true;

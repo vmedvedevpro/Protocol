@@ -117,6 +117,11 @@ test('removing an optional model targets only that model', async () => {
   expect(uninstallModel).not.toHaveBeenCalled();
   expect(whisperManagerProps.removeModel('large-v3-turbo-q5_0')).toBe(true);
   expect(uninstallModel).toHaveBeenCalledWith('whisper');
+  // Its row downloads through the same job as the offer, so there is one transfer.
+  expect(whisperManagerProps.startModelDownload('small')).toBe(false);
+  expect(startDownload).not.toHaveBeenCalled();
+  expect(whisperManagerProps.startModelDownload('large-v3-turbo-q5_0')).toBe(true);
+  expect(startDownload).toHaveBeenCalledWith('whisper');
   // Nemotron's Remove asks first; confirming uninstalls Nemotron only.
   await act(async () => root.root.findByProps({ 'aria-label': 'Remove NVIDIA Nemotron' }).props.onClick());
   await act(async () => root.root.findByType(ConfirmDialog).props.onConfirm());

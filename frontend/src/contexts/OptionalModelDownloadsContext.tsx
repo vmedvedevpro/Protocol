@@ -23,6 +23,9 @@ type Jobs = Record<OptionalModel, OptionalDownload>;
 const initialJobs: Jobs = {
   whisper: { status: 'idle', progress: 0 }, nemotron: { status: 'idle', progress: 0 },
 };
+// A Whisper download cancelled from its Settings row ends with this native
+// error; it returns the job to idle instead of reporting a failure.
+const isCancelled = (message: string) => message.includes('Download cancelled by user');
 const Context = createContext<{ jobs: Jobs; startDownload: (model: OptionalModel) => void; uninstallModel: (model: OptionalModel) => void } | null>(null);
 
 /** App-level owner: leaving onboarding or navigating never cancels these jobs. */
@@ -72,7 +75,8 @@ export function OptionalModelDownloadsProvider({ children }: { children: React.R
       register<{ modelName: string; error: string }>('model-download-error', p => {
         if (p.modelName === OPTIONAL_WHISPER_MODEL) {
           const downloaded = p.error.startsWith('Model downloaded, but could not enable it:');
-          update('whisper', { status: downloaded ? 'activation-error' : 'error', progress: downloaded ? 100 : 0, error: p.error });
+          if (isCancelled(p.error)) update('whisper', { status: 'idle', progress: 0 });
+          else update('whisper', { status: downloaded ? 'activation-error' : 'error', progress: downloaded ? 100 : 0, error: p.error });
         }
       }),
       register<{ file: string; percent: number; status: string; downloaded?: number; total?: number; message?: string }>('diarization-download-progress', p => {
@@ -150,6 +154,10 @@ export function OptionalModelDownloadsProvider({ children }: { children: React.R
       toast.success(`${model === 'whisper' ? 'Whisper' : 'Nemotron'} is enabled`, { description: model === 'whisper' ? 'Whisper is now the default for post-call enhancement and retranscription.' : 'Nemotron will label speakers live on your next recording and refine them afterward.' });
     })().catch(error => {
       const message = error instanceof Error ? error.message : String(error);
+      if (model === 'whisper' && isCancelled(message)) {
+        update(model, { status: 'idle', progress: 0 });
+        return;
+      }
       downloaded ||= message.startsWith('Model downloaded, but could not enable it:');
       update(model, { status: downloaded ? 'activation-error' : 'error', progress: downloaded ? 100 : 0, error: message });
       toast.error(downloaded ? 'Model downloaded, but could not enable it' : `${model === 'whisper' ? 'Whisper' : 'Nemotron'} download failed`, { description: 'You can keep using Protocol and retry from Settings.' });
