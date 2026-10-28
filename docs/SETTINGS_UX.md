@@ -9,9 +9,9 @@ model, download and activation rules they call are documented in
 
 | Owner | Role |
 | --- | --- |
-| `frontend/src/components/settings/SettingsGroup.tsx` | `SettingsGroup` (an uppercase title over one card of rows), `SettingRow` (icon, title, description, a control on the right, full-width body below) and `RowNote` (a status or explanation line). General, Transcription, Summaries, Meeting detection, Local AI and Labs use them. |
+| `frontend/src/components/settings/SettingsGroup.tsx` | `SettingsGroup` (an uppercase title over one card of rows), `SettingRow` (an icon in a column of its own; beside it the title and description, a control on their right that wraps under them when the row is narrow, and the body below, all on one left edge) and `RowNote` (a status or explanation line). General, Transcription, Summaries, Meeting detection, Local AI and Labs use them. |
 | `frontend/src/components/settings/ModelRow.tsx` | One speech model in a list: name, description, size and facts, Recommended and in-use badges, and the one action its status allows (Download, Cancel with progress, Retry, Remove behind a confirmation, Download again). Rows never select a model. |
-| `frontend/src/app/settings/page.tsx`, `globals.css` (`.settings-shell`, `.settings-group-card`) | Container queries on the page's own width: below 50rem the section list shrinks to an icon rail (each item keeps `aria-label` and `title`), and below 34rem a row stops indenting its body under its icon. The sidebar can take most of a small window, so the viewport width says little here. |
+| `frontend/src/app/settings/page.tsx`, `globals.css` (`.settings-shell`, `.settings-group-card`) | Container queries on the page's own width: below 50rem the section list shrinks to an icon rail (each item keeps `aria-label` and `title`), and below 34rem a row hides its icon (`.setting-row-icon`) so its text and controls keep the card's width. The sidebar can take most of a small window, so the viewport width says little here. |
 | `frontend/src/components/ui/select.tsx` | A trigger cuts a long value with an ellipsis (`truncate`) instead of clipping it. |
 
 ## Settings › Transcription

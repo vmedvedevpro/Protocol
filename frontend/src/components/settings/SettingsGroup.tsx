@@ -52,23 +52,29 @@ export const SettingRow = React.forwardRef<HTMLDivElement, RowProps>(function Se
   ref,
 ) {
   const Title = htmlFor ? 'label' : 'h4';
+  // The icon has a column of its own, so a control that wraps under the title
+  // starts where the title and the body do (.setting-row-icon in globals.css).
   return (
     <div ref={ref} className={cn('scroll-mt-6 px-5 py-4', className)} {...props}>
-      <div className="flex flex-wrap items-start gap-x-4 gap-y-3">
+      <div className="flex items-start gap-x-4">
         {Icon && (
-          <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-af-accent/[0.12] text-af-accent">
+          <span className="setting-row-icon mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-af-accent/[0.12] text-af-accent">
             <Icon className="h-[18px] w-[18px]" />
           </span>
         )}
-        <div className="min-w-0 flex-1 basis-60">
-          <Title htmlFor={htmlFor} className="block text-sm font-semibold text-af-text">
-            {title}
-          </Title>
-          {description && <div className="mt-0.5 text-[13px] leading-relaxed text-af-text-3">{description}</div>}
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-start gap-x-4 gap-y-3">
+            <div className="min-w-0 flex-1 basis-60">
+              <Title htmlFor={htmlFor} className="block text-sm font-semibold text-af-text">
+                {title}
+              </Title>
+              {description && <div className="mt-0.5 text-[13px] leading-relaxed text-af-text-3">{description}</div>}
+            </div>
+            {control && <div className="flex min-w-0 max-w-full shrink-0 items-center gap-2">{control}</div>}
+          </div>
+          {children && <div className="mt-3">{children}</div>}
         </div>
-        {control && <div className="flex min-w-0 max-w-full shrink-0 items-center gap-2">{control}</div>}
       </div>
-      {children && <div className={cn('mt-3', Icon && 'setting-row-body-indented')}>{children}</div>}
     </div>
   );
 });

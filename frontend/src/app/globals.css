@@ -579,8 +579,8 @@ textarea.af-bare {
 }
 
 /* Settings respond to their own width, which the sidebar can take most of in
-   a small window: the section list shrinks to icons, and a row stops
-   indenting its body under its icon. */
+   a small window: the section list shrinks to icons, and a row drops its
+   icon so its title, control and body keep the card's full width. */
 .settings-shell { container: settings-shell / inline-size; }
 .settings-nav { width: 15rem; }
 .settings-group-card { container: settings-group / inline-size; }
@@ -590,8 +590,8 @@ textarea.af-bare {
   .settings-nav-item { justify-content: center; padding-left: 0; padding-right: 0; }
   .settings-main-inner { padding-left: 1.25rem; padding-right: 1.25rem; }
 }
-@container settings-group (min-width: 34rem) {
-  .setting-row-body-indented { padding-left: 52px; }
+@container settings-group (max-width: 34rem) {
+  .setting-row-icon { display: none; }
 }
 
 /* Transcript and summary toolbars respond to their column, not the viewport. */
