@@ -18,7 +18,7 @@ import { RowNote, SettingRow, SettingsGroup } from './settings/SettingsGroup';
 import type { RawModelInfo } from '@/hooks/useTranscriptionModels';
 import { formatModelSize, useModelSize } from '@/lib/model-catalog';
 import { getModelDisplayInfo } from '@/lib/parakeet';
-import { installedSpeechModels, speechModelLabel, speechModelLanguages, type InstalledSpeechModel, type SpeechEngine } from '@/lib/speech-models';
+import { installedSpeechModels, speechModelLabel, speechModelLanguages, speechModelName, type InstalledSpeechModel, type SpeechEngine } from '@/lib/speech-models';
 import { useLabs } from '@/hooks/useLabs';
 
 export interface TranscriptModelProps {
@@ -73,6 +73,9 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
     const [uiProvider, setUiProvider] = useState<TranscriptModelProps['provider']>(transcriptModelConfig.provider);
     const [installedModels, setInstalledModels] = useState<InstalledModel[]>([]);
     const [installedLoaded, setInstalledLoaded] = useState(false);
+    // The catalog's name for the model the Whisper offer downloads; the full
+    // Large V3 Turbo is a different, larger model.
+    const [optionalWhisperName, setOptionalWhisperName] = useState<string | null>(null);
     const [isSavingLive, setIsSavingLive] = useState(false);
     const [postCallConfig, setPostCallConfig] = useState<PostCallTranscriptConfig>(DEFAULT_POST_CALL_CONFIG);
     const [isLoadingPostCall, setIsLoadingPostCall] = useState(true);
@@ -139,6 +142,8 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
             invoke<RawModelInfo[]>('parakeet_get_available_models').catch(() => []),
         ]);
         setInstalledModels(installedSpeechModels(whisperModels, parakeetModels));
+        const optionalWhisper = whisperModels.find((model) => model.name === OPTIONAL_WHISPER_MODEL);
+        if (optionalWhisper?.display_name) setOptionalWhisperName(speechModelName('whisper', optionalWhisper.name, optionalWhisper.display_name));
         setInstalledLoaded(true);
     }, []);
 
@@ -381,12 +386,13 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
         </RowNote>
     );
 
+    const offeredWhisper = optionalWhisperName ? `Whisper ${optionalWhisperName}` : 'Whisper';
     const whisperOffer = isWhisperDownloading ? (
         <div className="space-y-2 rounded-xl border border-af-border bg-af-panel px-3.5 py-3">
             <div className="flex flex-wrap items-center justify-between gap-2 text-[13px] font-medium text-af-text">
                 <span className="inline-flex items-center gap-2">
                     {whisperJob.status === 'activating' && <Spinner className="h-3.5 w-3.5" />}
-                    {whisperJob.status === 'activating' ? 'Switching to Whisper…' : 'Downloading Whisper Large V3 Turbo…'}
+                    {whisperJob.status === 'activating' ? 'Switching to Whisper…' : `Downloading ${offeredWhisper}…`}
                 </span>
                 <span className="tabular-nums text-af-text-2">{Math.round(whisperJob.progress)}%</span>
             </div>
@@ -408,7 +414,7 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
             <div className="min-w-0 flex-1 basis-60">
                 <p className="text-[13px] font-medium text-af-text">Get a cleaner transcript with Whisper</p>
                 <p className="mt-0.5 text-xs leading-relaxed text-af-text-3">
-                    Whisper Large V3 Turbo is slower than Parakeet but often more accurate on the full recording. Protocol uses it here once it is downloaded.
+                    {`${offeredWhisper} is slower than Parakeet but often more accurate on the full recording. Protocol uses it here once it is downloaded.`}
                 </p>
             </div>
             <Button variant="primary" size="sm" onClick={() => startDownload('whisper')}>
@@ -426,7 +432,7 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
                 description="Writes the live transcript while you record."
                 control={
                     <Select value={installedModels.length === 0 ? '' : liveKey} onValueChange={chooseLive} disabled={isSavingLive || installedModels.length === 0} name="live-model">
-                        <SelectTrigger className="w-72 max-w-full" aria-label="Model during the meeting">
+                        <SelectTrigger className="w-80 max-w-full" aria-label="Model during the meeting">
                             <SelectValue placeholder={installedLoaded ? 'No speech model installed' : 'Loading…'} />
                         </SelectTrigger>
                         <SelectContent>
@@ -456,7 +462,7 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
                 description="When a recording is saved, Protocol transcribes it again in full for a cleaner transcript. To redo one meeting, use Enhance transcript in its ··· menu."
                 control={
                     <Select value={afterKey} onValueChange={chooseAfter} disabled={isLoadingPostCall || isSavingPostCall || installedModels.length === 0} name="after-meeting-model">
-                        <SelectTrigger className="w-72 max-w-full" aria-label="Model after the meeting">
+                        <SelectTrigger className="w-80 max-w-full" aria-label="Model after the meeting">
                             <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
@@ -500,7 +506,7 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
                     description="The language people speak. Choosing it helps Whisper; Parakeet always detects the language itself."
                     control={
                         <Select value={language.value} onValueChange={language.onChange} disabled={language.disabled} name="meeting-language">
-                            <SelectTrigger className="w-72 max-w-full" aria-label="Meeting language">
+                            <SelectTrigger className="w-80 max-w-full" aria-label="Meeting language">
                                 <SelectValue />
                             </SelectTrigger>
                             <SelectContent>

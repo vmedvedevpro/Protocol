@@ -111,8 +111,10 @@ test('the pickers show what runs during and after meetings, and say when a choic
   expect(picker('live-model').props.value).toBe('parakeet:parakeet-tdt-0.6b-v3-int8');
   expect(picker('after-meeting-model').props.value).toBe('live');
   expect(text()).toContain('Uses Parakeet · Lightning.');
-  // Without Whisper, the after-meeting step offers the recommended download.
+  // Without Whisper, the after-meeting step offers the recommended download,
+  // by its catalog name: the full Large V3 Turbo is another model.
   expect(text()).toContain('Get a cleaner transcript with Whisper');
+  expect(text()).toContain('Whisper Large V3 Turbo Compressed is slower than Parakeet');
   await act(async () => picker('meeting-language').props.onValueChange('de'));
   expect(setLanguage).toHaveBeenCalledWith('de');
 
