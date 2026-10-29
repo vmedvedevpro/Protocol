@@ -127,13 +127,31 @@ if (-not (Get-Command cmake.exe -ErrorAction SilentlyContinue)) {
 }
 # Ninja when it is available (the runner image has it on PATH, vcvars adds
 # Visual Studio's copy when its CMake component is installed); otherwise CMake
-# falls back to its Visual Studio generator, which is slower but works.
+# falls back to its Visual Studio generator, which is slower and needs a
+# shorter target dir (below).
 Remove-Item Env:CMAKE_GENERATOR_INSTANCE -ErrorAction SilentlyContinue
 if (Get-Command ninja.exe -ErrorAction SilentlyContinue) {
   $env:CMAKE_GENERATOR = "Ninja"
 } else {
   Remove-Item Env:CMAKE_GENERATOR -ErrorAction SilentlyContinue
   Write-Host "Ninja not found: CMake uses its default Visual Studio generator"
+}
+
+# whisper.cpp 1.8 builds vulkan-shaders-gen as a CMake ExternalProject in
+# <target>\release\build\whisper-rs-sys-<hash>\out\build\ggml\src\ggml-vulkan\
+# vulkan-shaders-gen-prefix\src\vulkan-shaders-gen-build, 132 characters below
+# the target dir. CMake's compiler checks there write files up to 96 characters
+# deeper with Ninja (CMakeFiles\CMakeScratch\TryCompile-*\...\*ABI.cpp.obj) and
+# 105 with the Visual Studio generator (its .tlog files). cl.exe and MSBuild
+# cannot write past MAX_PATH even with long paths enabled, so a longer target
+# dir fails half-way through the Vulkan build (C1083 or FTK1011).
+$trycompileDepth = if ($env:CMAKE_GENERATOR -eq "Ninja") { 96 } else { 105 }
+$deepestPath = $target.Length + 132 + $trycompileDepth
+if ($deepestPath -gt 259) {
+  $hint = if ($env:CMAKE_GENERATOR -eq "Ninja") { "" } else { " With Ninja on PATH the limit is $(259 - 132 - 96)." }
+  throw ("The cargo target dir $target is too long for the Vulkan build of whisper.cpp: " +
+    "its deepest path would have $deepestPath characters, over the Windows limit of 259. " +
+    "Set CARGO_TARGET_DIR to a dir of at most $(259 - 132 - $trycompileDepth) characters, for example C:\t.$hint")
 }
 
 if (-not $SkipFrontend) {
