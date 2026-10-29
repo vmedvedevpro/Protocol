@@ -79,6 +79,56 @@ pub fn whisper_context_acceleration_for(
     }
 }
 
+/// What ggml reports a registered backend device to be. whisper.cpp's `gpu_device` counts
+/// only the `Gpu` and `IntegratedGpu` devices, in registry order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GgmlDeviceKind {
+    Gpu,
+    IntegratedGpu,
+    Other,
+}
+
+/// The `gpu_device` that keeps whisper.cpp 1.7.1's Vulkan choice: the first discrete GPU.
+///
+/// 1.7.1's Vulkan backend registered only discrete GPUs (device 0 when there was none), so
+/// device 0 was the first dGPU. Since 1.8 it registers integrated GPUs too, in Vulkan
+/// enumeration order, and whisper.cpp takes the first GPU or iGPU; Windows often lists a
+/// hybrid laptop's iGPU first. The installer's Vulkan probe validates the 1.7.1 choice.
+/// Without a discrete GPU this is 0, the device 1.8 picks.
+pub fn first_discrete_gpu_device(kinds: &[GgmlDeviceKind]) -> i32 {
+    kinds
+        .iter()
+        .filter(|kind| **kind != GgmlDeviceKind::Other)
+        .position(|kind| *kind == GgmlDeviceKind::Gpu)
+        .unwrap_or(0) as i32
+}
+
+/// The `gpu_device` for a context of `compiled_backend`. A Vulkan build reads ggml's device
+/// registry, which also initializes the Vulkan instance whisper.cpp then reuses.
+pub fn whisper_gpu_device(compiled_backend: WhisperCompiledBackend) -> i32 {
+    match compiled_backend {
+        #[cfg(feature = "vulkan")]
+        WhisperCompiledBackend::Vulkan => first_discrete_gpu_device(&ggml_device_kinds()),
+        _ => 0,
+    }
+}
+
+#[cfg(feature = "vulkan")]
+fn ggml_device_kinds() -> Vec<GgmlDeviceKind> {
+    use whisper_rs::whisper_rs_sys as sys;
+    // SAFETY: these registry calls take no pointers except the device handles the registry
+    // itself returns, for indices below the count it reports.
+    unsafe {
+        (0..sys::ggml_backend_dev_count())
+            .map(|index| match sys::ggml_backend_dev_type(sys::ggml_backend_dev_get(index)) {
+                sys::ggml_backend_dev_type_GGML_BACKEND_DEVICE_TYPE_GPU => GgmlDeviceKind::Gpu,
+                sys::ggml_backend_dev_type_GGML_BACKEND_DEVICE_TYPE_IGPU => GgmlDeviceKind::IntegratedGpu,
+                _ => GgmlDeviceKind::Other,
+            })
+            .collect()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -126,6 +176,19 @@ mod tests {
         assert!(high.flash_attn);
         assert!(ultra.use_gpu);
         assert!(ultra.flash_attn);
+    }
+
+    #[test]
+    fn gpu_device_is_the_first_discrete_gpu_among_whisper_devices() {
+        use GgmlDeviceKind::{Gpu, IntegratedGpu, Other};
+
+        // CPU and other devices sit in the registry but are not counted by gpu_device.
+        assert_eq!(first_discrete_gpu_device(&[Other, IntegratedGpu, Gpu]), 1);
+        assert_eq!(first_discrete_gpu_device(&[Gpu, IntegratedGpu, Other]), 0);
+        assert_eq!(first_discrete_gpu_device(&[IntegratedGpu, Other, IntegratedGpu, Gpu, Gpu]), 2);
+        assert_eq!(first_discrete_gpu_device(&[Other, IntegratedGpu]), 0);
+        assert_eq!(first_discrete_gpu_device(&[Other]), 0);
+        assert_eq!(first_discrete_gpu_device(&[]), 0);
     }
 
     #[test]

@@ -22,6 +22,20 @@ pnpm install
 pnpm run tauri:dev:vulkan   # or tauri:dev:cpu / tauri:dev:cuda
 ```
 
+A Vulkan build needs a short cargo target dir. whisper.cpp builds its Vulkan
+shader generator as a nested CMake project deep inside the target dir, and the
+compiler cannot write paths longer than Windows' 259 characters, even with long
+paths enabled. The limit is 31 characters with Ninja on `PATH` and 22 with
+CMake's default Visual Studio generator, so the default `target` of a checkout
+under your user folder is too long:
+
+```powershell
+$env:CARGO_TARGET_DIR = 'C:\t'
+```
+
+`build-universal-windows.ps1` checks this before it builds. CPU builds have no
+such limit.
+
 Frontend checks, as run in CI:
 
 ```powershell

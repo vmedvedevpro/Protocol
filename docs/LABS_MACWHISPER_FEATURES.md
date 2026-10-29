@@ -121,10 +121,17 @@ speaker; a named label missing from the saved transcript reports that condition.
 The branch already uses VAD/energy checks, repetition cleanup, Whisper
 `set_logprob_thold(-1.0)`, entropy threshold 2.4, and no-speech threshold 0.55.
 Labs persists a stricter no-speech threshold of 0.45, read atomically by both
-Whisper decode entry points. This may reject quiet speech; it does not imply
-confidence calibration. The plan's `compression_ratio_threshold` call is not
-available in the pinned whisper-rs API, and token suppression/temperature
-fallback claims are not added without verified support.
+Whisper decode entry points. whisper.cpp 1.7.1 ignored the threshold; since 1.8
+(Protocol runs 1.8.3, #63) a window gives no text when its no-speech probability
+is above the threshold and its average log-probability below -1.0, and such a
+window is not retried at a higher temperature. whisper.cpp reads that
+probability after the last prompt token, not at the start-of-transcript token
+as OpenAI's Whisper does, so with a set language it stays near zero: on a
+20-minute meeting span (230 calls) the highest value was 0.00002, and neither
+0.55 nor 0.45 removed any text. The guard can reject quiet speech only in
+principle; it does not imply confidence calibration. whisper-rs has no
+`compression_ratio_threshold` (its `entropy_thold` is the closest), and token
+suppression/temperature fallback claims are not added without verified support.
 
 ## Feature 12: clean transcript view
 

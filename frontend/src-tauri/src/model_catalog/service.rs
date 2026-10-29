@@ -477,7 +477,7 @@ fn hooks<R: Runtime>(app: AppHandle<R>, entry: &Entry) -> Hooks {
                         tokio::task::spawn_blocking(move || {
                             // On the CPU, so the GPU stays with the loaded model.
                             let params = whisper_rs::WhisperContextParameters { use_gpu: false, ..Default::default() };
-                            whisper_rs::WhisperContext::new_with_params(&path.to_string_lossy(), params)
+                            whisper_rs::WhisperContext::new_with_params(&path, params)
                                 .map(drop)
                                 .map_err(|error| anyhow!("{error}"))
                         })

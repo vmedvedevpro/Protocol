@@ -4,7 +4,7 @@ use std::path::{PathBuf};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use whisper_rs::{WhisperContext, WhisperContextParameters, WhisperToken, FullParams, SamplingStrategy};
+use whisper_rs::{WhisperContext, WhisperContextParameters, WhisperTokenId, FullParams, SamplingStrategy};
 use serde::{Serialize, Deserialize};
 use anyhow::{Result, anyhow};
 use reqwest::Client;
@@ -12,7 +12,7 @@ use tokio::fs;
 use tokio::io::AsyncWriteExt;
 use crate::model_catalog::{self, huggingface, installed, schema::Engine};
 use crate::model_integrity;
-use super::acceleration::{whisper_context_acceleration_for, WhisperCompiledBackend};
+use super::acceleration::{whisper_context_acceleration_for, whisper_gpu_device, WhisperCompiledBackend};
 
 const MAX_INITIAL_PROMPT_TOKENS: usize = 224;
 
@@ -67,7 +67,7 @@ impl WhisperEngine {
     fn tokenize_initial_prompt(
         ctx: &WhisperContext,
         initial_prompt: Option<&str>,
-    ) -> Result<Vec<WhisperToken>> {
+    ) -> Result<Vec<WhisperTokenId>> {
         let Some(prompt) = initial_prompt.filter(|prompt| !prompt.trim().is_empty()) else {
             return Ok(Vec::new());
         };
@@ -369,11 +369,12 @@ impl WhisperEngine {
                 // PERFORMANCE OPTIMIZATION: Use comprehensive hardware profile for optimal GPU configuration
                 let hardware_profile = crate::audio::HardwareProfile::detect();
                 let adaptive_config = hardware_profile.get_whisper_config();
-                let acceleration = whisper_context_acceleration_for(
+                let mut acceleration = whisper_context_acceleration_for(
                     WhisperCompiledBackend::current(),
                     hardware_profile.gpu_type,
                     hardware_profile.performance_tier,
                 );
+                acceleration.gpu_device = whisper_gpu_device(acceleration.compiled_backend);
 
                 let context_param = WhisperContextParameters {
                     use_gpu: acceleration.use_gpu,
@@ -397,7 +398,7 @@ impl WhisperEngine {
                     // let _suppressor = crate::whisper_engine::StderrSuppressor::new();
 
                     // Load whisper context with hardware-optimized parameters
-                    WhisperContext::new_with_params(&model_info.path.to_string_lossy(), context_param)
+                    WhisperContext::new_with_params(&model_info.path, context_param)
                         .map_err(|e| anyhow!("Failed to load model {}: {}", model_name, e))?
                     // Suppressor dropped here, stderr restored
                 };
@@ -652,7 +653,7 @@ impl WhisperEngine {
 
         // Additional suppression to reduce C library verbosity
         params.set_suppress_blank(true);
-        params.set_suppress_non_speech_tokens(true);
+        params.set_suppress_nst(true);
         params.set_temperature(adaptive_config.temperature);
         params.set_max_initial_ts(1.0);
         params.set_entropy_thold(2.4);
@@ -675,23 +676,21 @@ impl WhisperEngine {
 
         // PERFORMANCE: Suppress verbose C library logs during transcription
         // This hides whisper_full_with_state debug logs and beam search details
-        let (num_segments, state) = {
+        let state = {
             // let _suppressor = crate::whisper_engine::StderrSuppressor::new();
 
             let mut state = ctx.create_state()?;
             state.full(params, &audio_data)?;
-            let num_segments = state.full_n_segments();
 
-            (num_segments, state)
+            state
             // Suppressor dropped here, stderr restored
         };
         let mut result = String::new();
         let mut total_confidence = 0.0;
         let mut segment_count = 0;
 
-        let num_segments = num_segments?;
-        for i in 0..num_segments {
-            let segment_text = match state.full_get_segment_text_lossy(i) {
+        for segment in state.as_iter() {
+            let segment_text = match segment.to_str_lossy() {
                 Ok(text) => text,
                 Err(_) => continue,
             };
@@ -777,7 +776,7 @@ impl WhisperEngine {
 
         // BALANCED settings - good quality with reasonable speed
         params.set_suppress_blank(true);
-        params.set_suppress_non_speech_tokens(true);
+        params.set_suppress_nst(true);
         params.set_temperature(0.3);             // Lower than 0.4 for consistency, higher than 0.0 for quality
         params.set_max_initial_ts(1.0);
         params.set_entropy_thold(2.4);
@@ -847,7 +846,7 @@ impl WhisperEngine {
         state.full(params, &audio_data)?;
 
         // Extract text with improved segment handling
-        let num_segments = state.full_n_segments()?;
+        let num_segments = state.full_n_segments();
 
         // Performance optimization: reduce segment completion logging
         // Only log for significant transcriptions to avoid I/O overhead
@@ -856,21 +855,21 @@ impl WhisperEngine {
         }
         let mut result = String::new();
 
-        for i in 0..num_segments {
-            let segment_text = match state.full_get_segment_text_lossy(i) {
+        for segment in state.as_iter() {
+            let segment_text = match segment.to_str_lossy() {
                 Ok(text) => text,
                 Err(_) => continue,
             };
 
-            let _start_time = state.full_get_segment_t0(i).unwrap_or(0);
-            let _end_time = state.full_get_segment_t1(i).unwrap_or(0);
+            let _start_time = segment.start_timestamp();
+            let _end_time = segment.end_timestamp();
 
             // Performance optimization: remove per-segment debug logging
             // This was causing significant I/O overhead during transcription
             // Only log segments for very long audio (>30s) or when explicitly debugging
             if duration_seconds > 30.0 {
                 perf_trace!("Segment {} ({:.2}s-{:.2}s): '{}'",
-                           i, _start_time as f64 / 100.0, _end_time as f64 / 100.0, segment_text);
+                           segment.segment_index(), _start_time as f64 / 100.0, _end_time as f64 / 100.0, segment_text);
             }
 
             // Clean and append segment text
@@ -1410,5 +1409,42 @@ mod tests {
         engine.discover_models().await.unwrap();
         let status = engine.available_models.read().await["tiny-q5_1"].status.clone();
         assert!(matches!(&status, ModelStatus::Error(reason) if reason.contains("could not be deleted")), "{status:?}");
+    }
+
+    /// Checks that a model downloaded for an older whisper.cpp still loads and
+    /// transcribes with the app's acceleration decision and decoding
+    /// parameters. The model is opened in place and read only: it bypasses
+    /// `load_model`, whose integrity check writes a marker beside the file.
+    #[tokio::test]
+    #[ignore = "Requires PROTOCOL_WHISPER_TEST_MODEL (ggml-*.bin) and PROTOCOL_WHISPER_TEST_WAV (16 kHz mono)"]
+    async fn an_installed_model_loads_and_transcribes() {
+        let model = std::env::var("PROTOCOL_WHISPER_TEST_MODEL").expect("Set PROTOCOL_WHISPER_TEST_MODEL");
+        let wav = std::env::var("PROTOCOL_WHISPER_TEST_WAV").expect("Set PROTOCOL_WHISPER_TEST_WAV");
+        let language = std::env::var("PROTOCOL_WHISPER_TEST_LANGUAGE").ok();
+        let (audio, rate) = crate::diarization::dsp::read_wav(std::path::Path::new(&wav)).unwrap();
+        assert_eq!(rate, 16000);
+
+        let profile = crate::audio::HardwareProfile::detect();
+        let mut acceleration = whisper_context_acceleration_for(
+            WhisperCompiledBackend::current(),
+            profile.gpu_type,
+            profile.performance_tier,
+        );
+        acceleration.gpu_device = whisper_gpu_device(acceleration.compiled_backend);
+        let params = WhisperContextParameters {
+            use_gpu: acceleration.use_gpu,
+            gpu_device: acceleration.gpu_device,
+            flash_attn: acceleration.flash_attn,
+            ..Default::default()
+        };
+        println!("whisper.cpp {}, {}", whisper_rs::WHISPER_CPP_VERSION, acceleration.status_label());
+        let ctx = WhisperContext::new_with_params(&model, params).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let engine = WhisperEngine::new_with_models_dir(Some(dir.path().to_path_buf())).unwrap();
+        *engine.current_context.write().await = Some(ctx);
+
+        let (text, _, _) = engine.transcribe_audio_with_confidence(audio, language, None).await.unwrap();
+        println!("{text}");
+        assert!(!text.trim().is_empty(), "no text from {wav}");
     }
 }

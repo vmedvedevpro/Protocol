@@ -45,6 +45,9 @@ Record must initialize both source VADs before starting any saver or exposing a
 chunk sender. Runtime failures return a distinct startup error, while recording
 destination failures remain storage errors. All three source tracks, mute
 alignment, and the 800 ms/2,000 ms live/offline policies still apply.
+Whisper runs on whisper.cpp 1.8.3 through `whisper-rs` 0.16; what changed
+with 1.8 is in the development map's
+[Whisper engine](docs/DEVELOPMENT_MAP.md#whisper-engine) section.
 
 Capture, recording, and transcription deliberately split into parallel paths in
 `src-tauri/src/audio/`:
@@ -749,6 +752,10 @@ Gotchas:
 - The exe cannot be relinked while it is running (LNK1104). Kill it first.
 - Build with `--features cuda,custom-protocol`. Without `custom-protocol` the
   binary tries to load a dev server on localhost instead of the embedded UI.
+- A Vulkan build needs a short cargo target dir (at most 31 characters with
+  Ninja, 22 without): whisper.cpp 1.8 builds its Vulkan shader generator as a
+  nested CMake project inside it, and the compiler cannot write past Windows'
+  259-character path limit. See [docs/BUILDING.md](docs/BUILDING.md).
 
 ---
 
@@ -906,9 +913,13 @@ missing Visual C++ setup only warns: the files are already replaced, and abortin
 would leave a half-updated install behind the updater's passive window.
 
 Vulkan selection requires the 64-bit system loader and runs the staged x64
-`protocol-vulkan-probe.exe`, which applies GGML's device-selection policy and
+`protocol-vulkan-probe.exe`, which selects the devices Whisper can run on (the
+discrete GPUs, else the first device) and
 requires every selected device to provide Vulkan 1.2, a compute queue, 16-bit
-storage support, and successful logical-device creation. This follows modern
+storage support, and successful logical-device creation. That was GGML's own
+policy in whisper.cpp 1.7.1; 1.8 also registers integrated GPUs, so
+`whisper_engine/acceleration.rs` passes whisper.cpp the first discrete GPU as
+`gpu_device` to keep the two in step. This follows modern
 Intel/AMD DCH discovery without a fragile registry scan. Do not
 replace it with a loader-file-only check: stale loaders can exist without a
 usable ICD, and the Vulkan backend cannot safely assume CPU fallback. A legacy

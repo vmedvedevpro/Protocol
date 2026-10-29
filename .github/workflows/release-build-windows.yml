@@ -61,7 +61,7 @@ jobs:
         with:
           workspaces: '. -> target'
           key: windows-x64-release-v1
-      # whisper-rs 0.13 generates its Windows bindings with libclang, and only
+      # whisper-rs generates its Windows bindings with libclang, and only
       # LLVM 18 works (the image has 20). The script pins the archive by SHA-256.
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
