@@ -6,7 +6,7 @@
 //   node scripts/release/validate-release.mjs --mode dry-run [--version 0.3.0] --sha <sha> --releases <file>
 //   options: --notes-out <file>  writes the release's CHANGELOG section
 //
-// A tag run fails on any problem. A dry run (manual dispatch, pull request)
+// A tag run fails on any problem. A dry run (push to main, manual dispatch)
 // reports the release rules as warnings, so a branch whose files still say the
 // last version can rehearse the build; the version files must always agree.
 // `--releases` is the output of `gh api --paginate --slurp repos/<repo>/releases`.
