@@ -7,6 +7,11 @@ is inherited from the project Protocol forked from; Protocol did not release it.
 
 ## Protocol — unreleased
 
+## Protocol 0.4.2 — 2026-10-29
+
+Whisper runs on a newer speech engine: with a Vulkan GPU, the transcript after a
+meeting takes about a third of the time it took in 0.4.1.
+
 ### Changed
 
 - **Faster Whisper** ([#63](https://github.com/vmedvedevpro/Protocol/issues/63)):
