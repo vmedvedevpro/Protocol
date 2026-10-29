@@ -1,42 +1,45 @@
 name: Release
 
 # A pushed tag vX.Y.Z or vX.Y.Z-rc.N on a commit of main builds every platform
-# and creates a draft release; the owner publishes it by hand. Manual runs and
-# pull requests that touch the pipeline are always dry runs: they build and
-# check everything, sign with a throwaway key and create no release.
+# and creates a draft release; the owner publishes it by hand. Pushes to main
+# and manual runs are always dry runs: they build and check everything, sign
+# with a throwaway key and create no release. Pull requests run only
+# pr-checks.yml; a tag goes only on a commit whose main run is green.
 # See WORKFLOWS_OVERVIEW.md for the procedure.
 on:
   push:
     tags: ['v*']
+    branches: [main]
+    # GitHub applies no path filter to tag pushes, so this list only lets a
+    # documentation-only push to main skip the dry run. CHANGELOG.md is not in
+    # it: the dry run's notes and latest.json come from it. updater-e2e.yml
+    # keeps the same list.
+    paths-ignore:
+      - 'docs/**'
+      - '**/README.md'
+      - 'AGENTS.md'
+      - 'ARCHITECTURE.md'
+      - 'PRIVACY_POLICY.md'
+      - 'LICENSE*'
+      - '.github/**/*.md'
+      - 'frontend/src-tauri/*.md'
   workflow_dispatch:
     inputs:
       version:
         description: Version the files must carry (empty = tauri.conf.json). Always a dry run.
         required: false
         type: string
-  pull_request:
-    paths:
-      - '.github/workflows/release*.yml'
-      - '.github/workflows/pr-checks.yml'
-      - 'scripts/release/**'
-      - 'frontend/scripts/build-universal-windows.ps1'
-      - 'frontend/scripts/stage-runtime-deps.ps1'
-      - 'frontend/scripts/verify-windows-release.mjs'
-      - 'frontend/scripts/bootstrap-*.ps1'
-      - 'frontend/src-tauri/windows/**'
-      - 'frontend/src-tauri/vulkan-probe/**'
-      - 'frontend/src-tauri/tauri*.conf.json'
-      - 'frontend/src-tauri/build.rs'
-      - 'frontend/src-tauri/build/**'
 
 permissions:
   contents: read
 
 concurrency:
-  # One run per tag, never cancelled; a newer push of a branch or PR cancels
-  # its older dry run.
-  group: release-${{ github.event_name == 'push' && github.ref || format('dry-run-{0}', github.event.pull_request.number || github.ref) }}
-  cancel-in-progress: ${{ github.event_name != 'push' }}
+  # One run per tag, never cancelled. Dry runs are grouped by event and ref:
+  # a newer push to main cancels the older main run but not a manual run, and
+  # no dry run shares a group with a tag. A manual run on a tag ref is still a
+  # dry run: a tag run is a tag push, not any run on a tag ref.
+  group: release-${{ github.event_name == 'push' && github.ref_type == 'tag' && github.ref || format('dry-run-{0}-{1}', github.event_name, github.ref) }}
+  cancel-in-progress: ${{ github.event_name != 'push' || github.ref_type != 'tag' }}
 
 jobs:
   validate:
@@ -66,7 +69,7 @@ jobs:
       - name: Validate the release
         id: validate
         env:
-          MODE: ${{ github.event_name == 'push' && 'tag' || 'dry-run' }}
+          MODE: ${{ github.event_name == 'push' && github.ref_type == 'tag' && 'tag' || 'dry-run' }}
           TAG: ${{ github.ref_name }}
           INPUT_VERSION: ${{ inputs.version }}
         run: |
@@ -110,7 +113,7 @@ jobs:
   # Dry runs: the same assembly as `draft`, signed with a throwaway key, kept
   # as the release-dry-run artifact instead of a release.
   preview:
-    if: github.event_name != 'push'
+    if: github.event_name != 'push' || github.ref_type != 'tag'
     needs: [validate, build-windows, build-macos, build-linux]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -180,7 +183,7 @@ jobs:
   # Tag runs: signs with the production key and creates the draft. Only this
   # job can read the release environment, which admits only tag runs (v*).
   draft:
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' && github.ref_type == 'tag'
     needs: [validate, build-windows, build-macos, build-linux]
     runs-on: ubuntu-24.04
     timeout-minutes: 45
