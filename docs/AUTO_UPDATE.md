@@ -264,9 +264,10 @@ display when the old process exits), start it, wait for the result, and assert
 9.0.1 updated from 9.0.0 plus the replaced files (Windows file version, macOS
 `Info.plist`, Linux AppImage hash). If the Windows installer replaces the app
 but does not relaunch it (its `RunAsUser` needs the interactive shell), the job
-starts the new copy itself and records a warning. The workflow runs on manual
-dispatch and on pull requests that touch the updater, the installer, the Tauri
-configuration or the workflow.
+starts the new copy itself and records a warning. The workflow runs on every
+push to `main` that changes more than documentation and on manual dispatch;
+pull requests do not run it (#65), so an updater change is first tested end to
+end after it merges unless it is dispatched on its branch by hand.
 
 ### Local Windows (QA identity)
 

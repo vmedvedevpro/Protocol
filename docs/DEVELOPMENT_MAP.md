@@ -653,12 +653,16 @@ installer (upstream's universal installer with CUDA was 674 MB).
 
 Releases are built by `.github/workflows/release.yml`, never locally; the
 procedure, dry runs and the `release` environment are in
-[WORKFLOWS_OVERVIEW.md](../.github/workflows/WORKFLOWS_OVERVIEW.md). Data flow:
+[WORKFLOWS_OVERVIEW.md](../.github/workflows/WORKFLOWS_OVERVIEW.md). Pull
+requests run only `pr-checks.yml`; every push to `main` that changes more than
+documentation also runs this workflow as a dry run and `updater-e2e.yml` (#65).
+Data flow:
 
 1. A release PR runs `scripts/release/bump-version.mjs <version>`: the version in
    `tauri.conf.json`, `frontend/src-tauri/Cargo.toml`, `Cargo.lock` and
    `frontend/package.json`, and `## Protocol <version> — <date>` in `CHANGELOG.md`.
-2. The owner pushes the tag `v<version>` on the merged commit.
+2. Once the merged commit's `main` runs of `release.yml` and `updater-e2e.yml`
+   are green, the owner pushes the tag `v<version>` on that commit.
    `validate-release.mjs` checks the tag format, that the commit is on
    `origin/main`, the version files, the CHANGELOG section (it becomes the notes),
    the published releases (no duplicate, above every non-draft release whatever
@@ -707,10 +711,11 @@ Tests: `node --test "scripts/release/test/*.test.mjs"` (in `pr-checks.yml`);
 the Rust test above and the CUDA status test in
 `whisper_engine::commands::cuda_reconfiguration_tests`. Remaining limits: builds
 are unsigned (SmartScreen and Gatekeeper warnings); Linux packages are built and
-started in CI only, and their native tests do not block; caches saved by tag runs
-are visible only to that tag, so release runs start cold (about 40 minutes, the
-Windows leg about 35); `llama-helper` is CPU-only on Windows and Linux; the
-Vulkan/CPU choice happens at install and update time, not at launch.
+started in CI only, and their native tests do not block; a release run with cold
+caches takes about 40 minutes (the Windows leg about 35), and whether tag runs
+restore the caches `main` runs save is not yet observed; `llama-helper` is
+CPU-only on Windows and Linux; the Vulkan/CPU choice happens at install and
+update time, not at launch.
 
 ### Fork identity and updates
 

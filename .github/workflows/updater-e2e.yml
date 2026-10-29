@@ -6,22 +6,29 @@ name: Updater end-to-end
 # (src-tauri/src/updater/e2e.rs). Passes when the relaunched copy reports
 # 9.0.1 updated from 9.0.0 and the installed files are the new ones.
 # No secrets, read-only token. See docs/AUTO_UPDATE.md.
+# Runs on every push to main, like the release dry run, and by hand; pull
+# requests run only pr-checks.yml.
 on:
+  push:
+    branches: [main]
+    # Documentation-only pushes skip it; the same list as release.yml.
+    paths-ignore:
+      - 'docs/**'
+      - '**/README.md'
+      - 'AGENTS.md'
+      - 'ARCHITECTURE.md'
+      - 'PRIVACY_POLICY.md'
+      - 'LICENSE*'
+      - '.github/**/*.md'
+      - 'frontend/src-tauri/*.md'
   workflow_dispatch:
-  pull_request:
-    paths:
-      - frontend/src-tauri/src/updater/**
-      - frontend/src-tauri/windows/**
-      - frontend/src-tauri/tauri*.json
-      - frontend/src-tauri/Cargo.toml
-      - frontend/scripts/updater-e2e.mjs
-      - .github/workflows/updater-e2e.yml
 
 permissions:
   contents: read
 
 concurrency:
-  group: updater-e2e-${{ github.ref }}
+  # A newer push to main cancels the older main run but not a manual run.
+  group: updater-e2e-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 env:

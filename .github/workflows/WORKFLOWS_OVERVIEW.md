@@ -1,23 +1,45 @@
 # GitHub Actions workflows
 
-Protocol's CI checks every pull request and builds releases. Releases are built
-here, never on a developer machine: one installer per platform, with checksums,
-updater signatures and build-provenance attestations, in a **draft** release
-that the owner publishes by hand. All builds are unsigned (no Windows or Apple
+Protocol's CI runs the quick checks on every pull request and the full set on
+`main` after each merge, and builds releases. Releases are built here, never on
+a developer machine: one installer per platform, with checksums, updater
+signatures and build-provenance attestations, in a **draft** release that the
+owner publishes by hand. All builds are unsigned (no Windows or Apple
 certificate yet).
 
 | Workflow | Trigger | What it does |
 | --- | --- | --- |
 | `pr-checks.yml` | pull requests, pushes to `main`, called by `release.yml` | Frontend tests, Next.js build, `tsc`; release-script tests and the migration checksum table |
-| `release.yml` | tag `v*`; manual run and pipeline pull requests as **dry runs** | Validates, runs the checks, builds all three platforms, then creates the draft (tag) or a dry-run artifact |
+| `release.yml` | tag `v*`; pushes to `main` and manual runs as **dry runs** | Validates, runs the checks, builds all three platforms, then creates the draft (tag) or a dry-run artifact |
 | `release-build-windows.yml` | called by `release.yml` | `windows-2022`: CPU + Vulkan installer, native tests, payload check, install/start/uninstall on the runner |
 | `release-build-macos.yml` | called by `release.yml` | `macos-15`: Apple Silicon DMG and updater bundle, native tests, bundle checks, two launches |
 | `release-build-linux.yml` | called by `release.yml` | `ubuntu-22.04`: experimental AppImage and deb, package checks, start under Xvfb; native tests do not block yet |
+| `updater-e2e.yml` | pushes to `main`, manual runs | On all three platforms, an old build under a test identity updates itself to a new one from a localhost feed ([AUTO_UPDATE.md](../../docs/AUTO_UPDATE.md)) |
 | `release-published.yml` | release published | Downloads the public assets anonymously and checks checksums, `latest.json`, signatures and `/releases/latest` |
 
 Everything a job decides lives in tested scripts under `scripts/release/`
 (`node --test "scripts/release/test/*.test.mjs"`), so it can be run locally the
 same way. The Windows build itself is `frontend/scripts/build-universal-windows.ps1`.
+
+## Pull requests and `main`
+
+A pull request runs only `pr-checks.yml` (1–3 minutes); no Rust is built or
+tested there. The push of each merge to `main` runs `pr-checks.yml`, the
+`release.yml` dry run (25–50 minutes; its legs run the native tests on every
+platform, blocking on Windows and macOS) and `updater-e2e.yml` (20–45 minutes).
+A push that changes only documentation (`docs/`, any `README.md`, `AGENTS.md`,
+`ARCHITECTURE.md`, `PRIVACY_POLICY.md`, `LICENSE*`, Markdown under `.github/`,
+`frontend/src-tauri/*.md`) runs only `pr-checks.yml`. `CHANGELOG.md` is not on
+that list: the dry run's notes and `latest.json` come from it. A newer push to
+`main` cancels the older run of the same workflow; tag runs and manual runs are
+never cancelled by it.
+
+`main` has no branch protection, so a red run blocks nothing by itself. It
+means that commit is not released, and the fix goes in through a pull request
+like any other change. A pipeline or updater change is first exercised in full
+after it merges; to try it before, start the workflow on its branch by hand:
+`gh workflow run release.yml --ref <branch>` or
+`gh workflow run updater-e2e.yml --ref <branch>`.
 
 ## Release assets
 
@@ -52,12 +74,29 @@ prereleases are invisible to them.
    confirms that `Cargo.lock` still matches. Review the section: it becomes the
    release notes and the text the updater shows. Merge the PR.
 
-2. **Tag the merged commit and push the tag.** Fetch first, and push only this
-   tag (never `git push --tags`):
+2. **Wait for a green `main`, then tag that commit.** The merge starts
+   `pr-checks.yml`, the `release.yml` dry run and `updater-e2e.yml` on the
+   merged commit. Tag only a commit whose `main` runs of all three succeeded:
 
    ```powershell
    git fetch origin
-   git tag -a v0.3.0 origin/main -m "Protocol 0.3.0"
+   $sha = git rev-parse origin/main   # the release PR's merge commit
+   gh run list -R vmedvedevpro/Protocol --commit $sha --event push
+   ```
+
+   If another pull request merged after the release PR, set `$sha` to the
+   release PR's merge commit instead
+   (`gh pr view <number> -R vmedvedevpro/Protocol --json mergeCommit --jq .mergeCommit.oid`).
+   A run that is still going, failed or was cancelled is not green. That
+   includes a run whose macOS leg was cancelled because no `macos-15` runner
+   became available: do not tag; whether to re-run it (**Re-run failed jobs**)
+   is the owner's call. A documentation-only commit starts no dry run and is
+   never the one to tag.
+
+   Then tag it and push only this tag (never `git push --tags`):
+
+   ```powershell
+   git tag -a v0.3.0 $sha -m "Protocol 0.3.0"
    git push origin refs/tags/v0.3.0
    ```
 
@@ -108,13 +147,15 @@ published releases, so a failed run leaves only the tag (and maybe a draft,
 which the next run replaces).
 
 - A transient failure (network, runner): **Re-run failed jobs** on the run.
-- A failure that needs a fix: merge the fix to `main`, then move the tag to the
-  new commit and push it again; the new run starts on its own:
+- A failure that needs a fix: merge the fix to `main`, wait until that
+  commit's `main` runs are green (step 2), then move the tag to it and push it
+  again; the new run starts on its own:
 
   ```powershell
   git push origin :refs/tags/v0.3.0
   git fetch origin
-  git tag -f -a v0.3.0 origin/main -m "Protocol 0.3.0"
+  $sha = git rev-parse origin/main   # the fix's merge commit, green on main
+  git tag -f -a v0.3.0 $sha -m "Protocol 0.3.0"
   git push origin refs/tags/v0.3.0
   ```
 
@@ -128,11 +169,12 @@ payloads with a throwaway key and creates no release. The release rules
 (CHANGELOG section, version order, updater configuration, tauri-cli version)
 are reported as warnings so a branch can rehearse; the version files must
 still agree. It never reaches the `release` environment or the production key.
+Between releases a `main` dry run warns that its version is already
+published; that is expected.
 
-- A pull request that changes the pipeline (`release*.yml`, `pr-checks.yml`,
-  `scripts/release/`, the Windows packaging scripts and NSIS files, the Tauri
-  configs, `build.rs`) runs one automatically.
-- Any branch, once `release.yml` is on `main`:
+- Every push to `main` except a documentation-only one runs one automatically
+  (see [Pull requests and `main`](#pull-requests-and-main)).
+- Any branch, by hand, for example to try a pipeline change before it merges:
   `gh workflow run release.yml --ref <branch> [-f version=<the files' version>]`.
 
 Artifacts of a dry run: `leg-windows`, `leg-macos`, `leg-linux` (the
@@ -177,9 +219,11 @@ version. No other secrets are used.
 - Caches: Rust per leg (`swatinem/rust-cache`), the pnpm store, the LLVM 18
   archive (Windows). The Vulkan SDK installer is downloaded on every run: the
   cache of `humbletim/install-vulkan-sdk` is off because it uses
-  `actions/cache@v4`, which targets Node.js 20. Caches saved by a tag run are
-  only visible to that tag, so release runs usually start cold; pull-request
-  runs reuse their own caches.
+  `actions/cache@v4`, which targets Node.js 20. Caches saved by a `main` run
+  are visible to later `main` runs, to pull requests and, by GitHub's rule
+  that any run can restore the default branch's caches, to tag runs; no tag
+  run has shown that yet. Caches saved by a tag run are visible only to that
+  tag.
 - Actions are pinned by full commit SHA with the release as a comment, and
   every JavaScript action, including those inside composite actions, must
   target Node.js 24: the runner warns about Node.js 20 actions and will stop
