@@ -548,6 +548,40 @@ stack UI; its previous Parakeet CPU pill was fixed text. An ignored test with
 the installed v3 INT8 model and synthetic silence confirms encoder nodes run
 on both DirectML and CPU; real speech performance remains unqualified.
 
+### Whisper engine
+
+Whisper runs on whisper.cpp 1.8.3 through `whisper-rs` 0.16 (`whisper-rs-sys`
+0.15) on all three platforms (#63; 1.7.1 before); `whisper_rs::WHISPER_CPP_VERSION`
+names the vendored version. `whisper_engine.rs` reads results through
+`WhisperState::as_iter()` segments. Engine behaviour that changed with 1.8 and
+what Protocol does about it:
+
+- The no-speech threshold (0.55, Labs 0.45) now takes effect, but whisper.cpp's
+  no-speech probability stays near zero with a set language, so it removed
+  nothing on the measured meeting; see
+  [Feature 8](LABS_MACWHISPER_FEATURES.md#feature-8-whisper-silence-guard).
+- Inputs from 100 ms are decoded (1.7.1 returned nothing below 1 s); the
+  measured post-call segments were all longer than 1 s.
+- ggml-vulkan registers integrated GPUs as well as discrete ones, and
+  whisper.cpp takes the first. `acceleration.rs::whisper_gpu_device` passes the
+  first discrete GPU as `gpu_device` (else device 0), which keeps 1.7.1's
+  choice on hybrid laptops and matches what the installer's Vulkan probe
+  checks. Unit test: `gpu_device_is_the_first_discrete_gpu_among_whisper_devices`;
+  no hybrid machine was available to test it on.
+- 1.8 adds flash attention to the Vulkan backend, but `acceleration.rs` keeps
+  it off there: on an Intel Arc B390 iGPU it made the post-call pass 41 %
+  slower (20 meeting minutes in 251 s instead of 178 s) and the text no closer
+  to a reference transcript. Metal and CUDA keep it on fast tiers.
+- On the CPU (whisper.cpp's default of 4 threads; the app's `max_threads` is
+  still not applied) a 20-second clip took 197 s instead of 252 s with Large
+  V3 Turbo Compressed and 10.5 s instead of 7.9 s with Base.
+
+The ignored test `an_installed_model_loads_and_transcribes` loads a model
+(`PROTOCOL_WHISPER_TEST_MODEL`, read only) and transcribes a 16 kHz mono WAV
+(`PROTOCOL_WHISPER_TEST_WAV`, optional `PROTOCOL_WHISPER_TEST_LANGUAGE`) on the
+build's backend. Windows Vulkan builds need a short cargo target dir
+([BUILDING.md](BUILDING.md#build-from-source-windows)).
+
 ### Windows installer
 
 `frontend/scripts/build-universal-windows.ps1` builds the one Windows asset,
@@ -565,7 +599,10 @@ recompile between them), copies the Vulkan executable to
 bundler patches only the executable it packages), and stages
 `runtime-deps\DirectML.dll` and the pinned Visual C++ redistributable
 (`stage-runtime-deps.ps1`, versioned download URL). It finds Visual Studio 2022
-with vswhere and uses Ninja when present. With #31's updater configuration in
+with vswhere and uses Ninja when present. It stops before building when the
+cargo target dir is too long for the Vulkan build (31 characters with Ninja, 22
+without): whisper.cpp 1.8 builds its Vulkan shader generator as a nested CMake
+project whose compiler checks would pass Windows' 259-character path limit. With #31's updater configuration in
 `tauri.conf.json` it gives `tauri build` a throwaway signing key; the release
 workflow signs the final file again. Output: `dist\protocol-windows-x64-setup.exe`
 and `dist\SHA256SUMS.txt`.

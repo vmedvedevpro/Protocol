@@ -7,6 +7,20 @@ is inherited from the project Protocol forked from; Protocol did not release it.
 
 ## Protocol — unreleased
 
+### Changed
+
+- **Faster Whisper** ([#63](https://github.com/vmedvedevpro/Protocol/issues/63)):
+  Whisper runs on a newer speech engine, whisper.cpp 1.8.3 (was 1.7.1). With a
+  Vulkan GPU, transcribing a recording again after the meeting takes about a
+  third of the time (20 minutes of a meeting in 3 minutes instead of 10 on an
+  Intel Arc integrated GPU). Without a GPU, Large V3 Turbo Compressed is about
+  a fifth faster, while small models such as Base are about a third slower.
+  Transcripts word some passages differently and
+  came out slightly closer to a reference transcript on the meeting it was
+  checked on. Whisper models you already downloaded keep working, and a laptop
+  with both an integrated and a dedicated GPU still runs Whisper on the
+  dedicated one.
+
 ## Protocol 0.4.1 — 2026-10-29
 
 Settings › Transcription is organized around a meeting, with each model listed

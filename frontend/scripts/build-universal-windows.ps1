@@ -117,8 +117,8 @@ $env:LIBCLANG_PATH = Join-Path $LlvmDir "bin"
 if (-not (Test-Path (Join-Path $env:LIBCLANG_PATH "libclang.dll"))) {
   throw "Compatible LLVM/libclang not found at $LlvmDir (LLVM 18 recommended)"
 }
-# Bundled whisper-rs bindings are Linux-shaped in 0.13.x. Windows builds must
-# generate their own bindings via libclang.
+# The bindings bundled with whisper-rs-sys are Linux-shaped (still in 0.15).
+# Windows builds must generate their own bindings via libclang.
 Remove-Item Env:WHISPER_DONT_GENERATE_BINDINGS -ErrorAction SilentlyContinue
 
 if (-not (Get-Command cmake.exe -ErrorAction SilentlyContinue)) {
