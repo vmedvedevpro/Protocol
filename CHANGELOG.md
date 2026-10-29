@@ -7,6 +7,12 @@ is inherited from the project Protocol forked from; Protocol did not release it.
 
 ## Protocol — unreleased
 
+## Protocol 0.4.1 — 2026-10-29
+
+Settings › Transcription is organized around a meeting, with each model listed
+once and plainer wording across Settings. Windows setup uses Tauri's standard
+installer, and existing installs upgrade in place.
+
 ### Changed
 
 - **Settings › Transcription, reorganized** around a meeting. Choose the model
