@@ -12,7 +12,7 @@ use tokio::fs;
 use tokio::io::AsyncWriteExt;
 use crate::model_catalog::{self, huggingface, installed, schema::Engine};
 use crate::model_integrity;
-use super::acceleration::{whisper_context_acceleration_for, WhisperCompiledBackend};
+use super::acceleration::{whisper_context_acceleration_for, whisper_gpu_device, WhisperCompiledBackend};
 
 const MAX_INITIAL_PROMPT_TOKENS: usize = 224;
 
@@ -369,11 +369,12 @@ impl WhisperEngine {
                 // PERFORMANCE OPTIMIZATION: Use comprehensive hardware profile for optimal GPU configuration
                 let hardware_profile = crate::audio::HardwareProfile::detect();
                 let adaptive_config = hardware_profile.get_whisper_config();
-                let acceleration = whisper_context_acceleration_for(
+                let mut acceleration = whisper_context_acceleration_for(
                     WhisperCompiledBackend::current(),
                     hardware_profile.gpu_type,
                     hardware_profile.performance_tier,
                 );
+                acceleration.gpu_device = whisper_gpu_device(acceleration.compiled_backend);
 
                 let context_param = WhisperContextParameters {
                     use_gpu: acceleration.use_gpu,
@@ -1424,11 +1425,12 @@ mod tests {
         assert_eq!(rate, 16000);
 
         let profile = crate::audio::HardwareProfile::detect();
-        let acceleration = whisper_context_acceleration_for(
+        let mut acceleration = whisper_context_acceleration_for(
             WhisperCompiledBackend::current(),
             profile.gpu_type,
             profile.performance_tier,
         );
+        acceleration.gpu_device = whisper_gpu_device(acceleration.compiled_backend);
         let params = WhisperContextParameters {
             use_gpu: acceleration.use_gpu,
             gpu_device: acceleration.gpu_device,
