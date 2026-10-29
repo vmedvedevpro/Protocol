@@ -1409,4 +1409,40 @@ mod tests {
         let status = engine.available_models.read().await["tiny-q5_1"].status.clone();
         assert!(matches!(&status, ModelStatus::Error(reason) if reason.contains("could not be deleted")), "{status:?}");
     }
+
+    /// Checks that a model downloaded for an older whisper.cpp still loads and
+    /// transcribes with the app's acceleration decision and decoding
+    /// parameters. The model is opened in place and read only: it bypasses
+    /// `load_model`, whose integrity check writes a marker beside the file.
+    #[tokio::test]
+    #[ignore = "Requires PROTOCOL_WHISPER_TEST_MODEL (ggml-*.bin) and PROTOCOL_WHISPER_TEST_WAV (16 kHz mono)"]
+    async fn an_installed_model_loads_and_transcribes() {
+        let model = std::env::var("PROTOCOL_WHISPER_TEST_MODEL").expect("Set PROTOCOL_WHISPER_TEST_MODEL");
+        let wav = std::env::var("PROTOCOL_WHISPER_TEST_WAV").expect("Set PROTOCOL_WHISPER_TEST_WAV");
+        let language = std::env::var("PROTOCOL_WHISPER_TEST_LANGUAGE").ok();
+        let (audio, rate) = crate::diarization::dsp::read_wav(std::path::Path::new(&wav)).unwrap();
+        assert_eq!(rate, 16000);
+
+        let profile = crate::audio::HardwareProfile::detect();
+        let acceleration = whisper_context_acceleration_for(
+            WhisperCompiledBackend::current(),
+            profile.gpu_type,
+            profile.performance_tier,
+        );
+        let params = WhisperContextParameters {
+            use_gpu: acceleration.use_gpu,
+            gpu_device: acceleration.gpu_device,
+            flash_attn: acceleration.flash_attn,
+            ..Default::default()
+        };
+        println!("whisper.cpp {}, {}", whisper_rs::WHISPER_CPP_VERSION, acceleration.status_label());
+        let ctx = WhisperContext::new_with_params(&model, params).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let engine = WhisperEngine::new_with_models_dir(Some(dir.path().to_path_buf())).unwrap();
+        *engine.current_context.write().await = Some(ctx);
+
+        let (text, _, _) = engine.transcribe_audio_with_confidence(audio, language, None).await.unwrap();
+        println!("{text}");
+        assert!(!text.trim().is_empty(), "no text from {wav}");
+    }
 }
