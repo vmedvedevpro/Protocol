@@ -1,3 +1,7 @@
+; Protocol: Tauri's stock NSIS template as shipped with @tauri-apps/cli 2.12.4
+; (tag tauri-cli-v2.12.4, crates/tauri-bundler/src/bundle/windows/nsis/installer.nsi).
+; Every change is marked with a "; Protocol:" comment. To move to a newer Tauri,
+; start from that version's stock file and apply the marked changes again.
 Unicode true
 ManifestDPIAware true
 ; Add in `dpiAwareness` `PerMonitorV2` to manifest for Windows 10 1607+ (note this should not affect lower versions since they should be able to ignore this and pick up `dpiAware` `true` set by `ManifestDPIAware true`)
@@ -27,7 +31,6 @@ ManifestDPIAwareness PerMonitorV2
 !include "FileAssociation.nsh"
 !include "Win\COM.nsh"
 !include "Win\Propkey.nsh"
-; utils.nsh's CheckIfAppIsRunning uses Restart Manager since tauri-bundler 2.10.
 !include "Win\RestartManager.nsh"
 !include "StrFunc.nsh"
 ${StrCase}
@@ -65,14 +68,15 @@ ${StrLoc}
 !define WEBVIEW2BOOTSTRAPPERPATH "{{webview2_bootstrapper_path}}"
 !define WEBVIEW2INSTALLERPATH "{{webview2_installer_path}}"
 !define MINIMUMWEBVIEW2VERSION "{{minimum_webview2_version}}"
-; Keyed by the bundle identifier, not the generic product name, so setup never
-; treats another app called "Protocol" as an older install and runs its uninstaller.
+; Protocol: keyed by the bundle identifier, not the product name, so setup never
+; treats another app called "Protocol" as an older install and runs its
+; uninstaller. Installed Protocol builds are registered under this key.
 !define UNINSTKEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${BUNDLEID}"
 !define MANUKEY "Software\${MANUFACTURER}"
 !define MANUPRODUCTKEY "${MANUKEY}\${PRODUCTNAME}"
-; Default per-user folder name: the product name without spaces ("Protocol";
-; "Protocol-Labs-Local-Test" for tauri.labs-test.conf.json), so bundles with
-; different identities never share executables or the data folder.
+; Protocol: the default per-user folder is %LOCALAPPDATA%\<publisher>\<this>
+; (.onInit): the product name with spaces replaced by hyphens, so a bundle with
+; another product name (Protocol QA, Labs) never shares the executables or data\.
 !searchreplace INSTALLDIRNAME "${PRODUCTNAME}" " " "-"
 !define UNINSTALLERSIGNCOMMAND "{{uninstaller_sign_cmd}}"
 !define ESTIMATEDSIZE "{{estimated_size}}"
@@ -85,7 +89,9 @@ Var WixMode
 Var OldMainBinaryName
 
 Name "${PRODUCTNAME}"
-BrandingText "Protocol"
+; Protocol: stock shows the copyright here; bundle.copyright is empty, which
+; would make NSIS show its own name instead.
+BrandingText "${PRODUCTNAME}"
 OutFile "${OUTFILE}"
 
 ; We don't actually use this value as default install path,
@@ -143,13 +149,11 @@ VIAddVersionKey "ProductVersion" "${VERSION}"
 ; Installer sidebar image
 !if "${SIDEBARIMAGE}" != ""
   !define MUI_WELCOMEFINISHPAGE_BITMAP "${SIDEBARIMAGE}"
-  !define MUI_WELCOMEFINISHPAGE_BITMAP_NOSTRETCH
 !endif
 
 ; Enable header images for installer and uninstaller pages when either image is configured.
 !if "${HEADERIMAGE}" != ""
   !define MUI_HEADERIMAGE
-  !define MUI_HEADERIMAGE_BITMAP_NOSTRETCH
 !else if "${UNINSTALLERHEADERIMAGE}" != ""
   !define MUI_HEADERIMAGE
 !endif
@@ -169,428 +173,19 @@ VIAddVersionKey "ProductVersion" "${VERSION}"
   !define MUI_UNICON "${UNINSTALLERICON}"
 !endif
 
-; ---------------------------------------------------------------------------
-; Protocol — full custom dark chrome (not stock Wizard97)
-; Tokens: bg #0A0C10  surface #12151C  text #E6EBF5  muted #A8B3C7  teal #2DD4BF
-; ---------------------------------------------------------------------------
-!define MUI_BGCOLOR 0A0C10
-!define MUI_TEXTCOLOR E6EBF5
-!define MUI_INSTFILESPAGE_COLORS "E6EBF5 0A0C10"
-!define MUI_LICENSEPAGE_BGCOLOR "0A0C10"
-
-; Hide the grey header bitmap strip separators as much as MUI allows
-!define MUI_HEADER_TRANSPARENT_TEXT
-
-!define MUI_WELCOMEPAGE_TITLE "Welcome to Protocol"
-!define MUI_WELCOMEPAGE_TITLE_3LINES
-!define MUI_WELCOMEPAGE_TEXT "Private meeting capture, transcription, and summaries — entirely on your PC.$\r$\n$\r$\nSetup will install Protocol and its local runtimes (WebView2 and Visual C++).$\r$\n$\r$\nNothing is uploaded. Click Next to continue."
-
-!define MUI_FINISHPAGE_TITLE "You're all set"
-!define MUI_FINISHPAGE_TITLE_3LINES
-!define MUI_FINISHPAGE_TEXT "Protocol is installed.$\r$\n$\r$\nLaunch it to finish a 30-second onboarding (your name + a quick audio check). Everything stays on this machine."
-
-!define MUI_INSTFILESPAGE_FINISHHEADER_TEXT "Install complete"
-!define MUI_INSTFILESPAGE_FINISHHEADER_SUBTEXT "Protocol is ready on this PC."
-!define MUI_INSTFILESPAGE_ABORTHEADER_TEXT "Install cancelled"
-!define MUI_INSTFILESPAGE_ABORTHEADER_SUBTEXT "No changes were finished."
-
-!define MUI_CUSTOMFUNCTION_GUIINIT MeetilyGUIInit
-
-; Setup should emphasize status and overall progress, not expose
-; NSIS's noisy extraction log as the primary interface.
-ShowInstDetails hide
-ShowUnInstDetails show
-XPStyle on
-
-; Progress bar messages (comctl32)
-!define /ifndef PBM_SETBARCOLOR 0x409
-!define /ifndef PBM_SETBKCOLOR  0x2001
-!define /ifndef PBM_GETRANGE    0x407
-!define /ifndef PBM_GETPOS      0x408
-
-Var MeetilyDirDlg
-Var MeetilyDirText
-Var MeetilyDirBrowse
-Var MeetilyDirHint
-Var MeetilyFontTitle
-Var MeetilyFontBody
-Var MeetilyFinishLaunch
-Var MeetilyFinishDesktop
-
-Function MeetilyWelcomePageShow
-  ${If} $PassiveMode = 1
-    Abort
-  ${EndIf}
-  nsDialogs::Create 1018
-  Pop $R0
-  ${If} $R0 == error
-    Abort
-  ${EndIf}
-  SetCtlColors $R0 E6EBF5 0A0C10
-
-  ${NSD_CreateLabel} 0 2u 100% 12u "PROTOCOL  /  LOCAL AI MEETINGS"
-  Pop $R1
-  SetCtlColors $R1 50D5C7 0A0C10
-  SendMessage $R1 ${WM_SETFONT} $MeetilyFontBody 1
-
-  ${NSD_CreateLabel} 0 24u 100% 30u "Meetings stay yours."
-  Pop $R1
-  SetCtlColors $R1 F1F5F9 0A0C10
-  SendMessage $R1 ${WM_SETFONT} $MeetilyFontTitle 1
-
-  ${NSD_CreateLabel} 0 58u 100% 28u "Private recording, transcription, speaker labels, and summaries on your own PC."
-  Pop $R1
-  SetCtlColors $R1 A8B3C7 0A0C10
-
-  ${NSD_CreateGroupBox} 0 96u 100% 62u "  ONE INSTALLER, TWO BACKENDS  "
-  Pop $R1
-  SetCtlColors $R1 7DD3FC 0A0C10
-  ${NSD_CreateLabel} 14u 116u -14u 12u "Vulkan GPU (AMD / Intel / NVIDIA)    |    CPU fallback"
-  Pop $R1
-  SetCtlColors $R1 E2E8F0 0A0C10
-  ${NSD_CreateLabel} 14u 136u -14u 12u "Setup detects compatible hardware automatically."
-  Pop $R1
-  SetCtlColors $R1 7F8CA3 0A0C10
-
-  ${NSD_CreateLabel} 0 174u 100% 24u "No account. No subscription. No analytics."
-  Pop $R1
-  SetCtlColors $R1 94A3B8 0A0C10
-  nsDialogs::Show
-FunctionEnd
-
-Function MeetilyWelcomePageLeave
-FunctionEnd
-
-; Windows 10/11 immersive dark title bar + dark control hints
-Function MeetilyApplyOsDarkMode
-  Push $R0
-  ; DWMWA_USE_IMMERSIVE_DARK_MODE = 20 (Win10 20H1+); 19 on older 19H1 builds
-  System::Call 'dwmapi::DwmSetWindowAttribute(p$HWNDPARENT, i20, *i 1, i4)'
-  System::Call 'dwmapi::DwmSetWindowAttribute(p$HWNDPARENT, i19, *i 1, i4)'
-  ; Undocumented uxtheme dark mode (ignore failures on older Windows)
-  System::Call 'uxtheme::SetPreferredAppMode(i2)'
-  System::Call 'uxtheme::AllowDarkModeForWindow(p$HWNDPARENT, i1)'
-  System::Call 'uxtheme::FlushMenuThemes()'
-  System::Call 'uxtheme::RefreshImmersiveColorPolicyState()'
-  Pop $R0
-FunctionEnd
-
-Function MeetilyThemeHwnd
-  ; $R9 = hwnd
-  Exch $R9
-  Push $R8
-  SetCtlColors $R9 E6EBF5 0A0C10
-  System::Call 'uxtheme::SetWindowTheme(p$R9, w"DarkMode_Explorer", p0)'
-  Pop $R8
-  Exch $R9
-FunctionEnd
-
-Function MeetilyGUIInit
-  Call MeetilyApplyOsDarkMode
-  SetCtlColors $HWNDPARENT E6EBF5 0A0C10
-  ; Bottom branding strip + separator line
-  Push $R0
-  GetDlgItem $R0 $HWNDPARENT 1028
-  IntCmp $R0 0 +3 0 0
-    SetCtlColors $R0 5A6578 0A0C10
-    SendMessage $R0 ${WM_SETTEXT} 0 "STR:Protocol  ·  local AI meetings"
-  GetDlgItem $R0 $HWNDPARENT 1035
-  IntCmp $R0 0 +2 0 0
-    ShowWindow $R0 ${SW_HIDE}
-  GetDlgItem $R0 $HWNDPARENT 1036
-  IntCmp $R0 0 +2 0 0
-    ShowWindow $R0 ${SW_HIDE}
-  GetDlgItem $R0 $HWNDPARENT 1039
-  IntCmp $R0 0 +2 0 0
-    ShowWindow $R0 ${SW_HIDE}
-  GetDlgItem $R0 $HWNDPARENT 1040
-  IntCmp $R0 0 +2 0 0
-    ShowWindow $R0 ${SW_HIDE}
-  ; Create brand fonts once
-  CreateFont $MeetilyFontTitle "Segoe UI Semibold" 11 600
-  CreateFont $MeetilyFontBody "Segoe UI" 9 400
-  Pop $R0
-FunctionEnd
-
-; Paint every standard MUI control we can reach on the active page
-Function MeetilyDarkenPage
-  Call MeetilyApplyOsDarkMode
-  SetCtlColors $HWNDPARENT E6EBF5 0A0C10
-  Push $R0
-  Push $R1
-  Push $R2
-  Push $R3
-
-  FindWindow $R0 "#32770" "" $HWNDPARENT
-  SetCtlColors $R0 E6EBF5 0A0C10
-  System::Call 'uxtheme::SetWindowTheme(p$R0, w"DarkMode_Explorer", p0)'
-
-  ; Keep stock header font metrics. Larger fonts in these fixed MUI rectangles
-  ; overlap at common Windows display scaling values.
-  GetDlgItem $R1 $HWNDPARENT 1037
-  IntCmp $R1 0 +2 0 0
-    SetCtlColors $R1 E6EBF5 0A0C10
-  GetDlgItem $R1 $HWNDPARENT 1038
-  IntCmp $R1 0 +2 0 0
-    SetCtlColors $R1 A8B3C7 0A0C10
-
-  ; Branding
-  GetDlgItem $R1 $HWNDPARENT 1028
-  IntCmp $R1 0 +2 0 0
-    SetCtlColors $R1 5A6578 0A0C10
-
-  ; Hide classic sunken header/footer lines
-  GetDlgItem $R1 $HWNDPARENT 1035
-  IntCmp $R1 0 +2 0 0
-    ShowWindow $R1 ${SW_HIDE}
-  GetDlgItem $R1 $HWNDPARENT 1036
-  IntCmp $R1 0 +2 0 0
-    ShowWindow $R1 ${SW_HIDE}
-  GetDlgItem $R1 $HWNDPARENT 1039
-  IntCmp $R1 0 +2 0 0
-    ShowWindow $R1 ${SW_HIDE}
-  GetDlgItem $R1 $HWNDPARENT 1040
-  IntCmp $R1 0 +2 0 0
-    ShowWindow $R1 ${SW_HIDE}
-
-  ; Welcome / finish title + body (inner)
-  GetDlgItem $R1 $R0 1201
-  IntCmp $R1 0 +3 0 0
-    SetCtlColors $R1 E6EBF5 0A0C10
-    SendMessage $R1 ${WM_SETFONT} $MeetilyFontTitle 1
-  GetDlgItem $R1 $R0 1202
-  IntCmp $R1 0 +3 0 0
-    SetCtlColors $R1 C5CDDC 0A0C10
-    SendMessage $R1 ${WM_SETFONT} $MeetilyFontBody 1
-  GetDlgItem $R1 $R0 1006
-  IntCmp $R1 0 +2 0 0
-    SetCtlColors $R1 C5CDDC 0A0C10
-  GetDlgItem $R1 $R0 1023
-  IntCmp $R1 0 +2 0 0
-    SetCtlColors $R1 E6EBF5 0A0C10
-
-  ; Directory / generic statics + edits + buttons inside inner dlg
-  StrCpy $R2 0
-  meetily_child_loop:
-    FindWindow $R1 "" "" $R0 $R2
-    StrCmp $R1 0 meetily_child_done
-    StrCpy $R2 $R1
-    SetCtlColors $R1 E6EBF5 0A0C10
-    System::Call 'uxtheme::SetWindowTheme(p$R1, w"DarkMode_Explorer", p0)'
-    Goto meetily_child_loop
-  meetily_child_done:
-
-  ; Nav buttons (outer)
-  GetDlgItem $R1 $HWNDPARENT 1
-  IntCmp $R1 0 +2 0 0
-    System::Call 'uxtheme::SetWindowTheme(p$R1, w"DarkMode_Explorer", p0)'
-  GetDlgItem $R1 $HWNDPARENT 2
-  IntCmp $R1 0 +2 0 0
-    System::Call 'uxtheme::SetWindowTheme(p$R1, w"DarkMode_Explorer", p0)'
-  GetDlgItem $R1 $HWNDPARENT 3
-  IntCmp $R1 0 +2 0 0
-    System::Call 'uxtheme::SetWindowTheme(p$R1, w"DarkMode_Explorer", p0)'
-
-  Pop $R3
-  Pop $R2
-  Pop $R1
-  Pop $R0
-FunctionEnd
-
-Function MeetilyDarkenInstFiles
-  Call MeetilyDarkenPage
-  Push $R0
-  Push $R1
-  FindWindow $R0 "#32770" "" $HWNDPARENT
-
-  ${If} $UpdateMode = 1
-    SendMessage $HWNDPARENT ${WM_SETTEXT} 0 "STR:Protocol Setup"
-    !insertmacro MUI_HEADER_TEXT "Updating Protocol" "Updating app files and refreshing local AI runtimes..."
-    GetDlgItem $R1 $HWNDPARENT 1028
-    SendMessage $R1 ${WM_SETTEXT} 0 "STR:Protocol  ·  local AI meetings"
-    GetDlgItem $R1 $HWNDPARENT 2
-    SendMessage $R1 ${WM_SETTEXT} 0 "STR:Cancel update"
-  ${Else}
-    !insertmacro MUI_HEADER_TEXT "Installing Protocol" "Copying app files and preparing local AI runtimes..."
-  ${EndIf}
-
-  ; Progress bar → teal on dark track
-  GetDlgItem $R1 $R0 1004
-  ${If} $R1 != 0
-    ${If} $UpdateMode = 1
-      ; Updates use a blue bar so they read differently from a first install.
-      SendMessage $R1 ${PBM_SETBARCOLOR} 0 0xF7884B
-    ${Else}
-      SendMessage $R1 ${PBM_SETBARCOLOR} 0 0xBFD42D
-    ${EndIf}
-    SendMessage $R1 ${PBM_SETBKCOLOR} 0 0x1C1512
-    System::Call 'uxtheme::SetWindowTheme(p$R1, w"", w"")'
-  ${EndIf}
-
-  ; Details log
-  GetDlgItem $R1 $R0 1016
-  IntCmp $R1 0 +4 0 0
-    SetCtlColors $R1 A8B3C7 12151C
-    System::Call 'uxtheme::SetWindowTheme(p$R1, w"DarkMode_Explorer", p0)'
-    ShowWindow $R1 ${SW_HIDE}
-
-  ; Status labels above progress
-  GetDlgItem $R1 $R0 1006
-  IntCmp $R1 0 +2 0 0
-    SetCtlColors $R1 E6EBF5 0A0C10
-  GetDlgItem $R1 $R0 1008
-  IntCmp $R1 0 +2 0 0
-    SetCtlColors $R1 A8B3C7 0A0C10
-  GetDlgItem $R1 $R0 1027
-  IntCmp $R1 0 +2 0 0
-    ShowWindow $R1 ${SW_HIDE}
-
-  ; There is nowhere to navigate while files are being installed. Keep only
-  ; Cancel visible, then reveal Next once .onInstSuccess runs.
-  GetDlgItem $R1 $HWNDPARENT 1
-  IntCmp $R1 0 +2 0 0
-    ShowWindow $R1 ${SW_HIDE}
-  GetDlgItem $R1 $HWNDPARENT 3
-  IntCmp $R1 0 +2 0 0
-    ShowWindow $R1 ${SW_HIDE}
-
-  Pop $R1
-  Pop $R0
-FunctionEnd
-
-; ----- Custom install-location page (no stock groupbox wizard look) -----
-Function MeetilyDirBrowseClick
-  ${NSD_GetText} $MeetilyDirText $0
-  nsDialogs::SelectFolderDialog "Choose Protocol install folder" "$0"
-  Pop $0
-  ${If} $0 != "error"
-  ${AndIf} $0 != ""
-    ${NSD_SetText} $MeetilyDirText "$0"
-  ${EndIf}
-FunctionEnd
-
-Function MeetilyDirPageShow
-  ${If} $PassiveMode == 1
-    Abort
-  ${EndIf}
-
-  !insertmacro MUI_HEADER_TEXT "Install location" "Pick a folder — the default is recommended"
-  nsDialogs::Create 1018
-  Pop $MeetilyDirDlg
-  SetCtlColors $MeetilyDirDlg E6EBF5 0A0C10
-
-  ${NSD_CreateLabel} 0 0 100% 28u "Protocol will be installed for your Windows user account. You can change the folder below if you prefer."
-  Pop $0
-  SetCtlColors $0 A8B3C7 0A0C10
-  SendMessage $0 ${WM_SETFONT} $MeetilyFontBody 1
-
-  ${NSD_CreateLabel} 0 36u 100% 12u "FOLDER"
-  Pop $0
-  SetCtlColors $0 2DD4BF 0A0C10
-  SendMessage $0 ${WM_SETFONT} $MeetilyFontTitle 1
-
-  ${NSD_CreateText} 0 52u 76% 14u "$INSTDIR"
-  Pop $MeetilyDirText
-  SetCtlColors $MeetilyDirText E6EBF5 12151C
-  System::Call 'uxtheme::SetWindowTheme(p$MeetilyDirText, w"DarkMode_Explorer", p0)'
-
-  ${NSD_CreateButton} 78% 51u 22% 15u "Browse…"
-  Pop $MeetilyDirBrowse
-  ${NSD_OnClick} $MeetilyDirBrowse MeetilyDirBrowseClick
-  System::Call 'uxtheme::SetWindowTheme(p$MeetilyDirBrowse, w"DarkMode_Explorer", p0)'
-
-  ${NSD_CreateLabel} 0 78u 100% 24u "About 300 MB for the app and its local runtimes. Transcription and summary models are downloaded later, inside Protocol."
-  Pop $MeetilyDirHint
-  SetCtlColors $MeetilyDirHint 5A6578 0A0C10
-
-  ${NSD_CreateLabel} 0 110u 100% 36u "After files copy, setup quietly ensures WebView2 and Visual C++, then picks the Vulkan GPU build when your graphics driver supports it, otherwise the CPU build."
-  Pop $0
-  SetCtlColors $0 A8B3C7 0A0C10
-
-  Call MeetilyDarkenPage
-  nsDialogs::Show
-FunctionEnd
-
-Function MeetilyDirPageLeave
-  ${NSD_GetText} $MeetilyDirText $INSTDIR
-  ${If} $INSTDIR == ""
-    MessageBox MB_ICONEXCLAMATION "Choose an install folder."
-    Abort
-  ${EndIf}
-  ; Create the directory now so a bad path fails early
-  CreateDirectory "$INSTDIR"
-  ${IfNot} ${FileExists} "$INSTDIR"
-    MessageBox MB_ICONEXCLAMATION "Could not create:$\r$\n$INSTDIR"
-    Abort
-  ${EndIf}
-FunctionEnd
-
-Function MeetilyFinishPageShow
-  ${If} $PassiveMode = 1
-    Abort
-  ${EndIf}
-  nsDialogs::Create 1018
-  Pop $R0
-  ${If} $R0 == error
-    Abort
-  ${EndIf}
-  SetCtlColors $R0 E6EBF5 0A0C10
-
-  ${NSD_CreateLabel} 0 6u 100% 14u "INSTALL COMPLETE"
-  Pop $R1
-  SetCtlColors $R1 50D5C7 0A0C10
-
-  ${NSD_CreateLabel} 0 32u 100% 32u "Protocol is ready."
-  Pop $R1
-  SetCtlColors $R1 F1F5F9 0A0C10
-  SendMessage $R1 ${WM_SETFONT} $MeetilyFontTitle 1
-
-  ${NSD_CreateLabel} 0 72u 100% 38u "Your selected transcription backend and local runtimes are installed. First launch includes a short name and audio setup."
-  Pop $R1
-  SetCtlColors $R1 A8B3C7 0A0C10
-
-  ${NSD_CreateCheckbox} 8u 128u -8u 14u "Launch Protocol now"
-  Pop $MeetilyFinishLaunch
-  SetCtlColors $MeetilyFinishLaunch E6EBF5 0A0C10
-  ${NSD_Check} $MeetilyFinishLaunch
-
-  ${NSD_CreateCheckbox} 8u 154u -8u 14u "Create a desktop shortcut"
-  Pop $MeetilyFinishDesktop
-  SetCtlColors $MeetilyFinishDesktop E6EBF5 0A0C10
-
-  ${NSD_CreateLabel} 0 188u 100% 20u "All app data remains local unless you explicitly configure a cloud provider."
-  Pop $R1
-  SetCtlColors $R1 64748B 0A0C10
-
-  GetDlgItem $R1 $HWNDPARENT 1
-  SendMessage $R1 ${WM_SETTEXT} 0 "STR:Finish"
-  nsDialogs::Show
-FunctionEnd
-
-Function MeetilyFinishPageLeave
-  ${NSD_GetState} $MeetilyFinishDesktop $R0
-  ${If} $R0 == ${BST_CHECKED}
-    Call CreateOrUpdateDesktopShortcut
-  ${EndIf}
-  ${NSD_GetState} $MeetilyFinishLaunch $R0
-  ${If} $R0 == ${BST_CHECKED}
-    Call RunMainBinary
-  ${EndIf}
-FunctionEnd
-
 ; Define registry key to store installer language
 !define MUI_LANGDLL_REGISTRY_ROOT "HKCU"
 !define MUI_LANGDLL_REGISTRY_KEY "${MANUPRODUCTKEY}"
 !define MUI_LANGDLL_REGISTRY_VALUENAME "Installer Language"
 
 ; Installer pages, must be ordered as they appear
-; 1. Custom welcome page
-Page custom MeetilyWelcomePageShow MeetilyWelcomePageLeave
+; 1. Welcome Page
+!define MUI_PAGE_CUSTOMFUNCTION_PRE SkipIfPassive
+!insertmacro MUI_PAGE_WELCOME
 
 ; 2. License Page (if defined)
 !if "${LICENSE}" != ""
   !define MUI_PAGE_CUSTOMFUNCTION_PRE SkipIfPassive
-  !define MUI_PAGE_CUSTOMFUNCTION_SHOW MeetilyDarkenPage
   !insertmacro MUI_PAGE_LICENSE "${LICENSE}"
 !endif
 
@@ -604,18 +199,20 @@ Page custom MeetilyWelcomePageShow MeetilyWelcomePageLeave
 ;    only if a previous installation was detected
 Var ReinstallPageCheck
 Page custom PageReinstall PageLeaveReinstall
-Function PageReinstall
-  ; Uninstall previous WiX installation if exists.
-  ;
-  ; A WiX installer stores the installation info in registry
-  ; using a UUID and so we have to loop through all keys under
-  ; `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall`
-  ; and check if `DisplayName` and `Publisher` keys match ${PRODUCTNAME} and ${MANUFACTURER}
-  ;
-  ; This has a potential issue that there maybe another installation that matches
-  ; our ${PRODUCTNAME} and ${MANUFACTURER} but wasn't installed by our WiX installer,
-  ; however, this should be fine since the user will have to confirm the uninstallation
-  ; and they can chose to abort it if doesn't make sense.
+
+; Find a previous WiX installation and set $R6 to its uninstall registry key, or to "" if none.
+;
+; A WiX installer stores the installation info in registry
+; using a UUID and so we have to loop through all keys under
+; `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall`
+; and check if `DisplayName` and `Publisher` keys match ${PRODUCTNAME} and ${MANUFACTURER}
+;
+; This has a potential issue that there maybe another installation that matches
+; our ${PRODUCTNAME} and ${MANUFACTURER} but wasn't installed by our WiX installer,
+; however, this should be fine since the user will have to confirm the uninstallation
+; and they can chose to abort it if doesn't make sense.
+Function FindWixInstall
+  StrCpy $R6 ""
   StrCpy $0 0
   wix_loop:
     EnumRegKey $1 HKLM "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall" $0
@@ -628,10 +225,17 @@ Function PageReinstall
     ${StrCase} $R1 $R0 "L"
     ${StrLoc} $R0 $R1 "msiexec" ">"
     StrCmp $R0 0 0 wix_loop_done
-    StrCpy $WixMode 1
     StrCpy $R6 "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$1"
-    Goto compare_version
   wix_loop_done:
+FunctionEnd
+
+Function PageReinstall
+  ; Uninstall previous WiX installation if exists.
+  Call FindWixInstall
+  ${If} $R6 != ""
+    StrCpy $WixMode 1
+    Goto compare_version
+  ${EndIf}
 
   ; Check if there is an existing installation, if not, abort the reinstall page
   ReadRegStr $R0 SHCTX "${UNINSTKEY}" ""
@@ -651,6 +255,13 @@ Function PageReinstall
 
   nsis_tauri_utils::SemverCompare "${VERSION}" $R0
   Pop $R0
+
+  ; Read the install choice header through $R5 so a custom language file that only
+  ; defines the misspelled `choowHowToInstall` still shows its own text
+  ; TODO: remove the `choowHowToInstall` fallback in a future major version
+  StrCpy $R5 "$(chooseHowToInstall)"
+  ${IfThen} $R5 == "" ${|} StrCpy $R5 "$(choowHowToInstall)" ${|}
+
   ; Reinstalling the same version
   ${If} $R0 = 0
     StrCpy $R1 "$(alreadyInstalledLong)"
@@ -662,7 +273,7 @@ Function PageReinstall
     StrCpy $R1 "$(olderOrUnknownVersionInstalled)"
     StrCpy $R2 "$(uninstallBeforeInstalling)"
     StrCpy $R3 "$(dontUninstall)"
-    !insertmacro MUI_HEADER_TEXT "$(alreadyInstalled)" "$(choowHowToInstall)"
+    !insertmacro MUI_HEADER_TEXT "$(alreadyInstalled)" "$R5"
   ; Downgrading
   ${ElseIf} $R0 = -1
     StrCpy $R1 "$(newerVersionInstalled)"
@@ -672,7 +283,7 @@ Function PageReinstall
     !else
       StrCpy $R3 "$(dontUninstallDowngrade)"
     !endif
-    !insertmacro MUI_HEADER_TEXT "$(alreadyInstalled)" "$(choowHowToInstall)"
+    !insertmacro MUI_HEADER_TEXT "$(alreadyInstalled)" "$R5"
   ${Else}
     Abort
   ${EndIf}
@@ -800,28 +411,49 @@ Function PageLeaveReinstall
       MessageBox MB_ICONEXCLAMATION "$(unableToUninstall)"
       Abort
     ${EndIf}
+
+    ; The NSIS uninstaller was run in place (`_?=`), so it cannot delete itself
+    ; and the install directory, clean them up here once the uninstall succeeded
+    ; https://nsis.sourceforge.io/Docs/Chapter3.html#:~:text=path%20contains%20spaces.-,3.2.3%20Examples,-installer.exe%20/NCRC
+    ${If} $WixMode = 0
+    ${AndIf} $4 != ""
+      Delete "$4\uninstall.exe"
+      RMDir "$4"
+    ${EndIf}
   reinst_done:
 FunctionEnd
 
-; 5. Custom install-location page (no stock Wizard97 directory chrome)
-Page custom MeetilyDirPageShow MeetilyDirPageLeave
+; 5. Choose install directory page
+!define MUI_PAGE_CUSTOMFUNCTION_PRE SkipIfPassive
+!insertmacro MUI_PAGE_DIRECTORY
 
-; 6. Start menu shortcut page - skipped; shortcuts still created on finish
+; 6. Start menu shortcut page
 Var AppStartMenuFolder
-!define MUI_PAGE_CUSTOMFUNCTION_PRE Skip
 !if "${STARTMENUFOLDER}" != ""
+  !define MUI_PAGE_CUSTOMFUNCTION_PRE SkipIfPassive
   !define MUI_STARTMENUPAGE_DEFAULTFOLDER "${STARTMENUFOLDER}"
+!else
+  !define MUI_PAGE_CUSTOMFUNCTION_PRE Skip
 !endif
 !insertmacro MUI_PAGE_STARTMENU Application $AppStartMenuFolder
 
-; 7. Installation page (details + teal progress)
-!define MUI_PAGE_CUSTOMFUNCTION_SHOW MeetilyDarkenInstFiles
-!define MUI_PAGE_HEADER_TEXT "Installing Protocol"
-!define MUI_PAGE_HEADER_SUBTEXT "Copying files and setting up local runtimes…"
+; 7. Installation page
 !insertmacro MUI_PAGE_INSTFILES
 
-; 8. Custom completion page
-Page custom MeetilyFinishPageShow MeetilyFinishPageLeave
+; 8. Finish page
+;
+; Don't auto jump to finish page after installation page,
+; because the installation page has useful info that can be used debug any issues with the installer.
+!define MUI_FINISHPAGE_NOAUTOCLOSE
+; Use show readme button in the finish page as a button create a desktop shortcut
+!define MUI_FINISHPAGE_SHOWREADME
+!define MUI_FINISHPAGE_SHOWREADME_TEXT "$(createDesktop)"
+!define MUI_FINISHPAGE_SHOWREADME_FUNCTION CreateOrUpdateDesktopShortcut
+; Show run app after installation.
+!define MUI_FINISHPAGE_RUN
+!define MUI_FINISHPAGE_RUN_FUNCTION RunMainBinary
+!define MUI_PAGE_CUSTOMFUNCTION_PRE SkipIfPassive
+!insertmacro MUI_PAGE_FINISH
 
 Function RunMainBinary
   nsis_tauri_utils::RunAsUser "$INSTDIR\${MAINBINARYNAME}.exe" ""
@@ -873,8 +505,15 @@ FunctionEnd
 !insertmacro MUI_UNPAGE_INSTFILES
 
 ;Languages
+; PageReinstall reads the misspelled `choowHowToInstall` as a fallback, and makensis warns
+; about a language string that is read but never set, so default it to an empty string for
+; every language. This runs before the language files are included, so a custom language
+; file that only defines the old spelling overrides the default and the fallback shows its
+; text. `0` as the language id means the language inserted right above.
+; TODO: remove the `choowHowToInstall` fallback in a future major version
 {{#each languages}}
 !insertmacro MUI_LANGUAGE "{{this}}"
+LangString choowHowToInstall 0 ""
 {{/each}}
 !insertmacro MUI_RESERVEFILE_LANGDLL
 {{#each language_files}}
@@ -918,43 +557,50 @@ Function .onInit
         StrCpy $INSTDIR "$PROGRAMFILES\${PRODUCTNAME}"
       ${EndIf}
     !else if "${INSTALLMODE}" == "currentUser"
+      ; Protocol: under the publisher folder, see INSTALLDIRNAME
       StrCpy $INSTDIR "$LOCALAPPDATA\${MANUFACTURER}\${INSTALLDIRNAME}"
     !endif
 
     Call RestorePreviousInstallLocation
   ${EndIf}
 
-  ; Start-menu page is skipped; still seed folder for shortcut creation
-  !if "${STARTMENUFOLDER}" != ""
-    StrCpy $AppStartMenuFolder "${STARTMENUFOLDER}"
-  !else
-    StrCpy $AppStartMenuFolder "${PRODUCTNAME}"
-  !endif
 
   !if "${INSTALLMODE}" == "both"
     !insertmacro MULTIUSER_INIT
   !endif
-FunctionEnd
 
-
-Section EarlyChecks
-  ; Abort silent installer if downgrades is disabled
+  ; Abort downgrades if they are disabled, in the modes that skip the reinstall page choice:
+  ; silent, passive and update
   !if "${ALLOWDOWNGRADES}" == "false"
   ${If} ${Silent}
+  ${OrIf} $PassiveMode = 1
+  ${OrIf} $UpdateMode = 1
+    ; Compare with the same installation the reinstall page would: a WiX one first
+    Call FindWixInstall
+    ${If} $R6 != ""
+      ReadRegStr $R0 HKLM "$R6" "DisplayVersion"
+    ${Else}
+      ReadRegStr $R0 SHCTX "${UNINSTKEY}" "DisplayVersion"
+    ${EndIf}
+    nsis_tauri_utils::SemverCompare "${VERSION}" $R0
+    Pop $R0
     ; If downgrading
     ${If} $R0 = -1
-      System::Call 'kernel32::AttachConsole(i -1)i.r0'
-      ${If} $0 <> 0
-        System::Call 'kernel32::GetStdHandle(i -11)i.r0'
-        System::call 'kernel32::SetConsoleTextAttribute(i r0, i 0x0004)' ; set red color
-        FileWrite $0 "$(silentDowngrades)"
+      ${If} ${Silent}
+        System::Call 'kernel32::AttachConsole(i -1)i.r0'
+        ${If} $0 <> 0
+          System::Call 'kernel32::GetStdHandle(i -11)i.r0'
+          System::call 'kernel32::SetConsoleTextAttribute(i r0, i 0x0004)' ; set red color
+          FileWrite $0 "$(silentDowngrades)"
+        ${EndIf}
+      ${Else}
+        MessageBox MB_ICONSTOP "$(silentDowngrades)"
       ${EndIf}
       Abort
     ${EndIf}
   ${EndIf}
   !endif
-
-SectionEnd
+FunctionEnd
 
 Section WebView2
   ; Check if Webview2 is already installed and skip this section
@@ -1076,7 +722,7 @@ Section Install
   ; Create file associations
   {{#each file_associations as |association| ~}}
     {{#each association.ext as |ext| ~}}
-       !insertmacro APP_ASSOCIATE "{{ext}}" "{{or association.name ext}}" "{{association-description association.description ext}}" "$INSTDIR\${MAINBINARYNAME}.exe,0" "Open with ${PRODUCTNAME}" "$INSTDIR\${MAINBINARYNAME}.exe $\"%1$\""
+       !insertmacro APP_ASSOCIATE "{{ext}}" "{{or association.name ext}}" "{{association-description association.description ext}}" "$\"$INSTDIR\${MAINBINARYNAME}.exe$\",0" "Open with ${PRODUCTNAME}" "$\"$INSTDIR\${MAINBINARYNAME}.exe$\" $\"%1$\""
     {{/each}}
   {{/each}}
 
@@ -1131,13 +777,6 @@ Section Install
     WriteRegStr SHCTX "${UNINSTKEY}" "HelpLink" "${HOMEPAGE}"
   !endif
 
-  ; DisplayVersion is rewritten above on every update. Notify Settings so an
-  ; Installed Apps page that was already open does not keep the previous
-  ; version from its process-local cache.
-  Push $9
-  System::Call 'user32::SendMessageTimeoutW(p 0xffff, i 0x001A, p 0, w "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall", i 0x0002, i 2000, *p .r9)'
-  Pop $9
-
   ; Create start menu shortcut
   !insertmacro MUI_STARTMENU_WRITE_BEGIN Application
     Call CreateOrUpdateStartMenuShortcut
@@ -1147,7 +786,6 @@ Section Install
   ; because finish page will be skipped
   ${If} $PassiveMode = 1
   ${OrIf} ${Silent}
-  ${OrIf} $UpdateMode = 1
     Call CreateOrUpdateDesktopShortcut
   ${EndIf}
 
@@ -1155,30 +793,13 @@ Section Install
     !insertmacro NSIS_HOOK_POSTINSTALL
   !endif
 
-  ; The direct NSIS engine has no usable navigation while files are copying.
-  ; Reveal Next only after every install and runtime step has completed.
-  ${If} $PassiveMode != 1
-  ${AndIfNot} ${Silent}
-    GetDlgItem $R1 $HWNDPARENT 1
-    ShowWindow $R1 ${SW_SHOW}
-  ${EndIf}
-
-  ; Auto close this page for passive mode. In-app updates are visible even in
-  ; passive mode, so leave the completed state onscreen briefly instead of
-  ; jumping from the last extraction operation straight back into the app.
+  ; Auto close this page for passive mode
   ${If} $PassiveMode = 1
-    ${If} $UpdateMode = 1
-      Sleep 450
-    ${EndIf}
     SetAutoClose true
   ${EndIf}
 SectionEnd
 
 Function .onInstSuccess
-  ; All shortcut choices are final now, including the interactive finish-page
-  ; desktop option. Refresh Explorer/Search without resetting the icon cache.
-  System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0x0000, p 0, p 0)'
-
   ; Check for `/R` flag only in silent and passive installers because
   ; GUI installer has a toggle for the user to (re)start the app
   ${If} $PassiveMode = 1
@@ -1222,10 +843,6 @@ Section Uninstall
   ; Delete the app directory and its content from disk
   ; Copy main executable
   Delete "$INSTDIR\${MAINBINARYNAME}.exe"
-  Delete "$INSTDIR\DirectML.dll"
-  Delete "$INSTDIR\cudart64_13.dll"
-  Delete "$INSTDIR\cublas64_13.dll"
-  Delete "$INSTDIR\cublasLt64_13.dll"
 
   ; Delete resources
   {{#each resources}}
@@ -1323,8 +940,10 @@ Section Uninstall
     SetShellVarContext current
     RmDir /r "$APPDATA\${BUNDLEID}"
     RmDir /r "$LOCALAPPDATA\${BUNDLEID}"
+    ; Protocol: the app keeps its data in data\ next to its executable
+    ; (src-tauri/src/paths.rs): the meeting database, downloaded models and
+    ; settings. NSIS_HOOK_POSTUNINSTALL then removes the empty install folder.
     RmDir /r "$INSTDIR\data"
-    RmDir "$INSTDIR"
   ${EndIf}
 
   !ifmacrodef NSIS_HOOK_POSTUNINSTALL
@@ -1356,39 +975,66 @@ Function un.SkipIfPassive
 FunctionEnd
 
 Function CreateOrUpdateStartMenuShortcut
-  ; Updates deliberately recreate the shortcut. CreateShortcut records an
-  ; explicit executable icon/index, while SetLnkAppUserModelId uses BUNDLEID;
-  ; together these keep Search and taskbar identity stable across replacement.
+  ; We used to use product name as MAINBINARYNAME
+  ; migrate old shortcuts to target the new MAINBINARYNAME
+  StrCpy $R0 0
+
+  !insertmacro IsShortcutTarget "$SMPROGRAMS\$AppStartMenuFolder\${PRODUCTNAME}.lnk" "$INSTDIR\$OldMainBinaryName"
+  Pop $0
+  ${If} $0 = 1
+    !insertmacro SetShortcutTarget "$SMPROGRAMS\$AppStartMenuFolder\${PRODUCTNAME}.lnk" "$INSTDIR\${MAINBINARYNAME}.exe"
+    StrCpy $R0 1
+  ${EndIf}
+
+  !insertmacro IsShortcutTarget "$SMPROGRAMS\${PRODUCTNAME}.lnk" "$INSTDIR\$OldMainBinaryName"
+  Pop $0
+  ${If} $0 = 1
+    !insertmacro SetShortcutTarget "$SMPROGRAMS\${PRODUCTNAME}.lnk" "$INSTDIR\${MAINBINARYNAME}.exe"
+    StrCpy $R0 1
+  ${EndIf}
+
+  ${If} $R0 = 1
+    Return
+  ${EndIf}
+
+  ; Skip creating shortcut if in update mode or no shortcut mode
+  ; but always create if migrating from wix
   ${If} $WixMode = 0
-    ${If} $NoShortcutMode = 1
+    ${If} $UpdateMode = 1
+    ${OrIf} $NoShortcutMode = 1
       Return
     ${EndIf}
   ${EndIf}
 
   !if "${STARTMENUFOLDER}" != ""
     CreateDirectory "$SMPROGRAMS\$AppStartMenuFolder"
-    CreateShortcut "$SMPROGRAMS\$AppStartMenuFolder\${PRODUCTNAME}.lnk" "$INSTDIR\${MAINBINARYNAME}.exe" "" "$INSTDIR\${MAINBINARYNAME}.exe" 0 SW_SHOWNORMAL "" "${PRODUCTNAME}"
+    CreateShortcut "$SMPROGRAMS\$AppStartMenuFolder\${PRODUCTNAME}.lnk" "$INSTDIR\${MAINBINARYNAME}.exe"
     !insertmacro SetLnkAppUserModelId "$SMPROGRAMS\$AppStartMenuFolder\${PRODUCTNAME}.lnk"
   !else
-    CreateShortcut "$SMPROGRAMS\${PRODUCTNAME}.lnk" "$INSTDIR\${MAINBINARYNAME}.exe" "" "$INSTDIR\${MAINBINARYNAME}.exe" 0 SW_SHOWNORMAL "" "${PRODUCTNAME}"
+    CreateShortcut "$SMPROGRAMS\${PRODUCTNAME}.lnk" "$INSTDIR\${MAINBINARYNAME}.exe"
     !insertmacro SetLnkAppUserModelId "$SMPROGRAMS\${PRODUCTNAME}.lnk"
   !endif
 FunctionEnd
 
 Function CreateOrUpdateDesktopShortcut
+  ; We used to use product name as MAINBINARYNAME
+  ; migrate old shortcuts to target the new MAINBINARYNAME
+  !insertmacro IsShortcutTarget "$DESKTOP\${PRODUCTNAME}.lnk" "$INSTDIR\$OldMainBinaryName"
+  Pop $0
+  ${If} $0 = 1
+    !insertmacro SetShortcutTarget "$DESKTOP\${PRODUCTNAME}.lnk" "$INSTDIR\${MAINBINARYNAME}.exe"
+    Return
+  ${EndIf}
+
+  ; Skip creating shortcut if in update mode or no shortcut mode
+  ; but always create if migrating from wix
   ${If} $WixMode = 0
-    ${If} $NoShortcutMode = 1
+    ${If} $UpdateMode = 1
+    ${OrIf} $NoShortcutMode = 1
       Return
     ${EndIf}
   ${EndIf}
 
-  ; An update refreshes an existing desktop shortcut but does not create one
-  ; for users who left the setup option unchecked.
-  ${If} $UpdateMode = 1
-  ${AndIfNot} ${FileExists} "$DESKTOP\${PRODUCTNAME}.lnk"
-    Return
-  ${EndIf}
-
-  CreateShortcut "$DESKTOP\${PRODUCTNAME}.lnk" "$INSTDIR\${MAINBINARYNAME}.exe" "" "$INSTDIR\${MAINBINARYNAME}.exe" 0 SW_SHOWNORMAL "" "${PRODUCTNAME}"
+  CreateShortcut "$DESKTOP\${PRODUCTNAME}.lnk" "$INSTDIR\${MAINBINARYNAME}.exe"
   !insertmacro SetLnkAppUserModelId "$DESKTOP\${PRODUCTNAME}.lnk"
 FunctionEnd

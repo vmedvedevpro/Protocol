@@ -308,6 +308,17 @@ Var MeetilyBackend
 !macroend
 
 !macro NSIS_HOOK_POSTUNINSTALL
+  ; The uninstaller deletes only the files the bundle lists. These come from
+  ; the hooks: DirectML.dll from Meetily_InstallCommonRuntime, and the CUDA
+  ; runtime of installs before 0.3.0 if no later install removed it.
+  Delete "$INSTDIR\DirectML.dll"
+  Delete "$INSTDIR\cudart64_13.dll"
+  Delete "$INSTDIR\cublas64_13.dll"
+  Delete "$INSTDIR\cublasLt64_13.dll"
+  ; The template's own RMDir ran while these files were still there. The
+  ; folder goes only once empty: data\ stays unless the user chose to delete
+  ; app data.
+  RMDir "$INSTDIR"
   ; Installs default to %LOCALAPPDATA%\<publisher>\<product> (installer.nsi).
   ; RMDir without /r removes the publisher folder only once it is empty.
   RMDir "$LOCALAPPDATA\${MANUFACTURER}"
