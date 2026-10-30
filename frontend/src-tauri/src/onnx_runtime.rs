@@ -106,8 +106,28 @@ fn initialize_library(path: &std::path::Path) -> Result<ort::environment::Enviro
             .map_err(|error| error.to_string())
     }))
     .map_err(|_| "ONNX Runtime initialization failed. Repair/reinstall and restart Protocol.".to_string())??;
-    log::info!("Initialized verified bundled ONNX Runtime: {}", ort::info());
+    let version = runtime_version(path).unwrap_or_else(|| "(version unknown)".into());
+    log::info!("Initialized verified bundled ONNX Runtime {version}: {}", ort::info());
     Ok(environment)
+}
+
+/// The release the loaded runtime reports, such as 1.24.4. ort::info() of
+/// Microsoft's builds names only the git branch (HEAD) and commit.
+#[cfg(any(windows, target_os = "linux"))]
+fn runtime_version(path: &std::path::Path) -> Option<String> {
+    // SAFETY: ort already loaded this verified library and keeps it loaded, so
+    // this only takes another reference to it; OrtGetApiBase and
+    // GetVersionString take no arguments and return static data, copied out
+    // before the reference is dropped.
+    unsafe {
+        let library = libloading::Library::new(path).ok()?;
+        let get_api_base = library
+            .get::<unsafe extern "system" fn() -> *const ort::sys::OrtApiBase>(b"OrtGetApiBase\0")
+            .ok()?;
+        let api_base = get_api_base().as_ref()?;
+        let version = std::ffi::CStr::from_ptr((api_base.GetVersionString)());
+        version.to_str().ok().map(str::to_owned)
+    }
 }
 
 #[tauri::command]
@@ -149,6 +169,7 @@ mod tests {
         let environment = environment().unwrap();
         assert!(std::ptr::eq(environment, super::environment().unwrap()));
         assert!(ort::session::Session::builder(environment).is_ok());
+        assert_eq!(runtime_version(RUNTIME_PATH.get().unwrap()).as_deref(), Some("1.24.4"));
     }
 
     #[test]

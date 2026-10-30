@@ -164,8 +164,9 @@ jobs:
           wait "$pid" >/dev/null 2>&1 || true
           cat "$log"
           grep -q "Application setup complete" "$log"
-          if ! grep -q "Initialized verified bundled ONNX Runtime" "$log"; then
-            echo "Protocol did not load its bundled ONNX Runtime"
+          # The version build/onnxruntime.rs pins for Linux.
+          if ! grep -q "Initialized verified bundled ONNX Runtime 1.24.4" "$log"; then
+            echo "Protocol did not load its bundled ONNX Runtime 1.24.4"
             exit 1
           fi
           if ! grep -q "Fresh database initialized successfully" "$log"; then
