@@ -14,7 +14,8 @@
 //! over them (`audio::post_meeting`: skip rule, per-track language, engine
 //! call, silence-hallucination filter), the live worker's call and skip
 //! rule, the reference call beside the pass's Whisper call, and
-//! `diarize_meeting`'s timeline and row labelling. They do not score:
+//! `diarize_meeting`'s calls on two tracks, its timeline and its row
+//! labelling. They do not score:
 //! `scripts/measure/` reads the JSON.
 //!
 //! Recordings and models are read in place. Only `MEASURE_OUT` is written

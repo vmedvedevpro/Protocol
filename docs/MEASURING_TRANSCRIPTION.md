@@ -12,8 +12,9 @@ the results. The kit has three parts:
   rule, the per-track language on Auto, the engine call, the
   silence-hallucination filter). The live setting makes the live worker's
   call after its skip rule, the reference the pass's Whisper call without
-  timestamps, and the speakers come from `diarize_meeting`'s timeline merge
-  and row labelling. A change to any of these reaches the kit. What the kit
+  timestamps, and the speakers come from `diarize_meeting`'s own functions:
+  the calls on a microphone and a system track (`diarize_track_wavs`, with the
+  merge) and the row labelling. A change to any of these reaches the kit. What the kit
   does itself: it reads the tracks as retranscription does (the same source
   finder and decoder, not the same function), runs the settings one after
   another with a warm-up call, keeps the pieces of a span, and writes what
@@ -106,7 +107,7 @@ same VAD cap (`live` and `parakeet`) share one VAD pass.
 | `MEASURE_LANGUAGE` | The app's language setting: `ru`, `en`, …, or `auto` (default). On `auto` the post-meeting pass detects the language once per track, from the pieces of the whole recording also with a span; live calls detect it per call. |
 | `MEASURE_VOCABULARY` | The vocabulary the app would pass (Settings › Transcription). Optional. |
 | `MEASURE_SPAN` | Only the pieces that reach into `start-end`, as `25:00-45:00` or `1500-2700` (seconds), each transcribed whole; the scoring then keeps the words inside the span, by word time, of both the runs and the reference. The VAD, the language detection and diarization read the whole tracks, as the app does, so the pieces and the timeline are those of the whole recording. A span that starts after the recording ends is refused; its end is cut to the recording's. Optional. |
-| `MEASURE_DIARIZATION`, `MEASURE_DIARIZATION_MODEL` | `nemotron` with the `.onnx` file, or `pyannote` with the model folder: diarize the recording as `diarize_meeting` does, with the app's default parameters, and label every row on that timeline. A microphone and a system track are each diarized whole and merged, the microphone's speech as speaker 0 and the system track's speakers after it (`merge_tracks`); a single track is diarized alone. Pyannote reads a WAV of each track, which the kit writes under `MEASURE_OUT` while it runs. Optional. |
+| `MEASURE_DIARIZATION`, `MEASURE_DIARIZATION_MODEL` | `nemotron` with the `.onnx` file, or `pyannote` with the model folder: diarize the recording as `diarize_meeting` does, with the app's default parameters, and label every row on that timeline. A microphone and a system track are each diarized whole and merged, the microphone's speech as speaker 0 and the system track's speakers after it (`merge_tracks`); a single track is diarized alone. The app's function for two tracks reads a WAV of each, and Pyannote one of a single track; the kit writes them under `MEASURE_OUT` while it runs. Optional. |
 
 ### `measure::build_reference`
 
@@ -257,9 +258,9 @@ words.
 ## Measuring a private recording
 
 A recording and every transcript made from it are private. The kit reads the
-recording in place and writes only to `MEASURE_OUT`, which with Pyannote also
-holds a WAV of the track being diarized while it runs (left there if the
-process is killed):
+recording in place and writes only to `MEASURE_OUT`, which while diarization
+runs also holds a WAV of the tracks being diarized (left there if the process
+is killed):
 
 - point `MEASURE_AUDIO` at the meeting folder in the recordings folder; it is
   only read;

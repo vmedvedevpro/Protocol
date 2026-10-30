@@ -1105,8 +1105,9 @@ public FLEURS fixture. The commands run the post-meeting pass's own functions
 call too) and reach the rest through a few `pub(crate)` seams:
 retranscription's source finder (`find_audio_file`,
 `find_retranscription_sources`), the live worker's skip rule (`peak_level`,
-`is_digital_silence`), `diarization::merge_tracks` and `row_speakers` (the
-timeline and the row labelling `diarize_meeting` applies), the reference call
+`is_digital_silence`), `diarization::diarize_track_wavs` and `row_speakers`
+(the calls on a microphone and a system track with their merged timeline, and
+the row labelling `diarize_meeting` applies), the reference call
 `WhisperEngine::reference_text` beside the pass's Whisper call, and
 `load_model_in_place` on both engines, which opens a model without the
 integrity markers `load_model` writes beside it. `reference_text` and

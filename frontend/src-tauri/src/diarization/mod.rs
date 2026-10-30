@@ -1117,48 +1117,19 @@ pub async fn diarize_meeting(
                 };
 
                 let dual_result = (|| -> Result<DiarizationResult> {
-                    let remote_count = num_speakers.map(|k| k.saturating_sub(1).max(1));
-
                     if engine_for_blocking.eq_ignore_ascii_case("nemotron") {
                         let config = get_diarization_config();
-                        let max_spks = num_speakers.unwrap_or(config.nemotron_max_speakers);
-                        let thresh = threshold.unwrap_or(config.nemotron_threshold);
                         let model_path = diarization_user_model_dir().join(nemotron::NEMOTRON_MODEL_FILENAME);
-                        let mut nemotron_model = nemotron::NemotronDiarizationModel::new(&model_path, max_spks, thresh)?;
-
-                        let (mic_samples, mic_sr) = dsp::read_wav(&mic_wav)?;
-                        let mic_result = nemotron_model.diarize(&mic_samples, mic_sr)?;
-
-                        nemotron_model.reset_streaming_state();
-                        let system_result = if num_speakers == Some(1) {
-                            DiarizationResult {
-                                segments: Vec::new(),
-                                num_speakers: 0,
-                                duration: mic_result.duration,
-                                user_speaker: None,
-                            }
-                        } else {
-                            let (sys_samples, sys_sr) = dsp::read_wav(&system_wav)?;
-                            nemotron_model.diarize(&sys_samples, sys_sr)?
-                        };
-                        return Ok(merge_tracks(mic_result, system_result));
+                        let engine = TrackEngine::Nemotron { model: &model_path, config: &config };
+                        return diarize_track_wavs(engine, &mic_wav, &system_wav, num_speakers, threshold);
                     }
 
                     // Pyannote dual track path
                     let model_dir = diarization_model_dir();
                     let mic_embeddings = embeddings_for_debug(&mic_wav, &model_dir).ok();
 
-                    let mic_result = diarize_file_with_models(&mic_wav, &model_dir, Some(1), threshold)?;
-                    let system_result = if num_speakers == Some(1) {
-                        DiarizationResult {
-                            segments: Vec::new(),
-                            num_speakers: 0,
-                            duration: mic_result.duration,
-                            user_speaker: None,
-                        }
-                    } else {
-                        diarize_file_with_models(&system_wav, &model_dir, remote_count, threshold)?
-                    };
+                    let engine = TrackEngine::Pyannote { models: &model_dir };
+                    let result = diarize_track_wavs(engine, &mic_wav, &system_wav, num_speakers, threshold)?;
                     if let Some(embeddings) = mic_embeddings {
                         let labels = clustering::agglomerative(
                             &embeddings,
@@ -1181,7 +1152,7 @@ pub async fn diarize_meeting(
                         }
                     }
 
-                    Ok(merge_tracks(mic_result, system_result))
+                    Ok(result)
                 })();
 
                 let profile_names = match &dual_result {
@@ -1521,13 +1492,72 @@ pub async fn diarize_meeting(
     })
 }
 
+/// The engine [`diarize_track_wavs`] runs, with its model.
+pub(crate) enum TrackEngine<'a> {
+    /// The `.onnx` file; its speaker limit and threshold come from `config`
+    /// unless the caller gives them.
+    Nemotron { model: &'a Path, config: &'a DiarizationConfig },
+    /// The folder with the Pyannote models.
+    Pyannote { models: &'a Path },
+}
+
+/// The timeline of a recording with separate tracks, from a WAV of each:
+/// Nemotron runs one model over both and resets its streaming state in
+/// between; Pyannote is told the microphone has one speaker and the system
+/// track `num_speakers - 1`; with `num_speakers` one, the system track is not
+/// diarized. Then [`merge_tracks`]. `diarize_meeting` calls it, and so does
+/// the measurement kit (`crate::measure`), so that the kit's speaker numbers
+/// are the app's.
+pub(crate) fn diarize_track_wavs(
+    engine: TrackEngine,
+    mic_wav: &Path,
+    system_wav: &Path,
+    num_speakers: Option<usize>,
+    threshold: Option<f32>,
+) -> Result<DiarizationResult> {
+    let remote_count = num_speakers.map(|k| k.saturating_sub(1).max(1));
+    let no_system_speakers = |mic: &DiarizationResult| DiarizationResult {
+        segments: Vec::new(),
+        num_speakers: 0,
+        duration: mic.duration,
+        user_speaker: None,
+    };
+
+    match engine {
+        TrackEngine::Nemotron { model, config } => {
+            let max_spks = num_speakers.unwrap_or(config.nemotron_max_speakers);
+            let thresh = threshold.unwrap_or(config.nemotron_threshold);
+            let mut nemotron_model = nemotron::NemotronDiarizationModel::new(model, max_spks, thresh)?;
+
+            let (mic_samples, mic_sr) = dsp::read_wav(mic_wav)?;
+            let mic_result = nemotron_model.diarize(&mic_samples, mic_sr)?;
+
+            nemotron_model.reset_streaming_state();
+            let system_result = if num_speakers == Some(1) {
+                no_system_speakers(&mic_result)
+            } else {
+                let (sys_samples, sys_sr) = dsp::read_wav(system_wav)?;
+                nemotron_model.diarize(&sys_samples, sys_sr)?
+            };
+            Ok(merge_tracks(mic_result, system_result))
+        }
+        TrackEngine::Pyannote { models } => {
+            let mic_result = diarize_file_with_models(mic_wav, models, Some(1), threshold)?;
+            let system_result = if num_speakers == Some(1) {
+                no_system_speakers(&mic_result)
+            } else {
+                diarize_file_with_models(system_wav, models, remote_count, threshold)?
+            };
+            Ok(merge_tracks(mic_result, system_result))
+        }
+    }
+}
+
 /// The timeline of a recording with separate tracks: all the microphone's
 /// speech is the user (speaker 0) and the system track's speakers follow from
 /// 1, in start order. A turn that overlaps another speaker's is marked
 /// overlapped; across the tracks that is local and remote speech at once.
-/// pub(crate) for the measurement kit (`crate::measure`), which labels rows
-/// on the timeline `diarize_meeting` builds.
-pub(crate) fn merge_tracks(mic: DiarizationResult, system: DiarizationResult) -> DiarizationResult {
+fn merge_tracks(mic: DiarizationResult, system: DiarizationResult) -> DiarizationResult {
     let num_speakers = 1 + system.num_speakers;
     let duration = mic.duration.max(system.duration);
     let mut segments: Vec<DiarizationSegment> = mic

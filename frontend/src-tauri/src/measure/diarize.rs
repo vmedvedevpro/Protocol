@@ -12,7 +12,8 @@ use super::tracks::Track;
 use super::{file_name, ms_since};
 use crate::diarization::nemotron::NemotronDiarizationModel;
 use crate::diarization::{
-    diarize_file_with_models, merge_tracks, row_speakers, DiarizationConfig, DiarizationResult, DiarizationSegment,
+    diarize_file_with_models, diarize_track_wavs, row_speakers, DiarizationConfig, DiarizationResult,
+    DiarizationSegment, TrackEngine,
 };
 
 const SAMPLE_RATE: u32 = 16_000;
@@ -56,28 +57,26 @@ impl Diarizer {
     fn diarize_one(&self, track: &Track, scratch: &Path) -> Result<DiarizationResult> {
         match self {
             Self::Nemotron(model) => nemotron(model)?.diarize(&track.samples, SAMPLE_RATE),
-            Self::Pyannote(models) => pyannote(models, &track.samples, None, scratch),
+            Self::Pyannote(models) => pyannote(models, &track.samples, scratch),
         }
     }
 
-    /// A microphone and a system track, as `diarize_meeting` diarizes them:
-    /// Nemotron runs one model over both and resets its streaming state in
-    /// between; Pyannote is told the microphone has one speaker. The
+    /// A microphone and a system track through `diarize_meeting`'s own
+    /// function for them (`diarize_track_wavs`), which reads a WAV of each:
+    /// they are written under `scratch`, as Pyannote's is for one track. The
     /// voiceprint the app updates from the microphone is left alone.
     fn diarize_two(&self, mic: &Track, system: &Track, scratch: &Path) -> Result<DiarizationResult> {
-        let (mic, system) = match self {
-            Self::Nemotron(model) => {
-                let mut nemotron = nemotron(model)?;
-                let mic = nemotron.diarize(&mic.samples, SAMPLE_RATE).context("diarizing the microphone")?;
-                nemotron.reset_streaming_state();
-                (mic, nemotron.diarize(&system.samples, SAMPLE_RATE).context("diarizing the system audio")?)
-            }
-            Self::Pyannote(models) => (
-                pyannote(models, &mic.samples, Some(1), scratch).context("diarizing the microphone")?,
-                pyannote(models, &system.samples, None, scratch).context("diarizing the system audio")?,
-            ),
+        let folder = tempfile::tempdir_in(scratch)?;
+        let (mic_wav, system_wav) = (folder.path().join("mic.wav"), folder.path().join("system.wav"));
+        write_wav(&mic_wav, &mic.samples)?;
+        write_wav(&system_wav, &system.samples)?;
+        let config = DiarizationConfig::default();
+        let engine = match self {
+            Self::Nemotron(model) => TrackEngine::Nemotron { model, config: &config },
+            Self::Pyannote(models) => TrackEngine::Pyannote { models },
         };
-        Ok(merge_tracks(mic, system))
+        diarize_track_wavs(engine, &mic_wav, &system_wav, None, None)
+            .context("diarizing the microphone and system tracks")
     }
 }
 
@@ -91,16 +90,16 @@ fn nemotron(model: &Path) -> Result<NemotronDiarizationModel> {
 /// The Pyannote pipeline reads a WAV file. It is written under `scratch`
 /// (`MEASURE_OUT`): for a private recording it is private audio, and it stays
 /// if the process is killed.
-fn pyannote(models: &Path, samples: &[f32], speakers: Option<usize>, scratch: &Path) -> Result<DiarizationResult> {
+fn pyannote(models: &Path, samples: &[f32], scratch: &Path) -> Result<DiarizationResult> {
     let folder = tempfile::tempdir_in(scratch)?;
     let wav = folder.path().join("track.wav");
     write_wav(&wav, samples)?;
-    diarize_file_with_models(&wav, models, speakers, None)
+    diarize_file_with_models(&wav, models, None, None)
 }
 
 /// The recording's speaker timeline as `diarize_meeting` builds it, in
 /// seconds for `row_speakers`: a microphone and a system track each diarized
-/// whole and merged, or the one track. Pyannote's temporary WAV goes under
+/// whole and merged, or the one track. The temporary WAVs go under
 /// `scratch`.
 pub fn diarize(diarizer: &Diarizer, tracks: &[Track], scratch: &Path) -> Result<(Vec<DiarizationSegment>, output::Diarization)> {
     let started = Instant::now();
@@ -142,10 +141,10 @@ pub fn label_rows(run: &mut Run, timeline: &[DiarizationSegment]) {
     }
 }
 
-/// 16 kHz mono 32-bit float, so Pyannote reads the samples the other
-/// engines get (`dsp::read_wav` reads this format). The app gives Pyannote
-/// ffmpeg's 16-bit WAV of the recording instead (`ensure_wav`); the kit has
-/// no ffmpeg, and that WAV would go to the OS temp folder.
+/// 16 kHz mono 32-bit float, so the engines read the samples the kit decoded
+/// (`dsp::read_wav` reads this format). The app gives them ffmpeg's 16-bit
+/// WAV of each track instead (`ensure_wav`); the kit has no ffmpeg, and that
+/// WAV would go to the OS temp folder.
 fn write_wav(path: &Path, samples: &[f32]) -> Result<()> {
     let data_bytes = (samples.len() * 4) as u32;
     let mut bytes = Vec::with_capacity(44 + data_bytes as usize);
