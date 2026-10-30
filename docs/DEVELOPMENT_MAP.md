@@ -312,6 +312,9 @@ Known limits of the post-meeting Whisper pass:
   word. The rest of the piece is then lost. On the measured span the second
   form caused the four largest remaining losses (14–21 words); the first was
   seen only on joined test windows.
+- On Auto, a track whose loudest 30 s are all music, a video's soundtrack or
+  speech in another language can have both halves agree on the wrong language,
+  and the whole track is then decoded in it.
 
 ### Audio import and the recordings folder
 
