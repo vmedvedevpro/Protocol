@@ -24,11 +24,6 @@ use whisper_rs::{FullParams, WhisperContext, WhisperError, WhisperState};
 use super::decoding::WhisperDecoding;
 use super::WhisperEngine;
 
-/// Longest output segment in bytes (`max_len` counts bytes, not characters).
-/// Segments wrap only before a word: a byte wrap inside a Cyrillic word would
-/// split it across two rows.
-const MAX_SEGMENT_BYTES: i32 = 200;
-
 /// `whisper_full_with_state` returns this when it cannot re-create the KV cache
 /// for more than one decoder, after freeing the caller's state itself
 /// (whisper.cpp 1.8.3, still so in 1.9.5). whisper-rs frees the state again
@@ -146,33 +141,13 @@ fn piece_params<'a, 'b>(
     prompt_tokens: &'b [whisper_rs::WhisperTokenId],
     language: Option<&'a str>,
 ) -> FullParams<'a, 'b> {
-    let mut params = decoding.full_params();
+    let mut params = decoding.call_params(language);
     if !prompt_tokens.is_empty() {
-        params.set_tokens(&prompt_tokens);
+        params.set_tokens(prompt_tokens);
     }
-    let (language_code, translate) = match language {
-        Some("auto") | None => (None, false),
-        Some("auto-translate") => (None, true),
-        Some(code) => (Some(code), false),
-    };
-    params.set_language(language_code);
-    params.set_translate(translate);
     params.set_no_timestamps(false);
-    // Token times place the wraps of long segments.
-    params.set_token_timestamps(true);
-    params.set_max_len(MAX_SEGMENT_BYTES);
+    // A byte wrap inside a Cyrillic word would split it across two rows.
     params.set_split_on_word(true);
-    params.set_print_special(false);
-    params.set_print_progress(false);
-    params.set_print_realtime(false);
-    params.set_print_timestamps(false);
-    // The live calls' thresholds (`WhisperEngine::transcribe_audio_with_confidence`).
-    params.set_suppress_blank(true);
-    params.set_suppress_nst(true);
-    params.set_max_initial_ts(1.0);
-    params.set_entropy_thold(2.4);
-    params.set_logprob_thold(-1.0);
-    params.set_no_speech_thold(if super::labs::strict_silence_enabled() { 0.45 } else { 0.55 });
     params
 }
 

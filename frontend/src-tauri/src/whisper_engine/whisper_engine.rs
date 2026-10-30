@@ -626,59 +626,17 @@ impl WhisperEngine {
 
         let prompt_tokens = Self::tokenize_initial_prompt(ctx, initial_prompt)?;
 
-        // Get adaptive configuration based on hardware
-        let hardware_profile = crate::audio::HardwareProfile::detect();
-        let adaptive_config = hardware_profile.get_whisper_config();
-
-        // Greedy at temperature 0 on every tier (decoding.rs, #62)
-        let mut params = super::decoding::WhisperDecoding::LIVE.full_params();
+        // Greedy at temperature 0 with the language, thresholds and wrap every
+        // Whisper call shares (decoding.rs, #62)
+        let mut params = super::decoding::WhisperDecoding::LIVE.call_params(language.as_deref());
         if !prompt_tokens.is_empty() {
             params.set_tokens(&prompt_tokens);
         }
-
-        // Configure with adaptive settings
-        // If language is "auto" or None, use automatic language detection (pass None)
-        // If language is "auto-translate", enable translation to English
-        // Otherwise, use the specified language code
-        let (language_code, should_translate) = match language.as_deref() {
-            Some("auto") | None => (None, false),
-            Some("auto-translate") => (None, true),
-            Some(lang) => (Some(lang), false),
-        };
-        params.set_language(language_code);
-        params.set_translate(should_translate);
 
         // CRITICAL: Disable timestamp tokens to prevent whisper.cpp chunking heuristics
         // The "single timestamp ending - skip entire chunk" optimization incorrectly discards
         // complete, valid transcriptions. Disabling timestamps forces whisper to return ALL text.
         params.set_no_timestamps(true);     // Prevent timestamp-based segment skipping
-        params.set_token_timestamps(true);  // Keep for any timestamp-aware features
-
-        // PERFORMANCE: Disable ALL whisper.cpp internal printing
-        // This reduces C library log spam significantly
-        params.set_print_special(false);      // Don't print special tokens
-        params.set_print_progress(false);     // Don't print progress
-        params.set_print_realtime(false);     // Don't print realtime info
-        params.set_print_timestamps(false);   // Don't print timestamps
-
-        // Additional suppression to reduce C library verbosity
-        params.set_suppress_blank(true);
-        params.set_suppress_nst(true);
-        params.set_max_initial_ts(1.0);
-        params.set_entropy_thold(2.4);
-        params.set_logprob_thold(-1.0);
-        // BALANCED FIX: Lowered from 0.75 to 0.55 to allow quiet speech detection
-        // Previous value was too aggressive and rejected valid quiet speech
-        // 0.55 is balanced - prevents hallucinations while preserving quiet speech
-        params.set_no_speech_thold(if super::labs::strict_silence_enabled() { 0.45 } else { 0.55 });
-        params.set_max_len(200);
-        params.set_single_segment(false);
-
-        // Set thread count based on hardware (if supported by whisper.cpp)
-        if let Some(_max_threads) = adaptive_config.max_threads {
-            // Note: whisper.cpp may or may not expose thread control through params
-            // Removed debug log to reduce I/O overhead in transcription hot path
-        }
 
         let duration_seconds = audio_data.len() as f64 / 16000.0;
         let is_partial = duration_seconds < 15.0; // Consider chunks under 15s as partial
@@ -747,49 +705,17 @@ impl WhisperEngine {
 
         let prompt_tokens = Self::tokenize_initial_prompt(ctx, initial_prompt)?;
 
-        // Greedy at temperature 0 on every tier (decoding.rs, #62)
-        let mut params = super::decoding::WhisperDecoding::LIVE.full_params();
+        // Greedy at temperature 0 with the language, thresholds and wrap every
+        // Whisper call shares (decoding.rs, #62)
+        let mut params = super::decoding::WhisperDecoding::LIVE.call_params(language.as_deref());
         if !prompt_tokens.is_empty() {
             params.set_tokens(&prompt_tokens);
         }
-
-        // Configure for good quality
-        // If language is "auto" or None, use automatic language detection (pass None)
-        // If language is "auto-translate", enable translation to English
-        // Otherwise, use the specified language code
-        let (language_code, should_translate) = match language.as_deref() {
-            Some("auto") | None => (None, false),
-            Some("auto-translate") => (None, true),
-            Some(lang) => (Some(lang), false),
-        };
-        params.set_language(language_code);
-        params.set_translate(should_translate);
 
         // CRITICAL: Disable timestamp tokens to prevent whisper.cpp chunking heuristics
         // The "single timestamp ending - skip entire chunk" optimization incorrectly discards
         // complete, valid transcriptions. Disabling timestamps forces whisper to return ALL text.
         params.set_no_timestamps(true);     // Prevent timestamp-based segment skipping
-        params.set_token_timestamps(true);  // Keep for any timestamp-aware features
-
-        params.set_print_special(false);
-        params.set_print_progress(false);
-        params.set_print_realtime(false);
-        params.set_print_timestamps(false);
-
-        // BALANCED settings - good quality with reasonable speed
-        params.set_suppress_blank(true);
-        params.set_suppress_nst(true);
-        params.set_max_initial_ts(1.0);
-        params.set_entropy_thold(2.4);
-        params.set_logprob_thold(-1.0);
-        // BALANCED FIX: Lowered from 0.75 to 0.55 to allow quiet speech detection
-        // Previous value was too aggressive and rejected valid quiet speech
-        // 0.55 is balanced - prevents hallucinations while preserving quiet speech
-        params.set_no_speech_thold(if super::labs::strict_silence_enabled() { 0.45 } else { 0.55 });
-
-        // Reasonable length limits
-        params.set_max_len(200);                 // Reasonable length
-        params.set_single_segment(false);        // Allow multiple segments for better accuracy
 
         // Note: compression_ratio_threshold would be ideal but not available in current whisper-rs
         // This would help detect repetitive outputs: params.set_compression_ratio_threshold(2.4);
