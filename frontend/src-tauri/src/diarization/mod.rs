@@ -1141,42 +1141,7 @@ pub async fn diarize_meeting(
                             let (sys_samples, sys_sr) = dsp::read_wav(&system_wav)?;
                             nemotron_model.diarize(&sys_samples, sys_sr)?
                         };
-
-                        let mut segments: Vec<DiarizationSegment> = mic_result
-                            .segments
-                            .into_iter()
-                            .map(|mut s| {
-                                s.speaker = 0;
-                                s
-                            })
-                            .collect();
-                        segments.extend(system_result.segments.into_iter().map(|mut s| {
-                            s.speaker += 1;
-                            s
-                        }));
-                        segments.sort_by(|a, b| {
-                            a.start.partial_cmp(&b.start).unwrap_or(std::cmp::Ordering::Equal)
-                        });
-
-                        let snapshot = segments.clone();
-                        for seg in &mut segments {
-                            if snapshot.iter().any(|other| {
-                                other.speaker != seg.speaker
-                                    && other.start < seg.end
-                                    && other.end > seg.start
-                            }) {
-                                seg.overlapped = true;
-                            }
-                        }
-
-                        let num_remote = system_result.num_speakers;
-                        let duration = mic_result.duration.max(system_result.duration);
-                        return Ok(DiarizationResult {
-                            segments,
-                            num_speakers: 1 + num_remote,
-                            duration,
-                            user_speaker: Some(0),
-                        });
+                        return Ok(merge_tracks(mic_result, system_result));
                     }
 
                     // Pyannote dual track path
@@ -1216,45 +1181,7 @@ pub async fn diarize_meeting(
                         }
                     }
 
-                    // Speaker 0 is always You; remote speakers begin at 1.
-                    let mut segments: Vec<DiarizationSegment> = mic_result
-                        .segments
-                        .into_iter()
-                        .map(|mut s| {
-                            s.speaker = 0;
-                            s
-                        })
-                        .collect();
-                    segments.extend(system_result.segments.into_iter().map(|mut s| {
-                        s.speaker += 1;
-                        s
-                    }));
-                    segments.sort_by(|a, b| {
-                        a.start
-                            .partial_cmp(&b.start)
-                            .unwrap_or(std::cmp::Ordering::Equal)
-                    });
-
-                    // Cross-track overlap means local + remote speech at once.
-                    let snapshot = segments.clone();
-                    for seg in &mut segments {
-                        if snapshot.iter().any(|other| {
-                            other.speaker != seg.speaker
-                                && other.start < seg.end
-                                && other.end > seg.start
-                        }) {
-                            seg.overlapped = true;
-                        }
-                    }
-
-                    let num_remote = system_result.num_speakers;
-                    let duration = mic_result.duration.max(system_result.duration);
-                    Ok(DiarizationResult {
-                        segments,
-                        num_speakers: 1 + num_remote,
-                        duration,
-                        user_speaker: Some(0),
-                    })
+                    Ok(merge_tracks(mic_result, system_result))
                 })();
 
                 let profile_names = match &dual_result {
@@ -1594,6 +1521,41 @@ pub async fn diarize_meeting(
     })
 }
 
+/// The timeline of a recording with separate tracks: all the microphone's
+/// speech is the user (speaker 0) and the system track's speakers follow from
+/// 1, in start order. A turn that overlaps another speaker's is marked
+/// overlapped; across the tracks that is local and remote speech at once.
+/// pub(crate) for the measurement kit (`crate::measure`), which labels rows
+/// on the timeline `diarize_meeting` builds.
+pub(crate) fn merge_tracks(mic: DiarizationResult, system: DiarizationResult) -> DiarizationResult {
+    let num_speakers = 1 + system.num_speakers;
+    let duration = mic.duration.max(system.duration);
+    let mut segments: Vec<DiarizationSegment> = mic
+        .segments
+        .into_iter()
+        .map(|mut s| {
+            s.speaker = 0;
+            s
+        })
+        .collect();
+    segments.extend(system.segments.into_iter().map(|mut s| {
+        s.speaker += 1;
+        s
+    }));
+    segments.sort_by(|a, b| a.start.partial_cmp(&b.start).unwrap_or(std::cmp::Ordering::Equal));
+
+    let snapshot = segments.clone();
+    for seg in &mut segments {
+        if snapshot
+            .iter()
+            .any(|other| other.speaker != seg.speaker && other.start < seg.end && other.end > seg.start)
+        {
+            seg.overlapped = true;
+        }
+    }
+    DiarizationResult { segments, num_speakers, duration, user_speaker: Some(0) }
+}
+
 /// The diarized speakers of the transcript row from `s` to `e` (seconds),
 /// the one who overlaps it most first, then each other speaker who overlaps
 /// it for at least a fifth of that (and 80 ms) and talks at the same time as
@@ -1915,6 +1877,25 @@ mod tests {
         assert!(!row_speakers(&segments, 0.0, 9.0).contains(&2));
         assert_eq!(row_speakers(&segments, 6.5, 9.0), vec![2]);
         assert!(row_speakers(&segments, 10.0, 12.0).is_empty());
+    }
+
+    #[test]
+    fn two_tracks_merge_into_the_user_and_the_remote_speakers() {
+        let turn = |start: f32, end: f32, speaker: usize| DiarizationSegment { start, end, speaker, overlapped: false };
+        let result = |segments: Vec<DiarizationSegment>, num_speakers: usize, duration: f32| DiarizationResult {
+            segments,
+            num_speakers,
+            duration,
+            user_speaker: None,
+        };
+        // The microphone's diarizer split the user in two; the system track has two speakers.
+        let mic = result(vec![turn(0.0, 2.0, 0), turn(5.0, 6.0, 1)], 2, 10.0);
+        let system = result(vec![turn(1.5, 4.0, 0), turn(7.0, 9.0, 1)], 2, 12.0);
+
+        let merged = merge_tracks(mic, system);
+        let timeline: Vec<(f32, usize, bool)> = merged.segments.iter().map(|s| (s.start, s.speaker, s.overlapped)).collect();
+        assert_eq!(timeline, [(0.0, 0, true), (1.5, 1, true), (5.0, 0, false), (7.0, 2, false)]);
+        assert_eq!((merged.num_speakers, merged.duration, merged.user_speaker), (3, 12.0, Some(0)));
     }
 
     #[test]
