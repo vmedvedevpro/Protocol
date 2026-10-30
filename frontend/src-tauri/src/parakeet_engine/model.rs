@@ -473,7 +473,7 @@ impl ParakeetModel {
             regular_name
         };
 
-        let mut builder = Session::builder(environment)?
+        let mut builder = crate::onnx_runtime::session_builder(environment)?
             .with_optimization_level(GraphOptimizationLevel::Level3)?
             .with_execution_providers(providers)?
             .with_parallel_execution(!gpu)?

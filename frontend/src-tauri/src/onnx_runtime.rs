@@ -66,6 +66,27 @@ pub fn environment() -> anyhow::Result<&'static ort::environment::Environment> {
         .map_err(|error| anyhow::anyhow!("{error}"))
 }
 
+/// A session builder for the app's models; every session starts here.
+///
+/// - PreferCPU: ort gives every builder ONNX Runtime's MaxEfficiency device
+///   policy, under which a session that registers no execution provider may be
+///   placed on an NPU or CoreML. ort's CPU provider registers none (it only
+///   switches the memory arena), so CPU sessions name the CPU here. A provider
+///   a session does register (DirectML) still takes precedence.
+/// - No spinning: since 1.23, ONNX Runtime's idle worker threads spin with
+///   TPAUSE on Intel CPUs that have it. On a hybrid Core Ultra that made
+///   Parakeet about four times slower than 1.22 with spinning; without it,
+///   both versions are faster (#70). pyke's ort builds have done the same
+///   since rc.11 for client apps.
+pub fn session_builder(
+    environment: &ort::environment::Environment,
+) -> ort::Result<ort::session::builder::SessionBuilder> {
+    Ok(ort::session::Session::builder(environment)?
+        .with_auto_device(ort::session::builder::AutoDevicePolicy::PreferCPU)?
+        .with_intra_op_spinning(false)?
+        .with_inter_op_spinning(false)?)
+}
+
 #[cfg(any(windows, target_os = "linux"))]
 fn initialize_library(path: &std::path::Path) -> Result<ort::environment::Environment, String> {
     if !path.is_absolute() || !path.is_file() {

@@ -45,7 +45,7 @@ impl ModelConfig {
 // The session builders return ort::Result: builder errors carry the builder,
 // which anyhow cannot hold.
 fn cpu_session(environment: &Environment, path: &std::path::Path) -> ort::Result<Session> {
-    let mut builder = Session::builder(environment)?.with_intra_threads(4)?;
+    let mut builder = crate::onnx_runtime::session_builder(environment)?.with_intra_threads(4)?;
     #[cfg(test)]
     if let Ok(profile) = std::env::var("MEETILY_NEMOTRON_PROFILE") {
         builder = builder.with_profiling(profile)?;
@@ -57,7 +57,7 @@ fn cpu_session(environment: &Environment, path: &std::path::Path) -> ort::Result
 fn directml_session(environment: &Environment, path: &std::path::Path, device: i32) -> ort::Result<Session> {
     use ort::ep::DirectML;
     // DirectML requires sequential execution and disabled memory patterns.
-    let mut builder = Session::builder(environment)?.with_parallel_execution(false)?
+    let mut builder = crate::onnx_runtime::session_builder(environment)?.with_parallel_execution(false)?
         .with_memory_pattern(false)?
         .with_execution_providers([DirectML::default()
             .with_device_id(device).build().error_on_failure()])?;

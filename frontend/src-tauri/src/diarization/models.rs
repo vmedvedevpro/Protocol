@@ -179,7 +179,7 @@ impl DiarizationModels {
 
         // ort::Result: the builder's errors carry the builder, which anyhow cannot hold.
         let build = |path: &Path| -> ort::Result<Session> {
-            Session::builder(environment)?
+            crate::onnx_runtime::session_builder(environment)?
                 .with_optimization_level(GraphOptimizationLevel::Level3)?
                 .with_execution_providers(vec![CPU::default().build()])?
                 .commit_from_file(path)
