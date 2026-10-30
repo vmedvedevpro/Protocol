@@ -1,18 +1,18 @@
 //! The settings a run compares, and the loop that transcribes a recording
-//! with one of them as the post-meeting pass does.
+//! with one of them as its path does.
 
 use std::time::Instant;
 
 use anyhow::{anyhow, bail, Context, Result};
 
 use super::engines::Engines;
-use super::input::Inputs;
+use super::input::{Inputs, Span};
 use super::output::{PieceResult, Row, Run, Timing, TrackInfo, FORMAT};
-use super::tracks::{self, Piece, Track};
-use crate::audio::post_meeting::{self, PieceTranscriber};
-use crate::audio::retranscription::is_silence_hallucination;
+use super::tracks::{Cut, Piece, Track};
+use super::{ms_since, SAMPLES_PER_MS};
+use crate::audio::post_meeting::{self, Pass, PieceOutcome};
 use crate::audio::transcription::worker::{is_digital_silence, peak_level};
-use crate::audio::vad::ContinuousSpeechCap;
+use crate::audio::vad::{ContinuousSpeechCap, SpeechSegment};
 use crate::whisper_engine::WhisperEngine;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -67,145 +67,182 @@ impl Setting {
 
     /// The reference takes the post-meeting pass's pieces: one call per
     /// utterance from pause to pause.
-    fn cap(self) -> ContinuousSpeechCap {
+    pub fn cap(self) -> ContinuousSpeechCap {
         match self {
             Self::PostMeeting | Self::Reference => post_meeting::vad_cap(false),
             Self::Parakeet => post_meeting::vad_cap(true),
             Self::Live => ContinuousSpeechCap::Streaming,
         }
     }
-
-    /// Why the setting's path skips a piece without a call: the post-meeting
-    /// rule, or the live path's digital silence.
-    fn skip_reason(self, samples: &[f32]) -> Option<&'static str> {
-        match self {
-            Self::Live => is_digital_silence(peak_level(samples)).then_some("silent"),
-            _ => post_meeting::skip_reason(samples),
-        }
-    }
-
-    /// Whether the run detects the language once per track on Auto, as the
-    /// post-meeting pass does. Live calls detect it in every call.
-    fn detects_per_track(self, language: &str) -> bool {
-        matches!(self, Self::PostMeeting | Self::Reference) && post_meeting::detects_once(Some(language))
-    }
 }
 
-/// How one setting turns a piece into rows (text, start ms, end ms).
+/// The live worker skips only digital silence.
+fn live_skip_reason(samples: &[f32]) -> Option<&'static str> {
+    is_digital_silence(peak_level(samples)).then_some("silent")
+}
+
+/// How one setting turns a piece into rows.
 enum Call<'a> {
-    Pass(PieceTranscriber<'a>),
+    /// Retranscription's loop (`post_meeting::Pass`) with its
+    /// silence-hallucination filter: the post-meeting setting with Whisper,
+    /// and Parakeet.
+    Pass(Pass<'a, &'static str>),
+    /// The live worker's call: the language setting in every call, one row
+    /// per piece.
     Live(&'a WhisperEngine),
-    Reference(&'a WhisperEngine),
+    /// One reference call per utterance (`WhisperEngine::reference_text`)
+    /// after the pass's skip rule; the pass only detects the language.
+    Reference(Pass<'a, &'static str>, &'a WhisperEngine),
 }
 
 impl<'a> Call<'a> {
-    fn new(setting: Setting, engines: &'a Engines) -> Result<Self> {
-        let whisper = || {
-            engines.whisper.as_ref().map(|loaded| &loaded.engine).ok_or_else(|| anyhow!("no Whisper model is loaded"))
+    fn new(setting: Setting, engines: &'a Engines, inputs: &Inputs) -> Result<Self> {
+        let whisper = engines.whisper.as_ref().map(|loaded| &loaded.engine).context("no Whisper model is loaded");
+        let pass = |parakeet, whisper| {
+            Pass::new(parakeet, whisper, Some(inputs.language.as_str()), inputs.vocabulary.as_deref())
         };
         Ok(match setting {
-            Setting::PostMeeting => Self::Pass(PieceTranscriber::new(None, Some(whisper()?))),
+            Setting::PostMeeting => Self::Pass(pass(None, Some(whisper?)).dropping_silence_hallucinations()),
             Setting::Parakeet => {
-                let parakeet = engines.parakeet.as_ref().ok_or_else(|| anyhow!("no Parakeet model is loaded"))?;
-                Self::Pass(PieceTranscriber::new(Some(&parakeet.engine), None))
+                let parakeet = engines.parakeet.as_ref().map(|loaded| &loaded.engine).context("no Parakeet model is loaded")?;
+                Self::Pass(pass(Some(parakeet), None).dropping_silence_hallucinations())
             }
-            Setting::Live => Self::Live(whisper()?),
-            Setting::Reference => Self::Reference(whisper()?),
+            Setting::Live => Self::Live(whisper?),
+            Setting::Reference => {
+                let whisper = whisper?;
+                Self::Reference(pass(None, Some(whisper)), whisper)
+            }
         })
     }
 
-    async fn rows(&mut self, piece: &Piece, language: Option<&str>, vocabulary: Option<&str>) -> Result<Vec<(String, f64, f64)>> {
-        let segment = &piece.segment;
+    /// On Auto, detects each track's language on `pieces` as retranscription
+    /// does before its loop; false when the setting's path does not (live
+    /// calls detect it in every call).
+    async fn detect_languages(&mut self, pieces: &[Piece]) -> bool {
+        match self {
+            Self::Pass(pass) | Self::Reference(pass, _) if pass.detects_language() => {
+                pass.detect_languages(pieces.iter().map(|(segment, track)| (segment, *track)), || false).await;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    fn detected_language(&self, track: &'static str) -> Option<String> {
+        match self {
+            Self::Pass(pass) | Self::Reference(pass, _) => pass.detected_language(track).map(str::to_string),
+            Self::Live(_) => None,
+        }
+    }
+
+    async fn transcribe(&mut self, piece: &SpeechSegment, track: &'static str, inputs: &Inputs) -> Result<PieceOutcome> {
         let whole_piece = |text: String| {
             let text = text.trim().to_string();
             if text.is_empty() {
                 Vec::new()
             } else {
-                vec![(text, segment.start_timestamp_ms, segment.end_timestamp_ms)]
+                vec![(text, piece.start_timestamp_ms, piece.end_timestamp_ms)]
             }
         };
+        let vocabulary = inputs.vocabulary.as_deref();
         match self {
-            Self::Pass(transcriber) => transcriber.rows(segment, language, vocabulary).await,
+            Self::Pass(pass) => pass.transcribe(piece, track).await,
             Self::Live(engine) => {
+                if let Some(reason) = live_skip_reason(&piece.samples) {
+                    return Ok(PieceOutcome::Skipped(reason));
+                }
                 let (text, _, _) = engine
-                    .transcribe_audio_with_confidence(segment.samples.clone(), language.map(str::to_string), vocabulary)
+                    .transcribe_audio_with_confidence(piece.samples.clone(), Some(inputs.language.clone()), vocabulary)
                     .await?;
-                Ok(whole_piece(text))
+                Ok(PieceOutcome::Rows(whole_piece(text)))
             }
-            Self::Reference(engine) => Ok(whole_piece(engine.reference_text(&segment.samples, language, vocabulary).await?)),
+            Self::Reference(pass, engine) => {
+                if let Some(reason) = post_meeting::skip_reason(&piece.samples) {
+                    return Ok(PieceOutcome::Skipped(reason));
+                }
+                let text = engine.reference_text(&piece.samples, pass.language(track), vocabulary).await?;
+                Ok(PieceOutcome::Rows(whole_piece(text)))
+            }
         }
     }
 }
 
-fn ms_since(started: Instant) -> f64 {
-    started.elapsed().as_secs_f64() * 1000.0
-}
-
-/// Transcribes the tracks with one setting, as its path would: the setting's
-/// pieces, the language once per track on Auto, the skip rule, and the
-/// retranscription loop's silence-hallucination filter. Before the
-/// timed loop the setting's first piece is decoded once untimed: the first
-/// call pays the GPU's set-up, and the first beam search its cache shapes.
-pub async fn run(setting: Setting, engines: &Engines, tracks: &[Track], inputs: &Inputs) -> Result<Run> {
-    let mut timing = Timing::default();
+/// Transcribes the recording with one setting, as its path would: on Auto
+/// the language once per track from all of `cut`'s pieces, then the pieces
+/// that start in the span, each through the setting's call. Before the
+/// timed loop the first piece that is not skipped is decoded once untimed:
+/// the first call pays the GPU's set-up, and the first beam search its cache
+/// shapes.
+pub async fn run(
+    setting: Setting,
+    engines: &Engines,
+    tracks: &[Track],
+    cut: &Cut,
+    span: Option<Span>,
+    inputs: &Inputs,
+) -> Result<Run> {
+    debug_assert_eq!(cut.cap, setting.cap());
+    let mut timing = Timing { vad_ms: cut.vad_ms, ..Timing::default() };
+    let mut call = Call::new(setting, engines, inputs)?;
     let started = Instant::now();
-    let pieces = tracks::pieces(tracks, setting.cap(), inputs.span.as_ref())?;
-    timing.vad_ms = ms_since(started);
-
-    let mut track_languages = vec![None; tracks.len()];
-    if setting.detects_per_track(&inputs.language) {
-        let whisper = &engines.whisper.as_ref().context("no Whisper model is loaded")?.engine;
-        let started = Instant::now();
-        for (track, language) in
-            post_meeting::detect_per_track(whisper, pieces.iter().map(|p| (&p.segment, p.track)), || false).await
-        {
-            track_languages[track] = Some(language);
-        }
+    if call.detect_languages(&cut.pieces).await {
         timing.detection_ms = ms_since(started);
     }
-    let language_of = |piece: &Piece| track_languages[piece.track].as_deref().or(Some(inputs.language.as_str()));
-    let vocabulary = inputs.vocabulary.as_deref();
 
-    let mut call = Call::new(setting, engines)?;
-    let transcribed = |piece: &&Piece| setting.skip_reason(&piece.segment.samples).is_none();
-    if let Some(first) = pieces.iter().find(transcribed) {
-        let started = Instant::now();
-        call.rows(first, language_of(first), vocabulary).await?;
-        timing.warmup_ms = ms_since(started);
+    let measured: Vec<(&SpeechSegment, &'static str)> = cut
+        .pieces
+        .iter()
+        .map(|(segment, track)| (segment, *track))
+        .filter(|(segment, _)| span.map_or(true, |span| span.contains(segment.start_timestamp_ms)))
+        .collect();
+
+    let started = Instant::now();
+    for &(segment, track) in &measured {
+        let outcome = call.transcribe(segment, track, inputs).await.context("the warm-up call")?;
+        if !matches!(outcome, PieceOutcome::Skipped(_)) {
+            break;
+        }
     }
+    timing.warmup_ms = ms_since(started);
 
-    let mut results = Vec::with_capacity(pieces.len());
-    for (index, piece) in pieces.iter().enumerate() {
-        let segment = &piece.segment;
+    let mut results = Vec::with_capacity(measured.len());
+    for (index, &(segment, track)) in measured.iter().enumerate() {
+        let started = Instant::now();
+        let outcome = call
+            .transcribe(segment, track, inputs)
+            .await
+            .with_context(|| format!("{} piece at {:.1} s", setting.name(), segment.start_timestamp_ms / 1000.0))?;
+        let wall_ms = ms_since(started);
         let mut result = PieceResult {
-            track: tracks[piece.track].label,
+            track,
             start_ms: segment.start_timestamp_ms,
             end_ms: segment.end_timestamp_ms,
-            skipped: setting.skip_reason(&segment.samples),
+            skipped: None,
             dropped: false,
             wall_ms: 0.0,
             rows: Vec::new(),
         };
+        let rows = match outcome {
+            PieceOutcome::Skipped(reason) => {
+                result.skipped = Some(reason);
+                Vec::new()
+            }
+            PieceOutcome::Dropped(rows) => {
+                result.dropped = true;
+                rows
+            }
+            PieceOutcome::Rows(rows) => rows,
+        };
         if result.skipped.is_none() {
-            let started = Instant::now();
-            let rows = call
-                .rows(piece, language_of(piece), vocabulary)
-                .await
-                .with_context(|| format!("{} piece at {:.1} s", setting.name(), segment.start_timestamp_ms / 1000.0))?;
-            result.wall_ms = ms_since(started);
-            timing.transcription_ms += result.wall_ms;
-            timing.speech_ms += segment.samples.len() as f64 / 16.0;
-            let text = rows.iter().map(|(text, _, _)| text.trim()).collect::<Vec<_>>().join(" ");
-            result.dropped = matches!(setting, Setting::PostMeeting | Setting::Parakeet)
-                && is_silence_hallucination(&text, post_meeting::rms(&segment.samples));
-            result.rows = rows
-                .into_iter()
-                .map(|(text, start_ms, end_ms)| Row { start_ms, end_ms, text, speakers: None })
-                .collect();
+            result.wall_ms = wall_ms;
+            timing.transcription_ms += wall_ms;
+            timing.speech_ms += segment.samples.len() as f64 / SAMPLES_PER_MS;
         }
+        result.rows =
+            rows.into_iter().map(|(text, start_ms, end_ms)| Row { start_ms, end_ms, text, speakers: None }).collect();
         results.push(result);
         if (index + 1) % 50 == 0 {
-            log::info!("{}: {}/{} pieces", setting.name(), index + 1, pieces.len());
+            log::info!("{}: {}/{} pieces", setting.name(), index + 1, measured.len());
         }
     }
 
@@ -221,13 +258,16 @@ pub async fn run(setting: Setting, engines: &Engines, tracks: &[Track], inputs: 
         acceleration,
         optimized: !cfg!(debug_assertions),
         language: inputs.language.clone(),
-        vocabulary: vocabulary.is_some(),
+        vocabulary: inputs.vocabulary.is_some(),
         whisper_strict_silence: setting.uses_whisper() && crate::whisper_engine::labs::strict_silence_enabled(),
-        span_ms: inputs.span.map(|span| [span.start_ms, span.end_ms]),
+        span_ms: span.map(|span| [span.start_ms, span.end_ms]),
         tracks: tracks
             .iter()
-            .zip(track_languages)
-            .map(|(track, language)| TrackInfo { label: track.label, speaker_hint: track.speaker_hint, language })
+            .map(|track| TrackInfo {
+                label: track.label,
+                speaker_hint: track.speaker_hint,
+                language: call.detected_language(track.label),
+            })
             .collect(),
         timing,
         pieces: results,
@@ -255,12 +295,9 @@ mod tests {
     }
 
     #[test]
-    fn each_setting_skips_what_its_path_skips() {
-        let quiet = vec![0.001; 16_000];
-        let digital_silence = vec![0.0; 16_000];
-        assert_eq!(Setting::PostMeeting.skip_reason(&quiet), Some("silent"));
-        assert_eq!(Setting::Parakeet.skip_reason(&quiet), Some("silent"));
-        assert_eq!(Setting::Live.skip_reason(&quiet), None);
-        assert_eq!(Setting::Live.skip_reason(&digital_silence), Some("silent"));
+    fn the_live_setting_skips_only_digital_silence() {
+        // The pass skips this quiet piece (`post_meeting::skip_reason`); the live worker sends it.
+        assert_eq!(live_skip_reason(&[0.001; 16_000]), None);
+        assert_eq!(live_skip_reason(&[0.0; 16_000]), Some("silent"));
     }
 }

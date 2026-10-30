@@ -10,11 +10,12 @@
 //! - [`build_reference`] writes `reference.json`: Large V3 decoding one VAD
 //!   utterance per call, beam search 5 at temperature 0, without timestamps.
 //!
-//! Both call the product's functions: the batch VAD with each engine's cap,
-//! the 25 s cut and the skip rule of the post-meeting pass, its
-//! `PieceTranscriber`, the live Whisper call, Parakeet, the per-track
-//! language detection, and `diarize_meeting`'s row labelling. They do not
-//! score: `scripts/measure/` reads the JSON.
+//! Both run the product's code: the post-meeting pass's VAD, pieces and loop
+//! over them (`audio::post_meeting`: skip rule, per-track language, engine
+//! call, silence-hallucination filter), the live worker's call and skip
+//! rule, the reference call beside the pass's Whisper call, and
+//! `diarize_meeting`'s row labelling. They do not score:
+//! `scripts/measure/` reads the JSON.
 //!
 //! Recordings and models are read in place. Only `MEASURE_OUT` is written
 //! (and the app's empty data folder beside the test binary, see `engines`);
@@ -28,12 +29,22 @@ mod output;
 mod settings;
 mod tracks;
 
+use std::time::Instant;
+
 use anyhow::{ensure, Result};
 
 use diarize::Diarizer;
 use engines::Engines;
 use input::{existing_path, optional, Inputs};
 use settings::Setting;
+use tracks::Cut;
+
+/// The tracks are 16 kHz.
+const SAMPLES_PER_MS: f64 = 16.0;
+
+fn ms_since(started: Instant) -> f64 {
+    started.elapsed().as_secs_f64() * 1000.0
+}
 
 fn init_logging() {
     let filter = "info,ort=warn,app_lib::audio::vad=warn,symphonia_format_isomp4=warn";
@@ -69,9 +80,19 @@ async fn transcribe_settings() -> Result<()> {
     };
 
     let engines = Engines::open(whisper_model.as_deref(), parakeet_model.as_deref()).await?;
+    // Settings with the same VAD cap transcribe the same pieces.
+    let mut cuts: Vec<Cut> = Vec::new();
     let mut runs = Vec::new();
     for setting in settings {
-        let mut run = settings::run(setting, &engines, &tracks, &inputs).await?;
+        let index = match cuts.iter().position(|cut| cut.cap == setting.cap()) {
+            Some(index) => index,
+            None => {
+                cuts.push(tracks::cut(&tracks, setting.cap())?);
+                cuts.len() - 1
+            }
+        };
+        let cut = &cuts[index];
+        let mut run = settings::run(setting, &engines, &tracks, cut, inputs.span, &inputs).await?;
         diarize::label_rows(&mut run, &tracks, &speakers);
         output::write(&inputs.out, setting.name(), &run)?;
         runs.push(run);
@@ -94,7 +115,8 @@ async fn build_reference() -> Result<()> {
 
     let tracks = tracks::load(&inputs.audio)?;
     let engines = Engines::open(Some(&model), None).await?;
-    let run = settings::run(Setting::Reference, &engines, &tracks, &inputs).await?;
+    let cut = tracks::cut(&tracks, Setting::Reference.cap())?;
+    let run = settings::run(Setting::Reference, &engines, &tracks, &cut, inputs.span, &inputs).await?;
     output::write(&inputs.out, "reference", &run)?;
     output::print_table(&[run]);
     Ok(())

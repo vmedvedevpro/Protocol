@@ -2,16 +2,15 @@
 //! as `run_retranscription` reads and cuts them.
 
 use std::path::Path;
+use std::time::Instant;
 
 use anyhow::{Context, Result};
 
-use super::input::Span;
-use crate::audio::common::split_segment_at_silence;
+use super::ms_since;
 use crate::audio::decoder::decode_audio_file;
-use crate::audio::retranscription::{
-    find_audio_file, find_retranscription_sources, MAX_SEGMENT_SAMPLES, VAD_REDEMPTION_TIME_MS,
-};
-use crate::audio::vad::{get_speech_chunks_with_cap_and_progress, ContinuousSpeechCap, SpeechSegment};
+use crate::audio::post_meeting;
+use crate::audio::retranscription::{find_audio_file, find_retranscription_sources};
+use crate::audio::vad::{ContinuousSpeechCap, SpeechSegment};
 
 /// One decoded track: 16 kHz mono samples and the VAD thresholds the pass
 /// uses for it.
@@ -50,38 +49,31 @@ pub fn load(input: &Path) -> Result<Vec<Track>> {
         .collect()
 }
 
-/// A piece of one track (an index into the tracks).
-pub struct Piece {
-    pub track: usize,
-    pub segment: SpeechSegment,
+/// A piece and the label of its track. The label is the track's key in the
+/// pass, as the speaker hint is in retranscription: both are distinct per
+/// track.
+pub type Piece = (SpeechSegment, &'static str);
+
+/// The pieces of a whole recording for one VAD cap.
+pub struct Cut {
+    pub cap: ContinuousSpeechCap,
+    /// The batch VAD over all tracks.
+    pub vad_ms: f64,
+    pub pieces: Vec<Piece>,
 }
 
-/// The pieces a post-meeting pass transcribes with this VAD cap: the batch
-/// VAD per track, all pieces in time order, those over 25 s cut at their
-/// quietest point. With a span, the pieces that start inside it; the VAD
-/// still reads whole tracks, so they are the pieces of the whole recording.
-pub fn pieces(tracks: &[Track], cap: ContinuousSpeechCap, span: Option<&Span>) -> Result<Vec<Piece>> {
-    let mut found = Vec::new();
-    for (index, track) in tracks.iter().enumerate() {
-        let segments = get_speech_chunks_with_cap_and_progress(
-            &track.samples,
-            VAD_REDEMPTION_TIME_MS,
-            track.positive_threshold,
-            track.negative_threshold,
-            cap,
-            |_, _| true,
-        )
-        .with_context(|| format!("VAD on the {} track", track.label))?;
-        found.extend(segments.into_iter().map(|segment| (index, segment)));
+/// The pieces a post-meeting pass transcribes with this VAD cap: the pass's
+/// batch VAD on every whole track, then `post_meeting::pieces` (time order,
+/// those over 25 s cut at their quietest points).
+pub fn cut(tracks: &[Track], cap: ContinuousSpeechCap) -> Result<Cut> {
+    let started = Instant::now();
+    let mut speech = Vec::new();
+    for track in tracks {
+        let segments =
+            post_meeting::speech(&track.samples, track.positive_threshold, track.negative_threshold, cap, |_, _| true)
+                .with_context(|| format!("VAD on the {} track", track.label))?;
+        speech.extend(segments.into_iter().map(|segment| (segment, track.label)));
     }
-    found.sort_by(|a, b| a.1.start_timestamp_ms.total_cmp(&b.1.start_timestamp_ms));
-    Ok(found
-        .iter()
-        .flat_map(|(track, segment)| {
-            split_segment_at_silence(segment, MAX_SEGMENT_SAMPLES)
-                .into_iter()
-                .map(move |segment| Piece { track: *track, segment })
-        })
-        .filter(|piece| span.map_or(true, |span| span.contains(piece.segment.start_timestamp_ms)))
-        .collect())
+    let pieces = post_meeting::pieces(speech);
+    Ok(Cut { cap, vad_ms: ms_since(started), pieces })
 }

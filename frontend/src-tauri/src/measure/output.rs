@@ -44,9 +44,10 @@ pub struct TrackInfo {
 pub struct Timing {
     /// The untimed first call of the setting (see `settings::run`).
     pub warmup_ms: f64,
-    /// The batch VAD over the whole tracks, also for a span.
+    /// The batch VAD over the whole tracks, also for a span. Settings with
+    /// the same VAD cap share one VAD pass and report its time.
     pub vad_ms: f64,
-    /// Language detection on Auto, once per track.
+    /// Language detection on Auto, once per track over the whole recording.
     pub detection_ms: f64,
     /// The transcription calls, summed.
     pub transcription_ms: f64,
@@ -59,7 +60,7 @@ pub struct PieceResult {
     pub track: &'static str,
     pub start_ms: f64,
     pub end_ms: f64,
-    /// Why the setting's path skipped the piece without a call (`Setting::skip_reason`).
+    /// Why the setting's path skipped the piece without a call.
     pub skipped: Option<&'static str>,
     /// The retranscription loop drops the piece as a silence hallucination.
     pub dropped: bool,

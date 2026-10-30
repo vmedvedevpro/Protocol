@@ -99,6 +99,10 @@ impl<'a> PostMeetingWhisper<'a> {
         Self { engine, decoding: session_decoding(BEAM_CACHE_FAILED.load(Ordering::SeqCst)) }
     }
 
+    pub fn engine(&self) -> &'a WhisperEngine {
+        self.engine
+    }
+
     /// Transcribes one piece. `language` follows the app's setting: `None` or
     /// "auto" detects it in this call, "auto-translate" detects and translates
     /// to English.
