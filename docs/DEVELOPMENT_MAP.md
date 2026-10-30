@@ -743,11 +743,16 @@ what Protocol does about it:
   If the allocation fails, whisper.cpp frees the caller's state and returns -7
   (still so in whisper.cpp 1.9.5), and whisper-rs would free the state again
   on drop. `PostMeetingWhisper` leaks the state instead and decodes that piece
-  and the rest of the pass greedily with one decoder, which never grows the
-  cache, so the pass neither fails nor asks again. The leak also keeps the
-  model loaded until the app restarts: a whisper-rs state holds a reference to
-  its model context, so unloading or switching the model then frees nothing.
-  The live calls' single decoder never grows the cache.
+  greedily with one decoder, which never grows the cache. The leak also keeps
+  the model loaded until the app restarts: a whisper-rs state holds a reference
+  to its model context, so unloading or switching the model then frees
+  nothing. The first -7 of an app session therefore makes every later
+  post-meeting pass, of any model, decode greedily from its first piece until
+  the app restarts (`BEAM_CACHE_FAILED`): a later pass would have less room for
+  the beam's cache than the one that failed, and each failure would leak
+  another copy of the model. The model is leaked at most once per app session,
+  and the warning is logged once. The live calls' single decoder never grows
+  the cache.
 - Every Whisper call's output wraps at 200 bytes (`max_len` counts bytes) only
   before a word (`split_on_word`); a byte wrap inside a Cyrillic word would
   split it in two.

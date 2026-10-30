@@ -17,6 +17,8 @@
 //! segment long after its last word: 4 stretches of 14–21 words in 20 minutes
 //! of the measured meeting (development map, #62).
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use anyhow::{anyhow, Result};
 use log::warn;
 use whisper_rs::{FullParams, WhisperContext, WhisperError, WhisperState};
@@ -33,6 +35,29 @@ use super::WhisperEngine;
 /// switching the model then frees nothing. Remove the leak once whisper.cpp
 /// stops freeing the caller's state or whisper-rs stops freeing it again.
 const KV_CACHE_RECREATE_FAILED: i32 = -7;
+
+/// Set by the first [`KV_CACHE_RECREATE_FAILED`] of this app session. Every
+/// later post-meeting pass then decodes greedily from its first piece: the
+/// leaked model stays in memory, so a later pass would have less room for the
+/// beam's cache than the one that failed, and each failure would leak one
+/// more copy of the model (the engine reloads it for the next pass). With the
+/// flag the model is leaked at most once per app session. It is not keyed by
+/// model, because any model loaded after the leak shares the device with it.
+static BEAM_CACHE_FAILED: AtomicBool = AtomicBool::new(false);
+
+/// The decoding a new pass starts with.
+fn session_decoding(beam_cache_failed: bool) -> WhisperDecoding {
+    if beam_cache_failed {
+        WhisperDecoding::Greedy
+    } else {
+        WhisperDecoding::POST_MEETING
+    }
+}
+
+/// Records a beam cache failure; true the first time in the session.
+fn note_beam_cache_failure(flag: &AtomicBool) -> bool {
+    !flag.swap(true, Ordering::SeqCst)
+}
 
 /// whisper.cpp's default thread count (`whisper_full_default_params`), which
 /// the transcription calls keep; the detection's mel and encoder pass use it
@@ -60,9 +85,10 @@ pub struct TimedText {
 /// cache to 7 decoder slots (beam 5 plus 2 against fragmentation: about 73 MB
 /// for Turbo, 587 MB for Large V3, against 84 MB for one Large V3 decoder).
 ///
-/// When that allocation fails, the rest of the pass decodes greedily with one
-/// decoder, which never grows the cache, instead of failing on every piece
-/// (see [`KV_CACHE_RECREATE_FAILED`] for what that failure leaves behind).
+/// When that allocation fails, the piece and everything after it until the
+/// app restarts decode greedily with one decoder, which never grows the cache
+/// ([`BEAM_CACHE_FAILED`]; see [`KV_CACHE_RECREATE_FAILED`] for what the
+/// failure leaves behind).
 pub struct PostMeetingWhisper<'a> {
     engine: &'a WhisperEngine,
     decoding: WhisperDecoding,
@@ -70,7 +96,7 @@ pub struct PostMeetingWhisper<'a> {
 
 impl<'a> PostMeetingWhisper<'a> {
     pub fn new(engine: &'a WhisperEngine) -> Self {
-        Self { engine, decoding: WhisperDecoding::POST_MEETING }
+        Self { engine, decoding: session_decoding(BEAM_CACHE_FAILED.load(Ordering::SeqCst)) }
     }
 
     /// Transcribes one piece. `language` follows the app's setting: `None` or
@@ -122,11 +148,13 @@ fn transcribe_piece_with(
                 if *decoding == WhisperDecoding::Greedy {
                     return Err(anyhow!("whisper.cpp could not allocate the KV cache for one decoder"));
                 }
-                warn!(
-                    "whisper.cpp could not allocate the KV cache for {:?}; the rest of this pass decodes greedily \
-                     with one decoder, and the model stays loaded until the app restarts",
-                    decoding
-                );
+                if note_beam_cache_failure(&BEAM_CACHE_FAILED) {
+                    warn!(
+                        "whisper.cpp could not allocate the KV cache for {:?}; post-meeting passes decode greedily \
+                         with one decoder until the app restarts, and this model stays loaded until then",
+                        decoding
+                    );
+                }
                 *decoding = WhisperDecoding::Greedy;
             }
             Err(error) => {
@@ -165,4 +193,23 @@ fn timed_segments(state: &WhisperState) -> Vec<TimedText> {
         });
     }
     rows
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn after_a_beam_cache_failure_later_passes_start_greedy() {
+        assert_eq!(session_decoding(false), WhisperDecoding::POST_MEETING);
+        assert_eq!(session_decoding(true), WhisperDecoding::Greedy);
+    }
+
+    #[test]
+    fn only_the_first_beam_cache_failure_of_a_session_is_reported() {
+        let flag = AtomicBool::new(false);
+        assert!(note_beam_cache_failure(&flag));
+        assert!(!note_beam_cache_failure(&flag));
+        assert!(flag.load(Ordering::SeqCst));
+    }
 }
