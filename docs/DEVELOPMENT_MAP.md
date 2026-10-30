@@ -280,8 +280,11 @@ capped pieces and one row per piece. Both engines skip the same short or silent
 pieces (`skip_reason`). With the language on Auto (`None` or `"auto"`; not
 `"auto-translate"`), Whisper detects it once per retained track on up to 30 s of
 the track's most energetic pieces (`detection_audio`, `detect_once`,
-`detect_per_track`) and uses it for the whole track when its probability is
-above 0.5; otherwise the track keeps per-call detection. Both loops check for
+`detect_per_track`). It detects on each half of that audio and uses the
+language for the whole track only when both halves give it with a probability
+above 0.5 (`agreed_language`): the loudest stretch is not always speech, and
+one confident misreading would otherwise fix the track. Otherwise the track
+keeps per-call detection. Both loops check for
 Cancel before the detection. A track whose speakers switch language mid-meeting
 is then transcribed in one language. Live transcription keeps its pieces and
 calls; its decoding is greedy at temperature 0, and every Whisper call shares
@@ -289,7 +292,7 @@ its language mapping, thresholds and output wrap (`WhisperDecoding::call_params`
 see below). See [Whisper engine](#whisper-engine) for why and what was
 measured. Unit tests: `audio::post_meeting::tests` (VAD cap per engine, skips,
 rows from Whisper segments, merged repeats, which settings detect once,
-detection audio and threshold), `whisper_engine::decoding::tests` (the
+detection audio, threshold and agreement), `whisper_engine::decoding::tests` (the
 decodings and shared parameters as whisper.cpp receives them, the language
 mapping) and `audio::common::tests` (the cut at the quietest point, no cut in
 a piece's trailing silence).

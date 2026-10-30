@@ -229,8 +229,31 @@ fn confident(probability: f32) -> bool {
     probability > MIN_TRACK_LANGUAGE_PROBABILITY
 }
 
+/// The track's language from the detections on the two halves of its
+/// detection audio: only when both are confident and agree. One detection
+/// judges one stretch, and the loudest stretch of a track is not always its
+/// speech (music or a shared video on the system track, a quote in another
+/// language); a confident misreading there would fix the whole track. Two
+/// halves that agree make that one stretch outvoted. Limit: a track whose
+/// chosen 30 s are all the same non-speech or foreign material can still
+/// agree on a wrong language.
+fn agreed_language(first: &Option<(String, f32)>, second: &Option<(String, f32)>) -> Option<String> {
+    match (first, second) {
+        (Some((a, p)), Some((b, q))) if a == b && confident(*p) && confident(*q) => Some(a.clone()),
+        _ => None,
+    }
+}
+
+fn describe(detection: &Option<(String, f32)>) -> String {
+    match detection {
+        Some((language, probability)) => format!("{language} (p = {probability:.2})"),
+        None => "no language".to_string(),
+    }
+}
+
 /// The language of one track's pieces, or `None` when the track keeps per-call
-/// detection (no speech, a failed or unconfident detection).
+/// detection (no speech, a failed detection, or halves that do not agree; see
+/// [`agreed_language`]). Two encoder passes, one per half.
 pub async fn detect_once<'a>(
     engine: &WhisperEngine,
     track: impl Debug,
@@ -241,19 +264,31 @@ pub async fn detect_once<'a>(
         return None;
     }
     let seconds = audio.len() as f64 / 16_000.0;
-    match engine.detect_language_with_probability(&audio).await {
-        Ok(Some((language, probability))) if confident(probability) => {
-            info!("Detected language {language} (p = {probability:.2}) for {track:?} on {seconds:.1}s of speech");
-            Some(language)
-        }
-        Ok(Some((language, probability))) => {
-            warn!("Language {language} for {track:?} has p = {probability:.2}; detecting per piece");
-            None
-        }
-        Ok(None) => {
-            warn!("No language detected for {track:?}; detecting per piece");
-            None
-        }
+    let (first_half, second_half) = audio.split_at(audio.len() / 2);
+    let detections = match engine.detect_language_with_probability(first_half).await {
+        Ok(first) => engine.detect_language_with_probability(second_half).await.map(|second| (first, second)),
+        Err(error) => Err(error),
+    };
+    match detections {
+        Ok((first, second)) => match agreed_language(&first, &second) {
+            Some(language) => {
+                info!(
+                    "Detected language {} and {} on two halves of {seconds:.1}s of speech for {track:?}",
+                    describe(&first),
+                    describe(&second)
+                );
+                Some(language)
+            }
+            None => {
+                warn!(
+                    "Language detection gave {} and {} on two halves of {seconds:.1}s of speech for {track:?}; \
+                     detecting per piece",
+                    describe(&first),
+                    describe(&second)
+                );
+                None
+            }
+        },
         Err(error) => {
             warn!("Language detection failed for {track:?}: {error}; detecting per piece");
             None
@@ -406,6 +441,16 @@ mod tests {
         assert!(confident(0.93));
         assert!(!confident(0.5));
         assert!(!confident(0.41));
+    }
+
+    #[test]
+    fn a_track_language_needs_two_confident_halves_that_agree() {
+        let detected = |language: &str, p: f32| Some((language.to_string(), p));
+        assert_eq!(agreed_language(&detected("ru", 0.99), &detected("ru", 0.8)), Some("ru".to_string()));
+        assert_eq!(agreed_language(&detected("ru", 0.99), &detected("en", 0.97)), None);
+        assert_eq!(agreed_language(&detected("ru", 0.99), &detected("ru", 0.5)), None);
+        assert_eq!(agreed_language(&detected("ru", 0.45), &detected("ru", 0.99)), None);
+        assert_eq!(agreed_language(&detected("ru", 0.99), &None), None);
     }
 
     #[test]
