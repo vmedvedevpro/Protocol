@@ -1559,9 +1559,11 @@ pub(crate) fn merge_tracks(mic: DiarizationResult, system: DiarizationResult) ->
 /// The diarized speakers of the transcript row from `s` to `e` (seconds),
 /// the one who overlaps it most first, then each other speaker who overlaps
 /// it for at least a fifth of that (and 80 ms) and talks at the same time as
-/// the first for 80 ms inside it. Empty when no diarized speech overlaps the
-/// row. pub(crate) for the measurement kit (`crate::measure`), which labels
-/// rows as `diarize_meeting` does.
+/// the first for 80 ms inside it, in speaker order. Of speakers who overlap it
+/// equally, the lower index comes first, so a row's speakers do not change
+/// between runs. Empty when no diarized speech overlaps the row. pub(crate)
+/// for the measurement kit (`crate::measure`), which labels rows as
+/// `diarize_meeting` does.
 pub(crate) fn row_speakers(segments: &[DiarizationSegment], s: f32, e: f32) -> Vec<usize> {
     let relevant_segments: Vec<&DiarizationSegment> = segments
         .iter()
@@ -1571,8 +1573,8 @@ pub(crate) fn row_speakers(segments: &[DiarizationSegment], s: f32, e: f32) -> V
         })
         .collect();
 
-    let mut overlap_by_speaker: std::collections::HashMap<usize, f32> =
-        std::collections::HashMap::new();
+    let mut overlap_by_speaker: std::collections::BTreeMap<usize, f32> =
+        std::collections::BTreeMap::new();
     for seg in &relevant_segments {
         let ov = seg.end.min(e) - seg.start.max(s);
         if ov > 0.0 {
@@ -1580,10 +1582,10 @@ pub(crate) fn row_speakers(segments: &[DiarizationSegment], s: f32, e: f32) -> V
         }
     }
 
-    let Some((&primary, _)) = overlap_by_speaker
-        .iter()
-        .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
-    else {
+    // `max_by` keeps the last of equal maxima; the reversed index makes it the lowest.
+    let Some((&primary, _)) = overlap_by_speaker.iter().max_by(|a, b| {
+        a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal).then_with(|| b.0.cmp(a.0))
+    }) else {
         return Vec::new();
     };
     let cutoff = (overlap_by_speaker[&primary] * 0.20).max(0.08);
@@ -1877,6 +1879,16 @@ mod tests {
         assert!(!row_speakers(&segments, 0.0, 9.0).contains(&2));
         assert_eq!(row_speakers(&segments, 6.5, 9.0), vec![2]);
         assert!(row_speakers(&segments, 10.0, 12.0).is_empty());
+    }
+
+    #[test]
+    fn speakers_who_cover_a_row_equally_come_in_index_order() {
+        let turn = |start: f32, end: f32, speaker: usize| DiarizationSegment { start, end, speaker, overlapped: false };
+        // Three speakers talk over the whole row.
+        let segments = [turn(0.0, 4.0, 2), turn(0.0, 4.0, 0), turn(0.0, 4.0, 1)];
+        for _ in 0..20 {
+            assert_eq!(row_speakers(&segments, 1.0, 3.0), vec![0, 1, 2]);
+        }
     }
 
     #[test]
