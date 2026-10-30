@@ -29,8 +29,11 @@ static DIRECTML: std::sync::OnceLock<libloading::Library> = std::sync::OnceLock:
 pub fn initialize<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
     use tauri::Manager;
     let resource = std::path::Path::new("binaries/onnxruntime").join(RUNTIME_FILE);
-    if let Ok(path) = app.path().resolve(resource, tauri::path::BaseDirectory::Resource) {
-        let _ = RUNTIME_PATH.set(path);
+    match app.path().resolve(resource, tauri::path::BaseDirectory::Resource) {
+        Ok(path) => {
+            let _ = RUNTIME_PATH.set(path);
+        }
+        Err(error) => log::error!("Cannot resolve the bundled ONNX Runtime in the app's resources: {error}"),
     }
     if let Err(error) = ensure_available() {
         log::error!("Bundled ONNX Runtime unavailable: {error}");
@@ -42,11 +45,21 @@ pub fn ensure_available() -> anyhow::Result<()> {
 }
 
 /// The environment to build ONNX sessions from; loads the runtime on first use.
+///
+/// This must be the process's first ort call. ort loads a runtime on its first
+/// API call: without `init_from` it takes ORT_DYLIB_PATH or the system library
+/// path, and a later `init_from` returns Ok without loading the bundled
+/// library. Every ort use in the app goes through a session built from this
+/// environment, and `initialize` calls it at the top of setup.
 pub fn environment() -> anyhow::Result<&'static ort::environment::Environment> {
     ENVIRONMENT
         .get_or_init(|| {
             #[cfg(any(windows, target_os = "linux"))]
             {
+                // Only for a call before `initialize` or a failed resolve. It
+                // matches the Windows install (resources next to the exe); the
+                // deb and AppImage keep resources under /usr/lib/<product>, so
+                // on Linux it reports the runtime missing.
                 let path = RUNTIME_PATH.get_or_init(|| {
                     #[cfg(test)]
                     { std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("binaries/onnxruntime").join(RUNTIME_FILE) }
