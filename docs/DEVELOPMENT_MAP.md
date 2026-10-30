@@ -548,6 +548,63 @@ stack UI; its previous Parakeet CPU pill was fixed text. An ignored test with
 the installed v3 INT8 model and synthetic silence confirms encoder nodes run
 on both DirectML and CPU; real speech performance remains unqualified.
 
+### ONNX Runtime
+
+Silero VAD, Parakeet, Pyannote/WeSpeaker and Nemotron run on ONNX Runtime
+through `ort` 2.0.0-rc.15 with API level 24 (`api-24`, ONNX Runtime 1.24) on
+every platform (#70; rc.10 and 1.22.0 before):
+
+| Platform | Runtime | Loaded |
+| --- | --- | --- |
+| Windows x64 | `Microsoft.ML.OnnxRuntime.DirectML` 1.24.4 and `Microsoft.AI.DirectML` 1.15.4 (NuGet) | `load-dynamic`, by absolute path from `binaries/onnxruntime/`; `DirectML.dll` is preloaded by absolute path |
+| Linux x64 | Microsoft's `onnxruntime-linux-x64-1.24.4` (GitHub release), CPU only | `load-dynamic`, `binaries/onnxruntime/libonnxruntime.so` from the deb's or AppImage's resources |
+| macOS arm64 | pyke's 1.31.0 CoreML build, downloaded by `ort` (`download-binaries`) | linked statically |
+
+- `build/onnxruntime.rs` downloads the Windows and Linux archives and checks
+  the size and SHA-256 of each archive and of every file it stages (Linux
+  stages `libonnxruntime.so.1.24.4` as `libonnxruntime.so` and the license).
+  `tauri.windows.conf.json` and `tauri.linux.conf.json` bundle
+  `binaries/onnxruntime/*`. Linux does not use ort's own binaries: their 1.31.0
+  build needs glibc 2.38 (`__isoc23_strtol` and relatives), more than the
+  `ubuntu-22.04` release runner has, and a CPU with AVX2; Microsoft's build
+  needs glibc 2.27 and no AVX2.
+- `onnx_runtime.rs` owns the process's only `ort` environment (rc.14 makes it
+  explicit and allows one per process); every session is built from
+  `onnx_runtime::environment()`. On Windows and Linux it refuses a library
+  older than API 24 (`ort::util::probe`) before ort loads it, lets
+  `ort::init_from` report a library that does not load, and logs
+  `Initialized verified bundled ONNX Runtime 1.24.4: <ort::info()>`, the
+  version as the runtime reports it (`ort::info()` of Microsoft's builds names
+  only the commit). The Linux release leg checks that line and the library
+  inside the deb and the AppImage.
+- Every app session starts from `onnx_runtime::session_builder`:
+  - `AutoDevicePolicy::PreferCPU`. With API 22 or later ort gives every new
+    builder ONNX Runtime's `MaxEfficiency` device policy, under which a
+    session that registers no execution provider may be placed on an NPU or
+    CoreML. ort's CPU provider registers none with ONNX Runtime (it only
+    switches the memory arena), so it does not count; DirectML does and takes
+    precedence. The vendored Silero sets the same policy.
+  - Intra- and inter-op spinning off. Since 1.23 ONNX Runtime's idle worker
+    threads spin with `TPAUSE` on Intel CPUs that have it
+    (`core/common/spin_pause.cc`; still so in 1.26). On an Intel Core Ultra
+    X7 358H that made Parakeet four times and Pyannote two and a half times
+    slower than 1.22. Without spinning, 1.24.4 transcribed 20 minutes of a
+    meeting in 47–55 s against 113–120 s on 1.22.0, and Pyannote and Nemotron
+    took as long as before (#70). Silero runs on one thread and has no pool.
+- Silero VAD is a vendored copy of silero-rs (`vendor/silero-rs`, see its
+  `VENDORED.md`): upstream pins ort rc.10 and has no constructor that takes an
+  environment. Its build downloads the Silero VAD v4 model (pinned size and
+  SHA-256, the file the git dependency embedded before) instead of keeping
+  the binary in git.
+
+Tests: `onnx_runtime::tests` (Windows and Linux) load the staged runtime once,
+check that it reports 1.24.4 and build sessions from the shared environment,
+run the bundled Pyannote models, and keep a missing runtime a recoverable error;
+`onnx_runtime_build_tests` checks the stage against the pins. The ignored
+model tests and the before/after comparison on a recorded meeting are in
+#70's pull request. Not run here: the macOS and Linux builds, which only the
+release workflow builds.
+
 ### Whisper engine
 
 Whisper runs on whisper.cpp 1.8.3 through `whisper-rs` 0.16 (`whisper-rs-sys`

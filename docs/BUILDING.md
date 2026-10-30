@@ -36,6 +36,17 @@ $env:CARGO_TARGET_DIR = 'C:\t'
 `build-universal-windows.ps1` checks this before it builds. CPU builds have no
 such limit.
 
+A clean build downloads and verifies what the speech models run on, so it
+needs network access:
+
+- ONNX Runtime 1.24.4 (`build/onnxruntime.rs`, exact sizes and SHA-256): on
+  Windows Microsoft's DirectML NuGet packages, on Linux x64 Microsoft's
+  `onnxruntime-linux-x64-1.24.4` release archive. The app loads it from
+  `binaries/onnxruntime/` (the installer's, deb's or AppImage's resources),
+  never from `PATH` or the system library path. macOS builds link the runtime
+  `ort` downloads instead.
+- The Silero VAD model (`vendor/silero-rs/build.rs`), embedded into the app.
+
 Frontend checks, as run in CI:
 
 ```powershell

@@ -119,7 +119,7 @@ The previous executable and database were backed up privately before upgrading.
 ## DirectML follow-up
 
 The Windows runtime is now the pinned Microsoft.ML.OnnxRuntime.DirectML 1.22.0
-NuGet payload, plus Microsoft.AI.DirectML 1.15.4. Both package downloads and each
+NuGet payload (1.24.4 since #70), plus Microsoft.AI.DirectML 1.15.4. Both package downloads and each
 staged DLL/license are checked for exact length and SHA-256. The DirectML DLL is
 preloaded from the app-owned absolute path and retained for the process lifetime.
 Nemotron requests adapter 0 using sequential execution and disabled memory

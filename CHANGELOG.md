@@ -7,6 +7,16 @@ is inherited from the project Protocol forked from; Protocol did not release it.
 
 ## Protocol — unreleased
 
+### Changed
+
+- **Speech models on a newer ONNX Runtime**
+  ([#70](https://github.com/vmedvedevpro/Protocol/issues/70)): voice
+  detection, Parakeet and speaker labels run on ONNX Runtime 1.24.4 (was
+  1.22.0). On the meeting it was checked on, transcripts and speaker labels
+  came out exactly the same, and Parakeet transcribed it about twice as fast
+  on an Intel Core Ultra laptop. The Linux deb and AppImage now ship their own
+  ONNX Runtime and load only that copy; macOS builds use ONNX Runtime 1.31.0.
+
 ## Protocol 0.4.2 — 2026-10-29
 
 Whisper runs on a newer speech engine: with a Vulkan GPU, the transcript after a
