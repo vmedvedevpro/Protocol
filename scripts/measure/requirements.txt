@@ -1,4 +1,5 @@
 # The scoring of the transcription measurement kit (docs/MEASURING_TRANSCRIPTION.md), Python 3.12.
 jiwer==4.0.0
+# jiwer's own dependencies, which the kit does not import: pinned so that every machine installs the same set.
 rapidfuzz==3.14.6
 click==8.5.0

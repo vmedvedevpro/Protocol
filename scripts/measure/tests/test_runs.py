@@ -59,6 +59,10 @@ class GroupingTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             by_track(rows, ("microphone", "system audio"))
 
+    def test_a_row_on_another_track_is_refused(self):
+        with self.assertRaises(ValueError):
+            by_track([row(1, 2, "a", "mic")], ("microphone", "system audio"))
+
 
 class ClipTest(unittest.TestCase):
     def test_rows_are_kept_by_the_time_of_their_words(self):

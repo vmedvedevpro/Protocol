@@ -4,13 +4,15 @@ import unicodedata
 
 
 def normalize(text: str) -> str:
-    """Lower case, "ё" as "е", and every punctuation mark, symbol, space or control character as one space.
+    """Unicode NFKC, lower case, "ё" as "е", and every punctuation mark, symbol, space or control character as one
+    space.
 
-    Digits are kept as they are, so "25" and "двадцать пять" differ: the engines write numbers both ways, and a
-    rule that spells them out would have to know the language. "кто-то" and "don't" become two words each, on both
-    sides alike.
+    NFKC composes letters typed as a base and a combining mark (a decomposed "й" or "ё", as macOS may save a
+    transcript) and folds compatibility forms such as full-width digits and ligatures. Digits are kept as they are,
+    so "25" and "двадцать пять" differ: the engines write numbers both ways, and a rule that spells them out would
+    have to know the language. "кто-то" and "don't" become two words each, on both sides alike.
     """
-    text = text.lower().replace("ё", "е")
+    text = unicodedata.normalize("NFKC", text).lower().replace("ё", "е")
     kept = (" " if unicodedata.category(ch)[0] in "PSZC" else ch for ch in text)
     return " ".join("".join(kept).split())
 

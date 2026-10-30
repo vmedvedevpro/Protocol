@@ -60,12 +60,13 @@ def repeated_words(tokens: list[str]) -> int:
     of a 2-word phrase said three times, or of a word said four times.
 
     Long-form Whisper decoding writes such repeats in zero-length segments (47 % of a long-form reference's words in
-    #62); natural speech rarely repeats three words back to back. Used to check a reference.
+    #62); natural speech rarely repeats three words back to back. Used to check a reference. The shortest phrase is
+    tried first: a word said six times is also a 3-word phrase said twice, which would count two copies fewer.
     """
     flagged = 0
     i = 0
     while i < len(tokens):
-        for n in range(25, 0, -1):
+        for n in range(1, 26):
             phrase = tokens[i:i + n]
             if len(phrase) < n:
                 continue

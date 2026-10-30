@@ -54,7 +54,8 @@ def score(args: argparse.Namespace) -> None:
 def spot_check(args: argparse.Namespace) -> None:
     runs = [load_run(path) for path in args.runs]
     reference = load_reference(args.reference) if args.reference else None
-    text = spotcheck.passages(runs, reference, args.passages, args.seconds, args.seed)
+    names = labels(args.runs, [run.setting for run in runs])
+    text = spotcheck.passages(runs, names, reference, args.passages, args.seconds, args.seed)
     if args.out:
         args.out.write_text(text, encoding="utf-8")
         print(f"wrote {args.out}")

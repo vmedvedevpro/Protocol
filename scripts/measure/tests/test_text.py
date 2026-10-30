@@ -7,6 +7,12 @@ class NormalizeTest(unittest.TestCase):
     def test_case_punctuation_and_yo_do_not_count(self):
         self.assertEqual(normalize("Ёлка, зелёная!  «Да» — сказал он…"), "елка зеленая да сказал он")
 
+    def test_decomposed_letters_compare_as_composed_ones(self):
+        decomposed = "ёлка йод"
+        self.assertEqual(normalize(decomposed), normalize("ёлка йод"))
+        self.assertEqual(normalize(decomposed), "елка йод")
+        self.assertEqual(words("ﬁle ２５"), ["file", "25"])
+
     def test_digits_stay_as_written(self):
         self.assertEqual(words("В 2024 году, 25%."), ["в", "2024", "году", "25"])
 

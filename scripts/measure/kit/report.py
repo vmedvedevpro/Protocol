@@ -3,7 +3,7 @@
 from dataclasses import asdict, dataclass
 
 from . import accuracy, failures, speakers
-from .runs import Reference, Run, Timeline, by_track, clip
+from .runs import Reference, Run, Timeline, by_track, clip, clock
 from .text import words
 
 
@@ -18,12 +18,25 @@ class Scores:
     optimized: bool
     # Pieces per Whisper decoding ("beam 5", "greedy").
     decodings: dict[str, int]
-    failures: failures.Failures
-    accuracy: accuracy.Accuracy | None
-    speakers: speakers.SpeakerScore | None
+    failure_counts: failures.Failures
+    accuracy_scores: accuracy.Accuracy | None
+    speaker_scores: speakers.SpeakerScore | None
+
+    @property
+    def real_time_factor(self) -> float | None:
+        return self.speech_s / self.time_s if self.time_s else None
 
     def as_dict(self) -> dict:
-        return asdict(self)
+        """Every field, and the rates the properties compute."""
+        data = asdict(self)
+        data["real_time_factor"] = self.real_time_factor
+        if self.accuracy_scores is not None:
+            scores, fields = self.accuracy_scores, data["accuracy_scores"]
+            fields["words"]["rate"] = scores.words.rate
+            fields["characters"]["rate"] = scores.characters.rate
+            for track, errors in scores.tracks.items():
+                fields["tracks"][track]["rate"] = errors.rate
+        return data
 
 
 def score(run: Run, reference: Reference | None, timeline: Timeline | None, label: str = "") -> Scores:
@@ -40,9 +53,9 @@ def score(run: Run, reference: Reference | None, timeline: Timeline | None, labe
         warmup_s=timing["warmup_ms"] / 1000,
         optimized=run.optimized,
         decodings=run.decodings(),
-        failures=failures.count(run.pieces),
-        accuracy=None if reference is None else accuracy.score(run, reference),
-        speakers=None if timeline is None else speakers.score(run, timeline),
+        failure_counts=failures.count(run.pieces),
+        accuracy_scores=None if reference is None else accuracy.score(run, reference),
+        speaker_scores=None if timeline is None else speakers.score(run, timeline),
     )
 
 
@@ -87,11 +100,12 @@ def table(rows: list[list[str]], header: list[str]) -> str:
 
 
 def summary(scores: list[Scores]) -> str:
-    header = ["setting", "words", "WER", "CER", "S/D/I", "lost stretches", "≥ 3 s → ≤ 2 words", "loops",
-              "rows with hallucinations", "time s", "× real time", "speaker agreement", "rows with a turn change"]
+    short = f"≥ {failures.SHORT_PIECE_MS / 1000:g} s → ≤ {failures.SHORT_OUTPUT_WORDS} words"
+    header = ["setting", "words", "WER", "CER", "S/D/I", "lost stretches", short, "loops", "rows with hallucinations",
+              "time s", "× real time", "speaker agreement", "rows with a turn change"]
     rows = []
     for s in scores:
-        a, f, sp = s.accuracy, s.failures, s.speakers
+        a, f, sp = s.accuracy_scores, s.failure_counts, s.speaker_scores
         rows.append([
             s.setting,
             f"{s.words:,}",
@@ -103,27 +117,22 @@ def summary(scores: list[Scores]) -> str:
             str(f.loops),
             str(f.hallucinated_rows),
             f"{s.time_s:.1f}",
-            f"{s.speech_s / s.time_s:.1f}" if s.time_s else "–",
+            "–" if s.real_time_factor is None else f"{s.real_time_factor:.1f}",
             "–" if sp is None else f"{sp.agreement:.3f}",
             "–" if sp is None else f"{sp.turn_rows} of {sp.rows}",
         ])
     return table(rows, header)
 
 
-def _clock(ms: float) -> str:
-    seconds = int(ms // 1000)
-    return f"{seconds // 3600}:{seconds % 3600 // 60:02d}:{seconds % 60:02d}"
-
-
 def deletions(scores: list[Scores]) -> str:
-    header = ["setting", "missing words", "outside kept pieces", "at a piece edge (2 s)", "inside a piece",
-              "largest lost stretches"]
+    header = ["setting", "missing words", "outside kept pieces", f"at a piece edge ({accuracy.EDGE_MS / 1000:g} s)",
+              "inside a piece", "largest lost stretches"]
     rows = []
     for s in scores:
-        if s.accuracy is None:
+        if s.accuracy_scores is None:
             continue
-        d = s.accuracy.deletions
-        largest = ", ".join(f"{x.words} at {x.track} {_clock(x.start_ms)}" for x in d.lost_stretches[:3]) or "–"
-        rows.append([s.setting, str(s.accuracy.words.deletions), str(d.outside_pieces), str(d.at_piece_edges),
+        d = s.accuracy_scores.deletions
+        largest = ", ".join(f"{x.words} at {x.track} {clock(x.start_ms)}" for x in d.lost_stretches[:3]) or "–"
+        rows.append([s.setting, str(s.accuracy_scores.words.deletions), str(d.outside_pieces), str(d.at_piece_edges),
                      str(d.inside_pieces), largest])
     return table(rows, header)

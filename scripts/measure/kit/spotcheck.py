@@ -6,12 +6,7 @@ transcripts, so for a private recording its output stays outside the repository.
 
 import random
 
-from .runs import Reference, Row, Run
-
-
-def _clock(ms: float) -> str:
-    seconds = int(ms // 1000)
-    return f"{seconds // 3600}:{seconds % 3600 // 60:02d}:{seconds % 60:02d}"
+from .runs import Reference, Row, Run, clock
 
 
 def _rows_between(rows: list[Row], track: str, start_ms: float, end_ms: float) -> list[Row]:
@@ -19,9 +14,11 @@ def _rows_between(rows: list[Row], track: str, start_ms: float, end_ms: float) -
                    and row.start_ms < end_ms and row.text.strip()), key=lambda row: row.start_ms)
 
 
-def passages(runs: list[Run], reference: Reference | None, count: int, seconds: float, seed: int) -> str:
+def passages(runs: list[Run], names: list[str], reference: Reference | None, count: int, seconds: float,
+             seed: int) -> str:
     """`count` passages of `seconds`, each on a track and at a start drawn with `random.Random(seed)` over the first
-    run's kept pieces inside its span, drawn again where the first run has no rows. Rows are shown whole."""
+    run's kept pieces inside its span, drawn again where the first run has no rows. `names` label the runs, as in
+    the scores. Rows are shown whole."""
     first = runs[0]
     pieces = [piece for piece in first.pieces if piece.kept]
     if not pieces:
@@ -31,7 +28,7 @@ def passages(runs: list[Run], reference: Reference | None, count: int, seconds: 
         begin, end = max(begin, first.span_ms[0]), min(end, first.span_ms[1])
     length_ms = seconds * 1000
     rng = random.Random(seed)
-    sources = [(run.setting, run.rows()) for run in runs]
+    sources = [(name, run.rows()) for run, name in zip(runs, names)]
     if reference is not None:
         sources.append(("reference", reference.rows))
     lines = [f"# Spot check: {count} passages of {seconds:g} s, random.Random({seed})", ""]
@@ -44,10 +41,10 @@ def passages(runs: list[Run], reference: Reference | None, count: int, seconds: 
         if not _rows_between(sources[0][1], track, start, start + length_ms):
             continue
         found += 1
-        lines += [f"## {found}. {track}, {_clock(start)}–{_clock(start + length_ms)}", ""]
+        lines += [f"## {found}. {track}, {clock(start)}–{clock(start + length_ms)}", ""]
         for name, rows in sources:
             lines += [f"**{name}**", ""]
-            lines += [f"- [{_clock(r.start_ms)}–{_clock(r.end_ms)}] {r.text.strip()}"
+            lines += [f"- [{clock(r.start_ms)}–{clock(r.end_ms)}] {r.text.strip()}"
                       for r in _rows_between(rows, track, start, start + length_ms)]
             lines.append("")
     return "\n".join(lines)

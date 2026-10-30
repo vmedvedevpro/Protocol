@@ -193,7 +193,8 @@ def clip(rows: list[Row], span_ms: tuple[float, float] | None) -> list[Row]:
 
 
 def by_track(rows: list[Row], tracks: tuple[str, ...]) -> dict[str, list[Row]]:
-    """Rows per track in time order. A row without a track belongs to the only track."""
+    """Rows per track in time order. A row without a track belongs to the only track; a row on another track is
+    refused (a reference made from another source than the run)."""
     grouped: dict[str, list[Row]] = {track: [] for track in tracks}
     for row in rows:
         track = row.track
@@ -201,8 +202,9 @@ def by_track(rows: list[Row], tracks: tuple[str, ...]) -> dict[str, list[Row]]:
             if len(tracks) != 1:
                 raise ValueError(f"a reference row has no track, and the run has {len(tracks)} tracks")
             track = tracks[0]
-        if track in grouped:
-            grouped[track].append(row)
+        if track not in grouped:
+            raise ValueError(f"a row is on the track {track!r}; the run has {', '.join(map(repr, tracks))}")
+        grouped[track].append(row)
     for track_rows in grouped.values():
         track_rows.sort(key=lambda row: row.start_ms)
     return grouped

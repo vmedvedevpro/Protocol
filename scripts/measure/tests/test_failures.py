@@ -38,6 +38,12 @@ class RepeatedWordsTest(unittest.TestCase):
         self.assertEqual(repeated_words("мы идем дальше мы идем дальше мы идем дальше да".split()), 6)
         self.assertEqual(repeated_words("да да да да".split()), 3)
 
+    def test_a_short_phrase_is_counted_as_itself(self):
+        # Six times "да" is also "да да да" twice; eight times, "да да" four times.
+        self.assertEqual(repeated_words(["да"] * 6), 5)
+        self.assertEqual(repeated_words(["да"] * 8), 7)
+        self.assertEqual(repeated_words("a b a b a b a b".split()), 6)
+
     def test_natural_repeats_are_not(self):
         self.assertEqual(repeated_words("да да да в твоем в твоем".split()), 0)
 
