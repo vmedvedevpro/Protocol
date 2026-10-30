@@ -18,19 +18,10 @@
 //! of the measured meeting (development map, #62).
 
 use anyhow::{anyhow, Result};
-use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperError};
+use whisper_rs::{WhisperContext, WhisperError};
 
+use super::decoding::WhisperDecoding;
 use super::WhisperEngine;
-
-/// Beam search at temperature 0: deterministic, unlike the live calls'
-/// sampling. whisper.cpp runs beam search only at temperature 0: above it a
-/// `BeamSearch` call is one sampling decoder, because whisper-rs leaves
-/// `greedy.best_of` at -1 for that strategy. Five is whisper.cpp's and
-/// OpenAI's default width; greedy decoding with timestamps can lock into
-/// repeating one word segment after segment, which the beam avoids. The
-/// fallback (+0.2 temperature when a result fails the entropy or
-/// log-probability check) stays.
-const BEAM_SIZE: i32 = 5;
 
 /// Longest output segment in bytes (`max_len` counts bytes, not characters).
 /// Segments wrap only before a word: a byte wrap inside a Cyrillic word would
@@ -94,8 +85,7 @@ fn transcribe_piece_with(
     initial_prompt: Option<&str>,
 ) -> Result<Vec<TimedText>> {
     let prompt_tokens = WhisperEngine::tokenize_initial_prompt(ctx, initial_prompt)?;
-    let mut params = FullParams::new(SamplingStrategy::BeamSearch { beam_size: BEAM_SIZE, patience: 1.0 });
-    params.set_temperature(0.0);
+    let mut params = WhisperDecoding::POST_MEETING.full_params();
     if !prompt_tokens.is_empty() {
         params.set_tokens(&prompt_tokens);
     }

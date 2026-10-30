@@ -4,7 +4,7 @@ use std::path::{PathBuf};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use whisper_rs::{WhisperContext, WhisperContextParameters, WhisperTokenId, FullParams, SamplingStrategy};
+use whisper_rs::{WhisperContext, WhisperContextParameters, WhisperTokenId};
 use serde::{Serialize, Deserialize};
 use anyhow::{Result, anyhow};
 use reqwest::Client;
@@ -410,9 +410,9 @@ impl WhisperEngine {
                 // Enhanced acceleration status reporting
                 let acceleration_status = acceleration.status_label();
 
-                log::info!("Successfully loaded model: {} with {} (Performance Tier: {:?}, Beam Size: {}, Threads: {:?})",
+                log::info!("Successfully loaded model: {} with {} (Performance Tier: {:?}, Threads: {:?})",
                           model_name, acceleration_status, hardware_profile.performance_tier,
-                          adaptive_config.beam_size, adaptive_config.max_threads);
+                          adaptive_config.max_threads);
                 Ok(())
             },
             ModelStatus::Missing => {
@@ -630,11 +630,8 @@ impl WhisperEngine {
         let hardware_profile = crate::audio::HardwareProfile::detect();
         let adaptive_config = hardware_profile.get_whisper_config();
 
-        // ADAPTIVE parameters - optimized for current hardware
-        let mut params = FullParams::new(SamplingStrategy::BeamSearch {
-            beam_size: adaptive_config.beam_size as i32,
-            patience: 1.0
-        });
+        // Greedy at temperature 0 on every tier (decoding.rs, #62)
+        let mut params = super::decoding::WhisperDecoding::LIVE.full_params();
         if !prompt_tokens.is_empty() {
             params.set_tokens(&prompt_tokens);
         }
@@ -667,7 +664,6 @@ impl WhisperEngine {
         // Additional suppression to reduce C library verbosity
         params.set_suppress_blank(true);
         params.set_suppress_nst(true);
-        params.set_temperature(adaptive_config.temperature);
         params.set_max_initial_ts(1.0);
         params.set_entropy_thold(2.4);
         params.set_logprob_thold(-1.0);
@@ -751,15 +747,8 @@ impl WhisperEngine {
 
         let prompt_tokens = Self::tokenize_initial_prompt(ctx, initial_prompt)?;
 
-        // Get adaptive configuration based on hardware
-        let hardware_profile = crate::audio::HardwareProfile::detect();
-        let adaptive_config = hardware_profile.get_whisper_config();
-
-        // ADAPTIVE parameters - optimized for current hardware
-        let mut params = FullParams::new(SamplingStrategy::BeamSearch {
-            beam_size: adaptive_config.beam_size as i32,
-            patience: 1.0
-        });
+        // Greedy at temperature 0 on every tier (decoding.rs, #62)
+        let mut params = super::decoding::WhisperDecoding::LIVE.full_params();
         if !prompt_tokens.is_empty() {
             params.set_tokens(&prompt_tokens);
         }
@@ -790,7 +779,6 @@ impl WhisperEngine {
         // BALANCED settings - good quality with reasonable speed
         params.set_suppress_blank(true);
         params.set_suppress_nst(true);
-        params.set_temperature(0.3);             // Lower than 0.4 for consistency, higher than 0.0 for quality
         params.set_max_initial_ts(1.0);
         params.set_entropy_thold(2.4);
         params.set_logprob_thold(-1.0);

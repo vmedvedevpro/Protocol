@@ -1,5 +1,6 @@
 pub mod whisper_engine;
 pub mod post_meeting;
+pub mod decoding;
 pub mod labs;
 pub mod acceleration;
 pub mod commands;
