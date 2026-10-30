@@ -1,0 +1,27 @@
+[package]
+name = "silero"
+version = "0.1.0"
+repository = "https://github.com/emotechlab/Silero"
+readme = "README.md"
+license = "MIT"
+edition = "2021"
+publish = false
+# Vendored from emotechlab/silero-rs 1283485 and ported to ort 2.0.0-rc.15;
+# provenance and every change are listed in VENDORED.md.
+
+[features]
+default = ["static-model"]
+static-model = []
+serde = ["dep:serde"]
+
+[dependencies]
+anyhow = "1.0.86"
+ndarray = "0.17"
+ort = { version = "=2.0.0-rc.15", default-features = false, features = ["std", "ndarray"] }
+serde = { version = "1.0.208", features = ["derive"], optional = true }
+thiserror = "2.0.4"
+tracing = { version = "0.1.40", default-features = false, features = ["std"] }
+
+[build-dependencies]
+reqwest = { version = "0.11", features = ["blocking"] }
+sha2 = "0.10"

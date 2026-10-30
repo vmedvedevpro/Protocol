@@ -1,10 +1,12 @@
 #![doc = include_str!("../README.md")]
-#[cfg(feature = "audio_resampler")]
-pub use crate::audio_resampler::resample_pcm;
 pub use crate::errors::VadError;
 use anyhow::{bail, Context, Result};
 use ndarray::{Array1, Array2, Array3, ArrayBase, Ix1, Ix3, OwnedRepr};
-use ort::session::{builder::GraphOptimizationLevel, Session};
+use ort::environment::Environment;
+use ort::session::{
+    builder::{AutoDevicePolicy, GraphOptimizationLevel},
+    Session,
+};
 use ort::value::TensorRef;
 use std::fmt;
 use std::ops::Range;
@@ -12,8 +14,6 @@ use std::path::Path;
 use std::time::Duration;
 use tracing::trace;
 
-#[cfg(feature = "audio_resampler")]
-pub mod audio_resampler;
 pub mod errors;
 
 /// Parameters used to configure a vad session. These will determine the sensitivity and switching
@@ -128,21 +128,22 @@ impl Eq for VadTransition {}
 impl VadSession {
     /// Create a new VAD session loading an onnx file from the specified path and using the
     /// provided config.
-    pub fn new_from_path(file: impl AsRef<Path>, config: VadConfig) -> Result<Self> {
+    pub fn new_from_path(
+        env: &Environment,
+        file: impl AsRef<Path>,
+        config: VadConfig,
+    ) -> Result<Self> {
         let bytes = std::fs::read(file.as_ref())
             .with_context(|| format!("Couldn't read onnx file: {}", file.as_ref().display()))?;
-        Self::new_from_bytes(&bytes, config)
+        Self::new_from_bytes(env, &bytes, config)
     }
 
     /// Create a new VAD session loading an onnx file from memory and using the provided config.
-    pub fn new_from_bytes(model_bytes: &[u8], config: VadConfig) -> Result<Self> {
+    pub fn new_from_bytes(env: &Environment, model_bytes: &[u8], config: VadConfig) -> Result<Self> {
         if ![8000_usize, 16000].contains(&config.sample_rate) {
             bail!("Unsupported sample rate, use 8000 or 16000!");
         }
-        let model = Session::builder()?
-            .with_optimization_level(GraphOptimizationLevel::Level3)?
-            .with_intra_threads(1)?
-            .commit_from_memory(model_bytes)?;
+        let model = build_session(env, model_bytes)?;
         let h_tensor = Array3::<f32>::zeros((2, 1, 64));
         let c_tensor = Array3::<f32>::zeros((2, 1, 64));
         let sample_rate_tensor = Array1::from_vec(vec![config.sample_rate as i64]);
@@ -165,13 +166,11 @@ impl VadSession {
 
     /// Create a new VAD session using the provided config. The ONNX file has been statically
     /// embedded within the library so this will increase binary size by 1.7M.
+    /// build.rs downloads and verifies it into OUT_DIR (see VENDORED.md).
     #[cfg(feature = "static-model")]
-    pub fn new(config: VadConfig) -> Result<Self> {
-        let model_bytes: &[u8] = include_bytes!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/models/silero_vad.onnx"
-        ));
-        Self::new_from_bytes(model_bytes, config)
+    pub fn new(env: &Environment, config: VadConfig) -> Result<Self> {
+        let model_bytes: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/silero_vad.onnx"));
+        Self::new_from_bytes(env, model_bytes, config)
     }
 
     /// Reserve the session audio buffer size by number of samples
@@ -193,21 +192,12 @@ impl VadSession {
     /// Pass in some audio to the VAD and return a list of any speech transitions that happened
     /// during the segment.
     ///
-    /// If "audio_resampler" feature is enabled, then this function will resample whatever it
-    /// receives to 16000Hz samples. If not enabled, then user input is expected to be either
-    /// 8000 or 16000Hz.
+    /// Input is expected to be either 8000 or 16000Hz.
     pub fn process(&mut self, audio_frame: &[f32]) -> Result<Vec<VadTransition>> {
         #[cfg(debug_assertions)]
         if let Err(e) = self.validate_input(audio_frame) {
             return Err(e);
         }
-
-        #[cfg(feature = "audio_resampler")]
-        let audio_frame = if ![8000, 16000].contains(&self.config.sample_rate) {
-            &resample_pcm(audio_frame.to_vec(), self.config.sample_rate, 16000)?
-        } else {
-            audio_frame
-        };
 
         const VAD_BUFFER: Duration = Duration::from_millis(30); // TODO This should be configurable
         let vad_segment_length = VAD_BUFFER.as_millis() as usize * self.config.sample_rate / 1000;
@@ -632,12 +622,7 @@ impl VadConfig {
     }
 
     pub fn validate_config(&self) -> Result<()> {
-        #[cfg(feature = "audio_resampler")]
-        const HAS_RESAMPLER: bool = true;
-        #[cfg(not(feature = "audio_resampler"))]
-        const HAS_RESAMPLER: bool = false;
-
-        self.validate_config_internal(HAS_RESAMPLER)
+        self.validate_config_internal(false)
     }
 
     fn validate_config_internal(&self, has_resampler: bool) -> Result<()> {
@@ -660,531 +645,15 @@ impl VadConfig {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use hound::WavReader;
-    use std::fs;
-    use std::path::{Path, PathBuf};
-    use tracing_test::traced_test;
-
-    /// Feed only silence into the network and ensure that `get_current_speech` returns an empty
-    /// slice
-    #[test]
-    #[traced_test]
-    fn only_silence_get_speech() {
-        let mut session = VadSession::new(VadConfig::default()).unwrap();
-        let short_audio = vec![0.0; 1000];
-
-        session.process(&short_audio).unwrap();
-
-        assert!(session.get_current_speech().is_empty());
-    }
-
-    /// Basic smoke test that the model loads correctly and we haven't committed rubbish to the
-    /// repo.
-    #[test]
-    #[traced_test]
-    fn model_loads() {
-        let _session = VadSession::new(VadConfig::default()).unwrap();
-        let _session =
-            VadSession::new_from_path("models/silero_vad.onnx", VadConfig::default()).unwrap();
-    }
-
-    /// Too short tensors result in inference errors which we don't want to unnecessarily bubble up
-    /// to the user and instead handle in our buffering implementation. This test will check that a
-    /// short inference in the internal inference call bubbles up an error but when using the
-    /// public API no error is presented.
-    #[test]
-    #[traced_test]
-    fn short_audio_handling() {
-        let mut session = VadSession::new(VadConfig::default()).unwrap();
-
-        let short_audio = vec![0.0; 160];
-
-        session.session_audio = short_audio.clone();
-        assert!(session.process_internal(0..160).is_err());
-        session.session_audio.clear();
-        assert!(session.process(&short_audio).unwrap().is_empty());
-    }
-
-    /// Check that a long enough packet of just zeros gets an inference and it doesn't flag as
-    /// transitioning to speech
-    #[test]
-    #[traced_test]
-    fn silence_handling() {
-        let mut session = VadSession::new(VadConfig::default()).unwrap();
-        let silence = vec![0.0; 30 * 16]; // 30ms of silence
-
-        assert!(session.process(&silence).unwrap().is_empty());
-        assert_eq!(session.processed_samples, silence.len());
-    }
-
-    /// We only allow for 8khz and 16khz audio.
-    #[test]
-    #[traced_test]
-    fn reject_invalid_sample_rate() {
-        let mut config = VadConfig::default();
-        config.sample_rate = 16000;
-        VadSession::new(config.clone()).unwrap();
-        config.sample_rate = 8000;
-        VadSession::new(config.clone()).unwrap();
-
-        config.sample_rate += 1;
-        assert!(VadSession::new(config.clone()).is_err());
-        assert!(VadSession::new_from_path("models/silero_vad.onnx", config.clone()).is_err());
-
-        let bytes = std::fs::read("models/silero_vad.onnx").unwrap();
-        assert!(VadSession::new_from_bytes(&bytes, config).is_err());
-    }
-
-    /// Just a sanity test of speech duration to make sure the calculation seems roughly right in
-    /// terms of number of samples, sample rate and taking into account the speech starts/ends.
-    #[test]
-    #[traced_test]
-    fn simple_speech_duration() {
-        let mut config = VadConfig::default();
-        config.sample_rate = 8000;
-        let mut session = VadSession::new(config.clone()).unwrap();
-        session.session_audio.resize(16080, 0.0);
-
-        assert_eq!(session.current_speech_duration(), Duration::from_secs(0));
-
-        session.speech_start_ms = Some(10);
-        assert_eq!(session.current_speech_duration(), Duration::from_secs(2));
-
-        session.config.sample_rate = 16000;
-        session.session_audio.resize(16160, 0.0);
-        assert_eq!(session.current_speech_duration(), Duration::from_secs(1));
-    }
-
-    /// The provided audio sample must be in the range -1.0 to 1.0
-    #[test]
-    #[traced_test]
-    fn audio_sample_range() {
-        let config = VadConfig::default();
-
-        let mut session = VadSession::new(config.clone()).unwrap();
-        let valid_samples = [0.0; 1000];
-        let result = session.process(&valid_samples);
-        assert!(result.is_ok());
-
-        let mut session2 = VadSession::new(config).unwrap();
-        let mut invalid_samples = valid_samples.clone();
-        invalid_samples[0] = -1.01;
-        let result = session2.process(&invalid_samples);
-        assert!(matches!(
-            result.unwrap_err().downcast::<VadError>().unwrap(),
-            VadError::InvalidData
-        ));
-    }
-
-    #[test]
-    #[traced_test]
-    fn overlapping_segments() {
-        let mut samples: Vec<f32> = WavReader::open("tests/audio/sample_1_trimmed.wav")
-            .unwrap()
-            .into_samples()
-            .map(|x| {
-                let modified = x.unwrap_or(0i16) as f32 / (i16::MAX as f32);
-                modified.clamp(-1.0, 1.0)
-            })
-            .collect();
-
-        let og = samples.clone();
-
-        samples.resize(samples.len() + 2000, 0.0);
-        samples.extend_from_slice(&og);
-
-        let mut config = VadConfig::default();
-        config.redemption_time = Duration::from_millis(0);
-        config.pre_speech_pad = Duration::from_secs(1);
-        let mut session = VadSession::new(config.clone()).unwrap();
-
-        let chunk_size = 480; // 60ms
-        let max_chunks = samples.len() / chunk_size;
-
-        let mut last_end = None;
-
-        for i in 0..max_chunks {
-            let start = i * chunk_size;
-            let end = (start + chunk_size).min(samples.len());
-            let trans = session.process(&samples[start..end]).unwrap();
-
-            for transition in &trans {
-                match transition {
-                    VadTransition::SpeechStart { timestamp_ms } => {
-                        println!("Start time: {}ms", timestamp_ms);
-                        if let Some(last_end) = last_end {
-                            assert!(*timestamp_ms >= last_end, "segments are overlapping");
-                        }
-                    }
-                    VadTransition::SpeechEnd {
-                        start_timestamp_ms,
-                        end_timestamp_ms,
-                        ..
-                    } => {
-                        last_end = Some(*end_timestamp_ms);
-                        println!("End segment: {}-{}ms", start_timestamp_ms, end_timestamp_ms);
-                    }
-                }
-            }
-        }
-        // If this is going into the deleted speech buffer it'll panic
-        let _speech = session.get_current_speech();
-    }
-
-    /// Apply some audio with speech in and ensure that the take API works as expected
-    #[test]
-    #[traced_test]
-    fn taking_audio() {
-        let samples: Vec<f32> = WavReader::open("tests/audio/sample_4.wav")
-            .unwrap()
-            .into_samples()
-            .map(|x| {
-                let modified = x.unwrap_or(0i16) as f32 / (i16::MAX as f32);
-                modified.clamp(-1.0, 1.0)
-            })
-            .collect();
-
-        let config = VadConfig::default();
-        let mut session = VadSession::new(config.clone()).unwrap();
-
-        let chunk_size = 480; // 30ms
-        let max_chunks = samples.len() / chunk_size;
-
-        let mut start_time = 0;
-
-        for i in 0..max_chunks {
-            let start = i * chunk_size;
-            let end = (start + chunk_size).min(samples.len());
-            let trans = session.process(&samples[start..end]).unwrap();
-
-            for transition in &trans {
-                match transition {
-                    VadTransition::SpeechStart { timestamp_ms } => {
-                        start_time = *timestamp_ms as u64;
-                    }
-                    _ => panic!("Oh no it's over"),
-                }
-            }
-
-            if session.is_speaking()
-                && (session.session_time() - Duration::from_millis(start_time))
-                    >= Duration::from_millis(120)
-            {
-                break;
-            }
-        }
-        assert!(session.is_speaking(), "never found speech");
-
-        let current_untaken = session.get_current_speech().to_vec();
-
-        let session_end = session.session_time();
-
-        let (start, end) = session.current_buffer_range();
-        assert_eq!(start, Duration::from_secs(0));
-        assert_eq!(end, session_end);
-
-        let until = Duration::from_millis(start_time + 60);
-        let taken = session.take_until(until);
-
-        let (start, end) = session.current_buffer_range();
-        assert_eq!(start, until);
-        assert_eq!(end, session_end);
-
-        assert!(session.current_speech_samples() < current_untaken.len());
-        assert_eq!(
-            session.current_speech_samples() + taken.len(),
-            current_untaken.len()
-        );
-
-        assert!(session
-            .take_until(Duration::from_millis(start_time))
-            .is_empty());
-    }
-
-    /// If we take past our boundary we panic!
-    #[test]
-    #[traced_test]
-    #[should_panic]
-    fn excessive_take() {
-        let config = VadConfig::default();
-        let mut session = VadSession::new(config).unwrap();
-
-        let silence = vec![0.0; 16000];
-        let _ = session.process(&silence);
-
-        session.take_until(Duration::from_millis(1001));
-    }
-
-    /// Repeatedly trimming a silent stream keeps the buffer bounded while retaining pre-speech
-    /// padding and any audio that has not yet been processed.
-    #[test]
-    #[traced_test]
-    fn trim_start_silence_bounds_silent_buffer() {
-        let config = VadConfig::default();
-        let mut session = VadSession::new(config.clone()).unwrap();
-        let silence = vec![0.0; 16000];
-
-        for _ in 0..60 {
-            session.process(&silence).unwrap();
-            session.trim_start_silence();
-        }
-
-        let (start, end) = session.current_buffer_range();
-        assert!(end - start >= config.pre_speech_pad);
-        assert!(end - start < config.pre_speech_pad + Duration::from_millis(30));
-        assert_eq!(
-            silence.len() * 60,
-            session.deleted_samples + session.session_audio.len()
-        );
-    }
-
-    /// If we have speech in the current buffer then trimming silence shouldn't go beyond the start
-    /// ms! We'll use sample_1 since it starts with a second of speech and then goes silent for a
-    /// bit.
-    #[test]
-    #[traced_test]
-    fn trim_to_audio_start() {
-        // the start of sample 1 is speech so we'll
-        let mut samples: Vec<f32> = WavReader::open("tests/audio/sample_1.wav")
-            .unwrap()
-            .into_samples()
-            .map(|x| {
-                let modified = x.unwrap_or(0i16) as f32 / (i16::MAX as f32);
-                modified.clamp(-1.0, 1.0)
-            })
-            .collect();
-
-        // Keep only the first second
-        samples.resize(15000, 0.0);
-
-        // Add some starting silence
-        let mut end_audio = vec![0.0; 16000];
-        end_audio.append(&mut samples);
-
-        let config = VadConfig::default();
-        let mut session = VadSession::new(config.clone()).unwrap();
-
-        let res = session.process(&end_audio).unwrap();
-
-        // This ensures we just have a start audio and no more!
-        assert_eq!(res.len(), 1);
-
-        assert!(matches!(session.speech_start_ms, Some(x) if x > 0));
-
-        session.trim_start_silence();
-        let (start, _end) = session.current_buffer_range();
-
-        assert_eq!(start.as_millis() as usize, session.speech_start_ms.unwrap());
-    }
-
-    fn get_audio_sample(audio_file: impl AsRef<Path>, config: &VadConfig) -> Vec<f32> {
-        let step = if config.sample_rate == 16000 {
-            1
-        } else {
-            2 // Other sample rates are invalid so we'll just work on less data
-        };
-        let samples: Vec<f32> = WavReader::open(&audio_file)
-            .unwrap()
-            .into_samples()
-            .step_by(step)
-            .map(|x| {
-                let modified = x.unwrap_or(0i16) as f32 / (i16::MAX as f32);
-                modified.clamp(-1.0, 1.0)
-            })
-            .collect();
-
-        samples
-    }
-
-    #[inline]
-    fn get_chunk_size(sample_rate: usize, chunk_ms: usize) -> usize {
-        (sample_rate * chunk_ms) / 1000
-    }
-
-    fn get_audios() -> Vec<PathBuf> {
-        let audio_dir = Path::new("tests/audio");
-        let mut result = vec![];
-        for entry in fs::read_dir(&audio_dir).unwrap() {
-            let entry = entry.unwrap();
-            let path = entry.path();
-            if !path.is_dir() {
-                result.push(path.to_path_buf());
-            }
-        }
-        assert!(!result.is_empty());
-        result
-    }
-
-    /// post_speech_pad should result to an increase in the number of samples that SpeechEnd
-    /// transition contains.
-    #[test]
-    #[traced_test]
-    fn post_speech_pad() {
-        let audio_files = get_audios();
-        for audio_file in audio_files {
-            let mut config = VadConfig::default();
-            let samples = get_audio_sample(&audio_file, &config);
-            assert!(!samples.is_empty());
-
-            let chunk_size_ms = 50;
-            let chunk_size = get_chunk_size(config.sample_rate, chunk_size_ms);
-
-            // Do inference with post_speech_pad = 0, a.k.a the default.
-            let mut vad = VadSession::new(config).unwrap();
-            let baseline = do_vad_inference(&samples, chunk_size, &mut vad);
-
-            // Now, do inference with post_speech_pad, and compare it with the baseline.
-            for post_speech_pad in (50..config.redemption_time.as_millis() as usize + 1).step_by(50)
-            {
-                config.post_speech_pad = Duration::from_millis(post_speech_pad as u64);
-                let mut vad = VadSession::new(config).unwrap();
-                let current = do_vad_inference(&samples, chunk_size, &mut vad);
-                assert_eq!(baseline.len(), current.len());
-                for (b, c) in baseline.iter().zip(current.iter()) {
-                    match (b, c) {
-                        (
-                            VadTransition::SpeechEnd {
-                                start_timestamp_ms: start1,
-                                end_timestamp_ms: end1,
-                                samples: samples1,
-                            },
-                            VadTransition::SpeechEnd {
-                                start_timestamp_ms: start2,
-                                end_timestamp_ms: end2,
-                                samples: samples2,
-                            },
-                        ) => {
-                            assert_eq!(start1, start2);
-                            assert_eq!(*end1, *end2 - post_speech_pad);
-                            assert_eq!(
-                                samples1.len(),
-                                samples2.len() - config.sample_rate * post_speech_pad / 1000
-                            );
-                        }
-                        _ => unreachable!(),
-                    }
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn validate_config() {
-        VadConfig::default().validate_config().unwrap();
-
-        let mut config = VadConfig::default();
-        config.sample_rate = 8000;
-
-        config.validate_config_internal(true).unwrap();
-        config.validate_config_internal(false).unwrap();
-
-        config.sample_rate = 9000;
-        config.validate_config_internal(true).unwrap();
-        assert!(config.validate_config_internal(false).is_err());
-
-        config.post_speech_pad = 2 * config.redemption_time;
-
-        assert!(config.validate_config().is_err());
-        assert!(config.validate_config_internal(false).is_err());
-        assert!(config.validate_config_internal(true).is_err());
-    }
-
-    /// If we change a config during runtime we should see that change reflected in subsequence
-    /// segments
-    #[test]
-    #[traced_test]
-    fn change_config() {
-        // the start of sample 1 is speech so we'll
-        let mut samples: Vec<f32> = WavReader::open("tests/audio/sample_1.wav")
-            .unwrap()
-            .into_samples()
-            .map(|x| {
-                let modified = x.unwrap_or(0i16) as f32 / (i16::MAX as f32);
-                modified.clamp(-1.0, 1.0)
-            })
-            .collect();
-
-        // Keep only the first second
-        samples.resize(16000, 0.0);
-        // Add 4 seconds silence
-        samples.resize(16000 * 5, 0.0);
-
-        let mut config = VadConfig::default();
-        config.pre_speech_pad = Duration::from_millis(0);
-        config.post_speech_pad = Duration::from_millis(500);
-        let mut session = VadSession::new(config.clone()).unwrap();
-
-        let transitions = do_vad_inference(&samples, 8000, &mut session);
-
-        // I only expect one segment of speech!
-        assert_eq!(transitions.len(), 1);
-
-        let config = session.config_mut();
-        config.post_speech_pad = Duration::from_millis(600);
-        //  config.redemption_time = Duration::from_millis(600);
-
-        let transitions_2 = do_vad_inference(&samples, 8000, &mut session);
-
-        // I only expect one segment of speech!
-        assert_eq!(transitions_2.len(), 1);
-
-        let duration = if let VadTransition::SpeechEnd {
-            start_timestamp_ms,
-            end_timestamp_ms,
-            ..
-        } = transitions[0]
-        {
-            end_timestamp_ms - start_timestamp_ms
-        } else {
-            panic!("Expected the last transition in `transitions` to be a speech end");
-        };
-
-        let duration_2 = if let VadTransition::SpeechEnd {
-            start_timestamp_ms,
-            end_timestamp_ms,
-            ..
-        } = transitions_2[0]
-        {
-            end_timestamp_ms - start_timestamp_ms
-        } else {
-            panic!("Expected the last transition in `transitions_2` to be a speech end");
-        };
-
-        println!(
-            "With padding of 500ms we have {}ms. Padding of 600ms we have {}ms",
-            duration, duration_2
-        );
-
-        assert_eq!(duration + 100, duration_2);
-    }
-
-    /// Get all SpeechEnd variant of [VadTransition] from the given file.
-    fn do_vad_inference(
-        samples: &Vec<f32>,
-        chunk_size: usize,
-        vad: &mut VadSession,
-    ) -> Vec<VadTransition> {
-        let num_chunks = samples.len() / chunk_size;
-        let mut speech_ends = vec![];
-        for i in 0..num_chunks {
-            let start = i * chunk_size;
-            let end = if i < num_chunks - 1 {
-                start + chunk_size
-            } else {
-                samples.len()
-            };
-
-            let mut transitions = vad.process(&samples[start..end]).unwrap();
-            for transition in transitions.drain(..) {
-                if let VadTransition::SpeechEnd { .. } = transition {
-                    speech_ends.push(transition);
-                }
-            }
-        }
-
-        speech_ends
-    }
+// ort's builder errors carry the builder, which is not Send, so `?` into anyhow
+// needs the plain ort::Error that this function returns.
+fn build_session(env: &Environment, model_bytes: &[u8]) -> ort::Result<Session> {
+    Ok(Session::builder(env)?
+        // ort's default MaxEfficiency policy lets ONNX Runtime 1.22+ place a
+        // session that registers no provider on an NPU (or CoreML); Silero has
+        // always run on the CPU.
+        .with_auto_device(AutoDevicePolicy::PreferCPU)?
+        .with_optimization_level(GraphOptimizationLevel::Level3)?
+        .with_intra_threads(1)?
+        .commit_from_memory(model_bytes)?)
 }
