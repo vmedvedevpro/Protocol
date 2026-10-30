@@ -67,6 +67,7 @@ which = "6.0.1"
 zip = "2.2"           # ZIP extraction (Windows, macOS)
 tar = "0.4"           # TAR extraction (Linux)
 xz2 = "0.1"           # XZ decompression (Linux)
+flate2 = "1"          # gzip of the Linux ONNX Runtime archive
 sha2 = "0.10"
 
 
@@ -113,9 +114,9 @@ silero_rs = { path = "../../vendor/silero-rs", package = "silero" }
 
 # Parakeet (ONNX-based fast transcription) dependencies
 # ONNX Runtime for Parakeet, Silero VAD and diarization. API level 24 on every
-# platform: Windows loads the pinned 1.24.4 runtime the build stages
-# (build/onnxruntime.rs, load-dynamic below); macOS and Linux link the runtime
-# ort downloads. No default features, so the API level is not raised to ort's.
+# platform: Windows and Linux load the pinned 1.24.4 runtime the build stages
+# (build/onnxruntime.rs, load-dynamic below); macOS links the runtime ort
+# downloads. No default features, so the API level is not raised to ort's.
 ort = { version = "=2.0.0-rc.15", default-features = false, features = ["std", "ndarray", "tracing", "api-24"] }
 thiserror = "2.0.16"                # Error handling for Parakeet
 
@@ -232,7 +233,7 @@ libloading = "0.8.9"
 #   --features openblas (OpenBLAS optimization, requires BLAS_INCLUDE_DIRS)
 [target.'cfg(target_os = "linux")'.dependencies]
 whisper-rs = { version = "0.16.0", features = ["raw-api"] }
-ort = { version = "=2.0.0-rc.15", default-features = false, features = ["download-binaries", "copy-dylibs", "tls-native"] }
+ort = { version = "=2.0.0-rc.15", default-features = false, features = ["load-dynamic"] }
 
 [dev-dependencies]
 tempfile = "3.3.0"
@@ -242,6 +243,9 @@ memory-stats = "1.0"
 strsim = "0.10.0"
 futures = "0.3.31"
 tracing-subscriber = "0.3.16"
+# build/onnxruntime.rs is also compiled into the tests (lib.rs).
+tar = "0.4"
+flate2 = "1"
 
 [patch.crates-io]
 cpal = { git = "https://github.com/RustAudio/cpal", rev = "51c3b43" }

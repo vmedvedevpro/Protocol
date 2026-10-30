@@ -1,8 +1,8 @@
 //! One ONNX Runtime environment for the speech models: CPU VAD, Parakeet and
-//! Pyannote, DirectML diarization on Windows. Windows loads the packaged
-//! runtime by absolute path; do not search PATH or accept an
-//! environment-selected DLL for the desktop app. macOS and Linux link the
-//! runtime ort downloads at build time.
+//! Pyannote, DirectML diarization on Windows. Windows and Linux load the
+//! packaged runtime by absolute path; do not search PATH or the system library
+//! path, and do not accept an environment-selected library for the desktop app.
+//! macOS links the runtime ort downloads at build time.
 
 pub const START_ERROR_CODE: &str = "TRANSCRIPTION_RUNTIME_INITIALIZATION_FAILED";
 
@@ -17,13 +17,15 @@ static ENVIRONMENT: std::sync::OnceLock<Result<ort::environment::Environment, St
 
 #[cfg(windows)]
 const RUNTIME_FILE: &str = "onnxruntime.dll";
+#[cfg(target_os = "linux")]
+const RUNTIME_FILE: &str = "libonnxruntime.so";
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 static RUNTIME_PATH: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
 #[cfg(windows)]
 static DIRECTML: std::sync::OnceLock<libloading::Library> = std::sync::OnceLock::new();
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 pub fn initialize<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
     use tauri::Manager;
     let resource = std::path::Path::new("binaries/onnxruntime").join(RUNTIME_FILE);
@@ -43,7 +45,7 @@ pub fn ensure_available() -> anyhow::Result<()> {
 pub fn environment() -> anyhow::Result<&'static ort::environment::Environment> {
     ENVIRONMENT
         .get_or_init(|| {
-            #[cfg(windows)]
+            #[cfg(any(windows, target_os = "linux"))]
             {
                 let path = RUNTIME_PATH.get_or_init(|| {
                     #[cfg(test)]
@@ -53,7 +55,7 @@ pub fn environment() -> anyhow::Result<&'static ort::environment::Environment> {
                 });
                 initialize_library(path)
             }
-            #[cfg(not(windows))]
+            #[cfg(not(any(windows, target_os = "linux")))]
             {
                 let environment = ort::init().with_telemetry(false).build().map_err(|error| error.to_string())?;
                 log::info!("Initialized ONNX Runtime: {}", ort::info());
@@ -64,7 +66,7 @@ pub fn environment() -> anyhow::Result<&'static ort::environment::Environment> {
         .map_err(|error| anyhow::anyhow!("{error}"))
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 fn initialize_library(path: &std::path::Path) -> Result<ort::environment::Environment, String> {
     if !path.is_absolute() || !path.is_file() {
         return Err("The bundled ONNX Runtime is missing. Repair or reinstall Protocol, then restart it.".into());
@@ -73,11 +75,14 @@ fn initialize_library(path: &std::path::Path) -> Result<ort::environment::Enviro
     // lifetime of ORT. Never resolve a different DirectML.dll from PATH.
     // SAFETY: the build/package validator pins this app-owned native library;
     // no function or pointer from it is used here.
-    let directml_path = path.with_file_name("DirectML.dll");
-    if directml_path.is_file() && DIRECTML.get().is_none() {
-        match unsafe { libloading::Library::new(&directml_path) } {
-            Ok(library) => { let _ = DIRECTML.set(library); }
-            Err(error) => log::warn!("DirectML unavailable; speech models can use CPU: {error}"),
+    #[cfg(windows)]
+    {
+        let directml_path = path.with_file_name("DirectML.dll");
+        if directml_path.is_file() && DIRECTML.get().is_none() {
+            match unsafe { libloading::Library::new(&directml_path) } {
+                Ok(library) => { let _ = DIRECTML.set(library); }
+                Err(error) => log::warn!("DirectML unavailable; speech models can use CPU: {error}"),
+            }
         }
     }
     // A runtime older than ort's API level is refused before ort keeps it
@@ -110,11 +115,12 @@ pub async fn check_transcription_runtime() -> Result<(), String> {
     ensure_available().map_err(|error| format!("{START_ERROR_CODE}: {error}"))
 }
 
-#[cfg(all(test, windows))]
+#[cfg(all(test, any(windows, target_os = "linux")))]
 mod tests {
     use super::*;
 
     #[test]
+    #[cfg(windows)]
     #[ignore = "Requires MEETILY_PARAKEET_TEST_MODEL and MEETILY_NEMOTRON_WAV"]
     fn directml_runtime_preserves_cpu_vad_and_parakeet() {
         ensure_available().unwrap();

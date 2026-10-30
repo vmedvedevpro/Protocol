@@ -6,7 +6,8 @@
     ],
     "resources": [
       "templates/*.json",
-      "resources/diarization/*"
+      "resources/diarization/*",
+      "binaries/onnxruntime/*"
     ]
   }
 }

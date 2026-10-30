@@ -134,6 +134,18 @@ jobs:
               exit 1
             fi
           done
+          # The ONNX Runtime build/onnxruntime.rs stages; the app loads it by
+          # absolute path from its resources, never from the system.
+          for name in libonnxruntime.so onnxruntime-LICENSE.txt; do
+            if ! grep -q "/binaries/onnxruntime/$name\$" "$contents"; then
+              echo "The deb lacks binaries/onnxruntime/$name"
+              exit 1
+            fi
+            if ! grep -q "/binaries/onnxruntime/$name\$" "$appimage_contents"; then
+              echo "The AppImage lacks binaries/onnxruntime/$name"
+              exit 1
+            fi
+          done
 
           log="$RUNNER_TEMP/protocol-launch.log"
           # Own session, so stopping it also stops Xvfb and the app's children.
@@ -152,6 +164,10 @@ jobs:
           wait "$pid" >/dev/null 2>&1 || true
           cat "$log"
           grep -q "Application setup complete" "$log"
+          if ! grep -q "Initialized verified bundled ONNX Runtime" "$log"; then
+            echo "Protocol did not load its bundled ONNX Runtime"
+            exit 1
+          fi
           if ! grep -q "Fresh database initialized successfully" "$log"; then
             echo "::warning::The Linux WebView did not reach the database setup under xvfb"
           fi

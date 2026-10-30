@@ -44,7 +44,7 @@ pub mod notifications;
 pub mod ollama;
 pub mod onboarding;
 pub mod onnx_runtime;
-#[cfg(all(test, windows))]
+#[cfg(all(test, any(windows, target_os = "linux")))]
 #[allow(dead_code)]
 #[path = "../build/onnxruntime.rs"]
 mod onnx_runtime_build_tests;
@@ -402,7 +402,7 @@ pub fn run() {
             if let Err(error) = crash_report::start_session() {
                 log::error!("Failed to initialize crash reporting: {error}");
             }
-            #[cfg(windows)]
+            #[cfg(any(windows, target_os = "linux"))]
             onnx_runtime::initialize(_app.handle());
             log::info!("Application setup complete");
 
