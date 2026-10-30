@@ -169,7 +169,7 @@ impl<'a> Call<'a> {
 
 /// Transcribes the recording with one setting, as its path would: on Auto
 /// the language once per track from all of `cut`'s pieces, then the pieces
-/// that start in the span, each through the setting's call. Before the
+/// that reach into the span, each through the setting's call. Before the
 /// timed loop the first piece that is not skipped is decoded once untimed:
 /// the first call pays the GPU's set-up, and the first beam search its cache
 /// shapes.
@@ -193,7 +193,9 @@ pub async fn run(
         .pieces
         .iter()
         .map(|(segment, track)| (segment, *track))
-        .filter(|(segment, _)| span.map_or(true, |span| span.contains(segment.start_timestamp_ms)))
+        .filter(|(segment, _)| {
+            span.map_or(true, |span| span.overlaps(segment.start_timestamp_ms, segment.end_timestamp_ms))
+        })
         .collect();
 
     let started = Instant::now();

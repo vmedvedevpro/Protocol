@@ -6,7 +6,7 @@ use std::time::Instant;
 
 use anyhow::{Context, Result};
 
-use super::ms_since;
+use super::{ms_since, SAMPLES_PER_MS};
 use crate::audio::decoder::decode_audio_file;
 use crate::audio::post_meeting;
 use crate::audio::retranscription::{find_audio_file, find_retranscription_sources};
@@ -20,6 +20,12 @@ pub struct Track {
     pub samples: Vec<f32>,
     positive_threshold: f32,
     negative_threshold: f32,
+}
+
+impl Track {
+    pub fn duration_ms(&self) -> f64 {
+        self.samples.len() as f64 / SAMPLES_PER_MS
+    }
 }
 
 /// The tracks a retranscription reads: a recording folder's microphone and

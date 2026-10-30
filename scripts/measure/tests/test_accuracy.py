@@ -2,6 +2,7 @@ import unittest
 
 from tests.helpers import piece, row, run
 from kit.accuracy import Errors, char_errors, place_deletions, score, word_errors, word_times
+from kit.runs import Reference
 
 
 class WordErrorsTest(unittest.TestCase):
@@ -54,7 +55,7 @@ class ScoreTest(unittest.TestCase):
             tracks=("microphone", "system audio"),
         )
         reference = [row(0, 6000, "привет мир всем", "microphone"), row(0, 4000, "елка зеленая", "system audio")]
-        accuracy = score(result, reference)
+        accuracy = score(result, Reference(reference))
         self.assertEqual(accuracy.tracks["microphone"], Errors(3, deletions=1))
         self.assertEqual(accuracy.tracks["system audio"], Errors(2))
         self.assertEqual(accuracy.words.rate, 1 / 5)
@@ -66,7 +67,18 @@ class ScoreTest(unittest.TestCase):
     def test_only_reference_rows_inside_the_span_count(self):
         result = run(piece("mixed audio", 1000, 3000, (1000, 3000, "два")), span_ms=(1000, 5000))
         reference = [row(0, 1000, "один"), row(1000, 3000, "два"), row(5000, 6000, "три")]
-        self.assertEqual(score(result, reference).words, Errors(1))
+        self.assertEqual(score(result, Reference(reference)).words, Errors(1))
+
+    def test_a_piece_that_reaches_into_the_span_counts_only_its_words_inside(self):
+        # The piece starts before the span and ends after it; one of its words lies inside.
+        result = run(piece("mixed audio", 0, 6000, (0, 6000, "раз два три")), span_ms=(2000, 4000))
+        reference = [row(0, 2000, "раз"), row(2000, 4000, "два"), row(4000, 6000, "три")]
+        self.assertEqual(score(result, Reference(reference)).words, Errors(1))
+
+    def test_a_reference_of_a_smaller_span_is_refused(self):
+        result = run(piece("mixed audio", 0, 6000, (0, 6000, "раз")), span_ms=(0, 6000))
+        with self.assertRaises(ValueError):
+            score(result, Reference([row(1000, 2000, "раз")], span_ms=(1000, 3000)))
 
 
 if __name__ == "__main__":

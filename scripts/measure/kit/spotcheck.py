@@ -6,7 +6,7 @@ transcripts, so for a private recording its output stays outside the repository.
 
 import random
 
-from .runs import Row, Run, in_span
+from .runs import Reference, Row, Run
 
 
 def _clock(ms: float) -> str:
@@ -19,19 +19,21 @@ def _rows_between(rows: list[Row], track: str, start_ms: float, end_ms: float) -
                    and row.start_ms < end_ms and row.text.strip()), key=lambda row: row.start_ms)
 
 
-def passages(runs: list[Run], reference: list[Row] | None, count: int, seconds: float, seed: int) -> str:
+def passages(runs: list[Run], reference: Reference | None, count: int, seconds: float, seed: int) -> str:
     """`count` passages of `seconds`, each on a track and at a start drawn with `random.Random(seed)` over the first
-    run's pieces, drawn again where the first run has no rows."""
+    run's kept pieces inside its span, drawn again where the first run has no rows. Rows are shown whole."""
     first = runs[0]
     pieces = [piece for piece in first.pieces if piece.kept]
     if not pieces:
         return "The first run has no rows."
     begin, end = min(p.start_ms for p in pieces), max(p.end_ms for p in pieces)
+    if first.span_ms is not None:
+        begin, end = max(begin, first.span_ms[0]), min(end, first.span_ms[1])
     length_ms = seconds * 1000
     rng = random.Random(seed)
     sources = [(run.setting, run.rows()) for run in runs]
     if reference is not None:
-        sources.append(("reference", in_span(reference, first.span_ms)))
+        sources.append(("reference", reference.rows))
     lines = [f"# Spot check: {count} passages of {seconds:g} s, random.Random({seed})", ""]
     found = 0
     for _ in range(100 * count):

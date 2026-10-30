@@ -9,6 +9,8 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
+from .text import words
+
 FORMAT = 1
 
 
@@ -52,6 +54,7 @@ class Run:
     model: str
     language: str
     optimized: bool
+    # The span measured; the pieces are those that reach into it, whole.
     span_ms: tuple[float, float] | None
     tracks: tuple[str, ...]
     timing: dict[str, float]
@@ -60,6 +63,24 @@ class Run:
     def rows(self) -> list[Row]:
         """The rows the pass stores."""
         return [row for piece in self.pieces if piece.kept for row in piece.rows]
+
+
+@dataclass(frozen=True)
+class Reference:
+    rows: list[Row]
+    # A model reference's span; None for a whole recording or a human reference.
+    span_ms: tuple[float, float] | None = None
+
+    def check(self, run: Run) -> None:
+        """Refuses a reference that does not cover the run's span."""
+        if self.span_ms is None:
+            return
+        if run.span_ms is None or run.span_ms[0] < self.span_ms[0] or run.span_ms[1] > self.span_ms[1]:
+            raise ValueError(f"the reference covers {_span(self.span_ms)}, the {run.setting} run {_span(run.span_ms)}")
+
+
+def _span(span_ms: tuple[float, float] | None) -> str:
+    return "the whole recording" if span_ms is None else f"{clock(span_ms[0])}–{clock(span_ms[1])}"
 
 
 @dataclass(frozen=True)
@@ -79,11 +100,20 @@ class Timeline:
     turns: tuple[Turn, ...]
 
 
+def clock(ms: float) -> str:
+    seconds = int(ms // 1000)
+    return f"{seconds // 3600}:{seconds % 3600 // 60:02d}:{seconds % 60:02d}"
+
+
 def _read(path: Path) -> dict:
     data = json.loads(Path(path).read_text(encoding="utf-8"))
     if data.get("format", FORMAT) != FORMAT:
         raise ValueError(f"{path} has format {data['format']}; this scoring reads format {FORMAT}")
     return data
+
+
+def _pair(value: list[float] | None) -> tuple[float, float] | None:
+    return None if value is None else (value[0], value[1])
 
 
 def _row(data: dict, track: str | None) -> Row:
@@ -100,19 +130,18 @@ def _piece(data: dict) -> Piece:
 
 def load_run(path: Path) -> Run:
     data = _read(path)
-    span = data.get("span_ms")
     return Run(setting=data["setting"], model=data["model"], language=data["language"], optimized=data["optimized"],
-               span_ms=None if span is None else (span[0], span[1]),
-               tracks=tuple(track["label"] for track in data["tracks"]), timing=data["timing"],
-               pieces=tuple(_piece(piece) for piece in data["pieces"]))
+               span_ms=_pair(data.get("span_ms")), tracks=tuple(track["label"] for track in data["tracks"]),
+               timing=data["timing"], pieces=tuple(_piece(piece) for piece in data["pieces"]))
 
 
-def load_reference(path: Path) -> list[Row]:
-    """A reference's rows: a model reference's stored rows, or a human transcript's rows."""
+def load_reference(path: Path) -> Reference:
+    """A model reference's stored rows and span, or a human transcript's rows."""
     data = _read(path)
     if "pieces" in data:
-        return load_run(path).rows()
-    return [_row(row, None) for row in data["rows"]]
+        run = load_run(path)
+        return Reference(run.rows(), run.span_ms)
+    return Reference([_row(row, None) for row in data["rows"]])
 
 
 def load_diarization(path: Path) -> dict[str, Timeline]:
@@ -124,11 +153,32 @@ def load_diarization(path: Path) -> dict[str, Timeline]:
     }
 
 
-def in_span(rows: list[Row], span_ms: tuple[float, float] | None) -> list[Row]:
-    """The rows that start inside the span, as the run's pieces do."""
+def row_word_times(row: Row) -> list[float]:
+    """A time for each of the row's normalised words: spread evenly over the row, so it is only as precise as the
+    rows are short."""
+    count = len(words(row.text))
+    step = (row.end_ms - row.start_ms) / max(count, 1)
+    return [row.start_ms + (i + 0.5) * step for i in range(count)]
+
+
+def clip(rows: list[Row], span_ms: tuple[float, float] | None) -> list[Row]:
+    """The words of the rows that lie inside the span by their word time. A row that reaches past an edge keeps
+    the normalised words inside, over their share of its time, so that each keeps its word time. Both a run and its
+    reference are clipped: a run's pieces reach into the span whole, and a reference's rows may cross it."""
     if span_ms is None:
         return list(rows)
-    return [row for row in rows if span_ms[0] <= row.start_ms < span_ms[1]]
+    clipped = []
+    for row in rows:
+        times = row_word_times(row)
+        inside = [i for i, ms in enumerate(times) if span_ms[0] <= ms < span_ms[1]]
+        if len(inside) == len(times) and (times or span_ms[0] <= row.start_ms < span_ms[1]):
+            clipped.append(row)
+        elif inside:
+            first, last = inside[0], inside[-1]
+            step = (row.end_ms - row.start_ms) / len(times)
+            clipped.append(Row(row.track, row.start_ms + first * step, row.start_ms + (last + 1) * step,
+                               " ".join(words(row.text)[first:last + 1]), row.speakers))
+    return clipped
 
 
 def by_track(rows: list[Row], tracks: tuple[str, ...]) -> dict[str, list[Row]]:

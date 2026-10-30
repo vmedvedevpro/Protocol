@@ -24,6 +24,8 @@ pub struct Run {
     /// Settings › Labs › strict silence threshold for Whisper, read from the
     /// test binary's own data folder (see `engines`), so off unless set there.
     pub whisper_strict_silence: bool,
+    /// `MEASURE_SPAN` inside the recording. The pieces are those that reach
+    /// into it, whole; the scoring clips their words to it.
     pub span_ms: Option<[f64; 2]>,
     pub tracks: Vec<TrackInfo>,
     pub timing: Timing,

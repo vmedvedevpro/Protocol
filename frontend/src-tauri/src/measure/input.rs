@@ -70,8 +70,21 @@ impl Span {
         Ok(span)
     }
 
-    pub fn contains(&self, ms: f64) -> bool {
-        self.start_ms <= ms && ms < self.end_ms
+    /// Whether the stretch from `start_ms` to `end_ms` reaches into the span.
+    pub fn overlaps(&self, start_ms: f64, end_ms: f64) -> bool {
+        start_ms < self.end_ms && end_ms > self.start_ms
+    }
+
+    /// The span inside a recording of `duration_ms`: its end cut to the
+    /// recording's, an error when it starts at or after it.
+    pub fn within(self, duration_ms: f64) -> Result<Self> {
+        ensure!(
+            self.start_ms < duration_ms,
+            "MEASURE_SPAN starts at {:.1} s, but the recording ends at {:.1} s",
+            self.start_ms / 1000.0,
+            duration_ms / 1000.0
+        );
+        Ok(Self { start_ms: self.start_ms, end_ms: self.end_ms.min(duration_ms) })
     }
 }
 
@@ -96,7 +109,22 @@ mod tests {
         assert_eq!((span.start_ms, span.end_ms), (1_500_000.0, 2_700_000.0));
         assert_eq!(Span::parse("1500-2700").unwrap(), span);
         assert_eq!(Span::parse("1:00:00-1:00:30.5").unwrap().end_ms, 3_630_500.0);
-        assert!(span.contains(1_500_000.0) && !span.contains(2_700_000.0));
+    }
+
+    #[test]
+    fn a_piece_that_reaches_into_the_span_is_measured() {
+        let span = Span::parse("100-200").unwrap();
+        assert!(span.overlaps(95_000.0, 101_000.0));
+        assert!(span.overlaps(199_000.0, 230_000.0));
+        assert!(!span.overlaps(90_000.0, 100_000.0));
+        assert!(!span.overlaps(200_000.0, 210_000.0));
+    }
+
+    #[test]
+    fn a_span_ends_with_the_recording() {
+        let span = Span::parse("100-200").unwrap();
+        assert_eq!(span.within(150_000.0).unwrap(), Span { start_ms: 100_000.0, end_ms: 150_000.0 });
+        assert!(span.within(100_000.0).is_err());
     }
 
     #[test]

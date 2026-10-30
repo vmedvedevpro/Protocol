@@ -3,8 +3,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from kit.runs import by_track, in_span, load_reference, load_run
-from tests.helpers import row
+from kit.runs import Reference, Row, by_track, clip, load_reference, load_run
+from tests.helpers import row, run
 
 RUN = {
     "format": 1, "setting": "live", "model": "m.bin", "acceleration": "CPU processing only", "optimized": True,
@@ -34,9 +34,9 @@ class LoadTest(unittest.TestCase):
         self.assertEqual(run.rows(), [row(0.0, 5000.0, "Да.", "system audio", [2, 1])])
 
     def test_a_reference_is_a_run_or_a_list_of_rows(self):
-        self.assertEqual(load_reference(self.write(RUN)), load_run(self.write(RUN)).rows())
+        self.assertEqual(load_reference(self.write(RUN)), Reference(load_run(self.write(RUN)).rows(), (0.0, 10_000.0)))
         human = {"rows": [{"start_ms": 0, "end_ms": 900, "text": "Раз.", "voice": "female"}]}
-        self.assertEqual(load_reference(self.write(human)), [row(0, 900, "Раз.")])
+        self.assertEqual(load_reference(self.write(human)), Reference([row(0, 900, "Раз.")]))
 
     def test_another_format_is_refused(self):
         with self.assertRaises(ValueError):
@@ -50,10 +50,30 @@ class GroupingTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             by_track(rows, ("microphone", "system audio"))
 
-    def test_a_span_keeps_rows_that_start_inside(self):
-        rows = [row(0, 2000, "a"), row(1000, 3000, "b"), row(3000, 4000, "c")]
-        self.assertEqual(in_span(rows, (1000, 3000)), [row(1000, 3000, "b")])
-        self.assertEqual(in_span(rows, None), rows)
+
+class ClipTest(unittest.TestCase):
+    def test_rows_are_kept_by_the_time_of_their_words(self):
+        rows = [row(0, 1000, "a"), row(1000, 3000, "b c"), row(5000, 6000, "d")]
+        self.assertEqual(clip(rows, (1000, 5000)), [row(1000, 3000, "b c")])
+        self.assertEqual(clip(rows, None), rows)
+
+    def test_a_row_across_an_edge_keeps_its_words_inside(self):
+        # Word times 500, 1500, 2500 and 3500 ms.
+        clipped = clip([row(0, 4000, "Раз, два, три, четыре.", "t", [1])], (1000, 3000))
+        self.assertEqual(clipped, [Row("t", 1000.0, 3000.0, "два три", (1,))])
+
+    def test_a_row_without_words_is_kept_where_it_starts(self):
+        self.assertEqual(clip([row(0, 100, "..."), row(2000, 2100, "...")], (1000, 3000)), [row(2000, 2100, "...")])
+
+
+class ReferenceTest(unittest.TestCase):
+    def test_a_reference_must_cover_the_run(self):
+        reference = Reference([], (1000.0, 5000.0))
+        reference.check(run(span_ms=(1000.0, 3000.0)))
+        for span in ((0.0, 3000.0), (2000.0, 6000.0), None):
+            with self.assertRaises(ValueError):
+                reference.check(run(span_ms=span))
+        Reference([]).check(run(span_ms=None))
 
 
 if __name__ == "__main__":

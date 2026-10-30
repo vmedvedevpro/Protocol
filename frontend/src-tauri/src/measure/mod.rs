@@ -35,9 +35,9 @@ use anyhow::{ensure, Result};
 
 use diarize::Diarizer;
 use engines::Engines;
-use input::{existing_path, optional, Inputs};
+use input::{existing_path, optional, Inputs, Span};
 use settings::Setting;
-use tracks::Cut;
+use tracks::{Cut, Track};
 
 /// The tracks are 16 kHz.
 const SAMPLES_PER_MS: f64 = 16.0;
@@ -49,6 +49,12 @@ fn ms_since(started: Instant) -> f64 {
 fn init_logging() {
     let filter = "info,ort=warn,app_lib::audio::vad=warn,symphonia_format_isomp4=warn";
     let _ = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(filter)).try_init();
+}
+
+/// `MEASURE_SPAN` inside the recording.
+fn recording_span(tracks: &[Track], span: Option<Span>) -> Result<Option<Span>> {
+    let duration_ms = tracks.iter().map(Track::duration_ms).fold(0.0, f64::max);
+    span.map(|span| span.within(duration_ms)).transpose()
 }
 
 /// Inputs: `MEASURE_AUDIO`, `MEASURE_OUT`, `MEASURE_SETTINGS`,
@@ -70,9 +76,10 @@ async fn transcribe_settings() -> Result<()> {
     let diarizer = Diarizer::from_env()?;
 
     let tracks = tracks::load(&inputs.audio)?;
+    let span = recording_span(&tracks, inputs.span)?;
     let speakers = match &diarizer {
         Some(diarizer) => {
-            let (speakers, timelines) = diarize::diarize(diarizer, &tracks, inputs.span.as_ref())?;
+            let (speakers, timelines) = diarize::diarize(diarizer, &tracks, span.as_ref())?;
             output::write(&inputs.out, "diarization", &timelines)?;
             speakers
         }
@@ -92,7 +99,7 @@ async fn transcribe_settings() -> Result<()> {
             }
         };
         let cut = &cuts[index];
-        let mut run = settings::run(setting, &engines, &tracks, cut, inputs.span, &inputs).await?;
+        let mut run = settings::run(setting, &engines, &tracks, cut, span, &inputs).await?;
         diarize::label_rows(&mut run, &tracks, &speakers);
         output::write(&inputs.out, setting.name(), &run)?;
         runs.push(run);
@@ -114,9 +121,10 @@ async fn build_reference() -> Result<()> {
     ensure!(!inputs.out.join("reference.json").exists(), "{} has a reference.json already", inputs.out.display());
 
     let tracks = tracks::load(&inputs.audio)?;
+    let span = recording_span(&tracks, inputs.span)?;
     let engines = Engines::open(Some(&model), None).await?;
     let cut = tracks::cut(&tracks, Setting::Reference.cap())?;
-    let run = settings::run(Setting::Reference, &engines, &tracks, &cut, inputs.span, &inputs).await?;
+    let run = settings::run(Setting::Reference, &engines, &tracks, &cut, span, &inputs).await?;
     output::write(&inputs.out, "reference", &run)?;
     output::print_table(&[run]);
     Ok(())

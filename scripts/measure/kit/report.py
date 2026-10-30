@@ -3,7 +3,7 @@
 from dataclasses import asdict, dataclass
 
 from . import accuracy, failures, speakers
-from .runs import Row, Run, Timeline, by_track, in_span
+from .runs import Reference, Run, Timeline, by_track, clip
 from .text import words
 
 
@@ -24,13 +24,13 @@ class Scores:
         return asdict(self)
 
 
-def score(run: Run, reference: list[Row] | None, timelines: dict[str, Timeline] | None, label: str = "") -> Scores:
+def score(run: Run, reference: Reference | None, timelines: dict[str, Timeline] | None, label: str = "") -> Scores:
     """`label` names the run in the tables; its setting by default."""
     timing = run.timing
     return Scores(
         setting=label or run.setting,
         model=run.model,
-        words=sum(len(words(row.text)) for row in run.rows()),
+        words=sum(len(words(row.text)) for row in clip(run.rows(), run.span_ms)),
         # Language detection is part of the pass; the VAD over whole tracks is not counted (it reads the whole
         # recording even for a span).
         time_s=(timing["detection_ms"] + timing["transcription_ms"]) / 1000,
@@ -43,9 +43,9 @@ def score(run: Run, reference: list[Row] | None, timelines: dict[str, Timeline] 
     )
 
 
-def reference_words(run: Run, reference: list[Row]) -> tuple[int, int]:
+def reference_words(run: Run, reference: Reference) -> tuple[int, int]:
     """The reference's words in the run's span, and how many of them repeat what was just said."""
-    tokens = [token for rows in by_track(in_span(reference, run.span_ms), run.tracks).values()
+    tokens = [token for rows in by_track(clip(reference.rows, run.span_ms), run.tracks).values()
               for row in rows for token in words(row.text)]
     return len(tokens), failures.repeated_words(tokens)
 

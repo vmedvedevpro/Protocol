@@ -9,8 +9,8 @@ from dataclasses import dataclass, field
 
 import jiwer
 
-from .runs import Piece, Row, Run, by_track, in_span
-from .text import normalize, words
+from .runs import Piece, Reference, Row, Run, by_track, clip, row_word_times
+from .text import normalize
 
 # Within this distance of a piece's start or end a missing word counts as lost at the edge: cuts inside speech
 # lose words there (the 6 s cap of #62 lost most of its words at its cuts).
@@ -60,13 +60,8 @@ def char_errors(reference: str, hypothesis: str) -> Errors:
 
 
 def word_times(rows: list[Row]) -> list[float]:
-    """A time for each reference word: spread evenly over its row, so it is only as precise as the rows are short."""
-    times = []
-    for row in rows:
-        row_words = words(row.text)
-        step = (row.end_ms - row.start_ms) / max(len(row_words), 1)
-        times += [row.start_ms + (i + 0.5) * step for i in range(len(row_words))]
-    return times
+    """A time for each reference word (`row_word_times`)."""
+    return [ms for row in rows for ms in row_word_times(row)]
 
 
 @dataclass
@@ -117,10 +112,11 @@ class Accuracy:
     deletions: Deletions
 
 
-def score(run: Run, reference: list[Row]) -> Accuracy:
-    """The run against the reference rows that start inside the run's span, track by track."""
-    expected = by_track(in_span(reference, run.span_ms), run.tracks)
-    produced = by_track(run.rows(), run.tracks)
+def score(run: Run, reference: Reference) -> Accuracy:
+    """The run against the reference, track by track, both clipped to the run's span by word time."""
+    reference.check(run)
+    expected = by_track(clip(reference.rows, run.span_ms), run.tracks)
+    produced = by_track(clip(run.rows(), run.span_ms), run.tracks)
     total_words, total_chars = Errors(0), Errors(0)
     tracks: dict[str, Errors] = {}
     deletions = Deletions()
