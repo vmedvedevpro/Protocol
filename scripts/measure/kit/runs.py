@@ -53,6 +53,15 @@ class Piece:
 
 
 @dataclass(frozen=True)
+class Audio:
+    """The file a track was decoded from: its name, size and SHA-256."""
+    track: str
+    file: str
+    bytes: int
+    sha256: str
+
+
+@dataclass(frozen=True)
 class Run:
     setting: str
     model: str
@@ -65,6 +74,7 @@ class Run:
     pieces: tuple[Piece, ...]
     # The vocabulary's SHA-256, not its text, which can be private; None without a vocabulary.
     vocabulary: str | None = None
+    audio: tuple[Audio, ...] = ()
 
     def rows(self) -> list[Row]:
         """The rows the pass stores."""
@@ -87,12 +97,14 @@ class Reference:
     made_by: Run | None = None
 
     def check(self, run: Run) -> None:
-        """Refuses a model reference that does not cover the run's span, or that was built with another language or
-        vocabulary: the vocabulary mostly changes names, which is the size of the differences a comparison has to
-        resolve."""
+        """Refuses a model reference built from other audio, one that does not cover the run's span, and one built
+        with another language or vocabulary: the vocabulary mostly changes names, which is the size of the
+        differences a comparison has to resolve."""
         made = self.made_by
         if made is None:
             return
+        if made.audio != run.audio:
+            raise ValueError(f"the reference was built from {_audio(made)}, the {run.setting} run from {_audio(run)}")
         if made.span_ms is not None and (run.span_ms is None or run.span_ms[0] < made.span_ms[0]
                                          or run.span_ms[1] > made.span_ms[1]):
             raise ValueError(f"the reference covers {_span(made.span_ms)}, the {run.setting} run {_span(run.span_ms)}")
@@ -101,6 +113,20 @@ class Reference:
                              f"with {run.language}")
         if made.vocabulary != run.vocabulary:
             raise ValueError(f"the reference was built {_vocabulary(made)}, the {run.setting} run {_vocabulary(run)}")
+
+
+def check_side_by_side(runs: list[Run], names: list[str]) -> None:
+    """Refuses runs that cannot be compared: made from other audio, or over another span."""
+    first, first_name = runs[0], names[0]
+    for run, name in zip(runs[1:], names[1:]):
+        if run.audio != first.audio:
+            raise ValueError(f"{first_name} was made from {_audio(first)}, {name} from {_audio(run)}")
+        if run.span_ms != first.span_ms:
+            raise ValueError(f"{first_name} measures {_span(first.span_ms)}, {name} {_span(run.span_ms)}")
+
+
+def _audio(run: Run) -> str:
+    return ", ".join(f"{audio.file} ({audio.bytes:,} bytes, SHA-256 {audio.sha256[:12]}…)" for audio in run.audio)
 
 
 def _span(span_ms: tuple[float, float] | None) -> str:
@@ -163,7 +189,9 @@ def load_run(path: Path) -> Run:
     return Run(setting=data["setting"], model=data["model"], language=data["language"], optimized=data["optimized"],
                span_ms=_pair(data.get("span_ms")), tracks=tuple(track["label"] for track in data["tracks"]),
                timing=data["timing"], pieces=tuple(_piece(piece) for piece in data["pieces"]),
-               vocabulary=data["vocabulary_sha256"])
+               vocabulary=data["vocabulary_sha256"],
+               audio=tuple(Audio(track["label"], track["audio"]["file"], track["audio"]["bytes"],
+                                 track["audio"]["sha256"]) for track in data["tracks"]))
 
 
 def load_reference(path: Path) -> Reference:

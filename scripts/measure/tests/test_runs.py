@@ -3,14 +3,17 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from kit.runs import Reference, Row, by_track, clip, load_diarization, load_reference, load_run
+from kit.runs import (Audio, Reference, Row, by_track, check_side_by_side, clip, load_diarization, load_reference,
+                      load_run)
 from tests.helpers import row, run
 
 RUN = {
     "format": 1, "setting": "live", "model": "m.bin", "acceleration": "CPU processing only", "optimized": True,
     "language": "ru", "vocabulary": True, "vocabulary_sha256": "1a2b", "span_ms": [0.0, 10_000.0],
-    "tracks": [{"label": "microphone", "speaker_hint": "You", "language": None},
-               {"label": "system audio", "speaker_hint": "Guest", "language": None}],
+    "tracks": [{"label": "microphone", "speaker_hint": "You", "language": None,
+                "audio": {"file": "mic.mp4", "bytes": 1000, "sha256": "aa"}},
+               {"label": "system audio", "speaker_hint": "Guest", "language": None,
+                "audio": {"file": "system.mp4", "bytes": 2000, "sha256": "bb"}}],
     "timing": {"warmup_ms": 1.0, "vad_ms": 2.0, "detection_ms": 0.0, "transcription_ms": 3.0, "speech_ms": 4.0},
     "pieces": [
         {"track": "system audio", "start_ms": 0.0, "end_ms": 5000.0, "skipped": None, "dropped": False,
@@ -32,6 +35,8 @@ class LoadTest(unittest.TestCase):
         run = load_run(self.write(RUN))
         self.assertEqual((run.setting, run.tracks, run.span_ms), ("live", ("microphone", "system audio"), (0.0, 10_000.0)))
         self.assertEqual((run.language, run.vocabulary), ("ru", "1a2b"))
+        self.assertEqual(run.audio, (Audio("microphone", "mic.mp4", 1000, "aa"),
+                                     Audio("system audio", "system.mp4", 2000, "bb")))
         self.assertEqual(run.rows(), [row(0.0, 5000.0, "Да.", "system audio", [2, 1])])
         self.assertEqual(run.decodings(), {"greedy": 1})
 
@@ -99,6 +104,26 @@ class ReferenceTest(unittest.TestCase):
 
     def test_a_human_reference_is_not_checked(self):
         Reference([]).check(run(span_ms=(1000.0, 3000.0), language="auto", vocabulary="1a2b"))
+
+    def test_a_reference_of_other_audio_is_refused(self):
+        with self.assertRaises(ValueError):
+            Reference([], run(audio=(AUDIO,))).check(run(audio=(OTHER_AUDIO,)))
+
+
+AUDIO = Audio("mixed audio", "audio.wav", 1000, "aa")
+# The same file name and size, another recording.
+OTHER_AUDIO = Audio("mixed audio", "audio.wav", 1000, "cc")
+
+
+class SideBySideTest(unittest.TestCase):
+    def test_runs_of_the_same_audio_and_span_stand_side_by_side(self):
+        check_side_by_side([run(audio=(AUDIO,), span_ms=(0.0, 5000.0))] * 2, ["main/live", "branch/live"])
+
+    def test_runs_of_other_audio_or_another_span_are_refused(self):
+        first = run(audio=(AUDIO,), span_ms=(0.0, 5000.0))
+        for other in (run(audio=(OTHER_AUDIO,), span_ms=(0.0, 5000.0)), run(audio=(AUDIO,), span_ms=None)):
+            with self.assertRaises(ValueError):
+                check_side_by_side([first, other], ["main/live", "branch/live"])
 
 
 if __name__ == "__main__":

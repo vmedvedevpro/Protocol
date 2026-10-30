@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 
 from kit import fixture, report, spotcheck
-from kit.runs import load_diarization, load_reference, load_run
+from kit.runs import check_side_by_side, load_diarization, load_reference, load_run
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -34,7 +34,8 @@ def score(args: argparse.Namespace) -> None:
     reference = load_reference(args.reference) if args.reference else None
     timeline = load_diarization(args.diarization) if args.diarization else None
     names = labels(args.runs, [run.setting for run in runs])
-    scores = [report.score(run, reference, timeline, name) for run, name in zip(runs, names)]
+    check_side_by_side(runs, names)
+    scores =[report.score(run, reference, timeline, name) for run, name in zip(runs, names)]
     for warning in report.decoding_warnings(runs, names):
         print(f"Warning: {warning}.")
     if reference is not None:
@@ -55,6 +56,7 @@ def spot_check(args: argparse.Namespace) -> None:
     runs = [load_run(path) for path in args.runs]
     reference = load_reference(args.reference) if args.reference else None
     names = labels(args.runs, [run.setting for run in runs])
+    check_side_by_side(runs, names)
     text = spotcheck.passages(runs, names, reference, args.passages, args.seconds, args.seed)
     if args.out:
         args.out.write_text(text, encoding="utf-8")

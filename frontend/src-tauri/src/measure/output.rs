@@ -40,10 +40,22 @@ pub struct Run {
 pub struct TrackInfo {
     pub label: &'static str,
     pub speaker_hint: Option<&'static str>,
+    /// The file the track was decoded from: the scoring refuses to set runs
+    /// of other audio side by side.
+    pub audio: AudioFile,
     /// The language detected once for the track on Auto and used for all its
     /// pieces; `None` when none was (a set language, or calls that detect
     /// their own).
     pub language: Option<String>,
+}
+
+/// What identifies a track's audio: its file's name (not its folder, which
+/// names a meeting), size and SHA-256.
+#[derive(Serialize, Clone)]
+pub struct AudioFile {
+    pub file: String,
+    pub bytes: u64,
+    pub sha256: String,
 }
 
 #[derive(Serialize, Default)]

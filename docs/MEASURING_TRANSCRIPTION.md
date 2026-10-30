@@ -127,8 +127,10 @@ scoring refuses it otherwise. See [References](#references) for the method.
 also writes every number as JSON, the rates included. It refuses a reference
 whose tracks or span do not match the run's (a reference built from the audio
 file scored against a run on the meeting folder, or one built for a smaller
-span), a model reference built with another language setting or vocabulary,
-and a timeline of other tracks. The outputs record the vocabulary's SHA-256,
+span), a model reference built from other audio or with another language
+setting or vocabulary, and a timeline of other tracks. `score` and `spotcheck`
+also refuse runs made from other audio or over another span side by side:
+each run records every track's file (its name, size and SHA-256). The outputs record the vocabulary's SHA-256,
 not its text; a short word list is easy to guess from its hash, so a private
 vocabulary's outputs stay private like the transcripts. `spotcheck` prints ten random 25 s
 passages of the span (`--passages`, `--seconds`, `--seed`) with each run's
@@ -170,8 +172,8 @@ For English, use `fleurs-en` and `MEASURE_LANGUAGE = 'en'`. Add `parakeet` to
 
 For `main` against a branch, build each (a second worktree for `main`), run
 the same command with the same inputs and a different `MEASURE_OUT`, then
-score both runs together; runs of the same setting are labelled by their
-folder:
+score both runs together (the scoring refuses runs of other audio or spans);
+runs of the same setting are labelled by their folder:
 
 ```powershell
 .measure\venv\Scripts\python scripts\measure\measure.py score main\post-meeting.json branch\post-meeting.json --reference .measure\fixtures\fleurs-ru\reference.json

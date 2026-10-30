@@ -290,6 +290,7 @@ pub async fn run(
             .map(|track| TrackInfo {
                 label: track.label,
                 speaker_hint: track.speaker_hint,
+                audio: track.audio.clone(),
                 language: call.detected_language(track.label),
             })
             .collect(),
