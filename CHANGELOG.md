@@ -16,6 +16,26 @@ is inherited from the project Protocol forked from; Protocol did not release it.
   came out exactly the same, and Parakeet transcribed it about twice as fast
   on an Intel Core Ultra laptop. The Linux deb and AppImage now ship their own
   ONNX Runtime and load only that copy; macOS builds use ONNX Runtime 1.31.0.
+- **Fewer missing words after a meeting** ([#62](https://github.com/vmedvedevpro/Protocol/issues/62)):
+  with Whisper, transcribing a recording again after the meeting or importing
+  an audio file now listens to each stretch of speech from pause to pause
+  instead of in pieces of at most 6 seconds, and keeps Whisper's own
+  timestamps. Large V3 Turbo used to stop early in long stretches and drop the
+  rest of them; it no longer cuts words at the 6-second marks either. On the
+  meeting it was checked on, about a tenth fewer words went missing or came
+  out wrong, and the pass took two thirds of the time. Transcript lines now
+  follow Whisper's sentences, so a speaker change inside a stretch of speech
+  more often starts a new line. With the language on Auto-detect, the language
+  is detected once for each audio track when the detection is clear, which
+  keeps the pass fast and stops short pieces coming out in the wrong language;
+  a track whose speakers switch language mid-meeting is then transcribed in one
+  language. Parakeet is unchanged.
+- **Live Whisper transcription decodes the same way on every computer**
+  ([#62](https://github.com/vmedvedevpro/Protocol/issues/62)): it takes the
+  most likely words instead of the slightly randomized choice it used on every
+  hardware tier, whatever setting the tier named. On the meeting it was checked
+  on, the text was as accurate and came about 7 % faster. Long live lines no
+  longer break inside a word.
 
 ## Protocol 0.4.2 — 2026-10-29
 

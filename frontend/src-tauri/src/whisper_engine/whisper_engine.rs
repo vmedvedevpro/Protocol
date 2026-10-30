@@ -4,7 +4,7 @@ use std::path::{PathBuf};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use whisper_rs::{WhisperContext, WhisperContextParameters, WhisperTokenId, FullParams, SamplingStrategy};
+use whisper_rs::{WhisperContext, WhisperContextParameters, WhisperTokenId};
 use serde::{Serialize, Deserialize};
 use anyhow::{Result, anyhow};
 use reqwest::Client;
@@ -64,7 +64,7 @@ pub struct WhisperEngine {
 }
 
 impl WhisperEngine {
-    fn tokenize_initial_prompt(
+    pub(crate) fn tokenize_initial_prompt(
         ctx: &WhisperContext,
         initial_prompt: Option<&str>,
     ) -> Result<Vec<WhisperTokenId>> {
@@ -410,9 +410,9 @@ impl WhisperEngine {
                 // Enhanced acceleration status reporting
                 let acceleration_status = acceleration.status_label();
 
-                log::info!("Successfully loaded model: {} with {} (Performance Tier: {:?}, Beam Size: {}, Threads: {:?})",
+                log::info!("Successfully loaded model: {} with {} (Performance Tier: {:?}, Threads: {:?})",
                           model_name, acceleration_status, hardware_profile.performance_tier,
-                          adaptive_config.beam_size, adaptive_config.max_threads);
+                          adaptive_config.max_threads);
                 Ok(())
             },
             ModelStatus::Missing => {
@@ -450,9 +450,22 @@ impl WhisperEngine {
     pub async fn is_model_loaded(&self) -> bool {
         self.current_context.read().await.is_some()
     }
+
+    /// Runs `f` on the loaded context, holding the read lock for the call
+    /// (the post-meeting pass, `post_meeting.rs`).
+    pub(crate) async fn with_loaded_context<T>(
+        &self,
+        f: impl FnOnce(&WhisperContext) -> Result<T>,
+    ) -> Result<T> {
+        let ctx_lock = self.current_context.read().await;
+        let ctx = ctx_lock
+            .as_ref()
+            .ok_or_else(|| anyhow!("No model loaded. Please load a model first."))?;
+        f(ctx)
+    }
     
     // Enhanced function to clean repetitive text patterns and meaningless outputs
-    fn clean_repetitive_text(text: &str) -> String {
+    pub(crate) fn clean_repetitive_text(text: &str) -> String {
         if text.is_empty() {
             return String::new();
         }
@@ -613,63 +626,17 @@ impl WhisperEngine {
 
         let prompt_tokens = Self::tokenize_initial_prompt(ctx, initial_prompt)?;
 
-        // Get adaptive configuration based on hardware
-        let hardware_profile = crate::audio::HardwareProfile::detect();
-        let adaptive_config = hardware_profile.get_whisper_config();
-
-        // ADAPTIVE parameters - optimized for current hardware
-        let mut params = FullParams::new(SamplingStrategy::BeamSearch {
-            beam_size: adaptive_config.beam_size as i32,
-            patience: 1.0
-        });
+        // Greedy at temperature 0 with the language, thresholds and wrap every
+        // Whisper call shares (decoding.rs, #62)
+        let mut params = super::decoding::WhisperDecoding::LIVE.call_params(language.as_deref());
         if !prompt_tokens.is_empty() {
             params.set_tokens(&prompt_tokens);
         }
-
-        // Configure with adaptive settings
-        // If language is "auto" or None, use automatic language detection (pass None)
-        // If language is "auto-translate", enable translation to English
-        // Otherwise, use the specified language code
-        let (language_code, should_translate) = match language.as_deref() {
-            Some("auto") | None => (None, false),
-            Some("auto-translate") => (None, true),
-            Some(lang) => (Some(lang), false),
-        };
-        params.set_language(language_code);
-        params.set_translate(should_translate);
 
         // CRITICAL: Disable timestamp tokens to prevent whisper.cpp chunking heuristics
         // The "single timestamp ending - skip entire chunk" optimization incorrectly discards
         // complete, valid transcriptions. Disabling timestamps forces whisper to return ALL text.
         params.set_no_timestamps(true);     // Prevent timestamp-based segment skipping
-        params.set_token_timestamps(true);  // Keep for any timestamp-aware features
-
-        // PERFORMANCE: Disable ALL whisper.cpp internal printing
-        // This reduces C library log spam significantly
-        params.set_print_special(false);      // Don't print special tokens
-        params.set_print_progress(false);     // Don't print progress
-        params.set_print_realtime(false);     // Don't print realtime info
-        params.set_print_timestamps(false);   // Don't print timestamps
-
-        // Additional suppression to reduce C library verbosity
-        params.set_suppress_blank(true);
-        params.set_suppress_nst(true);
-        params.set_temperature(adaptive_config.temperature);
-        params.set_max_initial_ts(1.0);
-        params.set_entropy_thold(2.4);
-        params.set_logprob_thold(-1.0);
-        // BALANCED FIX: Lowered from 0.75 to 0.55 to allow quiet speech detection
-        // Previous value was too aggressive and rejected valid quiet speech
-        // 0.55 is balanced - prevents hallucinations while preserving quiet speech
-        params.set_no_speech_thold(if super::labs::strict_silence_enabled() { 0.45 } else { 0.55 });
-        params.set_max_len(200);
-        params.set_single_segment(false);
-
-        // Set thread count based on hardware (if supported by whisper.cpp)
-        if let Some(_max_threads) = adaptive_config.max_threads {
-            // Note: whisper.cpp may or may not expose thread control through params
-            // Removed debug log to reduce I/O overhead in transcription hot path
-        }
 
         let duration_seconds = audio_data.len() as f64 / 16000.0;
         let is_partial = duration_seconds < 15.0; // Consider chunks under 15s as partial
@@ -738,57 +705,17 @@ impl WhisperEngine {
 
         let prompt_tokens = Self::tokenize_initial_prompt(ctx, initial_prompt)?;
 
-        // Get adaptive configuration based on hardware
-        let hardware_profile = crate::audio::HardwareProfile::detect();
-        let adaptive_config = hardware_profile.get_whisper_config();
-
-        // ADAPTIVE parameters - optimized for current hardware
-        let mut params = FullParams::new(SamplingStrategy::BeamSearch {
-            beam_size: adaptive_config.beam_size as i32,
-            patience: 1.0
-        });
+        // Greedy at temperature 0 with the language, thresholds and wrap every
+        // Whisper call shares (decoding.rs, #62)
+        let mut params = super::decoding::WhisperDecoding::LIVE.call_params(language.as_deref());
         if !prompt_tokens.is_empty() {
             params.set_tokens(&prompt_tokens);
         }
-
-        // Configure for good quality
-        // If language is "auto" or None, use automatic language detection (pass None)
-        // If language is "auto-translate", enable translation to English
-        // Otherwise, use the specified language code
-        let (language_code, should_translate) = match language.as_deref() {
-            Some("auto") | None => (None, false),
-            Some("auto-translate") => (None, true),
-            Some(lang) => (Some(lang), false),
-        };
-        params.set_language(language_code);
-        params.set_translate(should_translate);
 
         // CRITICAL: Disable timestamp tokens to prevent whisper.cpp chunking heuristics
         // The "single timestamp ending - skip entire chunk" optimization incorrectly discards
         // complete, valid transcriptions. Disabling timestamps forces whisper to return ALL text.
         params.set_no_timestamps(true);     // Prevent timestamp-based segment skipping
-        params.set_token_timestamps(true);  // Keep for any timestamp-aware features
-
-        params.set_print_special(false);
-        params.set_print_progress(false);
-        params.set_print_realtime(false);
-        params.set_print_timestamps(false);
-
-        // BALANCED settings - good quality with reasonable speed
-        params.set_suppress_blank(true);
-        params.set_suppress_nst(true);
-        params.set_temperature(0.3);             // Lower than 0.4 for consistency, higher than 0.0 for quality
-        params.set_max_initial_ts(1.0);
-        params.set_entropy_thold(2.4);
-        params.set_logprob_thold(-1.0);
-        // BALANCED FIX: Lowered from 0.75 to 0.55 to allow quiet speech detection
-        // Previous value was too aggressive and rejected valid quiet speech
-        // 0.55 is balanced - prevents hallucinations while preserving quiet speech
-        params.set_no_speech_thold(if super::labs::strict_silence_enabled() { 0.45 } else { 0.55 });
-
-        // Reasonable length limits
-        params.set_max_len(200);                 // Reasonable length
-        params.set_single_segment(false);        // Allow multiple segments for better accuracy
 
         // Note: compression_ratio_threshold would be ideal but not available in current whisper-rs
         // This would help detect repetitive outputs: params.set_compression_ratio_threshold(2.4);
@@ -1443,8 +1370,22 @@ mod tests {
         let engine = WhisperEngine::new_with_models_dir(Some(dir.path().to_path_buf())).unwrap();
         *engine.current_context.write().await = Some(ctx);
 
-        let (text, _, _) = engine.transcribe_audio_with_confidence(audio, language, None).await.unwrap();
+        let (text, _, _) = engine.transcribe_audio_with_confidence(audio.clone(), language.clone(), None).await.unwrap();
         println!("{text}");
         assert!(!text.trim().is_empty(), "no text from {wav}");
+
+        // The post-meeting pass: timestamps on, a row per Whisper segment. A
+        // piece's rows must not depend on the pieces before it in the pass
+        // (each gets a new state; see PostMeetingWhisper).
+        let mut pass = crate::whisper_engine::post_meeting::PostMeetingWhisper::new(&engine);
+        let rows = pass.transcribe_piece(&audio, language.as_deref(), None).await.unwrap();
+        let again = pass.transcribe_piece(&audio, language.as_deref(), None).await.unwrap();
+        assert_eq!(rows, again, "the second piece of a pass changed the rows of {wav}");
+        let audio_ms = audio.len() as f64 / 16.0;
+        for row in &rows {
+            println!("[{:>7.0} - {:>7.0} ms] {}", row.start_ms, row.end_ms, row.text);
+            assert!(row.start_ms <= row.end_ms && row.start_ms < audio_ms + 1000.0, "{row:?} in {audio_ms} ms");
+        }
+        assert!(!rows.is_empty(), "no post-meeting rows from {wav}");
     }
 }

@@ -1,7 +1,8 @@
 // Retranscription module - allows re-processing stored audio with different settings
 
 use crate::audio::decoder::decode_audio_file;
-use crate::audio::vad::get_speech_chunks_with_thresholds_and_progress;
+use crate::audio::post_meeting;
+use crate::audio::vad::get_speech_chunks_with_cap_and_progress;
 use super::common::{create_transcript_segments, split_segment_at_silence, write_transcripts_json};
 use super::constants::AUDIO_EXTENSIONS;
 use crate::config::{DEFAULT_WHISPER_MODEL, DEFAULT_PARAKEET_MODEL};
@@ -211,8 +212,8 @@ fn find_retranscription_sources(folder: &Path, fallback: &Path) -> Vec<Retranscr
             path: system_path,
             label: "system audio",
             speaker_hint: Some("Guest"),
-            positive_threshold: 0.50,
-            negative_threshold: 0.35,
+            positive_threshold: crate::audio::vad::DEFAULT_POSITIVE_SPEECH_THRESHOLD,
+            negative_threshold: crate::audio::vad::DEFAULT_NEGATIVE_SPEECH_THRESHOLD,
         });
     }
     if sources.is_empty() {
@@ -220,8 +221,8 @@ fn find_retranscription_sources(folder: &Path, fallback: &Path) -> Vec<Retranscr
             path: fallback.to_path_buf(),
             label: "mixed audio",
             speaker_hint: None,
-            positive_threshold: 0.50,
-            negative_threshold: 0.35,
+            positive_threshold: crate::audio::vad::DEFAULT_POSITIVE_SPEECH_THRESHOLD,
+            negative_threshold: crate::audio::vad::DEFAULT_NEGATIVE_SPEECH_THRESHOLD,
         });
     }
 
@@ -324,11 +325,12 @@ async fn run_retranscription<R: Runtime>(
         let vad_progress_span = source_progress_span / 2.0;
 
         let mut source_segments = tokio::task::spawn_blocking(move || {
-            get_speech_chunks_with_thresholds_and_progress(
+            get_speech_chunks_with_cap_and_progress(
                 &audio_samples,
                 VAD_REDEMPTION_TIME_MS,
                 positive_threshold,
                 negative_threshold,
+                post_meeting::vad_cap(use_parakeet),
                 |vad_progress, segments_found| {
                     emit_progress(
                         &app_for_vad,
@@ -441,10 +443,25 @@ async fn run_retranscription<R: Runtime>(
     let processable_count = processable_segments.len();
     info!("Processing {} segments (after splitting)", processable_count);
 
+    // With the language on Auto, Whisper detects it once per retained track,
+    // keyed by the source's speaker hint (see post_meeting).
+    let track_languages = match whisper_engine.as_ref() {
+        Some(engine) if post_meeting::detects_once(language.as_deref()) => {
+            emit_progress(&app, &meeting_id, "transcribing", 25, "Detecting language...");
+            post_meeting::detect_per_track(
+                engine,
+                processable_segments.iter().map(|(segment, speaker_hint)| (segment, *speaker_hint)),
+                || RETRANSCRIPTION_CANCELLED.load(Ordering::SeqCst),
+            )
+            .await
+        }
+        _ => Vec::new(),
+    };
+
     // Process each speech segment with progress updates
     let mut all_transcripts: Vec<(String, f64, f64)> = Vec::new(); // (text, start_ms, end_ms)
     let mut speaker_hints: Vec<Option<&'static str>> = Vec::new();
-    let mut total_confidence = 0.0f32;
+    let mut transcriber = post_meeting::PieceTranscriber::new(parakeet_engine.as_deref(), whisper_engine.as_deref());
 
     for (i, (segment, speaker_hint)) in processable_segments.iter().enumerate() {
         // Check for cancellation before each segment
@@ -468,76 +485,50 @@ async fn run_retranscription<R: Runtime>(
             ),
         );
 
-        // Skip very short segments (< 100ms of audio = 1600 samples at 16kHz)
-        if segment.samples.len() < 1600 {
-            debug!("Skipping short segment {} with {} samples", i, segment.samples.len());
+        if let Some(reason) = post_meeting::skip_reason(&segment.samples) {
+            debug!("Skipping {} segment {} with {} samples", reason, i, segment.samples.len());
             continue;
         }
 
-        // Skip silent segments (RMS < 0.005 and peak < 0.01) to prevent Whisper silence hallucinations (e.g. "you", "thank you")
-        let sum_sq: f32 = segment.samples.iter().map(|&x| x * x).sum();
-        let rms = (sum_sq / segment.samples.len() as f32).sqrt();
-        let peak = segment.samples.iter().fold(0.0f32, |m, &x| m.max(x.abs()));
-        if rms < 0.005 && peak < 0.01 {
-            debug!("Skipping silent segment {} with RMS {:.5}, peak {:.5}", i, rms, peak);
-            continue;
-        }
-
-        // Transcribe this segment
-        let (text, conf) = if use_parakeet {
-            let engine = parakeet_engine.as_ref().unwrap();
-            let text = engine
-                .transcribe_audio(segment.samples.clone(), vocabulary.as_deref())
-                .await
-                .map_err(|e| anyhow!("Parakeet transcription failed on segment {}: {}", i, e))?;
-            (text, 0.9f32)
-        } else {
-            let engine = whisper_engine.as_ref().unwrap();
-            let (text, conf, _) = engine
-                .transcribe_audio_with_confidence(
-                    segment.samples.clone(),
-                    language.clone(),
-                    vocabulary.as_deref(),
-                )
-                .await
-                .map_err(|e| anyhow!("Whisper transcription failed on segment {}: {}", i, e))?;
-            (text, conf)
-        };
+        let segment_language = track_languages
+            .iter()
+            .find(|(track, _)| track == speaker_hint)
+            .map(|(_, detected)| detected.as_str())
+            .or(language.as_deref());
+        let rows = transcriber
+            .rows(segment, segment_language, vocabulary.as_deref())
+            .await
+            .map_err(|e| anyhow!("{} (segment {})", e, i))?;
 
         // Skip empty transcripts
-        let trimmed = text.trim();
-        if !trimmed.is_empty() {
+        let text = rows.iter().map(|(text, _, _)| text.trim()).collect::<Vec<_>>().join(" ");
+        if !text.is_empty() {
             // Filter out known Whisper silence hallucinations if energy is low
-            let lower = trimmed.to_lowercase();
+            let rms = post_meeting::rms(&segment.samples);
+            let lower = text.to_lowercase();
             let is_hallucination = (lower == "you" || lower == "you." || lower == "thank you." || lower == "thank you" || lower == "thanks." || lower == "bye." || lower == "bye") && rms < 0.02;
             if is_hallucination {
-                warn!("Dropping suspected silence hallucination on segment {}: '{}' (rms={:.5}, conf={:.2})", i + 1, trimmed, rms, conf);
+                warn!("Dropping suspected silence hallucination on segment {}: '{}' (rms={:.5})", i + 1, text, rms);
                 continue;
             }
 
             debug!(
-                "Segment {}/{}: {:.1}s, conf={:.2}, text='{}'",
-                i + 1, processable_count, segment_duration_sec, conf,
-                if trimmed.len() > 80 { let mut end = 80; while !trimmed.is_char_boundary(end) { end -= 1; } &trimmed[..end] } else { trimmed }
+                "Segment {}/{}: {:.1}s, {} rows, text='{}'",
+                i + 1, processable_count, segment_duration_sec, rows.len(),
+                if text.len() > 80 { let mut end = 80; while !text.is_char_boundary(end) { end -= 1; } &text[..end] } else { &text }
             );
-            all_transcripts.push((text, segment.start_timestamp_ms, segment.end_timestamp_ms));
-            speaker_hints.push(*speaker_hint);
-            total_confidence += conf;
+            speaker_hints.extend(std::iter::repeat(*speaker_hint).take(rows.len()));
+            all_transcripts.extend(rows);
         } else {
             debug!("Segment {}/{}: {:.1}s — empty transcription", i + 1, processable_count, segment_duration_sec);
         }
     }
 
+    let (all_transcripts, speaker_hints) = post_meeting::in_time_order(all_transcripts, speaker_hints);
     let transcribed_count = all_transcripts.len();
-    let avg_confidence = if transcribed_count > 0 {
-        total_confidence / transcribed_count as f32
-    } else {
-        0.0
-    };
-
     info!(
-        "Transcription complete: {} segments transcribed out of {}, avg confidence: {:.2}",
-        transcribed_count, processable_count, avg_confidence
+        "Transcription complete: {} rows from {} segments",
+        transcribed_count, processable_count
     );
 
     // Check for cancellation

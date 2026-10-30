@@ -2,7 +2,10 @@
 
 use crate::api::TranscriptSegment;
 use crate::audio::decoder::{decode_audio_file, decode_audio_file_with_progress};
-use crate::audio::vad::get_speech_chunks_with_progress;
+use crate::audio::post_meeting;
+use crate::audio::vad::{
+    get_speech_chunks_with_cap_and_progress, DEFAULT_NEGATIVE_SPEECH_THRESHOLD, DEFAULT_POSITIVE_SPEECH_THRESHOLD,
+};
 use crate::config::{DEFAULT_WHISPER_MODEL, DEFAULT_PARAKEET_MODEL};
 use crate::database::repositories::vocabulary::VocabularyRepository;
 use crate::parakeet_engine::ParakeetEngine;
@@ -441,9 +444,12 @@ async fn run_import<R: Runtime>(
     let app_for_vad = app.clone();
 
     let speech_segments = tokio::task::spawn_blocking(move || {
-        get_speech_chunks_with_progress(
+        get_speech_chunks_with_cap_and_progress(
             &audio_samples,
             VAD_REDEMPTION_TIME_MS,
+            DEFAULT_POSITIVE_SPEECH_THRESHOLD,
+            DEFAULT_NEGATIVE_SPEECH_THRESHOLD,
+            post_meeting::vad_cap(use_parakeet),
             |vad_progress, segments_found| {
                 let overall_progress = 25 + (vad_progress as f32 * 0.05) as u32;
                 emit_progress(
@@ -554,9 +560,25 @@ async fn run_import<R: Runtime>(
     let processable_count = processable_segments.len();
     info!("Processing {} segments (after splitting)", processable_count);
 
+    // Loading the model can take a while; the detection below is one more encoder pass.
+    if IMPORT_CANCELLED.load(Ordering::SeqCst) {
+        let _ = std::fs::remove_dir_all(&meeting_folder);
+        return Err(anyhow!("Import cancelled"));
+    }
+
+    // With the language on Auto, Whisper detects it once for the file (see post_meeting).
+    let detected_language = match whisper_engine.as_ref() {
+        Some(engine) if post_meeting::detects_once(language.as_deref()) => {
+            emit_progress(&app, "transcribing", 30, "Detecting language...");
+            post_meeting::detect_once(engine, "the imported file", &processable_segments).await
+        }
+        _ => None,
+    };
+    let segment_language = detected_language.as_deref().or(language.as_deref());
+    let mut transcriber = post_meeting::PieceTranscriber::new(parakeet_engine.as_deref(), whisper_engine.as_deref());
+
     // Process each speech segment
     let mut all_transcripts: Vec<(String, f64, f64)> = Vec::new();
-    let mut total_confidence = 0.0f32;
 
     for (i, segment) in processable_segments.iter().enumerate() {
         if IMPORT_CANCELLED.load(Ordering::SeqCst) {
@@ -578,61 +600,33 @@ async fn run_import<R: Runtime>(
             ),
         );
 
-        // Skip very short segments
-        if segment.samples.len() < 1600 {
-            debug!(
-                "Skipping short segment {} with {} samples",
-                i,
-                segment.samples.len()
-            );
+        if let Some(reason) = post_meeting::skip_reason(&segment.samples) {
+            debug!("Skipping {} segment {} with {} samples", reason, i, segment.samples.len());
             continue;
         }
 
-        // Transcribe
-        let (text, conf) = if use_parakeet {
-            let engine = parakeet_engine.as_ref().unwrap();
-            let text = engine
-                .transcribe_audio(segment.samples.clone(), vocabulary.as_deref())
-                .await
-                .map_err(|e| anyhow!("Parakeet transcription failed on segment {}: {}", i, e))?;
-            (text, 0.9f32)
-        } else {
-            let engine = whisper_engine.as_ref().unwrap();
-            let (text, conf, _) = engine
-                .transcribe_audio_with_confidence(
-                    segment.samples.clone(),
-                    language.clone(),
-                    vocabulary.as_deref(),
-                )
-                .await
-                .map_err(|e| anyhow!("Whisper transcription failed on segment {}: {}", i, e))?;
-            (text, conf)
-        };
+        let rows = transcriber
+            .rows(segment, segment_language, vocabulary.as_deref())
+            .await
+            .map_err(|e| anyhow!("{} (segment {})", e, i))?;
 
-        let trimmed = text.trim();
-        if !trimmed.is_empty() {
+        if !rows.is_empty() {
+            let text = rows.iter().map(|(text, _, _)| text.trim()).collect::<Vec<_>>().join(" ");
             debug!(
-                "Segment {}/{}: {:.1}s, conf={:.2}, text='{}'",
-                i + 1, processable_count, segment_duration_sec, conf,
-                if trimmed.len() > 80 { let mut end = 80; while !trimmed.is_char_boundary(end) { end -= 1; } &trimmed[..end] } else { trimmed }
+                "Segment {}/{}: {:.1}s, {} rows, text='{}'",
+                i + 1, processable_count, segment_duration_sec, rows.len(),
+                if text.len() > 80 { let mut end = 80; while !text.is_char_boundary(end) { end -= 1; } &text[..end] } else { &text }
             );
-            all_transcripts.push((text, segment.start_timestamp_ms, segment.end_timestamp_ms));
-            total_confidence += conf;
+            all_transcripts.extend(rows);
         } else {
             debug!("Segment {}/{}: {:.1}s — empty transcription", i + 1, processable_count, segment_duration_sec);
         }
     }
 
     let transcribed_count = all_transcripts.len();
-    let avg_confidence = if transcribed_count > 0 {
-        total_confidence / transcribed_count as f32
-    } else {
-        0.0
-    };
-
     info!(
-        "Transcription complete: {} segments transcribed out of {}, avg confidence: {:.2}",
-        transcribed_count, processable_count, avg_confidence
+        "Transcription complete: {} rows from {} segments",
+        transcribed_count, processable_count
     );
 
     // Check for cancellation
@@ -1271,8 +1265,8 @@ mod tests {
     }
 
     #[test]
-    fn test_split_segment_at_silence_no_silence_uses_overlap() {
-        // Continuous speech (constant energy) — should still split with overlap
+    fn test_split_segment_at_silence_no_silence_keeps_every_sample() {
+        // Continuous speech (constant energy) — still split, without overlap
         let segment = crate::audio::vad::SpeechSegment {
             samples: vec![0.5f32; 60 * 16000], // 60 seconds of "speech"
             start_timestamp_ms: 0.0,
@@ -1283,9 +1277,9 @@ mod tests {
         let result = split_segment_at_silence(&segment, 25 * 16000);
         assert!(result.len() >= 2);
 
-        // Total samples should exceed input due to overlap
+        // The pieces follow each other: every sample once
         let total_samples: usize = result.iter().map(|s| s.samples.len()).sum();
-        assert!(total_samples >= 60 * 16000, "Overlap should not lose samples");
+        assert_eq!(total_samples, 60 * 16000, "Pieces should neither lose nor repeat samples");
     }
 
     #[test]
