@@ -515,6 +515,12 @@ async fn detect_per_track<'a, K: Copy + PartialEq + Debug>(
 mod tests {
     use super::*;
 
+    #[test]
+    fn test_vad_redemption_time_constant() {
+        // Batch processing uses 2000ms to bridge natural pauses in full-file VAD
+        assert_eq!(VAD_REDEMPTION_TIME_MS, 2000);
+    }
+
     fn segment(start_s: f64, seconds: f64, level: f32) -> SpeechSegment {
         SpeechSegment {
             samples: vec![level; (seconds * 16_000.0) as usize],

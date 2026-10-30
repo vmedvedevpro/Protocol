@@ -26,8 +26,9 @@ RUN = {
 
 class LoadTest(unittest.TestCase):
     def write(self, data: dict) -> Path:
-        folder = tempfile.mkdtemp()
-        path = Path(folder) / "run.json"
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        path = Path(folder.name) / "run.json"
         path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
         return path
 

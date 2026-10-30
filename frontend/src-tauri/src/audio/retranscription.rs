@@ -1155,12 +1155,6 @@ mod tests {
     }
 
     #[test]
-    fn test_vad_redemption_time_constant() {
-        // Batch processing uses 2000ms to bridge natural pauses in full-file VAD
-        assert_eq!(post_meeting::VAD_REDEMPTION_TIME_MS, 2000);
-    }
-
-    #[test]
     fn test_find_audio_file_common_candidates() {
         let dir = tempfile::tempdir().unwrap();
 

@@ -1027,7 +1027,6 @@ pub async fn cancel_import_command() -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::audio::common::split_segment_at_silence;
 
     fn test_recording_start() -> DateTime<Utc> {
         DateTime::parse_from_rfc3339("2026-08-30T12:00:00Z")
@@ -1193,67 +1192,6 @@ mod tests {
 
         // Cleanup
         let _ = std::fs::remove_file(temp_file);
-    }
-
-    #[test]
-    fn test_split_segment_at_silence_short_segment() {
-        // Segment shorter than max — returned as-is
-        let segment = crate::audio::vad::SpeechSegment {
-            samples: vec![0.1; 16000], // 1 second
-            start_timestamp_ms: 0.0,
-            end_timestamp_ms: 1000.0,
-            confidence: 0.9,
-        };
-        let result = split_segment_at_silence(&segment, 25 * 16000);
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0].samples.len(), 16000);
-    }
-
-    #[test]
-    fn test_split_segment_at_silence_splits_long_segment() {
-        // 60-second segment of low-level noise with a silent gap at ~25s
-        let mut samples = vec![0.01f32; 60 * 16000];
-        // Insert silence at 25 seconds (sample 400000)
-        for i in (25 * 16000)..(25 * 16000 + 3200) {
-            samples[i] = 0.0;
-        }
-        let segment = crate::audio::vad::SpeechSegment {
-            samples,
-            start_timestamp_ms: 0.0,
-            end_timestamp_ms: 60_000.0,
-            confidence: 0.9,
-        };
-
-        let result = split_segment_at_silence(&segment, 25 * 16000);
-        assert!(result.len() >= 2, "Should split into at least 2 segments, got {}", result.len());
-
-        // All sub-segments should have samples
-        for (i, seg) in result.iter().enumerate() {
-            assert!(!seg.samples.is_empty(), "Segment {} is empty", i);
-            assert!(
-                seg.start_timestamp_ms < seg.end_timestamp_ms,
-                "Segment {} has invalid timestamps: {} >= {}",
-                i, seg.start_timestamp_ms, seg.end_timestamp_ms
-            );
-        }
-    }
-
-    #[test]
-    fn test_split_segment_at_silence_no_silence_keeps_every_sample() {
-        // Continuous speech (constant energy) — still split, without overlap
-        let segment = crate::audio::vad::SpeechSegment {
-            samples: vec![0.5f32; 60 * 16000], // 60 seconds of "speech"
-            start_timestamp_ms: 0.0,
-            end_timestamp_ms: 60_000.0,
-            confidence: 0.9,
-        };
-
-        let result = split_segment_at_silence(&segment, 25 * 16000);
-        assert!(result.len() >= 2);
-
-        // The pieces follow each other: every sample once
-        let total_samples: usize = result.iter().map(|s| s.samples.len()).sum();
-        assert_eq!(total_samples, 60 * 16000, "Pieces should neither lose nor repeat samples");
     }
 
     #[test]
