@@ -1,6 +1,6 @@
 [package]
 name = "protocol"
-version = "0.4.2"
+version = "0.4.3"
 description = "Protocol: a local-first meeting recorder and transcriber"
 authors = ["vmedvedevpro"]
 repository = "https://github.com/vmedvedevpro/Protocol"
