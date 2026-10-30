@@ -75,27 +75,24 @@ pub struct Row {
     pub start_ms: f64,
     pub end_ms: f64,
     pub text: String,
-    /// The diarized speakers `diarize_meeting` gives the row, the main one
-    /// first; absent on a track that was not diarized.
+    /// The diarized speakers `diarize_meeting` gives the row (`row_speakers`
+    /// on the recording's timeline), the main one first and the others in
+    /// index order; the app then sorts them, adds the track's hint and shows
+    /// three. Absent when the run was not diarized.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub speakers: Option<Vec<usize>>,
 }
 
-/// The speaker timelines: `diarization.json`.
+/// The recording's speaker timeline: `diarization.json`.
 #[derive(Serialize)]
 pub struct Diarization {
     pub format: u32,
     pub engine: &'static str,
     pub model: String,
-    pub tracks: Vec<Timeline>,
-}
-
-#[derive(Serialize)]
-pub struct Timeline {
-    pub track: &'static str,
-    /// The diarized part of the track.
-    pub start_ms: f64,
-    pub end_ms: f64,
+    /// The diarized tracks. On a microphone and a system track the
+    /// microphone's speech is speaker 0 and the system track's speakers
+    /// follow (`merge_tracks`).
+    pub tracks: Vec<&'static str>,
     pub wall_ms: f64,
     pub speakers: usize,
     pub segments: Vec<Turn>,

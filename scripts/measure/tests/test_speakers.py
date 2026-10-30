@@ -6,15 +6,20 @@ from tests.helpers import piece, run
 
 TRACK = "system audio"
 # Speaker 0 for the first second, speaker 1 for the next.
-TIMELINE = Timeline(TRACK, 0, 2000, (Turn(0, 1000, 0), Turn(1000, 2000, 1)))
+TIMELINE = Timeline((TRACK,), (Turn(0, 1000, 0), Turn(1000, 2000, 1)))
 
 
 class SlicesTest(unittest.TestCase):
     def test_slices_where_two_talk_are_left_out(self):
-        timeline = Timeline(TRACK, 0, 1000, (Turn(0, 1000, 0), Turn(500, 1000, 1)))
-        slices = single_speaker_slices(timeline)
+        timeline = Timeline((TRACK,), (Turn(0, 1000, 0), Turn(500, 1000, 1)))
+        slices = single_speaker_slices(timeline, (0, 1000))
         self.assertEqual(len(slices), 5)
         self.assertEqual({speaker for _, speaker in slices}, {0})
+
+    def test_only_slices_of_the_span_count(self):
+        slices = single_speaker_slices(TIMELINE, (500, 1500))
+        self.assertEqual([middle for middle, _ in slices], [550 + 100 * i for i in range(10)])
+        self.assertEqual([speaker for _, speaker in slices], [0] * 5 + [1] * 5)
 
 
 class ScoreTest(unittest.TestCase):
@@ -24,7 +29,7 @@ class ScoreTest(unittest.TestCase):
             piece(TRACK, 0, 2000, (0, 1500, "раз два", [0]), (1500, 2000, "три", [1])),
             tracks=(TRACK,),
         )
-        speakers = score(result, {TRACK: TIMELINE})
+        speakers = score(result, TIMELINE)
         self.assertEqual((speakers.rows, speakers.mean_row_s), (2, 1.0))
         self.assertEqual(speakers.covered, 1.0)
         # 15 of 20 slices: the first row's 10 of speaker 0 and the second row's 5.
@@ -33,11 +38,32 @@ class ScoreTest(unittest.TestCase):
 
     def test_speech_outside_rows_is_not_covered(self):
         result = run(piece(TRACK, 0, 1000, (0, 1000, "раз", [0, 1])), tracks=(TRACK,))
-        speakers = score(result, {TRACK: TIMELINE})
+        speakers = score(result, TIMELINE)
         self.assertEqual((speakers.covered, speakers.agreement, speakers.shared_rows), (0.5, 1.0, 1))
 
-    def test_no_timeline_no_score(self):
-        self.assertIsNone(score(run(piece(TRACK, 0, 1000, (0, 1000, "раз", [0])), tracks=(TRACK,)), {}))
+    def test_a_system_row_the_user_talks_over(self):
+        # The remote speaker (1) answers for 0.6 s; the user (0) talks from 0.4 s to 2 s.
+        timeline = Timeline(("microphone", TRACK), (Turn(0, 600, 1), Turn(400, 2000, 0)))
+        result = run(
+            piece("microphone", 400, 2000, (400, 2000, "ну вот смотри", [0])),
+            # The system track's row spans the user's speech, so the user is its main speaker.
+            piece(TRACK, 0, 2000, (0, 2000, "да", [0, 1])),
+            tracks=("microphone", TRACK),
+        )
+        speakers = score(result, timeline)
+        # 18 single-speaker slices: 4 of speaker 1 under the system row, 14 of the user under the microphone row.
+        self.assertEqual(speakers.covered, 1.0)
+        self.assertAlmostEqual(speakers.agreement, 14 / 18)
+        # Speaker 1 is the system row's own track's speaker; on the microphone row it would be crosstalk.
+        self.assertEqual((speakers.rows, speakers.turn_rows, speakers.shared_rows), (2, 1, 1))
+
+    def test_no_speech_no_score(self):
+        self.assertIsNone(score(run(piece(TRACK, 0, 1000, (0, 1000, "раз", [0])), tracks=(TRACK,)),
+                                Timeline((TRACK,), ())))
+
+    def test_a_timeline_of_other_tracks_is_refused(self):
+        with self.assertRaises(ValueError):
+            score(run(piece(TRACK, 0, 1000, (0, 1000, "раз", [0])), tracks=(TRACK,)), Timeline(("mixed audio",), ()))
 
 
 if __name__ == "__main__":

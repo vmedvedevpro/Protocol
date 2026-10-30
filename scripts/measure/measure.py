@@ -32,9 +32,9 @@ def labels(paths: list[Path], settings: list[str]) -> list[str]:
 def score(args: argparse.Namespace) -> None:
     runs = [load_run(path) for path in args.runs]
     reference = load_reference(args.reference) if args.reference else None
-    timelines = load_diarization(args.diarization) if args.diarization else None
+    timeline = load_diarization(args.diarization) if args.diarization else None
     names = labels(args.runs, [run.setting for run in runs])
-    scores = [report.score(run, reference, timelines, name) for run, name in zip(runs, names)]
+    scores = [report.score(run, reference, timeline, name) for run, name in zip(runs, names)]
     if reference is not None:
         total, repeated = report.reference_words(runs[0], reference)
         print(f"Reference: {total:,} words in the span, {repeated} of them repeating what was just said.\n")

@@ -1,8 +1,9 @@
 """The JSON files the kit reads.
 
-A run (`<setting>.json`) and a model reference (`reference.json`) come from the Rust commands in
-`frontend/src-tauri/src/measure/` (their format is `output.rs`). A human reference is `{"rows": [...]}` with the same
-row fields; a row without "track" belongs to the recording's only track. Times are ms from the start of the recording.
+A run (`<setting>.json`), a model reference (`reference.json`) and a speaker timeline (`diarization.json`) come
+from the Rust commands in `frontend/src-tauri/src/measure/` (their format is `output.rs`). A human reference is
+`{"rows": [...]}` with the same row fields; a row without "track" belongs to the recording's only track. Times are
+ms from the start of the recording.
 """
 
 import json
@@ -20,7 +21,8 @@ class Row:
     start_ms: float
     end_ms: float
     text: str
-    # The diarized speakers the app gives the row, its main speaker first; None on a track without a timeline.
+    # The diarized speakers of the row on the recording's timeline, the main one first and the others in index
+    # order (the app sorts them); None when the run was not diarized.
     speakers: tuple[int, ...] | None = None
 
 
@@ -92,12 +94,14 @@ class Turn:
 
 @dataclass(frozen=True)
 class Timeline:
-    """One track's diarized speakers over [start_ms, end_ms)."""
+    """The recording's diarized speakers. On a microphone and a system track, the microphone's speech is speaker 0
+    and the system track's speakers follow."""
 
-    track: str
-    start_ms: float
-    end_ms: float
+    tracks: tuple[str, ...]
     turns: tuple[Turn, ...]
+
+    def track_of(self, speaker: int) -> str:
+        return self.tracks[0] if len(self.tracks) == 1 or speaker == 0 else self.tracks[1]
 
 
 def clock(ms: float) -> str:
@@ -144,13 +148,10 @@ def load_reference(path: Path) -> Reference:
     return Reference([_row(row, None) for row in data["rows"]])
 
 
-def load_diarization(path: Path) -> dict[str, Timeline]:
+def load_diarization(path: Path) -> Timeline:
     data = _read(path)
-    return {
-        track["track"]: Timeline(track=track["track"], start_ms=track["start_ms"], end_ms=track["end_ms"],
-                                 turns=tuple(Turn(t["start_ms"], t["end_ms"], t["speaker"]) for t in track["segments"]))
-        for track in data["tracks"]
-    }
+    return Timeline(tracks=tuple(data["tracks"]),
+                    turns=tuple(Turn(t["start_ms"], t["end_ms"], t["speaker"]) for t in data["segments"]))
 
 
 def row_word_times(row: Row) -> list[float]:

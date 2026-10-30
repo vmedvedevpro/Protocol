@@ -10,6 +10,7 @@ use std::path::Path;
 
 use anyhow::Result;
 
+use super::file_name;
 use crate::parakeet_engine::ParakeetEngine;
 use crate::whisper_engine::WhisperEngine;
 
@@ -52,8 +53,4 @@ impl Engines {
         };
         Ok(Self { whisper, parakeet, _models_dir: models_dir })
     }
-}
-
-fn file_name(path: &Path) -> String {
-    path.file_name().map_or_else(|| path.display().to_string(), |name| name.to_string_lossy().into_owned())
 }

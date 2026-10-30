@@ -1,11 +1,13 @@
 """How well a run's rows carry the diarized speakers.
 
-Diarization labels each row by the speakers it overlaps (`diarize_meeting`; the run stores those labels). A row
-that spans a change of speaker gives part of its time to the wrong person, and longer rows do so more often. The
-timeline is the reference here: these numbers say what the rows cost the labelling, not whether the diarization is
-right.
+Diarization labels each row by the speakers it overlaps on the recording's timeline (`diarize_meeting`; the run
+stores those labels). A row that spans a change of speaker gives part of its time to the wrong person, and longer
+rows do so more often. On a microphone and a system track the timeline holds both, so a system row the user talks
+over can get the user as its main speaker. The timeline is the reference here: these numbers say what the rows cost
+the labelling, not whether the diarization is right.
 """
 
+import math
 from dataclasses import dataclass
 
 from .runs import Row, Run, Timeline
@@ -18,29 +20,36 @@ TURN_MS = 500
 
 @dataclass
 class SpeakerScore:
+    # The rows whose middle lies in the span.
     rows: int
     mean_row_s: float
-    # The share of the timeline's single-speaker speech, in 100 ms slices, that lies inside a row.
+    # The share of the timeline's single-speaker speech, in 100 ms slices, that lies inside a row of the speaker's
+    # track.
     covered: float
     # The share of those covered slices whose row's main speaker is the slice's speaker.
     agreement: float
-    # Rows in which a speaker other than the row's main one talks for TURN_MS or more.
+    # Rows in which another speaker of the row's track talks for TURN_MS or more.
     turn_rows: int
     # Rows the app labels with two or more speakers ("Speaker 1 + Speaker 2").
     shared_rows: int
 
 
-def single_speaker_slices(timeline: Timeline) -> list[tuple[float, int]]:
-    """The middle of each 100 ms slice in which exactly one speaker talks, with that speaker."""
-    slices = []
-    start = timeline.start_ms
-    while start < timeline.end_ms:
-        middle = start + SLICE_MS / 2
-        active = {turn.speaker for turn in timeline.turns if turn.start_ms <= middle < turn.end_ms}
-        if len(active) == 1:
-            slices.append((middle, active.pop()))
-        start += SLICE_MS
-    return slices
+def _slices(start_ms: float, end_ms: float, from_ms: float, to_ms: float) -> range:
+    """The indices of the slices from `from_ms` whose middle lies in [start_ms, end_ms)."""
+    first = max(0, math.ceil((start_ms - from_ms - SLICE_MS / 2) / SLICE_MS))
+    last = math.ceil((min(end_ms, to_ms) - from_ms - SLICE_MS / 2) / SLICE_MS)
+    return range(first, max(first, last))
+
+
+def single_speaker_slices(timeline: Timeline, span_ms: tuple[float, float]) -> list[tuple[float, int]]:
+    """The middle of each 100 ms slice of the span in which exactly one speaker talks, with that speaker."""
+    begin, end = span_ms
+    active: list[set[int]] = [set() for _ in _slices(begin, end, begin, end)]
+    for turn in timeline.turns:
+        for index in _slices(turn.start_ms, turn.end_ms, begin, end):
+            active[index].add(turn.speaker)
+    return [(begin + index * SLICE_MS + SLICE_MS / 2, next(iter(speakers)))
+            for index, speakers in enumerate(active) if len(speakers) == 1]
 
 
 def overlap_by_speaker(timeline: Timeline, start_ms: float, end_ms: float) -> dict[int, float]:
@@ -53,35 +62,42 @@ def overlap_by_speaker(timeline: Timeline, start_ms: float, end_ms: float) -> di
 
 
 def has_turn_change(row: Row, timeline: Timeline) -> bool:
+    """Whether another speaker of the row's track talks inside it for TURN_MS: the row spans a change of speaker.
+    A remote speaker over a microphone row is crosstalk, not a turn the row could have ended at."""
     if not row.speakers:
         return False
     main = row.speakers[0]
-    return any(speaker != main and ms >= TURN_MS
+    return any(speaker != main and ms >= TURN_MS and timeline.track_of(speaker) == row.track
                for speaker, ms in overlap_by_speaker(timeline, row.start_ms, row.end_ms).items())
 
 
-def score(run: Run, timelines: dict[str, Timeline]) -> SpeakerScore | None:
-    """Over the diarized tracks, for the rows inside each timeline's span; None when no track was diarized."""
-    rows: list[Row] = []
+def score(run: Run, timeline: Timeline) -> SpeakerScore | None:
+    """Over the run's span, or the whole timeline; None when the timeline has no single-speaker speech there."""
+    if set(timeline.tracks) != set(run.tracks):
+        raise ValueError(f"the timeline is of {', '.join(timeline.tracks)}; the {run.setting} run has "
+                         f"{', '.join(run.tracks)}")
+    span = run.span_ms or (0.0, max((turn.end_ms for turn in timeline.turns), default=0.0))
+    rows = sorted((row for row in run.rows() if row.end_ms > row.start_ms
+                   and span[0] <= (row.start_ms + row.end_ms) / 2 < span[1]), key=lambda row: row.start_ms)
+    # The first row of each track over each slice of the span.
+    row_at: dict[str, dict[int, Row]] = {track: {} for track in run.tracks}
+    for row in rows:
+        for index in _slices(row.start_ms, row.end_ms, span[0], span[1]):
+            row_at[row.track].setdefault(index, row)
     covered = agreed = speech = 0
-    for track, timeline in timelines.items():
-        track_rows = sorted((row for row in run.rows() if row.track == track and row.end_ms > row.start_ms
-                             and timeline.start_ms <= row.start_ms < timeline.end_ms), key=lambda row: row.start_ms)
-        rows += track_rows
-        for middle, speaker in single_speaker_slices(timeline):
-            speech += 1
-            row = next((r for r in track_rows if r.start_ms <= middle < r.end_ms), None)
-            if row is not None:
-                covered += 1
-                agreed += bool(row.speakers) and row.speakers[0] == speaker
+    for middle, speaker in single_speaker_slices(timeline, span):
+        speech += 1
+        row = row_at.get(timeline.track_of(speaker), {}).get(int((middle - span[0]) // SLICE_MS))
+        if row is not None:
+            covered += 1
+            agreed += bool(row.speakers) and row.speakers[0] == speaker
     if not speech:
         return None
-    turn_rows = sum(has_turn_change(row, timelines[row.track]) for row in rows)
     return SpeakerScore(
         rows=len(rows),
         mean_row_s=sum(row.end_ms - row.start_ms for row in rows) / len(rows) / 1000 if rows else 0.0,
         covered=covered / speech,
         agreement=agreed / covered if covered else 0.0,
-        turn_rows=turn_rows,
+        turn_rows=sum(has_turn_change(row, timeline) for row in rows),
         shared_rows=sum(len(row.speakers or ()) > 1 for row in rows),
     )

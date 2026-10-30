@@ -1,15 +1,21 @@
-//! Speaker timelines and the labels `diarize_meeting` gives the rows.
+//! The speaker timeline `diarize_meeting` builds, and the speakers it gives
+//! the rows.
 
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use anyhow::{bail, Context, Result};
 
-use super::input::{existing_path, optional, Span};
-use super::output::{self, Run, Timeline, Turn};
+use super::input::{existing_path, optional};
+use super::output::{self, Run, Turn};
 use super::tracks::Track;
+use super::{file_name, ms_since};
 use crate::diarization::nemotron::NemotronDiarizationModel;
-use crate::diarization::{diarize_file_with_models, row_speakers, DiarizationConfig, DiarizationResult, DiarizationSegment};
+use crate::diarization::{
+    diarize_file_with_models, merge_tracks, row_speakers, DiarizationConfig, DiarizationResult, DiarizationSegment,
+};
+
+const SAMPLE_RATE: u32 = 16_000;
 
 pub enum Diarizer {
     Nemotron(PathBuf),
@@ -45,95 +51,101 @@ impl Diarizer {
         }
     }
 
-    /// The app's default parameters (`DiarizationConfig::default`), not the
-    /// ones a user may have saved.
-    fn diarize(&self, samples: &[f32]) -> Result<DiarizationResult> {
-        let config = DiarizationConfig::default();
+    /// A recording without retained tracks, as `diarize_file_with_engine`
+    /// diarizes it.
+    fn diarize_one(&self, track: &Track, scratch: &Path) -> Result<DiarizationResult> {
         match self {
-            Self::Nemotron(model) => {
-                NemotronDiarizationModel::new(model, config.nemotron_max_speakers, config.nemotron_threshold)?
-                    .diarize(samples, 16_000)
-            }
-            // The Pyannote pipeline reads a WAV file.
-            Self::Pyannote(models) => {
-                let folder = tempfile::tempdir()?;
-                let wav = folder.path().join("track.wav");
-                write_wav(&wav, samples)?;
-                diarize_file_with_models(&wav, models, None, None)
-            }
+            Self::Nemotron(model) => nemotron(model)?.diarize(&track.samples, SAMPLE_RATE),
+            Self::Pyannote(models) => pyannote(models, &track.samples, None, scratch),
         }
     }
-}
 
-/// One track's speakers, in seconds from the start of the recording, as
-/// `DiarizationSegment`s for `row_speakers`.
-pub struct TrackSpeakers {
-    pub track: usize,
-    segments: Vec<DiarizationSegment>,
-}
-
-/// Diarizes the tracks `diarize_meeting` splits into speakers, over the span
-/// if there is one. The microphone track (hint `You`) is left out: the app
-/// labels all of it as the user.
-pub fn diarize(diarizer: &Diarizer, tracks: &[Track], span: Option<&Span>) -> Result<(Vec<TrackSpeakers>, output::Diarization)> {
-    let mut speakers = Vec::new();
-    let mut timelines = Vec::new();
-    for (index, track) in tracks.iter().enumerate().filter(|(_, track)| track.speaker_hint != Some("You")) {
-        let track_ms = track.samples.len() as f64 / 16.0;
-        let (start_ms, end_ms) = span.map_or((0.0, track_ms), |span| (span.start_ms, span.end_ms.min(track_ms)));
-        let audio = &track.samples[(start_ms * 16.0) as usize..(end_ms * 16.0) as usize];
-        let started = Instant::now();
-        let result = diarizer.diarize(audio).with_context(|| format!("diarizing the {} track", track.label))?;
-        let wall_ms = started.elapsed().as_secs_f64() * 1000.0;
-        log::info!("{}: {} speakers on the {} track in {:.1} s", diarizer.name(), result.num_speakers, track.label, wall_ms / 1000.0);
-
-        let offset_s = (start_ms / 1000.0) as f32;
-        let segments: Vec<DiarizationSegment> = result
-            .segments
-            .into_iter()
-            .map(|segment| DiarizationSegment { start: segment.start + offset_s, end: segment.end + offset_s, ..segment })
-            .collect();
-        timelines.push(Timeline {
-            track: track.label,
-            start_ms,
-            end_ms,
-            wall_ms,
-            speakers: result.num_speakers,
-            segments: segments
-                .iter()
-                .map(|s| Turn {
-                    start_ms: s.start as f64 * 1000.0,
-                    end_ms: s.end as f64 * 1000.0,
-                    speaker: s.speaker,
-                    overlapped: s.overlapped,
-                })
-                .collect(),
-        });
-        speakers.push(TrackSpeakers { track: index, segments });
+    /// A microphone and a system track, as `diarize_meeting` diarizes them:
+    /// Nemotron runs one model over both and resets its streaming state in
+    /// between; Pyannote is told the microphone has one speaker. The
+    /// voiceprint the app updates from the microphone is left alone.
+    fn diarize_two(&self, mic: &Track, system: &Track, scratch: &Path) -> Result<DiarizationResult> {
+        let (mic, system) = match self {
+            Self::Nemotron(model) => {
+                let mut nemotron = nemotron(model)?;
+                let mic = nemotron.diarize(&mic.samples, SAMPLE_RATE).context("diarizing the microphone")?;
+                nemotron.reset_streaming_state();
+                (mic, nemotron.diarize(&system.samples, SAMPLE_RATE).context("diarizing the system audio")?)
+            }
+            Self::Pyannote(models) => (
+                pyannote(models, &mic.samples, Some(1), scratch).context("diarizing the microphone")?,
+                pyannote(models, &system.samples, None, scratch).context("diarizing the system audio")?,
+            ),
+        };
+        Ok(merge_tracks(mic, system))
     }
+}
+
+/// The app's default parameters (`DiarizationConfig::default`), not the ones
+/// a user may have saved.
+fn nemotron(model: &Path) -> Result<NemotronDiarizationModel> {
+    let config = DiarizationConfig::default();
+    NemotronDiarizationModel::new(model, config.nemotron_max_speakers, config.nemotron_threshold)
+}
+
+/// The Pyannote pipeline reads a WAV file. It is written under `scratch`
+/// (`MEASURE_OUT`): for a private recording it is private audio, and it stays
+/// if the process is killed.
+fn pyannote(models: &Path, samples: &[f32], speakers: Option<usize>, scratch: &Path) -> Result<DiarizationResult> {
+    let folder = tempfile::tempdir_in(scratch)?;
+    let wav = folder.path().join("track.wav");
+    write_wav(&wav, samples)?;
+    diarize_file_with_models(&wav, models, speakers, None)
+}
+
+/// The recording's speaker timeline as `diarize_meeting` builds it, in
+/// seconds for `row_speakers`: a microphone and a system track each diarized
+/// whole and merged, or the one track. Pyannote's temporary WAV goes under
+/// `scratch`.
+pub fn diarize(diarizer: &Diarizer, tracks: &[Track], scratch: &Path) -> Result<(Vec<DiarizationSegment>, output::Diarization)> {
+    let started = Instant::now();
+    let result = match tracks {
+        [track] => diarizer.diarize_one(track, scratch).with_context(|| format!("diarizing the {}", track.label))?,
+        [mic, system] => diarizer.diarize_two(mic, system, scratch)?,
+        _ => bail!("{} tracks: a recording has one track, or a microphone and a system track", tracks.len()),
+    };
+    let wall_ms = ms_since(started);
+    log::info!("{}: {} speakers in {:.1} s", diarizer.name(), result.num_speakers, wall_ms / 1000.0);
     let diarization = output::Diarization {
         format: output::FORMAT,
         engine: diarizer.name(),
-        model: diarizer.model().file_name().map_or_else(String::new, |name| name.to_string_lossy().into_owned()),
-        tracks: timelines,
+        model: file_name(diarizer.model()),
+        tracks: tracks.iter().map(|track| track.label).collect(),
+        wall_ms,
+        speakers: result.num_speakers,
+        segments: result
+            .segments
+            .iter()
+            .map(|s| Turn {
+                start_ms: s.start as f64 * 1000.0,
+                end_ms: s.end as f64 * 1000.0,
+                speaker: s.speaker,
+                overlapped: s.overlapped,
+            })
+            .collect(),
     };
-    Ok((speakers, diarization))
+    Ok((result.segments, diarization))
 }
 
-/// Gives every row of a diarized track its speakers, as `diarize_meeting`
-/// chooses them. A row without duration gets none (the app clears its label).
-pub fn label_rows(run: &mut Run, tracks: &[Track], speakers: &[TrackSpeakers]) {
-    for piece in &mut run.pieces {
-        let Some(timeline) = speakers.iter().find(|t| tracks[t.track].label == piece.track) else { continue };
-        for row in &mut piece.rows {
-            let (start, end) = ((row.start_ms / 1000.0) as f32, (row.end_ms / 1000.0) as f32);
-            row.speakers = Some(if end > start { row_speakers(&timeline.segments, start, end) } else { Vec::new() });
-        }
+/// Gives every row its speakers on the recording's timeline, as
+/// `diarize_meeting` does for the rows of every track. A row without
+/// duration gets none (the app clears its label).
+pub fn label_rows(run: &mut Run, timeline: &[DiarizationSegment]) {
+    for row in run.pieces.iter_mut().flat_map(|piece| piece.rows.iter_mut()) {
+        let (start, end) = ((row.start_ms / 1000.0) as f32, (row.end_ms / 1000.0) as f32);
+        row.speakers = Some(if end > start { row_speakers(timeline, start, end) } else { Vec::new() });
     }
 }
 
 /// 16 kHz mono 32-bit float, so Pyannote reads the samples the other
-/// engines get (`dsp::read_wav` reads this format).
+/// engines get (`dsp::read_wav` reads this format). The app gives Pyannote
+/// ffmpeg's 16-bit WAV of the recording instead (`ensure_wav`); the kit has
+/// no ffmpeg, and that WAV would go to the OS temp folder.
 fn write_wav(path: &Path, samples: &[f32]) -> Result<()> {
     let data_bytes = (samples.len() * 4) as u32;
     let mut bytes = Vec::with_capacity(44 + data_bytes as usize);
@@ -143,8 +155,8 @@ fn write_wav(path: &Path, samples: &[f32]) -> Result<()> {
     bytes.extend_from_slice(&16u32.to_le_bytes());
     bytes.extend_from_slice(&3u16.to_le_bytes()); // IEEE float
     bytes.extend_from_slice(&1u16.to_le_bytes()); // mono
-    bytes.extend_from_slice(&16_000u32.to_le_bytes());
-    bytes.extend_from_slice(&64_000u32.to_le_bytes()); // bytes per second
+    bytes.extend_from_slice(&SAMPLE_RATE.to_le_bytes());
+    bytes.extend_from_slice(&(SAMPLE_RATE * 4).to_le_bytes()); // bytes per second
     bytes.extend_from_slice(&4u16.to_le_bytes()); // bytes per frame
     bytes.extend_from_slice(&32u16.to_le_bytes());
     bytes.extend_from_slice(b"data");

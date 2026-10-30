@@ -24,7 +24,7 @@ class Scores:
         return asdict(self)
 
 
-def score(run: Run, reference: Reference | None, timelines: dict[str, Timeline] | None, label: str = "") -> Scores:
+def score(run: Run, reference: Reference | None, timeline: Timeline | None, label: str = "") -> Scores:
     """`label` names the run in the tables; its setting by default."""
     timing = run.timing
     return Scores(
@@ -39,7 +39,7 @@ def score(run: Run, reference: Reference | None, timelines: dict[str, Timeline] 
         optimized=run.optimized,
         failures=failures.count(run.pieces),
         accuracy=None if reference is None else accuracy.score(run, reference),
-        speakers=None if timelines is None else speakers.score(run, timelines),
+        speakers=None if timeline is None else speakers.score(run, timeline),
     )
 
 

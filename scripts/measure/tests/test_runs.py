@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from kit.runs import Reference, Row, by_track, clip, load_reference, load_run
+from kit.runs import Reference, Row, by_track, clip, load_diarization, load_reference, load_run
 from tests.helpers import row, run
 
 RUN = {
@@ -37,6 +37,14 @@ class LoadTest(unittest.TestCase):
         self.assertEqual(load_reference(self.write(RUN)), Reference(load_run(self.write(RUN)).rows(), (0.0, 10_000.0)))
         human = {"rows": [{"start_ms": 0, "end_ms": 900, "text": "Раз.", "voice": "female"}]}
         self.assertEqual(load_reference(self.write(human)), Reference([row(0, 900, "Раз.")]))
+
+    def test_a_timeline_numbers_the_user_first(self):
+        diarization = {"format": 1, "engine": "nemotron", "model": "m.onnx", "tracks": ["microphone", "system audio"],
+                       "wall_ms": 1.0, "speakers": 3,
+                       "segments": [{"start_ms": 0.0, "end_ms": 900.0, "speaker": 2, "overlapped": False}]}
+        timeline = load_diarization(self.write(diarization))
+        self.assertEqual([(t.start_ms, t.speaker) for t in timeline.turns], [(0.0, 2)])
+        self.assertEqual((timeline.track_of(0), timeline.track_of(2)), ("microphone", "system audio"))
 
     def test_another_format_is_refused(self):
         with self.assertRaises(ValueError):

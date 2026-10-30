@@ -14,13 +14,13 @@
 //! over them (`audio::post_meeting`: skip rule, per-track language, engine
 //! call, silence-hallucination filter), the live worker's call and skip
 //! rule, the reference call beside the pass's Whisper call, and
-//! `diarize_meeting`'s row labelling. They do not score:
+//! `diarize_meeting`'s timeline and row labelling. They do not score:
 //! `scripts/measure/` reads the JSON.
 //!
 //! Recordings and models are read in place. Only `MEASURE_OUT` is written
-//! (and the app's empty data folder beside the test binary, see `engines`);
-//! for a private recording it holds private transcripts: keep it outside
-//! the repository.
+//! (and the app's data folder, see `engines`); for a private recording it
+//! holds private transcripts and, while Pyannote runs, a WAV of a track:
+//! keep it outside the repository.
 
 mod diarize;
 mod engines;
@@ -29,6 +29,7 @@ mod output;
 mod settings;
 mod tracks;
 
+use std::path::Path;
 use std::time::Instant;
 
 use anyhow::{ensure, Result};
@@ -44,6 +45,11 @@ const SAMPLES_PER_MS: f64 = 16.0;
 
 fn ms_since(started: Instant) -> f64 {
     started.elapsed().as_secs_f64() * 1000.0
+}
+
+/// A model's file or folder name, for the outputs.
+fn file_name(path: &Path) -> String {
+    path.file_name().map_or_else(|| path.display().to_string(), |name| name.to_string_lossy().into_owned())
 }
 
 fn init_logging() {
@@ -77,13 +83,14 @@ async fn transcribe_settings() -> Result<()> {
 
     let tracks = tracks::load(&inputs.audio)?;
     let span = recording_span(&tracks, inputs.span)?;
-    let speakers = match &diarizer {
+    // The app diarizes whole tracks; so does the kit, also for a span.
+    let timeline = match &diarizer {
         Some(diarizer) => {
-            let (speakers, timelines) = diarize::diarize(diarizer, &tracks, span.as_ref())?;
-            output::write(&inputs.out, "diarization", &timelines)?;
-            speakers
+            let (timeline, diarization) = diarize::diarize(diarizer, &tracks, &inputs.out)?;
+            output::write(&inputs.out, "diarization", &diarization)?;
+            Some(timeline)
         }
-        None => Vec::new(),
+        None => None,
     };
 
     let engines = Engines::open(whisper_model.as_deref(), parakeet_model.as_deref()).await?;
@@ -100,7 +107,9 @@ async fn transcribe_settings() -> Result<()> {
         };
         let cut = &cuts[index];
         let mut run = settings::run(setting, &engines, &tracks, cut, span, &inputs).await?;
-        diarize::label_rows(&mut run, &tracks, &speakers);
+        if let Some(timeline) = &timeline {
+            diarize::label_rows(&mut run, timeline);
+        }
         output::write(&inputs.out, setting.name(), &run)?;
         runs.push(run);
     }
