@@ -553,12 +553,12 @@ impl ContinuousVadProcessor {
     }
 }
 
-/// Legacy function for backward compatibility - now uses the optimized approach
 /// A replacement Silero session, built from the app's one ONNX Runtime environment.
 fn new_vad_session(config: VadConfig) -> Result<VadSession> {
     VadSession::new(crate::onnx_runtime::environment()?, config)
 }
 
+/// Legacy function for backward compatibility - now uses the optimized approach
 pub fn extract_speech_16k(samples_mono_16k: &[f32]) -> Result<Vec<f32>> {
     let mut processor = ContinuousVadProcessor::new(16000, 400)?;
 
