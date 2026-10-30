@@ -11,9 +11,11 @@
 
 use std::fmt::Debug;
 
+use anyhow::anyhow;
 use log::{info, warn};
 
 use crate::audio::vad::{ContinuousSpeechCap, SpeechSegment};
+use crate::parakeet_engine::ParakeetEngine;
 use crate::whisper_engine::{TimedText, WhisperEngine};
 
 /// The batch VAD's continuous-speech cap for each engine.
@@ -51,16 +53,44 @@ pub fn skip_reason(samples: &[f32]) -> Option<&'static str> {
     (rms(samples) < 0.005 && peak < 0.01).then_some("silent")
 }
 
-/// Transcribes one piece with Whisper: its rows as (text, start ms, end ms)
-/// in meeting time.
-pub async fn whisper_rows(
-    engine: &WhisperEngine,
-    piece: &SpeechSegment,
-    language: Option<&str>,
-    vocabulary: Option<&str>,
-) -> anyhow::Result<Vec<(String, f64, f64)>> {
-    let segments = engine.transcribe_piece(&piece.samples, language, vocabulary).await?;
-    Ok(rows_from_piece(piece, segments))
+/// Transcribes the pieces of one post-meeting pass with the engine the pass
+/// loaded: Parakeet gives one row per piece, Whisper one row per segment.
+pub struct PieceTranscriber<'a> {
+    parakeet: Option<&'a ParakeetEngine>,
+    whisper: Option<&'a WhisperEngine>,
+}
+
+impl<'a> PieceTranscriber<'a> {
+    /// Parakeet when the pass loaded it, otherwise Whisper.
+    pub fn new(parakeet: Option<&'a ParakeetEngine>, whisper: Option<&'a WhisperEngine>) -> Self {
+        Self { parakeet, whisper }
+    }
+
+    /// The rows of one piece that have text, as (text, start ms, end ms) in
+    /// meeting time. `language` is the Whisper setting for this piece.
+    pub async fn rows(
+        &mut self,
+        piece: &SpeechSegment,
+        language: Option<&str>,
+        vocabulary: Option<&str>,
+    ) -> anyhow::Result<Vec<(String, f64, f64)>> {
+        let rows = if let Some(parakeet) = self.parakeet {
+            let text = parakeet
+                .transcribe_audio(piece.samples.clone(), vocabulary)
+                .await
+                .map_err(|error| anyhow!("Parakeet transcription failed: {error}"))?;
+            vec![(text, piece.start_timestamp_ms, piece.end_timestamp_ms)]
+        } else if let Some(whisper) = self.whisper {
+            let segments = whisper
+                .transcribe_piece(&piece.samples, language, vocabulary)
+                .await
+                .map_err(|error| anyhow!("Whisper transcription failed: {error}"))?;
+            rows_from_piece(piece, segments)
+        } else {
+            return Err(anyhow!("No transcription engine is loaded"));
+        };
+        Ok(rows.into_iter().filter(|(text, _, _)| !text.trim().is_empty()).collect())
+    }
 }
 
 /// The rows of one piece: each Whisper segment with meeting times (ms), kept

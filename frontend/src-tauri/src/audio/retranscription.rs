@@ -461,6 +461,7 @@ async fn run_retranscription<R: Runtime>(
     // Process each speech segment with progress updates
     let mut all_transcripts: Vec<(String, f64, f64)> = Vec::new(); // (text, start_ms, end_ms)
     let mut speaker_hints: Vec<Option<&'static str>> = Vec::new();
+    let mut transcriber = post_meeting::PieceTranscriber::new(parakeet_engine.as_deref(), whisper_engine.as_deref());
 
     for (i, (segment, speaker_hint)) in processable_segments.iter().enumerate() {
         // Check for cancellation before each segment
@@ -489,26 +490,15 @@ async fn run_retranscription<R: Runtime>(
             continue;
         }
 
-        // Transcribe this segment: one row from Parakeet, a row per Whisper segment
-        let rows = if use_parakeet {
-            let engine = parakeet_engine.as_ref().unwrap();
-            let text = engine
-                .transcribe_audio(segment.samples.clone(), vocabulary.as_deref())
-                .await
-                .map_err(|e| anyhow!("Parakeet transcription failed on segment {}: {}", i, e))?;
-            vec![(text, segment.start_timestamp_ms, segment.end_timestamp_ms)]
-        } else {
-            let engine = whisper_engine.as_ref().unwrap();
-            let segment_language = track_languages
-                .iter()
-                .find(|(track, _)| track == speaker_hint)
-                .map(|(_, detected)| detected.as_str())
-                .or(language.as_deref());
-            post_meeting::whisper_rows(engine, segment, segment_language, vocabulary.as_deref())
-                .await
-                .map_err(|e| anyhow!("Whisper transcription failed on segment {}: {}", i, e))?
-        };
-        let rows: Vec<_> = rows.into_iter().filter(|(text, _, _)| !text.trim().is_empty()).collect();
+        let segment_language = track_languages
+            .iter()
+            .find(|(track, _)| track == speaker_hint)
+            .map(|(_, detected)| detected.as_str())
+            .or(language.as_deref());
+        let rows = transcriber
+            .rows(segment, segment_language, vocabulary.as_deref())
+            .await
+            .map_err(|e| anyhow!("{} (segment {})", e, i))?;
 
         // Skip empty transcripts
         let text = rows.iter().map(|(text, _, _)| text.trim()).collect::<Vec<_>>().join(" ");

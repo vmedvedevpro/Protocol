@@ -569,6 +569,7 @@ async fn run_import<R: Runtime>(
         _ => None,
     };
     let segment_language = detected_language.as_deref().or(language.as_deref());
+    let mut transcriber = post_meeting::PieceTranscriber::new(parakeet_engine.as_deref(), whisper_engine.as_deref());
 
     // Process each speech segment
     let mut all_transcripts: Vec<(String, f64, f64)> = Vec::new();
@@ -598,21 +599,10 @@ async fn run_import<R: Runtime>(
             continue;
         }
 
-        // Transcribe: one row from Parakeet, a row per Whisper segment
-        let rows = if use_parakeet {
-            let engine = parakeet_engine.as_ref().unwrap();
-            let text = engine
-                .transcribe_audio(segment.samples.clone(), vocabulary.as_deref())
-                .await
-                .map_err(|e| anyhow!("Parakeet transcription failed on segment {}: {}", i, e))?;
-            vec![(text, segment.start_timestamp_ms, segment.end_timestamp_ms)]
-        } else {
-            let engine = whisper_engine.as_ref().unwrap();
-            post_meeting::whisper_rows(engine, segment, segment_language, vocabulary.as_deref())
-                .await
-                .map_err(|e| anyhow!("Whisper transcription failed on segment {}: {}", i, e))?
-        };
-        let rows: Vec<_> = rows.into_iter().filter(|(text, _, _)| !text.trim().is_empty()).collect();
+        let rows = transcriber
+            .rows(segment, segment_language, vocabulary.as_deref())
+            .await
+            .map_err(|e| anyhow!("{} (segment {})", e, i))?;
 
         if !rows.is_empty() {
             let text = rows.iter().map(|(text, _, _)| text.trim()).collect::<Vec<_>>().join(" ");
