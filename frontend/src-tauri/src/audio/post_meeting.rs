@@ -100,7 +100,8 @@ impl<'a> PieceTranscriber<'a> {
 ///
 /// A segment whose two timestamps coincide joins the row before it (the first
 /// one joins the row after it): diarization labels a row by the speech its
-/// time span overlaps and clears the label of a row without duration.
+/// time span overlaps and clears the label of a row without duration. Repeated
+/// rows then merge ([`merge_repeated_rows`]).
 fn rows_from_piece(piece: &SpeechSegment, segments: Vec<TimedText>) -> Vec<(String, f64, f64)> {
     let (piece_start, piece_end) = (piece.start_timestamp_ms, piece.end_timestamp_ms.max(piece.start_timestamp_ms));
     let mut rows: Vec<(String, f64, f64)> = Vec::new();
@@ -125,7 +126,27 @@ fn rows_from_piece(piece: &SpeechSegment, segments: Vec<TimedText>) -> Vec<(Stri
         // Only segments without duration: one row over the whole piece.
         rows.push((pending, piece_start, piece_end));
     }
-    rows
+    merge_repeated_rows(rows)
+}
+
+/// Consecutive rows of one piece with the same words (case and punctuation
+/// aside) become one row over their joint time. A timestamped decode can loop
+/// as one short segment after another ("Да." fifteen times); the repetition
+/// cleanup sees one segment at a time and leaves text under three words
+/// alone, so the loop would otherwise stay as a row per repeat. Two speakers
+/// saying the same word back to back on one track merge too.
+fn merge_repeated_rows(rows: Vec<(String, f64, f64)>) -> Vec<(String, f64, f64)> {
+    let words = |text: &str| -> Vec<String> {
+        text.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()).map(str::to_lowercase).collect()
+    };
+    let mut merged: Vec<(String, f64, f64)> = Vec::with_capacity(rows.len());
+    for row in rows {
+        match merged.last_mut() {
+            Some(last) if words(&last.0) == words(&row.0) => last.2 = row.2,
+            _ => merged.push(row),
+        }
+    }
+    merged
 }
 
 /// whisper.cpp detects the language on the first 30 s of its input.
@@ -300,6 +321,30 @@ mod tests {
         assert_eq!(rows, vec![("e f".to_string(), 10_000.0, 19_000.0)]);
         let rows = rows_from_piece(&piece, vec![timed(2_000.0, 2_000.0, "g")]);
         assert_eq!(rows, vec![("g".to_string(), 10_000.0, 20_000.0)]);
+    }
+
+    #[test]
+    fn repeated_rows_of_a_piece_merge_into_one() {
+        let piece = segment(0.0, 20.0, 0.1);
+        let rows = rows_from_piece(
+            &piece,
+            vec![
+                timed(0.0, 2_000.0, "Да."),
+                timed(2_000.0, 3_000.0, "да"),
+                timed(3_000.0, 4_500.0, "Да!"),
+                timed(4_500.0, 8_000.0, "Хорошо, договорились."),
+                timed(8_000.0, 9_000.0, "Да."),
+            ],
+        );
+        assert_eq!(
+            rows,
+            vec![
+                ("Да.".to_string(), 0.0, 4_500.0),
+                ("Хорошо, договорились.".to_string(), 4_500.0, 8_000.0),
+                // Not consecutive with the first ones: kept.
+                ("Да.".to_string(), 8_000.0, 9_000.0),
+            ]
+        );
     }
 
     #[test]
