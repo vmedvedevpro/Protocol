@@ -36,7 +36,7 @@ binary is not in git:
 
 ## Changes to upstream's code
 
-- ort 2.0.0-rc.15 and ndarray 0.17 (`Cargo.toml`).
+- ort 2.0.0-rc.15 with API level 24, as in the app, and ndarray 0.17 (`Cargo.toml`).
 - `VadSession::new`, `new_from_bytes` and `new_from_path` take the process's
   `&ort::environment::Environment` as their first argument (ort rc.14 allows one
   environment per process and the app owns it, `onnx_runtime.rs`).

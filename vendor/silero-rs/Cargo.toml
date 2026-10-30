@@ -17,7 +17,7 @@ serde = ["dep:serde"]
 [dependencies]
 anyhow = "1.0.86"
 ndarray = "0.17"
-ort = { version = "=2.0.0-rc.15", default-features = false, features = ["std", "ndarray"] }
+ort = { version = "=2.0.0-rc.15", default-features = false, features = ["std", "ndarray", "api-24"] }  # api-22+: with_auto_device; 24 as in the app
 serde = { version = "1.0.208", features = ["derive"], optional = true }
 thiserror = "2.0.4"
 tracing = { version = "0.1.40", default-features = false, features = ["std"] }
