@@ -1,6 +1,8 @@
 //! The speaker timeline `diarize_meeting` builds, and the speakers it gives
 //! the rows.
 
+use std::fs::File;
+use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
@@ -144,26 +146,34 @@ pub fn label_rows(run: &mut Run, timeline: &[DiarizationSegment]) {
 /// 16 kHz mono 32-bit float, so the engines read the samples the kit decoded
 /// (`dsp::read_wav` reads this format). The app gives them ffmpeg's 16-bit
 /// WAV of each track instead (`ensure_wav`); the kit has no ffmpeg, and that
-/// WAV would go to the OS temp folder.
+/// WAV would go to the OS temp folder. Written through a buffer, not built in
+/// memory: a track can be several hundred MB.
 fn write_wav(path: &Path, samples: &[f32]) -> Result<()> {
-    let data_bytes = (samples.len() * 4) as u32;
-    let mut bytes = Vec::with_capacity(44 + data_bytes as usize);
-    bytes.extend_from_slice(b"RIFF");
-    bytes.extend_from_slice(&(36 + data_bytes).to_le_bytes());
-    bytes.extend_from_slice(b"WAVEfmt ");
-    bytes.extend_from_slice(&16u32.to_le_bytes());
-    bytes.extend_from_slice(&3u16.to_le_bytes()); // IEEE float
-    bytes.extend_from_slice(&1u16.to_le_bytes()); // mono
-    bytes.extend_from_slice(&SAMPLE_RATE.to_le_bytes());
-    bytes.extend_from_slice(&(SAMPLE_RATE * 4).to_le_bytes()); // bytes per second
-    bytes.extend_from_slice(&4u16.to_le_bytes()); // bytes per frame
-    bytes.extend_from_slice(&32u16.to_le_bytes());
-    bytes.extend_from_slice(b"data");
-    bytes.extend_from_slice(&data_bytes.to_le_bytes());
-    for sample in samples {
-        bytes.extend_from_slice(&sample.to_le_bytes());
-    }
-    std::fs::write(path, bytes).with_context(|| format!("writing {}", path.display()))
+    // A RIFF size is 32-bit: about 18 hours of these samples.
+    let data_bytes = u32::try_from(samples.len() * 4)
+        .ok()
+        .filter(|bytes| bytes.checked_add(36).is_some())
+        .context("the track is too long for a WAV file")?;
+    let write = || -> std::io::Result<()> {
+        let mut out = BufWriter::new(File::create(path)?);
+        out.write_all(b"RIFF")?;
+        out.write_all(&(36 + data_bytes).to_le_bytes())?;
+        out.write_all(b"WAVEfmt ")?;
+        out.write_all(&16u32.to_le_bytes())?;
+        out.write_all(&3u16.to_le_bytes())?; // IEEE float
+        out.write_all(&1u16.to_le_bytes())?; // mono
+        out.write_all(&SAMPLE_RATE.to_le_bytes())?;
+        out.write_all(&(SAMPLE_RATE * 4).to_le_bytes())?; // bytes per second
+        out.write_all(&4u16.to_le_bytes())?; // bytes per frame
+        out.write_all(&32u16.to_le_bytes())?;
+        out.write_all(b"data")?;
+        out.write_all(&data_bytes.to_le_bytes())?;
+        for sample in samples {
+            out.write_all(&sample.to_le_bytes())?;
+        }
+        out.flush()
+    };
+    write().with_context(|| format!("writing {}", path.display()))
 }
 
 #[cfg(test)]

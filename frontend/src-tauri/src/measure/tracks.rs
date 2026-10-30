@@ -30,6 +30,12 @@ impl Track {
     pub fn duration_ms(&self) -> f64 {
         self.samples.len() as f64 / SAMPLES_PER_MS
     }
+
+    /// Frees the samples once the track is cut and diarized: the pieces hold
+    /// their own, and a two-hour meeting's tracks are about 0.9 GB.
+    pub fn release_samples(&mut self) {
+        self.samples = Vec::new();
+    }
 }
 
 /// The tracks a retranscription reads: a recording folder's microphone and

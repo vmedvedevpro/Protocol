@@ -33,7 +33,7 @@ mod tracks;
 use std::path::Path;
 use std::time::Instant;
 
-use anyhow::{ensure, Result};
+use anyhow::{ensure, Context, Result};
 
 use diarize::Diarizer;
 use engines::Engines;
@@ -89,7 +89,7 @@ async fn transcribe_settings() -> Result<()> {
         .transpose()?;
     let diarizer = Diarizer::from_env()?;
 
-    let tracks = tracks::load(&inputs.audio)?;
+    let mut tracks = tracks::load(&inputs.audio)?;
     let span = recording_span(&tracks, inputs.span)?;
     // The app diarizes whole tracks; so does the kit, also for a span.
     let timeline = match &diarizer {
@@ -100,20 +100,19 @@ async fn transcribe_settings() -> Result<()> {
         }
         None => None,
     };
-
-    let engines = Engines::open(whisper_model.as_deref(), parakeet_model.as_deref()).await?;
     // Settings with the same VAD cap transcribe the same pieces.
     let mut cuts: Vec<Cut> = Vec::new();
+    for setting in &settings {
+        if !cuts.iter().any(|cut| cut.cap == setting.cap()) {
+            cuts.push(tracks::cut(&tracks, setting.cap())?);
+        }
+    }
+    tracks.iter_mut().for_each(Track::release_samples);
+
+    let engines = Engines::open(whisper_model.as_deref(), parakeet_model.as_deref()).await?;
     let mut runs = Vec::new();
     for setting in settings {
-        let index = match cuts.iter().position(|cut| cut.cap == setting.cap()) {
-            Some(index) => index,
-            None => {
-                cuts.push(tracks::cut(&tracks, setting.cap())?);
-                cuts.len() - 1
-            }
-        };
-        let cut = &cuts[index];
+        let cut = cuts.iter().find(|cut| cut.cap == setting.cap()).context("every setting's cap is cut")?;
         let mut run = settings::run(setting, &engines, &tracks, cut, span, &inputs).await?;
         if let Some(timeline) = &timeline {
             diarize::label_rows(&mut run, timeline);
@@ -138,10 +137,11 @@ async fn build_reference() -> Result<()> {
     let model = existing_path("MEASURE_REFERENCE_MODEL", "the Large V3 ggml file the reference is decoded with")?;
     ensure!(!inputs.out.join("reference.json").exists(), "{} has a reference.json already", inputs.out.display());
 
-    let tracks = tracks::load(&inputs.audio)?;
+    let mut tracks = tracks::load(&inputs.audio)?;
     let span = recording_span(&tracks, inputs.span)?;
-    let engines = Engines::open(Some(&model), None).await?;
     let cut = tracks::cut(&tracks, Setting::Reference.cap())?;
+    tracks.iter_mut().for_each(Track::release_samples);
+    let engines = Engines::open(Some(&model), None).await?;
     let run = settings::run(Setting::Reference, &engines, &tracks, &cut, span, &inputs).await?;
     output::write(&inputs.out, "reference", &run)?;
     output::print_table(&[run]);
