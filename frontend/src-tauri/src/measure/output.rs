@@ -59,7 +59,7 @@ pub struct PieceResult {
     pub track: &'static str,
     pub start_ms: f64,
     pub end_ms: f64,
-    /// Why the pass skipped the piece without a call (`post_meeting::skip_reason`).
+    /// Why the setting's path skipped the piece without a call (`Setting::skip_reason`).
     pub skipped: Option<&'static str>,
     /// The retranscription loop drops the piece as a silence hallucination.
     pub dropped: bool,

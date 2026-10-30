@@ -11,6 +11,7 @@ use super::output::{PieceResult, Row, Run, Timing, TrackInfo, FORMAT};
 use super::tracks::{self, Piece, Track};
 use crate::audio::post_meeting::{self, PieceTranscriber};
 use crate::audio::retranscription::is_silence_hallucination;
+use crate::audio::transcription::worker::is_digital_silence;
 use crate::audio::vad::ContinuousSpeechCap;
 use crate::whisper_engine::decoding::WhisperDecoding;
 use crate::whisper_engine::post_meeting::KV_CACHE_RECREATE_FAILED;
@@ -73,6 +74,15 @@ impl Setting {
             Self::PostMeeting | Self::Reference => post_meeting::vad_cap(false),
             Self::Parakeet => post_meeting::vad_cap(true),
             Self::Live => ContinuousSpeechCap::Streaming,
+        }
+    }
+
+    /// Why the setting's path skips a piece without a call: the post-meeting
+    /// rule, or the live path's digital silence.
+    fn skip_reason(self, samples: &[f32]) -> Option<&'static str> {
+        match self {
+            Self::Live => is_digital_silence(samples).then_some("silent"),
+            _ => post_meeting::skip_reason(samples),
         }
     }
 
@@ -170,9 +180,9 @@ fn ms_since(started: Instant) -> f64 {
     started.elapsed().as_secs_f64() * 1000.0
 }
 
-/// Transcribes the tracks with one setting, as the post-meeting pass would:
-/// the setting's pieces, the language once per track on Auto, the skip rule,
-/// and the retranscription loop's silence-hallucination filter. Before the
+/// Transcribes the tracks with one setting, as its path would: the setting's
+/// pieces, the language once per track on Auto, the skip rule, and the
+/// retranscription loop's silence-hallucination filter. Before the
 /// timed loop the setting's first piece is decoded once untimed: the first
 /// call pays the GPU's set-up, and the first beam search its cache shapes.
 pub async fn run(setting: Setting, engines: &Engines, tracks: &[Track], inputs: &Inputs) -> Result<Run> {
@@ -196,7 +206,7 @@ pub async fn run(setting: Setting, engines: &Engines, tracks: &[Track], inputs: 
     let vocabulary = inputs.vocabulary.as_deref();
 
     let mut call = Call::new(setting, engines)?;
-    let transcribed = |piece: &&Piece| post_meeting::skip_reason(&piece.segment.samples).is_none();
+    let transcribed = |piece: &&Piece| setting.skip_reason(&piece.segment.samples).is_none();
     if let Some(first) = pieces.iter().find(transcribed) {
         let started = Instant::now();
         call.rows(first, language_of(first), vocabulary).await?;
@@ -210,7 +220,7 @@ pub async fn run(setting: Setting, engines: &Engines, tracks: &[Track], inputs: 
             track: tracks[piece.track].label,
             start_ms: segment.start_timestamp_ms,
             end_ms: segment.end_timestamp_ms,
-            skipped: post_meeting::skip_reason(&segment.samples),
+            skipped: setting.skip_reason(&segment.samples),
             dropped: false,
             wall_ms: 0.0,
             rows: Vec::new(),
@@ -281,5 +291,15 @@ mod tests {
         assert_eq!(Setting::Reference.cap(), ContinuousSpeechCap::PauseToPause);
         assert_eq!(Setting::Parakeet.cap(), ContinuousSpeechCap::Streaming);
         assert_eq!(Setting::Live.cap(), ContinuousSpeechCap::Streaming);
+    }
+
+    #[test]
+    fn each_setting_skips_what_its_path_skips() {
+        let quiet = vec![0.001; 16_000];
+        let digital_silence = vec![0.0; 16_000];
+        assert_eq!(Setting::PostMeeting.skip_reason(&quiet), Some("silent"));
+        assert_eq!(Setting::Parakeet.skip_reason(&quiet), Some("silent"));
+        assert_eq!(Setting::Live.skip_reason(&quiet), None);
+        assert_eq!(Setting::Live.skip_reason(&digital_silence), Some("silent"));
     }
 }

@@ -59,6 +59,13 @@ pub struct TranscriptUpdate {
     pub duration: f64,          // Segment duration in seconds (e.g., 3.3)
 }
 
+/// The live path skips only a chunk of digital silence: its VAD has already
+/// cut the speech, and quiet replies are speech.
+// pub(crate) for the measurement kit (crate::measure), which skips what the live path skips.
+pub(crate) fn is_digital_silence(samples: &[f32]) -> bool {
+    samples.iter().fold(0.0f32, |m, &x| m.max(x.abs())) == 0.0
+}
+
 fn should_emit_transcript(transcript: &str, _confidence: Option<f32>) -> bool {
     let trimmed = transcript.trim();
     if trimmed.is_empty() {
@@ -523,7 +530,7 @@ async fn transcribe_chunk_with_provider(
     let peak = speech_samples.iter().fold(0.0f32, |m, &x| m.max(x.abs()));
 
     // Skip silent chunks to avoid Whisper silence hallucinations
-    if peak == 0.0 {
+    if is_digital_silence(&speech_samples) {
         info!(
             "Audio chunk {} has near-zero energy (rms: {:.6}, peak: {:.6}), skipping transcription",
             chunk.chunk_id, rms, peak
