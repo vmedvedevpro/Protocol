@@ -13,6 +13,7 @@ use super::{ms_since, SAMPLES_PER_MS};
 use crate::audio::post_meeting::{self, Pass, PieceOutcome};
 use crate::audio::transcription::worker::{is_digital_silence, peak_level};
 use crate::audio::vad::{ContinuousSpeechCap, SpeechSegment};
+use crate::whisper_engine::decoding::WhisperDecoding;
 use crate::whisper_engine::WhisperEngine;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -165,6 +166,24 @@ impl<'a> Call<'a> {
             }
         }
     }
+
+    /// The Whisper decoding of the last piece. The pass turns greedy for the
+    /// rest of the process when a beam's KV cache cannot be allocated; a
+    /// reference call fails instead.
+    fn decoding(&self) -> Option<WhisperDecoding> {
+        match self {
+            Self::Pass(pass) => pass.whisper_decoding(),
+            Self::Live(_) => Some(WhisperDecoding::LIVE),
+            Self::Reference(..) => Some(WhisperDecoding::POST_MEETING),
+        }
+    }
+}
+
+fn decoding_name(decoding: WhisperDecoding) -> String {
+    match decoding {
+        WhisperDecoding::Greedy => "greedy".to_string(),
+        WhisperDecoding::BeamSearch { beam_size } => format!("beam {beam_size}"),
+    }
 }
 
 /// Transcribes the recording with one setting, as its path would: on Auto
@@ -221,6 +240,7 @@ pub async fn run(
             end_ms: segment.end_timestamp_ms,
             skipped: None,
             dropped: false,
+            decoding: None,
             wall_ms: 0.0,
             rows: Vec::new(),
         };
@@ -237,6 +257,7 @@ pub async fn run(
         };
         if result.skipped.is_none() {
             result.wall_ms = wall_ms;
+            result.decoding = call.decoding().map(decoding_name);
             timing.transcription_ms += wall_ms;
             timing.speech_ms += segment.samples.len() as f64 / SAMPLES_PER_MS;
         }
@@ -301,5 +322,11 @@ mod tests {
         // The pass skips this quiet piece (`post_meeting::skip_reason`); the live worker sends it.
         assert_eq!(live_skip_reason(&[0.001; 16_000]), None);
         assert_eq!(live_skip_reason(&[0.0; 16_000]), Some("silent"));
+    }
+
+    #[test]
+    fn a_decoding_is_named_as_the_docs_name_it() {
+        assert_eq!(decoding_name(WhisperDecoding::POST_MEETING), "beam 5");
+        assert_eq!(decoding_name(WhisperDecoding::LIVE), "greedy");
     }
 }

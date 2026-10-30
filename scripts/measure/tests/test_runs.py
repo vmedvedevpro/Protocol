@@ -14,7 +14,7 @@ RUN = {
     "timing": {"warmup_ms": 1.0, "vad_ms": 2.0, "detection_ms": 0.0, "transcription_ms": 3.0, "speech_ms": 4.0},
     "pieces": [
         {"track": "system audio", "start_ms": 0.0, "end_ms": 5000.0, "skipped": None, "dropped": False,
-         "wall_ms": 3.0, "rows": [{"start_ms": 0.0, "end_ms": 5000.0, "text": "Да.", "speakers": [2, 1]}]},
+         "decoding": "greedy", "wall_ms": 3.0, "rows": [{"start_ms": 0.0, "end_ms": 5000.0, "text": "Да.", "speakers": [2, 1]}]},
         {"track": "microphone", "start_ms": 6000.0, "end_ms": 6050.0, "skipped": "short", "dropped": False,
          "wall_ms": 0.0, "rows": []},
     ],
@@ -32,6 +32,7 @@ class LoadTest(unittest.TestCase):
         run = load_run(self.write(RUN))
         self.assertEqual((run.setting, run.tracks, run.span_ms), ("live", ("microphone", "system audio"), (0.0, 10_000.0)))
         self.assertEqual(run.rows(), [row(0.0, 5000.0, "Да.", "system audio", [2, 1])])
+        self.assertEqual(run.decodings(), {"greedy": 1})
 
     def test_a_reference_is_a_run_or_a_list_of_rows(self):
         self.assertEqual(load_reference(self.write(RUN)), Reference(load_run(self.write(RUN)).rows(), (0.0, 10_000.0)))

@@ -66,6 +66,12 @@ pub struct PieceResult {
     pub skipped: Option<&'static str>,
     /// The retranscription loop drops the piece as a silence hallucination.
     pub dropped: bool,
+    /// The Whisper decoding of the call, `beam 5` or `greedy`: the
+    /// post-meeting pass turns greedy for the rest of the process when a
+    /// beam's KV cache cannot be allocated. Absent for Parakeet and skipped
+    /// pieces.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub decoding: Option<String>,
     pub wall_ms: f64,
     pub rows: Vec<Row>,
 }

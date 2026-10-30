@@ -35,6 +35,8 @@ class Piece:
     dropped: bool
     wall_ms: float
     rows: tuple[Row, ...]
+    # The Whisper decoding of the call ("beam 5", "greedy"); None for Parakeet and skipped pieces.
+    decoding: str | None = None
 
     @property
     def transcribed(self) -> bool:
@@ -65,6 +67,14 @@ class Run:
     def rows(self) -> list[Row]:
         """The rows the pass stores."""
         return [row for piece in self.pieces if piece.kept for row in piece.rows]
+
+    def decodings(self) -> dict[str, int]:
+        """How many pieces each Whisper decoding transcribed."""
+        counts: dict[str, int] = {}
+        for piece in self.pieces:
+            if piece.decoding is not None:
+                counts[piece.decoding] = counts.get(piece.decoding, 0) + 1
+        return counts
 
 
 @dataclass(frozen=True)
@@ -129,7 +139,7 @@ def _row(data: dict, track: str | None) -> Row:
 def _piece(data: dict) -> Piece:
     return Piece(track=data["track"], start_ms=data["start_ms"], end_ms=data["end_ms"], skipped=data["skipped"],
                  dropped=data["dropped"], wall_ms=data["wall_ms"],
-                 rows=tuple(_row(row, data["track"]) for row in data["rows"]))
+                 rows=tuple(_row(row, data["track"]) for row in data["rows"]), decoding=data.get("decoding"))
 
 
 def load_run(path: Path) -> Run:

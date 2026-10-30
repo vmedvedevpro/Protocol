@@ -35,6 +35,8 @@ def score(args: argparse.Namespace) -> None:
     timeline = load_diarization(args.diarization) if args.diarization else None
     names = labels(args.runs, [run.setting for run in runs])
     scores = [report.score(run, reference, timeline, name) for run, name in zip(runs, names)]
+    for warning in report.decoding_warnings(runs, names):
+        print(f"Warning: {warning}.")
     if reference is not None:
         total, repeated = report.reference_words(runs[0], reference)
         print(f"Reference: {total:,} words in the span, {repeated} of them repeating what was just said.\n")

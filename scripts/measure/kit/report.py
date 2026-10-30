@@ -16,6 +16,8 @@ class Scores:
     speech_s: float
     warmup_s: float
     optimized: bool
+    # Pieces per Whisper decoding ("beam 5", "greedy").
+    decodings: dict[str, int]
     failures: failures.Failures
     accuracy: accuracy.Accuracy | None
     speakers: speakers.SpeakerScore | None
@@ -37,6 +39,7 @@ def score(run: Run, reference: Reference | None, timeline: Timeline | None, labe
         speech_s=timing["speech_ms"] / 1000,
         warmup_s=timing["warmup_ms"] / 1000,
         optimized=run.optimized,
+        decodings=run.decodings(),
         failures=failures.count(run.pieces),
         accuracy=None if reference is None else accuracy.score(run, reference),
         speakers=None if timeline is None else speakers.score(run, timeline),
@@ -48,6 +51,29 @@ def reference_words(run: Run, reference: Reference) -> tuple[int, int]:
     tokens = [token for rows in by_track(clip(reference.rows, run.span_ms), run.tracks).values()
               for row in rows for token in words(row.text)]
     return len(tokens), failures.repeated_words(tokens)
+
+
+def _decoded(counts: dict[str, int]) -> str:
+    return ", ".join(f"{decoding} × {count}" for decoding, count in counts.items())
+
+
+def decoding_warnings(runs: list[Run], names: list[str]) -> list[str]:
+    """Runs whose pieces were decoded in more than one way, and runs of one setting that were decoded differently.
+    The post-meeting pass turns greedy for the rest of the process when a beam's KV cache cannot be allocated, so a
+    comparison could otherwise set beam search against greedy decoding unnoticed. A run without a record (Parakeet,
+    or an output written before pieces recorded it) is left out."""
+    warnings = []
+    first_of: dict[str, tuple[str, dict[str, int]]] = {}
+    for run, name in zip(runs, names):
+        counts = run.decodings()
+        if not counts:
+            continue
+        if len(counts) > 1:
+            warnings.append(f"{name} decoded its pieces {_decoded(counts)}")
+        first_name, first_counts = first_of.setdefault(run.setting, (name, counts))
+        if set(first_counts) != set(counts):
+            warnings.append(f"{first_name} decoded {_decoded(first_counts)}, but {name} {_decoded(counts)}")
+    return warnings
 
 
 def _rate(value: float | None) -> str:

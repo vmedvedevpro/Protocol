@@ -222,6 +222,14 @@ impl<'a, K: Copy + PartialEq + Debug> Pass<'a, K> {
         }
         Ok(PieceOutcome::Rows(rows))
     }
+
+    /// The Whisper decoding the pass uses now: it turns greedy for the rest
+    /// of the app session when a beam's KV cache cannot be allocated. For the
+    /// measurement kit, which records it.
+    #[cfg(test)]
+    pub(crate) fn whisper_decoding(&self) -> Option<crate::whisper_engine::decoding::WhisperDecoding> {
+        self.transcriber.whisper.as_ref().map(PostMeetingWhisper::decoding)
+    }
 }
 
 /// Transcribes the pieces of one post-meeting pass with the engine the pass
