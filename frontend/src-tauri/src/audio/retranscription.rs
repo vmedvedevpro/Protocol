@@ -212,8 +212,8 @@ fn find_retranscription_sources(folder: &Path, fallback: &Path) -> Vec<Retranscr
             path: system_path,
             label: "system audio",
             speaker_hint: Some("Guest"),
-            positive_threshold: 0.50,
-            negative_threshold: 0.35,
+            positive_threshold: crate::audio::vad::DEFAULT_POSITIVE_SPEECH_THRESHOLD,
+            negative_threshold: crate::audio::vad::DEFAULT_NEGATIVE_SPEECH_THRESHOLD,
         });
     }
     if sources.is_empty() {
@@ -221,8 +221,8 @@ fn find_retranscription_sources(folder: &Path, fallback: &Path) -> Vec<Retranscr
             path: fallback.to_path_buf(),
             label: "mixed audio",
             speaker_hint: None,
-            positive_threshold: 0.50,
-            negative_threshold: 0.35,
+            positive_threshold: crate::audio::vad::DEFAULT_POSITIVE_SPEECH_THRESHOLD,
+            negative_threshold: crate::audio::vad::DEFAULT_NEGATIVE_SPEECH_THRESHOLD,
         });
     }
 

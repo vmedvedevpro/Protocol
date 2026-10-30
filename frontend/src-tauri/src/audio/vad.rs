@@ -152,7 +152,12 @@ impl ContinuousVadProcessor {
     }
 
     pub fn new(input_sample_rate: u32, redemption_time_ms: u32) -> Result<Self> {
-        Self::new_with_thresholds(input_sample_rate, redemption_time_ms, 0.50, 0.35)
+        Self::new_with_thresholds(
+            input_sample_rate,
+            redemption_time_ms,
+            DEFAULT_POSITIVE_SPEECH_THRESHOLD,
+            DEFAULT_NEGATIVE_SPEECH_THRESHOLD,
+        )
     }
 
     pub fn new_with_thresholds(
