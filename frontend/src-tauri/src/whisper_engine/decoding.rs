@@ -32,7 +32,9 @@ impl WhisperDecoding {
     /// The post-meeting pass (retranscription and import). Five is
     /// whisper.cpp's and OpenAI's default width; greedy decoding with
     /// timestamps can lock into repeating one word segment after segment on a
-    /// long piece, which the beam avoids.
+    /// long piece, which the beam avoids. Unlike OpenAI's, whisper.cpp's beam
+    /// draws its candidates from seeded samplers rather than taking the top
+    /// ones, so a call repeats only on a new state.
     pub const POST_MEETING: Self = Self::BeamSearch { beam_size: 5 };
 
     pub fn full_params<'a, 'b>(self) -> FullParams<'a, 'b> {

@@ -18,7 +18,8 @@
 //! of the measured meeting (development map, #62).
 
 use anyhow::{anyhow, Result};
-use whisper_rs::{WhisperContext, WhisperError};
+use log::warn;
+use whisper_rs::{FullParams, WhisperContext, WhisperError, WhisperState};
 
 use super::decoding::WhisperDecoding;
 use super::WhisperEngine;
@@ -31,7 +32,11 @@ const MAX_SEGMENT_BYTES: i32 = 200;
 /// `whisper_full_with_state` returns this when it cannot re-create the KV cache
 /// for more than one decoder, after freeing the caller's state itself
 /// (whisper.cpp 1.8.3, still so in 1.9.5). whisper-rs frees the state again
-/// when it is dropped, so on this error the state must be leaked instead.
+/// when it is dropped, so on this error the state is leaked instead. The leak
+/// also keeps the model loaded until the app restarts: a whisper-rs state holds
+/// a reference to its model context (private fields), so unloading or
+/// switching the model then frees nothing. Remove the leak once whisper.cpp
+/// stops freeing the caller's state or whisper-rs stops freeing it again.
 const KV_CACHE_RECREATE_FAILED: i32 = -7;
 
 /// whisper.cpp's default thread count (`whisper_full_default_params`), which
@@ -49,20 +54,47 @@ pub struct TimedText {
     pub text: String,
 }
 
-impl WhisperEngine {
-    /// Transcribes one post-meeting piece. `language` follows the app's
-    /// setting: `None` or "auto" detects it in this call, "auto-translate"
-    /// detects and translates to English.
+/// The Whisper side of one post-meeting pass.
+///
+/// Each piece gets a new whisper.cpp state. whisper.cpp's beam search draws
+/// its candidates from each decoder's sampler even at temperature 0
+/// (`whisper_sample_token_topk`), and decoder 0's sampler is seeded only when
+/// a state is created; on a shared state a piece's text would depend on the
+/// pieces decoded before it (the same audio decoded twice on one state ended
+/// two segments 20 ms apart). The cost: every piece grows its state's KV
+/// cache to 7 decoder slots (beam 5 plus 2 against fragmentation: about 73 MB
+/// for Turbo, 587 MB for Large V3, against 84 MB for one Large V3 decoder).
+///
+/// When that allocation fails, the rest of the pass decodes greedily with one
+/// decoder, which never grows the cache, instead of failing on every piece
+/// (see [`KV_CACHE_RECREATE_FAILED`] for what that failure leaves behind).
+pub struct PostMeetingWhisper<'a> {
+    engine: &'a WhisperEngine,
+    decoding: WhisperDecoding,
+}
+
+impl<'a> PostMeetingWhisper<'a> {
+    pub fn new(engine: &'a WhisperEngine) -> Self {
+        Self { engine, decoding: WhisperDecoding::POST_MEETING }
+    }
+
+    /// Transcribes one piece. `language` follows the app's setting: `None` or
+    /// "auto" detects it in this call, "auto-translate" detects and translates
+    /// to English.
     pub async fn transcribe_piece(
-        &self,
+        &mut self,
         samples: &[f32],
         language: Option<&str>,
         initial_prompt: Option<&str>,
     ) -> Result<Vec<TimedText>> {
-        self.with_loaded_context(|ctx| transcribe_piece_with(ctx, samples, language, initial_prompt))
+        let Self { engine, decoding } = self;
+        engine
+            .with_loaded_context(|ctx| transcribe_piece_with(ctx, decoding, samples, language, initial_prompt))
             .await
     }
+}
 
+impl WhisperEngine {
     /// The language whisper.cpp detects in the first 30 s of `samples`, with
     /// its probability: one encoder pass, no decoding.
     pub async fn detect_language_with_probability(&self, samples: &[f32]) -> Result<Option<(String, f32)>> {
@@ -80,12 +112,41 @@ impl WhisperEngine {
 
 fn transcribe_piece_with(
     ctx: &WhisperContext,
+    decoding: &mut WhisperDecoding,
     samples: &[f32],
     language: Option<&str>,
     initial_prompt: Option<&str>,
 ) -> Result<Vec<TimedText>> {
     let prompt_tokens = WhisperEngine::tokenize_initial_prompt(ctx, initial_prompt)?;
-    let mut params = WhisperDecoding::POST_MEETING.full_params();
+    loop {
+        let mut state = ctx.create_state()?;
+        match state.full(piece_params(*decoding, &prompt_tokens, language), samples) {
+            Ok(_) => return Ok(timed_segments(&state)),
+            Err(WhisperError::GenericError(KV_CACHE_RECREATE_FAILED)) => {
+                std::mem::forget(state);
+                if *decoding == WhisperDecoding::Greedy {
+                    return Err(anyhow!("whisper.cpp could not allocate the KV cache for one decoder"));
+                }
+                warn!(
+                    "whisper.cpp could not allocate the KV cache for {:?}; the rest of this pass decodes greedily \
+                     with one decoder, and the model stays loaded until the app restarts",
+                    decoding
+                );
+                *decoding = WhisperDecoding::Greedy;
+            }
+            Err(error) => {
+                return Err(anyhow!("decoding a {:.1}s piece failed: {error}", samples.len() as f64 / 16_000.0));
+            }
+        }
+    }
+}
+
+fn piece_params<'a, 'b>(
+    decoding: WhisperDecoding,
+    prompt_tokens: &'b [whisper_rs::WhisperTokenId],
+    language: Option<&'a str>,
+) -> FullParams<'a, 'b> {
+    let mut params = decoding.full_params();
     if !prompt_tokens.is_empty() {
         params.set_tokens(&prompt_tokens);
     }
@@ -112,15 +173,10 @@ fn transcribe_piece_with(
     params.set_entropy_thold(2.4);
     params.set_logprob_thold(-1.0);
     params.set_no_speech_thold(if super::labs::strict_silence_enabled() { 0.45 } else { 0.55 });
+    params
+}
 
-    let mut state = ctx.create_state()?;
-    if let Err(error) = state.full(params, samples) {
-        if matches!(error, WhisperError::GenericError(KV_CACHE_RECREATE_FAILED)) {
-            std::mem::forget(state);
-        }
-        return Err(anyhow!("Whisper failed on a {:.1}s piece: {error}", samples.len() as f64 / 16_000.0));
-    }
-
+fn timed_segments(state: &WhisperState) -> Vec<TimedText> {
     let mut rows = Vec::new();
     for segment in state.as_iter() {
         let Ok(text) = segment.to_str_lossy() else { continue };
@@ -135,5 +191,5 @@ fn transcribe_piece_with(
             text,
         });
     }
-    Ok(rows)
+    rows
 }

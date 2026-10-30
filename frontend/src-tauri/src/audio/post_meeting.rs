@@ -16,6 +16,7 @@ use log::{info, warn};
 
 use crate::audio::vad::{ContinuousSpeechCap, SpeechSegment};
 use crate::parakeet_engine::ParakeetEngine;
+use crate::whisper_engine::post_meeting::PostMeetingWhisper;
 use crate::whisper_engine::{TimedText, WhisperEngine};
 
 /// The batch VAD's continuous-speech cap for each engine.
@@ -57,13 +58,13 @@ pub fn skip_reason(samples: &[f32]) -> Option<&'static str> {
 /// loaded: Parakeet gives one row per piece, Whisper one row per segment.
 pub struct PieceTranscriber<'a> {
     parakeet: Option<&'a ParakeetEngine>,
-    whisper: Option<&'a WhisperEngine>,
+    whisper: Option<PostMeetingWhisper<'a>>,
 }
 
 impl<'a> PieceTranscriber<'a> {
     /// Parakeet when the pass loaded it, otherwise Whisper.
     pub fn new(parakeet: Option<&'a ParakeetEngine>, whisper: Option<&'a WhisperEngine>) -> Self {
-        Self { parakeet, whisper }
+        Self { parakeet, whisper: whisper.map(PostMeetingWhisper::new) }
     }
 
     /// The rows of one piece that have text, as (text, start ms, end ms) in
@@ -80,7 +81,7 @@ impl<'a> PieceTranscriber<'a> {
                 .await
                 .map_err(|error| anyhow!("Parakeet transcription failed: {error}"))?;
             vec![(text, piece.start_timestamp_ms, piece.end_timestamp_ms)]
-        } else if let Some(whisper) = self.whisper {
+        } else if let Some(whisper) = self.whisper.as_mut() {
             let segments = whisper
                 .transcribe_piece(&piece.samples, language, vocabulary)
                 .await

@@ -1448,8 +1448,13 @@ mod tests {
         println!("{text}");
         assert!(!text.trim().is_empty(), "no text from {wav}");
 
-        // The post-meeting pass: timestamps on, a row per Whisper segment.
-        let rows = engine.transcribe_piece(&audio, language.as_deref(), None).await.unwrap();
+        // The post-meeting pass: timestamps on, a row per Whisper segment. A
+        // piece's rows must not depend on the pieces before it in the pass
+        // (each gets a new state; see PostMeetingWhisper).
+        let mut pass = crate::whisper_engine::post_meeting::PostMeetingWhisper::new(&engine);
+        let rows = pass.transcribe_piece(&audio, language.as_deref(), None).await.unwrap();
+        let again = pass.transcribe_piece(&audio, language.as_deref(), None).await.unwrap();
+        assert_eq!(rows, again, "the second piece of a pass changed the rows of {wav}");
         let audio_ms = audio.len() as f64 / 16.0;
         for row in &rows {
             println!("[{:>7.0} - {:>7.0} ms] {}", row.start_ms, row.end_ms, row.text);
