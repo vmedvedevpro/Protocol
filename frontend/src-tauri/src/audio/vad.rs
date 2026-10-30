@@ -628,6 +628,31 @@ pub fn get_speech_chunks_with_thresholds_and_progress<F>(
     redemption_time_ms: u32,
     positive_speech_threshold: f32,
     negative_speech_threshold: f32,
+    progress_callback: F,
+) -> Result<Vec<SpeechSegment>>
+where
+    F: FnMut(u32, usize) -> bool,
+{
+    get_speech_chunks_with_cap_and_progress(
+        samples_mono_16k,
+        redemption_time_ms,
+        positive_speech_threshold,
+        negative_speech_threshold,
+        None,
+        progress_callback,
+    )
+}
+
+/// As [`get_speech_chunks_with_thresholds_and_progress`], with the
+/// continuous-speech cap chosen by the caller: `None` keeps the processor's
+/// (3.5 s or 6 s by redemption time), `Some(0)` lets a segment run from pause
+/// to pause.
+pub fn get_speech_chunks_with_cap_and_progress<F>(
+    samples_mono_16k: &[f32],
+    redemption_time_ms: u32,
+    positive_speech_threshold: f32,
+    negative_speech_threshold: f32,
+    max_speech_ms: Option<u32>,
     mut progress_callback: F,
 ) -> Result<Vec<SpeechSegment>>
 where
@@ -639,6 +664,9 @@ where
         positive_speech_threshold,
         negative_speech_threshold,
     )?;
+    if let Some(max_speech_ms) = max_speech_ms {
+        processor.set_max_speech_duration_ms(max_speech_ms);
+    }
 
     let total_samples = samples_mono_16k.len();
 
