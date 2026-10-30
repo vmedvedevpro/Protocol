@@ -7,6 +7,13 @@ is inherited from the project Protocol forked from; Protocol did not release it.
 
 ## Protocol — unreleased
 
+## Protocol 0.4.3 — 2026-10-30
+
+After a meeting, Whisper listens from pause to pause and keeps its own
+timestamps, so fewer words go missing and the pass takes about two thirds of
+the time. Voice detection, Parakeet and speaker labels run on a newer ONNX
+Runtime, and Parakeet is about twice as fast on an Intel Core Ultra laptop.
+
 ### Changed
 
 - **Speech models on a newer ONNX Runtime**
