@@ -257,6 +257,27 @@ state for dialogs, including native activation events and stale-response guards.
 Live ASR and post-call ASR defaults are independent. Optional Whisper activation
 saves the **post-call** default; it must not replace the live Parakeet selection.
 
+The post-meeting pass (`run_retranscription` and the import) shares
+`audio/post_meeting.rs` (#62). With Whisper it cuts each track at pauses: the
+batch VAD without its continuous-speech cap (`vad_max_speech_ms`; pieces over
+25 s are still split at silence). Each piece goes to
+`WhisperEngine::transcribe_piece` (`whisper_engine/post_meeting.rs`: timestamps
+on, beam search 5 at temperature 0, wraps only before a word), and every Whisper
+segment becomes a row with its own start and end (`whisper_rows`). A segment
+without duration joins its neighbour, because diarization clears the label of a
+row without duration. Diarization then labels these sentence-sized rows by
+overlap as before, and a rerun still changes labels only. Parakeet keeps the
+capped pieces and one row per piece. Both engines skip the same short or silent
+pieces (`skip_reason`). With the language on Auto (`None` or `"auto"`; not
+`"auto-translate"`), Whisper detects it once per retained track on up to 30 s of
+the track's longest pieces (`detect_once`, `detect_per_track`) and uses it for
+the whole track when its probability is above 0.5; otherwise the track keeps
+per-call detection. A track whose speakers switch language mid-meeting is then
+transcribed in one language. Live transcription is unchanged. See
+[Whisper engine](#whisper-engine) for why and what was measured. Unit tests:
+`audio::post_meeting::tests` (VAD cap per engine, skips, rows from Whisper
+segments, which settings detect once, detection audio and threshold).
+
 ### Audio import and the recordings folder
 
 `audio/import.rs` turns an external audio file into a new meeting:
@@ -634,11 +655,63 @@ what Protocol does about it:
 - On the CPU (whisper.cpp's default of 4 threads; the app's `max_threads` is
   still not applied) a 20-second clip took 197 s instead of 252 s with Large
   V3 Turbo Compressed and 10.5 s instead of 7.9 s with Base.
+- whisper.cpp runs beam search only at temperature 0. The live calls take
+  their decoding from the hardware profile (`get_whisper_config`): beam 2 at
+  temperature 0.2 on Windows, from beam 5 at 0.1 to beam 1 at 0.4 by tier
+  elsewhere. Every one of these is above 0, so each live call is one sampling
+  decoder (whisper-rs leaves `greedy.best_of` at -1 for `BeamSearch`); the
+  +0.2 temperature fallback applies to every strategy.
+- Decoding without timestamps, as the live calls do, Large V3 Turbo puts more
+  than 0.2 of its probability on end-of-text while the speech goes on, 12 to
+  25 s into a window (#62). Forced through a reference transcript of 34 windows
+  of 15–28 s from a recorded Russian meeting, it did so in 21, alike with q5_0,
+  q8_0 and f16 weights, on Vulkan and on the CPU, in whisper.cpp 1.7.1 and
+  1.8.3; Large V3 f16 in 4, each in the last few words. Beam ranking by mean
+  log-probability, or sampling, then picks the end, and without timestamps
+  whisper.cpp cannot resume: the rest of the window is lost. It is a property
+  of the model, not a whisper.cpp or ggml bug. Live calls stay under the live
+  VAD cap (3.5 or 6 s) and do not reach that region. The batch VAD inherited
+  the 6 s cap from the VAD constructor (Actually Free `f4b2399` added it for
+  live streaming: bounded buffers and online diarization), which kept the
+  post-meeting pass short of it too, at the cost of words cut at the 6 s cuts.
+- The post-meeting pass therefore decodes pause-bounded pieces with timestamps
+  (`whisper_engine/post_meeting.rs`): the model closes segment after segment,
+  and whisper.cpp continues from the last timestamp when a segment does not
+  fit. On 20 minutes of the meeting (Turbo q5_0, Vulkan, Intel Arc B390,
+  language `ru`), WER against a long-form Large V3 reference fell from 0.297
+  (the pass before #62) to 0.270, and from 0.247 to 0.217 against a Large V3
+  reference decoded one utterance at a time, in 112 s instead of 166 s. Turbo
+  can still skip speech by closing a segment long after its last word: 4
+  stretches of 14–21 words. Keeping the 6 s cap with timestamps measured 0.250
+  but cut words at the cuts, brought back subtitle-credit hallucinations on
+  short noisy pieces and took 196 s; pause-bounded pieces without timestamps
+  measured 0.333. Beam search 5 at temperature 0 is deterministic (a repeat run
+  gave identical text); greedy at temperature 0 was about as accurate and
+  took 22 % less time but fell into a one-word repetition loop on one piece;
+  sampling at 0.2 measured 0.286. Rows are Whisper's segments (median 6.9 s,
+  at most 22 s on that span). On the system track of a second meeting with
+  several remote speakers, 13 % of the rows contained another diarized speaker
+  for at least 0.5 s, against 30 % of the 6 s rows, and the share of speech
+  whose row label matched the diarization timeline was 0.935 against 0.932.
+- With the language on Auto, whisper.cpp detects it in every call with one
+  more encoder pass. With 6 s pieces this made a beam-5 pass 54 % slower and
+  put 7 of 230 short or noisy pieces into English, Dutch or Turkish; detecting
+  once per track took 2 × 0.6 s and gave the same text as a fixed `ru`. The
+  track's language is used only above probability 0.5, so an unclear
+  detection keeps per-call detection (`audio/post_meeting.rs`).
+- Beam search with more than one decoder makes `whisper_full_with_state`
+  re-create the KV cache for them in each call. If that allocation fails it
+  frees the caller's state and returns -7 (still so in whisper.cpp 1.9.5),
+  and whisper-rs frees the state again on drop; `transcribe_piece` leaks the
+  state on -7 instead. The live calls' single decoder never re-creates it.
+- Post-meeting output segments wrap at 200 bytes (`max_len` counts bytes) only
+  before a word (`split_on_word`); a byte wrap inside a Cyrillic word would
+  split it across two rows. The live calls keep the byte wrap.
 
 The ignored test `an_installed_model_loads_and_transcribes` loads a model
 (`PROTOCOL_WHISPER_TEST_MODEL`, read only) and transcribes a 16 kHz mono WAV
 (`PROTOCOL_WHISPER_TEST_WAV`, optional `PROTOCOL_WHISPER_TEST_LANGUAGE`) on the
-build's backend. Windows Vulkan builds need a short cargo target dir
+build's backend, through the live call and through `transcribe_piece`. Windows Vulkan builds need a short cargo target dir
 ([BUILDING.md](BUILDING.md#build-from-source-windows)).
 
 ### Windows installer
