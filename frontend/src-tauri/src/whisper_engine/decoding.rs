@@ -50,6 +50,13 @@ impl WhisperDecoding {
     /// "auto-translate" detects it and translates to English. The caller
     /// chooses timestamps and the prompt.
     pub fn call_params<'a, 'b>(self, language: Option<&'a str>) -> FullParams<'a, 'b> {
+        self.params(language, super::labs::strict_silence_enabled())
+    }
+
+    /// [`Self::call_params`] with the Labs strict silence switch given: the
+    /// persisted switch can live in the developer's own data folder, which
+    /// tests must not depend on.
+    fn params<'a, 'b>(self, language: Option<&'a str>, strict_silence: bool) -> FullParams<'a, 'b> {
         let strategy = match self {
             Self::Greedy => SamplingStrategy::Greedy { best_of: 1 },
             Self::BeamSearch { beam_size } => SamplingStrategy::BeamSearch { beam_size, patience: 1.0 },
@@ -76,7 +83,7 @@ impl WhisperDecoding {
         params.set_logprob_thold(-1.0);
         // Upstream lowered it from 0.75, which dropped quiet speech; Labs'
         // strict silence filter lowers it further.
-        params.set_no_speech_thold(if super::labs::strict_silence_enabled() { 0.45 } else { 0.55 });
+        params.set_no_speech_thold(if strict_silence { 0.45 } else { 0.55 });
         params
     }
 }
@@ -97,7 +104,7 @@ mod tests {
     // whisper-rs keeps the C parameters private; their Debug output is the
     // only view of what a call passes to whisper.cpp.
     fn debug(decoding: WhisperDecoding) -> String {
-        format!("{:?}", decoding.call_params(Some("ru")))
+        format!("{:?}", decoding.params(Some("ru"), false))
     }
 
     #[test]
@@ -142,6 +149,12 @@ mod tests {
                 assert!(params.contains(expected), "{expected} missing in {params}");
             }
         }
+    }
+
+    #[test]
+    fn labs_strict_silence_lowers_the_no_speech_threshold() {
+        let params = format!("{:?}", WhisperDecoding::POST_MEETING.params(Some("ru"), true));
+        assert!(params.contains("no_speech_thold: 0.45,"), "{params}");
     }
 
     #[test]
