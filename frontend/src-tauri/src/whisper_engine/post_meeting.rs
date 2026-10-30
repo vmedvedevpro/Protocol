@@ -34,7 +34,8 @@ use super::WhisperEngine;
 /// a reference to its model context (private fields), so unloading or
 /// switching the model then frees nothing. Remove the leak once whisper.cpp
 /// stops freeing the caller's state or whisper-rs stops freeing it again.
-const KV_CACHE_RECREATE_FAILED: i32 = -7;
+/// pub(crate) for the measurement kit's reference calls (`crate::measure`).
+pub(crate) const KV_CACHE_RECREATE_FAILED: i32 = -7;
 
 /// Set by the first [`KV_CACHE_RECREATE_FAILED`] of this app session. Every
 /// later post-meeting pass then decodes greedily from its first piece: the

@@ -57,11 +57,19 @@ impl Drop for RetranscriptionGuard {
     }
 }
 
+// The next two are pub(crate) for the measurement kit (crate::measure), which
+// cuts a recording into the pieces this pass transcribes.
+
 /// VAD redemption time in milliseconds - bridges natural pauses in speech
 /// Batch processing needs longer redemption (2000ms) than the live pipeline
 /// because the entire file is processed at once and short redemption fragments
 /// speech at every natural sentence/topic pause (500ms-2s)
-const VAD_REDEMPTION_TIME_MS: u32 = 2000;
+pub(crate) const VAD_REDEMPTION_TIME_MS: u32 = 2000;
+
+/// Split very long segments at silence boundaries for better transcription quality.
+/// Hard cuts at arbitrary sample positions lose words at boundaries. Instead, scan
+/// for the lowest-energy window near the target split point and cut there.
+pub(crate) const MAX_SEGMENT_SAMPLES: usize = 25 * 16000; // 25 seconds at 16kHz
 
 /// Progress update emitted during retranscription
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -157,7 +165,7 @@ async fn start_retranscription<R: Runtime>(
 
 /// Find audio file in meeting folder
 /// Tries common names first, then scans for any file with an audio extension
-fn find_audio_file(folder: &Path) -> Result<PathBuf> {
+pub(crate) fn find_audio_file(folder: &Path) -> Result<PathBuf> {
     let candidates = [
         "audio.mp4", "audio.m4a", "audio.wav", "audio.mp3",
         "audio.flac", "audio.ogg", "recording.mp4",
@@ -187,15 +195,17 @@ fn find_audio_file(folder: &Path) -> Result<PathBuf> {
     Err(anyhow!("No audio file found in: {}", folder.display()))
 }
 
-struct RetranscriptionSource {
-    path: PathBuf,
-    label: &'static str,
-    speaker_hint: Option<&'static str>,
-    positive_threshold: f32,
-    negative_threshold: f32,
+// pub(crate) with its finder for the measurement kit (crate::measure), which
+// reads a recording's tracks as this pass does.
+pub(crate) struct RetranscriptionSource {
+    pub(crate) path: PathBuf,
+    pub(crate) label: &'static str,
+    pub(crate) speaker_hint: Option<&'static str>,
+    pub(crate) positive_threshold: f32,
+    pub(crate) negative_threshold: f32,
 }
 
-fn find_retranscription_sources(folder: &Path, fallback: &Path) -> Vec<RetranscriptionSource> {
+pub(crate) fn find_retranscription_sources(folder: &Path, fallback: &Path) -> Vec<RetranscriptionSource> {
     let mic_path = folder.join("mic.mp4");
     let system_path = folder.join("system.mp4");
     let mut sources = Vec::new();
@@ -256,6 +266,14 @@ fn create_source_labeled_segments(
         segment.speaker = speaker_hint.map(str::to_string);
     }
     Ok(segments)
+}
+
+/// Filter out known Whisper silence hallucinations if energy is low
+// pub(crate) for the measurement kit (crate::measure), which drops what this
+// pass drops.
+pub(crate) fn is_silence_hallucination(text: &str, rms: f32) -> bool {
+    let lower = text.to_lowercase();
+    (lower == "you" || lower == "you." || lower == "thank you." || lower == "thank you" || lower == "thanks." || lower == "bye." || lower == "bye") && rms < 0.02
 }
 
 /// Internal function to run retranscription
@@ -414,11 +432,6 @@ async fn run_retranscription<R: Runtime>(
         None
     };
 
-    // Split very long segments at silence boundaries for better transcription quality.
-    // Hard cuts at arbitrary sample positions lose words at boundaries. Instead, scan
-    // for the lowest-energy window near the target split point and cut there.
-    const MAX_SEGMENT_SAMPLES: usize = 25 * 16000; // 25 seconds at 16kHz
-
     let mut processable_segments: Vec<(crate::audio::vad::SpeechSegment, Option<&'static str>)> = Vec::new();
     for (segment, speaker_hint) in &speech_segments {
         if segment.samples.len() > MAX_SEGMENT_SAMPLES {
@@ -503,11 +516,8 @@ async fn run_retranscription<R: Runtime>(
         // Skip empty transcripts
         let text = rows.iter().map(|(text, _, _)| text.trim()).collect::<Vec<_>>().join(" ");
         if !text.is_empty() {
-            // Filter out known Whisper silence hallucinations if energy is low
             let rms = post_meeting::rms(&segment.samples);
-            let lower = text.to_lowercase();
-            let is_hallucination = (lower == "you" || lower == "you." || lower == "thank you." || lower == "thank you" || lower == "thanks." || lower == "bye." || lower == "bye") && rms < 0.02;
-            if is_hallucination {
+            if is_silence_hallucination(&text, rms) {
                 warn!("Dropping suspected silence hallucination on segment {}: '{}' (rms={:.5})", i + 1, text, rms);
                 continue;
             }
