@@ -1,0 +1,4 @@
+# The scoring of the transcription measurement kit (docs/MEASURING_TRANSCRIPTION.md), Python 3.12.
+jiwer==4.0.0
+rapidfuzz==3.14.6
+click==8.5.0
