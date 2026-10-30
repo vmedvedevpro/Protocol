@@ -570,9 +570,9 @@ every platform (#70; rc.10 and 1.22.0 before):
   needs glibc 2.27 and no AVX2.
 - `onnx_runtime.rs` owns the process's only `ort` environment (rc.14 makes it
   explicit and allows one per process); every session is built from
-  `onnx_runtime::environment()`. On Windows and Linux it refuses a library
-  older than API 24 (`ort::util::probe`) before ort loads it, lets
-  `ort::init_from` report a library that does not load, and logs
+  `onnx_runtime::environment()`. On Windows and Linux `ort::init_from`
+  refuses a library older than API 24 and reports one that does not load
+  (a malformed one, which ort asserts on, is caught), and the app logs
   `Initialized verified bundled ONNX Runtime 1.24.4: <ort::info()>`, the
   version as the runtime reports it (`ort::info()` of Microsoft's builds names
   only the commit). The Linux release leg checks that line and the library

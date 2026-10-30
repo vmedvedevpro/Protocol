@@ -106,19 +106,10 @@ fn initialize_library(path: &std::path::Path) -> Result<ort::environment::Enviro
             }
         }
     }
-    // A runtime older than ort's API level is refused before ort keeps it
-    // loaded. One that cannot be probed is left to init_from, which reports
-    // the loader's error (a missing dependency, a wrong file).
-    if let Some(minor) = ort::util::probe(path) {
-        if minor < ort::MINOR_VERSION {
-            return Err(format!(
-                "The bundled ONNX Runtime is 1.{minor}; Protocol needs 1.{} or later. Repair/reinstall and restart Protocol.",
-                ort::MINOR_VERSION
-            ));
-        }
-    }
-    // init_from returns loader errors, but ort still asserts on a malformed
-    // library; that stays a recoverable error too.
+    // init_from returns the loader's errors (a missing dependency, a wrong
+    // file) and refuses a runtime older than ort's API level without keeping
+    // it loaded. ort still asserts on a malformed library (OrtGetApiBase
+    // returning null); the catch_unwind keeps that a recoverable error too.
     let environment = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         ort::init_from(path)
             .map_err(|error| format!("Cannot load bundled ONNX Runtime: {error}. Repair/reinstall and restart Protocol."))?
