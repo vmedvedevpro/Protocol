@@ -72,7 +72,7 @@ The feature front-end (`dsp.rs`) is unchanged.
 it is in its module comment. Each compared folder holds the three files under
 the current names, so the 0.3.0 files are compared renamed (the loader reads
 their tensor names). All numbers below come from debug builds with ONNX
-Runtime 1.22.0 on CPU, the app's runtime.
+Runtime 1.22.0 on CPU, the app's runtime at the time (1.24.4 since #70).
 
 Fixtures, none committed and none private:
 
@@ -105,8 +105,8 @@ onnx-community files store them precomputed. Speed is the same (about 40 ms per
 
 Both float16 files crash Python onnxruntime 1.23.2, 1.25.1 and 1.31.0 when
 the session is built with `ORT_ENABLE_ALL`; the float32 file runs on 1.22.0 to
-1.31.0. The app ships 1.22.0, so 0.3.0 was not affected, but an ONNX Runtime
-upgrade would have been.
+1.31.0. 0.3.0 shipped 1.22.0, so it was not affected, but an ONNX Runtime
+upgrade would have been; the app moved to 1.24.4 (#70) with the float32 file.
 
 ### Diarization error
 

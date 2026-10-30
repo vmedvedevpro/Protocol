@@ -1,7 +1,7 @@
 //! App integration and Slaney filterbank helpers adapted from parakeet-rs.
 //! See LICENSE and README.md in this directory.
 use ndarray::{Array2, Array3, Ix3};
-use ort::{session::Session, value::DynValue};
+use ort::{environment::Environment, session::Session, value::DynValue};
 
 pub type Result<T> = anyhow::Result<T>;
 pub struct Error;
@@ -15,7 +15,7 @@ impl Error {
 pub struct ModelConfig;
 impl ModelConfig {
     pub fn build_session(&self, path: &std::path::Path) -> Result<Session> {
-        crate::onnx_runtime::ensure_available()?;
+        let environment = crate::onnx_runtime::environment()?;
         #[cfg(windows)]
         {
             #[cfg(test)]
@@ -28,7 +28,7 @@ impl ModelConfig {
             #[cfg(not(test))]
             let device = 0;
             if !force_cpu {
-                match directml_session(path, device) {
+                match directml_session(environment, path, device) {
                     Ok(session) => {
                         log::info!("Nemotron: DirectML session initialized on adapter 0");
                         return Ok(session);
@@ -38,28 +38,34 @@ impl ModelConfig {
             }
         }
         log::info!("Nemotron: CPU execution provider");
-        let builder = Session::builder()?.with_intra_threads(4)?;
-        #[cfg(test)]
-        let builder = if let Ok(profile) = std::env::var("MEETILY_NEMOTRON_PROFILE") {
-            builder.with_profiling(profile)?
-        } else { builder };
-        Ok(builder.commit_from_file(path)?)
+        Ok(cpu_session(environment, path)?)
     }
 }
 
+// The session builders return ort::Result: builder errors carry the builder,
+// which anyhow cannot hold.
+fn cpu_session(environment: &Environment, path: &std::path::Path) -> ort::Result<Session> {
+    let mut builder = crate::onnx_runtime::session_builder(environment)?.with_intra_threads(4)?;
+    #[cfg(test)]
+    if let Ok(profile) = std::env::var("MEETILY_NEMOTRON_PROFILE") {
+        builder = builder.with_profiling(profile)?;
+    }
+    builder.commit_from_file(path)
+}
+
 #[cfg(windows)]
-fn directml_session(path: &std::path::Path, device: i32) -> Result<Session> {
-    use ort::execution_providers::DirectMLExecutionProvider;
+fn directml_session(environment: &Environment, path: &std::path::Path, device: i32) -> ort::Result<Session> {
+    use ort::ep::DirectML;
     // DirectML requires sequential execution and disabled memory patterns.
-    let builder = Session::builder()?.with_parallel_execution(false)?
+    let mut builder = crate::onnx_runtime::session_builder(environment)?.with_parallel_execution(false)?
         .with_memory_pattern(false)?
-        .with_execution_providers([DirectMLExecutionProvider::default()
+        .with_execution_providers([DirectML::default()
             .with_device_id(device).build().error_on_failure()])?;
     #[cfg(test)]
-    let builder = if let Ok(profile) = std::env::var("MEETILY_NEMOTRON_PROFILE") {
-        builder.with_profiling(profile)?
-    } else { builder };
-    Ok(builder.commit_from_file(path)?)
+    if let Ok(profile) = std::env::var("MEETILY_NEMOTRON_PROFILE") {
+        builder = builder.with_profiling(profile)?;
+    }
+    builder.commit_from_file(path)
 }
 
 pub fn extract_3d_f32(value: &DynValue, name: &str) -> Result<Array3<f32>> {

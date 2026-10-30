@@ -35,12 +35,15 @@ and has been removed from this fork.
 
 ## 2. Audio pipeline
 
-Windows VAD, Parakeet, and diarization share the pinned Microsoft ONNX Runtime
-1.22 DLL initialized by `src-tauri/src/onnx_runtime.rs`. `ort/load-dynamic` is
-Windows-only; never add a second ONNX runtime dependency. `build/onnxruntime.rs`
-verifies exact archive/file hashes and stages the runtime for both packaging and
-plain cargo builds. `tauri.windows.conf.json` preserves all fork resources and
-adds `binaries/onnxruntime/*`; macOS/Linux resource lists are unchanged.
+VAD, Parakeet, and diarization share one ONNX Runtime environment owned by
+`src-tauri/src/onnx_runtime.rs` (`ort` 2.0.0-rc.15, API level 24). Windows and
+Linux load the pinned Microsoft ONNX Runtime 1.24.4 (DirectML build on Windows,
+CPU build on Linux) by absolute path with `ort/load-dynamic`; macOS links the
+runtime `ort` downloads. Never add a second ONNX runtime dependency.
+`build/onnxruntime.rs` verifies exact archive/file hashes and stages the runtime
+for both packaging and plain cargo builds. `tauri.windows.conf.json` and
+`tauri.linux.conf.json` add `binaries/onnxruntime/*` to their resources; the
+macOS resource list is unchanged. Silero VAD is vendored in `vendor/silero-rs`.
 Record must initialize both source VADs before starting any saver or exposing a
 chunk sender. Runtime failures return a distinct startup error, while recording
 destination failures remain storage errors. All three source tracks, mute
@@ -763,8 +766,9 @@ Gotchas:
 
 Packaging verification must include `binaries/onnxruntime/onnxruntime.dll`,
 `onnxruntime_providers_shared.dll`, and `onnxruntime-LICENSE.txt` and compare them
-with the verified build stage. Do not publish an executable-only update when
-introducing this runtime resource; use a newly built installer package.
+with the verified build stage (ONNX Runtime 1.24.4 with DirectML since #70). Do
+not publish an executable-only update when introducing this runtime resource;
+use a newly built installer package.
 
 Protocol releases one Windows file, `protocol-windows-x64-setup.exe` (#15):
 Tauri's NSIS installer built from this template and these hooks. People run it

@@ -5,8 +5,8 @@ Adapted from `altunenes/parakeet-rs`, commit
 preemphasis/Slaney-filterbank helpers in `src/audio.rs`. The MIT license and
 copyright notice are retained in LICENSE.
 
-The app adapter uses our existing ort rc.10 dependency and verified shared
-runtime. Windows bundles ONNX Runtime 1.22.0 DirectML and DirectML 1.15.4,
+The app adapter uses our existing ort dependency (2.0.0-rc.15) and verified
+shared runtime. Windows bundles ONNX Runtime 1.24.4 DirectML and DirectML 1.15.4,
 with Nemotron preferring DirectML and falling back to CPU on session creation
 failure. DirectML sessions use sequential execution and disabled memory patterns.
 Other speech models retain their CPU sessions. This implementation preserves the
