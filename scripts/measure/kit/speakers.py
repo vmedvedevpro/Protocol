@@ -28,7 +28,7 @@ class SpeakerScore:
     covered: float
     # The share of those covered slices whose row's main speaker is the slice's speaker.
     agreement: float
-    # Rows in which another speaker of the row's track talks for TURN_MS or more.
+    # Rows in which two speakers of the row's track each talk for TURN_MS or more.
     turn_rows: int
     # Rows the app labels with two or more speakers ("Speaker 1 + Speaker 2").
     shared_rows: int
@@ -62,13 +62,12 @@ def overlap_by_speaker(timeline: Timeline, start_ms: float, end_ms: float) -> di
 
 
 def has_turn_change(row: Row, timeline: Timeline) -> bool:
-    """Whether another speaker of the row's track talks inside it for TURN_MS: the row spans a change of speaker.
-    A remote speaker over a microphone row is crosstalk, not a turn the row could have ended at."""
-    if not row.speakers:
-        return False
-    main = row.speakers[0]
-    return any(speaker != main and ms >= TURN_MS and timeline.track_of(speaker) == row.track
-               for speaker, ms in overlap_by_speaker(timeline, row.start_ms, row.end_ms).items())
+    """Whether two speakers of the row's track each talk inside it for TURN_MS: the row spans a change of speaker.
+    A speaker of the other track is crosstalk, not a turn the row could have ended at: a remote speaker over a
+    microphone row, and the user over a system row even where the user is the row's main speaker."""
+    own = [speaker for speaker, ms in overlap_by_speaker(timeline, row.start_ms, row.end_ms).items()
+           if ms >= TURN_MS and timeline.track_of(speaker) == row.track]
+    return len(own) >= 2
 
 
 def score(run: Run, timeline: Timeline) -> SpeakerScore | None:

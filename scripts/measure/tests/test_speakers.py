@@ -54,8 +54,14 @@ class ScoreTest(unittest.TestCase):
         # 18 single-speaker slices: 4 of speaker 1 under the system row, 14 of the user under the microphone row.
         self.assertEqual(speakers.covered, 1.0)
         self.assertAlmostEqual(speakers.agreement, 14 / 18)
-        # Speaker 1 is the system row's own track's speaker; on the microphone row it would be crosstalk.
-        self.assertEqual((speakers.rows, speakers.turn_rows, speakers.shared_rows), (2, 1, 1))
+        # The user over the system row is crosstalk, as the remote speaker over the microphone row is: each row
+        # holds one speaker of its own track.
+        self.assertEqual((speakers.rows, speakers.turn_rows, speakers.shared_rows), (2, 0, 1))
+
+    def test_two_remote_speakers_in_a_system_row_are_a_turn_change(self):
+        timeline = Timeline(("microphone", TRACK), (Turn(0, 1000, 1), Turn(1000, 2000, 2)))
+        result = run(piece(TRACK, 0, 2000, (0, 2000, "да нет", [1, 2])), tracks=("microphone", TRACK))
+        self.assertEqual(score(result, timeline).turn_rows, 1)
 
     def test_no_speech_no_score(self):
         self.assertIsNone(score(run(piece(TRACK, 0, 1000, (0, 1000, "раз", [0])), tracks=(TRACK,)),
