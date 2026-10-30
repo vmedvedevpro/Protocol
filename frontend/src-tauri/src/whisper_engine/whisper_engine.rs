@@ -64,7 +64,7 @@ pub struct WhisperEngine {
 }
 
 impl WhisperEngine {
-    fn tokenize_initial_prompt(
+    pub(crate) fn tokenize_initial_prompt(
         ctx: &WhisperContext,
         initial_prompt: Option<&str>,
     ) -> Result<Vec<WhisperTokenId>> {
@@ -450,9 +450,22 @@ impl WhisperEngine {
     pub async fn is_model_loaded(&self) -> bool {
         self.current_context.read().await.is_some()
     }
+
+    /// Runs `f` on the loaded context, holding the read lock for the call
+    /// (the post-meeting pass, `post_meeting.rs`).
+    pub(crate) async fn with_loaded_context<T>(
+        &self,
+        f: impl FnOnce(&WhisperContext) -> Result<T>,
+    ) -> Result<T> {
+        let ctx_lock = self.current_context.read().await;
+        let ctx = ctx_lock
+            .as_ref()
+            .ok_or_else(|| anyhow!("No model loaded. Please load a model first."))?;
+        f(ctx)
+    }
     
     // Enhanced function to clean repetitive text patterns and meaningless outputs
-    fn clean_repetitive_text(text: &str) -> String {
+    pub(crate) fn clean_repetitive_text(text: &str) -> String {
         if text.is_empty() {
             return String::new();
         }
@@ -1443,8 +1456,17 @@ mod tests {
         let engine = WhisperEngine::new_with_models_dir(Some(dir.path().to_path_buf())).unwrap();
         *engine.current_context.write().await = Some(ctx);
 
-        let (text, _, _) = engine.transcribe_audio_with_confidence(audio, language, None).await.unwrap();
+        let (text, _, _) = engine.transcribe_audio_with_confidence(audio.clone(), language.clone(), None).await.unwrap();
         println!("{text}");
         assert!(!text.trim().is_empty(), "no text from {wav}");
+
+        // The post-meeting pass: timestamps on, a row per Whisper segment.
+        let rows = engine.transcribe_piece(&audio, language.as_deref(), None).await.unwrap();
+        let audio_ms = audio.len() as f64 / 16.0;
+        for row in &rows {
+            println!("[{:>7.0} - {:>7.0} ms] {}", row.start_ms, row.end_ms, row.text);
+            assert!(row.start_ms <= row.end_ms && row.start_ms < audio_ms + 1000.0, "{row:?} in {audio_ms} ms");
+        }
+        assert!(!rows.is_empty(), "no post-meeting rows from {wav}");
     }
 }
