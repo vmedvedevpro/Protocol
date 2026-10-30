@@ -45,6 +45,12 @@ needs network access:
   `binaries/onnxruntime/` (the installer's, deb's or AppImage's resources),
   never from `PATH` or the system library path. macOS builds link the runtime
   `ort` downloads instead.
+  - Only `x86_64-pc-windows-msvc` and `x86_64-unknown-linux-gnu` have a pinned
+    runtime; the build script stops with an error for any other Windows or
+    Linux target (Linux aarch64 or musl, for example).
+  - Both stage into the same `frontend/src-tauri/binaries/onnxruntime/`, so
+    building one checkout for Windows and for Linux (from WSL, say) replaces
+    the other's files, and each build downloads its runtime again.
 - The Silero VAD model (`vendor/silero-rs/build.rs`), embedded into the app.
 
 Frontend checks, as run in CI:

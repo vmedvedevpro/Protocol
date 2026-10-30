@@ -140,7 +140,11 @@ pub fn ensure_onnxruntime_runtime() {
 
     let target = env::var("TARGET").expect("TARGET environment variable not set");
     if target != runtime.target {
-        panic!("ONNX Runtime is bundled only for {}; got {target}", runtime.target);
+        let pinned = [WINDOWS_X64.target, LINUX_X64.target].join(" and ");
+        panic!(
+            "No ONNX Runtime is pinned for {target}: build/onnxruntime.rs pins one only for {pinned}. \
+             Add a pinned runtime for {target} to build it."
+        );
     }
 
     let manifest_dir =
