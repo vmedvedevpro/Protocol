@@ -242,6 +242,10 @@ are documented in [SUMMARY_GENERATED_TITLES.md](SUMMARY_GENERATED_TITLES.md).
 `diarization/mod.rs` owns persisted engine settings and offline command dispatch.
 Nemotron is Auto-detect only; manual counts belong to Pyannote. Rerunning speaker
 identification must preserve transcript text, row identity, and timestamps.
+`row_speakers` labels a row with the speaker who overlaps it most, then those who
+overlap it for a fifth of that and talk at the same time; of speakers who overlap
+it equally the lower index comes first (#75; it was hash order), so one timeline
+always gives the same labels.
 Read [PR34_NEMOTRON.md](PR34_NEMOTRON.md) before changing that contract.
 
 Frontend post-call sequencing lives in
