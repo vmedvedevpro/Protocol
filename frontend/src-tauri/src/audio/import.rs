@@ -3,7 +3,9 @@
 use crate::api::TranscriptSegment;
 use crate::audio::decoder::{decode_audio_file, decode_audio_file_with_progress};
 use crate::audio::post_meeting;
-use crate::audio::vad::get_speech_chunks_with_cap_and_progress;
+use crate::audio::vad::{
+    get_speech_chunks_with_cap_and_progress, DEFAULT_NEGATIVE_SPEECH_THRESHOLD, DEFAULT_POSITIVE_SPEECH_THRESHOLD,
+};
 use crate::config::{DEFAULT_WHISPER_MODEL, DEFAULT_PARAKEET_MODEL};
 use crate::database::repositories::vocabulary::VocabularyRepository;
 use crate::parakeet_engine::ParakeetEngine;
@@ -445,10 +447,9 @@ async fn run_import<R: Runtime>(
         get_speech_chunks_with_cap_and_progress(
             &audio_samples,
             VAD_REDEMPTION_TIME_MS,
-            // The thresholds get_speech_chunks_with_progress uses.
-            0.50,
-            0.35,
-            post_meeting::vad_max_speech_ms(use_parakeet),
+            DEFAULT_POSITIVE_SPEECH_THRESHOLD,
+            DEFAULT_NEGATIVE_SPEECH_THRESHOLD,
+            post_meeting::vad_cap(use_parakeet),
             |vad_progress, segments_found| {
                 let overall_progress = 25 + (vad_progress as f32 * 0.05) as u32;
                 emit_progress(

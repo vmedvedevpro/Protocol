@@ -330,7 +330,7 @@ async fn run_retranscription<R: Runtime>(
                 VAD_REDEMPTION_TIME_MS,
                 positive_threshold,
                 negative_threshold,
-                post_meeting::vad_max_speech_ms(use_parakeet),
+                post_meeting::vad_cap(use_parakeet),
                 |vad_progress, segments_found| {
                     emit_progress(
                         &app_for_vad,

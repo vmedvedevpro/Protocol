@@ -604,6 +604,10 @@ pub fn get_speech_chunks(samples_mono_16k: &[f32], redemption_time_ms: u32) -> R
     get_speech_chunks_with_progress(samples_mono_16k, redemption_time_ms, |_, _| true)
 }
 
+/// The speech thresholds of [`get_speech_chunks_with_progress`].
+pub const DEFAULT_POSITIVE_SPEECH_THRESHOLD: f32 = 0.50;
+pub const DEFAULT_NEGATIVE_SPEECH_THRESHOLD: f32 = 0.35;
+
 /// Get speech chunks with progress callback and cancellation support
 /// The callback receives (progress_percent, segments_found) and returns false to cancel
 pub fn get_speech_chunks_with_progress<F>(
@@ -617,8 +621,8 @@ where
     get_speech_chunks_with_thresholds_and_progress(
         samples_mono_16k,
         redemption_time_ms,
-        0.50,
-        0.35,
+        DEFAULT_POSITIVE_SPEECH_THRESHOLD,
+        DEFAULT_NEGATIVE_SPEECH_THRESHOLD,
         progress_callback,
     )
 }
@@ -638,21 +642,29 @@ where
         redemption_time_ms,
         positive_speech_threshold,
         negative_speech_threshold,
-        None,
+        ContinuousSpeechCap::Streaming,
         progress_callback,
     )
 }
 
+/// How long a batch VAD segment may run without a pause.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ContinuousSpeechCap {
+    /// The processor's cap, set for live streaming: 3.5 s or 6 s by
+    /// redemption time.
+    Streaming,
+    /// No cap: a segment runs from pause to pause.
+    PauseToPause,
+}
+
 /// As [`get_speech_chunks_with_thresholds_and_progress`], with the
-/// continuous-speech cap chosen by the caller: `None` keeps the processor's
-/// (3.5 s or 6 s by redemption time), `Some(0)` lets a segment run from pause
-/// to pause.
+/// continuous-speech cap chosen by the caller.
 pub fn get_speech_chunks_with_cap_and_progress<F>(
     samples_mono_16k: &[f32],
     redemption_time_ms: u32,
     positive_speech_threshold: f32,
     negative_speech_threshold: f32,
-    max_speech_ms: Option<u32>,
+    cap: ContinuousSpeechCap,
     mut progress_callback: F,
 ) -> Result<Vec<SpeechSegment>>
 where
@@ -664,8 +676,8 @@ where
         positive_speech_threshold,
         negative_speech_threshold,
     )?;
-    if let Some(max_speech_ms) = max_speech_ms {
-        processor.set_max_speech_duration_ms(max_speech_ms);
+    if cap == ContinuousSpeechCap::PauseToPause {
+        processor.set_max_speech_duration_ms(0);
     }
 
     let total_samples = samples_mono_16k.len();

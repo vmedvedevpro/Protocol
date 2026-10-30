@@ -13,11 +13,10 @@ use std::fmt::Debug;
 
 use log::{info, warn};
 
-use crate::audio::vad::SpeechSegment;
+use crate::audio::vad::{ContinuousSpeechCap, SpeechSegment};
 use crate::whisper_engine::{TimedText, WhisperEngine};
 
-/// The batch VAD's continuous-speech cap for each engine (`None`: the VAD's
-/// own, 6 s at the batch redemption time).
+/// The batch VAD's continuous-speech cap for each engine.
 ///
 /// The cap came with live streaming (Actually Free `f4b2399`): it bounds the
 /// live buffer and gives text and online diarization a turn every few seconds.
@@ -28,11 +27,11 @@ use crate::whisper_engine::{TimedText, WhisperEngine};
 /// continuous speech can only lose or double a word, so Whisper gets no cap.
 /// Parakeet keeps it: its rows are whole pieces, and it was not measured on
 /// longer ones.
-pub fn vad_max_speech_ms(use_parakeet: bool) -> Option<u32> {
+pub fn vad_cap(use_parakeet: bool) -> ContinuousSpeechCap {
     if use_parakeet {
-        None
+        ContinuousSpeechCap::Streaming
     } else {
-        Some(0)
+        ContinuousSpeechCap::PauseToPause
     }
 }
 
@@ -220,8 +219,8 @@ mod tests {
 
     #[test]
     fn whisper_pieces_run_from_pause_to_pause_and_parakeet_keeps_the_cap() {
-        assert_eq!(vad_max_speech_ms(false), Some(0));
-        assert_eq!(vad_max_speech_ms(true), None);
+        assert_eq!(vad_cap(false), ContinuousSpeechCap::PauseToPause);
+        assert_eq!(vad_cap(true), ContinuousSpeechCap::Streaming);
     }
 
     #[test]
