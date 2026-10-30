@@ -560,6 +560,12 @@ async fn run_import<R: Runtime>(
     let processable_count = processable_segments.len();
     info!("Processing {} segments (after splitting)", processable_count);
 
+    // Loading the model can take a while; the detection below is one more encoder pass.
+    if IMPORT_CANCELLED.load(Ordering::SeqCst) {
+        let _ = std::fs::remove_dir_all(&meeting_folder);
+        return Err(anyhow!("Import cancelled"));
+    }
+
     // With the language on Auto, Whisper detects it once for the file (see post_meeting).
     let detected_language = match whisper_engine.as_ref() {
         Some(engine) if post_meeting::detects_once(language.as_deref()) => {
