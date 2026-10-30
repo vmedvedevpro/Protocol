@@ -15,6 +15,8 @@
 use whisper_rs::{FullParams, SamplingStrategy};
 
 /// Longest output segment in bytes (`max_len` counts bytes, not characters).
+/// Segments wrap only before a word: callers join or store segments as they
+/// come, and a byte wrap inside a Cyrillic word would split it in two.
 const MAX_SEGMENT_BYTES: i32 = 200;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -60,6 +62,7 @@ impl WhisperDecoding {
         // whisper.cpp wraps segments at `max_len` only with token timestamps.
         params.set_token_timestamps(true);
         params.set_max_len(MAX_SEGMENT_BYTES);
+        params.set_split_on_word(true);
         params.set_print_special(false);
         params.set_print_progress(false);
         params.set_print_realtime(false);
@@ -128,6 +131,7 @@ mod tests {
             for expected in [
                 "token_timestamps: true,",
                 "max_len: 200,",
+                "split_on_word: true,",
                 "max_initial_ts: 1.0,",
                 "entropy_thold: 2.4,",
                 "logprob_thold: -1.0,",

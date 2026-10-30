@@ -146,8 +146,6 @@ fn piece_params<'a, 'b>(
         params.set_tokens(prompt_tokens);
     }
     params.set_no_timestamps(false);
-    // A byte wrap inside a Cyrillic word would split it across two rows.
-    params.set_split_on_word(true);
     params
 }
 
