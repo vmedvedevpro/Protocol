@@ -1468,49 +1468,11 @@ pub async fn diarize_meeting(
 
         // Generated labels are not durable capture-source provenance. Preserve
         // source hints without excluding genuine simultaneous speakers.
-        let relevant_segments: Vec<&DiarizationSegment> = result
-            .segments
-            .iter()
-            .filter(|seg| {
-                let ov = seg.end.min(e) - seg.start.max(s);
-                ov > 0.0
-            })
-            .collect();
-
         // Diarization updates labels only. Text length cannot establish word
         // alignment, and reruns must preserve every transcript byte and timing.
         {
-            let mut overlap_by_speaker: std::collections::HashMap<usize, f32> =
-                std::collections::HashMap::new();
-            for seg in &relevant_segments {
-                let ov = seg.end.min(e) - seg.start.max(s);
-                if ov > 0.0 {
-                    *overlap_by_speaker.entry(seg.speaker).or_insert(0.0) += ov;
-                }
-            }
-
-            if let Some((&primary, _)) = overlap_by_speaker
-                .iter()
-                .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
-            {
-                let cutoff = (overlap_by_speaker[&primary] * 0.20).max(0.08);
-                let mut speakers = vec![primary];
-                for (&other, &other_ov) in &overlap_by_speaker {
-                    if other != primary && other_ov >= cutoff {
-                        let has_simultaneous = relevant_segments.iter().any(|a| {
-                            a.speaker == primary
-                                && relevant_segments.iter().any(|b| {
-                                    b.speaker == other
-                                        && a.end.min(b.end).min(e) - a.start.max(b.start).max(s)
-                                            >= 0.08
-                                })
-                        });
-                        if has_simultaneous {
-                            speakers.push(other);
-                        }
-                    }
-                }
-
+            let mut speakers = row_speakers(&result.segments, s, e);
+            if !speakers.is_empty() {
                 speakers.sort_unstable();
                 let mut labels: Vec<_> = speakers.into_iter().map(&speaker_label).collect();
                 apply_source_track_hint(existing.as_deref(), used_source_tracks, num_speakers != Some(1), &mut labels);
@@ -1630,6 +1592,56 @@ pub async fn diarize_meeting(
         labeled: assignments.len(),
         assignments,
     })
+}
+
+/// The diarized speakers of the transcript row from `s` to `e` (seconds),
+/// the one who overlaps it most first, then each other speaker who overlaps
+/// it for at least a fifth of that (and 80 ms) and talks at the same time as
+/// the first for 80 ms inside it. Empty when no diarized speech overlaps the
+/// row. pub(crate) for the measurement kit (`crate::measure`), which labels
+/// rows as `diarize_meeting` does.
+pub(crate) fn row_speakers(segments: &[DiarizationSegment], s: f32, e: f32) -> Vec<usize> {
+    let relevant_segments: Vec<&DiarizationSegment> = segments
+        .iter()
+        .filter(|seg| {
+            let ov = seg.end.min(e) - seg.start.max(s);
+            ov > 0.0
+        })
+        .collect();
+
+    let mut overlap_by_speaker: std::collections::HashMap<usize, f32> =
+        std::collections::HashMap::new();
+    for seg in &relevant_segments {
+        let ov = seg.end.min(e) - seg.start.max(s);
+        if ov > 0.0 {
+            *overlap_by_speaker.entry(seg.speaker).or_insert(0.0) += ov;
+        }
+    }
+
+    let Some((&primary, _)) = overlap_by_speaker
+        .iter()
+        .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
+    else {
+        return Vec::new();
+    };
+    let cutoff = (overlap_by_speaker[&primary] * 0.20).max(0.08);
+    let mut speakers = vec![primary];
+    for (&other, &other_ov) in &overlap_by_speaker {
+        if other != primary && other_ov >= cutoff {
+            let has_simultaneous = relevant_segments.iter().any(|a| {
+                a.speaker == primary
+                    && relevant_segments.iter().any(|b| {
+                        b.speaker == other
+                            && a.end.min(b.end).min(e) - a.start.max(b.start).max(s)
+                                >= 0.08
+                    })
+            });
+            if has_simultaneous {
+                speakers.push(other);
+            }
+        }
+    }
+    speakers
 }
 
 async fn persist_speaker_labels(
@@ -1888,6 +1900,21 @@ mod tests {
         assert_eq!(parsed("Sync_2026-09-01_10-00-05-123_2"), expect("Sync", "2026-09-01T10:00:05.123+00:00"));
         assert_eq!(parsed("Weekly Beats"), None);
         assert_eq!(parsed("Live_2019_Remastered"), None);
+    }
+
+    #[test]
+    fn a_row_takes_its_main_speaker_and_those_talking_over_them() {
+        let turn = |start: f32, end: f32, speaker: usize| DiarizationSegment { start, end, speaker, overlapped: false };
+        // Speaker 1 talks over speaker 0; speaker 2 follows without overlap.
+        let segments = [turn(0.0, 6.0, 0), turn(4.0, 6.0, 1), turn(6.0, 9.0, 2)];
+
+        assert_eq!(row_speakers(&segments, 0.0, 6.0), vec![0, 1]);
+        // Speaker 2 overlaps the row for more than a fifth of speaker 0's
+        // time, but never at the same time.
+        assert_eq!(row_speakers(&segments, 0.0, 9.0)[0], 0);
+        assert!(!row_speakers(&segments, 0.0, 9.0).contains(&2));
+        assert_eq!(row_speakers(&segments, 6.5, 9.0), vec![2]);
+        assert!(row_speakers(&segments, 10.0, 12.0).is_empty());
     }
 
     #[test]
