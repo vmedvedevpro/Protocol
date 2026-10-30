@@ -15,7 +15,7 @@ default-members = [
 # Shared workspace settings
 [workspace.package]
 edition = "2021"
-rust-version = "1.90"
+rust-version = "1.92"  # ort 2.0.0-rc.15
 
 # Shared dependencies that can be inherited by workspace members
 [workspace.dependencies]

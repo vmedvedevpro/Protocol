@@ -5,6 +5,7 @@ repository = "https://github.com/emotechlab/Silero"
 readme = "README.md"
 license = "MIT"
 edition = "2021"
+rust-version.workspace = true
 publish = false
 # Vendored from emotechlab/silero-rs 1283485 and ported to ort 2.0.0-rc.15;
 # provenance and every change are listed in VENDORED.md.

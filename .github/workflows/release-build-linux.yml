@@ -137,11 +137,11 @@ jobs:
           # The ONNX Runtime build/onnxruntime.rs stages; the app loads it by
           # absolute path from its resources, never from the system.
           for name in libonnxruntime.so onnxruntime-LICENSE.txt; do
-            if ! grep -q "/binaries/onnxruntime/$name\$" "$contents"; then
+            if ! grep -qF "/binaries/onnxruntime/$name" "$contents"; then
               echo "The deb lacks binaries/onnxruntime/$name"
               exit 1
             fi
-            if ! grep -q "/binaries/onnxruntime/$name\$" "$appimage_contents"; then
+            if ! grep -qF "/binaries/onnxruntime/$name" "$appimage_contents"; then
               echo "The AppImage lacks binaries/onnxruntime/$name"
               exit 1
             fi
