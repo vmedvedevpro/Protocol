@@ -13,8 +13,6 @@ use crate::audio::post_meeting::{self, PieceTranscriber};
 use crate::audio::retranscription::is_silence_hallucination;
 use crate::audio::transcription::worker::{is_digital_silence, peak_level};
 use crate::audio::vad::ContinuousSpeechCap;
-use crate::whisper_engine::decoding::WhisperDecoding;
-use crate::whisper_engine::post_meeting::KV_CACHE_RECREATE_FAILED;
 use crate::whisper_engine::WhisperEngine;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -134,46 +132,9 @@ impl<'a> Call<'a> {
                     .await?;
                 Ok(whole_piece(text))
             }
-            Self::Reference(engine) => Ok(whole_piece(reference_text(engine, &segment.samples, language, vocabulary).await?)),
+            Self::Reference(engine) => Ok(whole_piece(engine.reference_text(&segment.samples, language, vocabulary).await?)),
         }
     }
-}
-
-/// One reference call: the post-meeting decoding (beam search 5 at
-/// temperature 0, the shared thresholds and prompt) without timestamps, so
-/// the model reads the utterance as one text. A beam's KV cache that cannot be
-/// allocated ends the run: whisper.cpp has then freed the state already.
-async fn reference_text(
-    engine: &WhisperEngine,
-    samples: &[f32],
-    language: Option<&str>,
-    vocabulary: Option<&str>,
-) -> Result<String> {
-    engine
-        .with_loaded_context(|ctx| {
-            let prompt = WhisperEngine::tokenize_initial_prompt(ctx, vocabulary)?;
-            let mut params = WhisperDecoding::POST_MEETING.call_params(language);
-            if !prompt.is_empty() {
-                params.set_tokens(&prompt);
-            }
-            params.set_no_timestamps(true);
-            let mut state = ctx.create_state()?;
-            match state.full(params, samples) {
-                Ok(_) => {}
-                Err(whisper_rs::WhisperError::GenericError(KV_CACHE_RECREATE_FAILED)) => {
-                    std::mem::forget(state);
-                    bail!("the GPU has no room for the beam's KV cache of the reference model");
-                }
-                Err(error) => return Err(error.into()),
-            }
-            let texts: Vec<String> = state
-                .as_iter()
-                .filter_map(|segment| segment.to_str_lossy().ok().map(|text| text.trim().to_string()))
-                .filter(|text| !text.is_empty())
-                .collect();
-            Ok(texts.join(" "))
-        })
-        .await
 }
 
 fn ms_since(started: Instant) -> f64 {
