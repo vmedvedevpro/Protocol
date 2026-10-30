@@ -268,8 +268,10 @@ one `PostMeetingWhisper` (`whisper_engine/post_meeting.rs`: a new whisper.cpp
 state per piece, timestamps on, beam search 5 at temperature 0), and every
 Whisper segment becomes a row with its own start and end. A segment without
 duration joins its neighbour, because diarization clears the label of a row
-without duration, and consecutive rows with the same words merge
-(`merge_repeated_rows`). Diarization then labels these sentence-sized rows by
+without duration; one that repeats the words of the segment before it is
+dropped, since a looping decode often goes on with zero-length or past-the-end
+segments. Three or more consecutive rows with the same words merge
+(`merge_repeated_rows`); two stay, as one speaker can answer twice. Diarization then labels these sentence-sized rows by
 overlap as before, and a rerun still changes labels only. Parakeet keeps the
 capped pieces and one row per piece. Both engines skip the same short or silent
 pieces (`skip_reason`). With the language on Auto (`None` or `"auto"`; not
