@@ -33,7 +33,9 @@ pub enum Setting {
 
 impl Setting {
     /// The compared settings named in `MEASURE_SETTINGS`, in order;
-    /// `post-meeting,live` when it is unset.
+    /// `post-meeting,live` when it is unset. A setting named twice is refused:
+    /// each writes `<setting>.json`, so the second run would replace the
+    /// first; repeat a run with another `MEASURE_OUT`.
     pub fn list(names: Option<&str>) -> Result<Vec<Self>> {
         let settings = names
             .unwrap_or("post-meeting,live")
@@ -49,6 +51,9 @@ impl Setting {
             .collect::<Result<Vec<_>>>()?;
         if settings.is_empty() {
             bail!("MEASURE_SETTINGS names no setting");
+        }
+        if let Some(twice) = settings.iter().enumerate().find_map(|(i, s)| settings[..i].contains(s).then_some(s)) {
+            bail!("MEASURE_SETTINGS names {} twice: repeat a run with another MEASURE_OUT", twice.name());
         }
         Ok(settings)
     }
@@ -309,6 +314,7 @@ mod tests {
         assert_eq!(Setting::list(Some(" parakeet, post-meeting ")).unwrap(), [Setting::Parakeet, Setting::PostMeeting]);
         assert!(Setting::list(Some("reference")).is_err());
         assert!(Setting::list(Some(",")).is_err());
+        assert!(Setting::list(Some("post-meeting,live,post-meeting")).is_err());
     }
 
     #[test]

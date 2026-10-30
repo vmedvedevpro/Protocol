@@ -44,6 +44,12 @@ use tracks::{Cut, Track};
 /// The tracks are 16 kHz.
 const SAMPLES_PER_MS: f64 = 16.0;
 
+/// Held by each command while it runs. Libtest runs both on parallel threads
+/// when a filter selects both (`measure -- --ignored` without `--exact`):
+/// they would share the GPU, the post-meeting pass's process-wide greedy
+/// fallback and `MEASURE_OUT`, and every time would include the other's work.
+static ONE_COMMAND: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 fn ms_since(started: Instant) -> f64 {
     started.elapsed().as_secs_f64() * 1000.0
 }
@@ -71,6 +77,7 @@ fn recording_span(tracks: &[Track], span: Option<Span>) -> Result<Option<Span>> 
 #[tokio::test]
 #[ignore = "measurement command; inputs from MEASURE_* (docs/MEASURING_TRANSCRIPTION.md)"]
 async fn transcribe_settings() -> Result<()> {
+    let _one = ONE_COMMAND.lock().await;
     init_logging();
     let inputs = Inputs::from_env()?;
     let settings = Setting::list(optional("MEASURE_SETTINGS").as_deref())?;
@@ -125,6 +132,7 @@ async fn transcribe_settings() -> Result<()> {
 #[tokio::test]
 #[ignore = "measurement command; inputs from MEASURE_* (docs/MEASURING_TRANSCRIPTION.md)"]
 async fn build_reference() -> Result<()> {
+    let _one = ONE_COMMAND.lock().await;
     init_logging();
     let inputs = Inputs::from_env()?;
     let model = existing_path("MEASURE_REFERENCE_MODEL", "the Large V3 ggml file the reference is decoded with")?;

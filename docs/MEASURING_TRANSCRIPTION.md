@@ -89,6 +89,10 @@ app's own, so a run takes the switches set in the app. Each run records both
 
 ## The commands
 
+Both commands run in one process one at a time: when a test filter selects
+both, the second waits for the first, which would otherwise share the GPU,
+the pass's greedy fallback and `MEASURE_OUT` with it.
+
 ### `measure::transcribe_settings`
 
 Runs the compared settings on one recording, one after the other in one
@@ -101,7 +105,7 @@ same VAD cap (`live` and `parakeet`) share one VAD pass.
 | --- | --- |
 | `MEASURE_AUDIO` | An audio file, or a recording folder (`mic.mp4` and `system.mp4` are read as two tracks, as retranscription reads them; otherwise its audio file as one track). Required. |
 | `MEASURE_OUT` | The folder for the JSON. Required; created if missing. |
-| `MEASURE_SETTINGS` | Comma-separated, in order: `post-meeting` (the Whisper post-meeting pass: pieces from pause to pause, rows from Whisper's segments), `live` (the live Whisper call, greedy without timestamps, on the batch VAD's capped pieces of at most 6 s, one row per piece; like the live worker it skips only digital silence and keeps every text), `parakeet` (the Parakeet post-meeting pass: capped pieces, one row each). Default `post-meeting,live`. |
+| `MEASURE_SETTINGS` | Comma-separated, in order: `post-meeting` (the Whisper post-meeting pass: pieces from pause to pause, rows from Whisper's segments), `live` (the live Whisper call, greedy without timestamps, on the batch VAD's capped pieces of at most 6 s, one row per piece; like the live worker it skips only digital silence and keeps every text), `parakeet` (the Parakeet post-meeting pass: capped pieces, one row each). Default `post-meeting,live`. A setting named twice is refused, since each writes `<setting>.json`: repeat a run with another `MEASURE_OUT`. |
 | `MEASURE_WHISPER_MODEL` | The ggml file for the Whisper settings. |
 | `MEASURE_PARAKEET_MODEL` | The Parakeet model folder for `parakeet`. |
 | `MEASURE_LANGUAGE` | The app's language setting: `ru`, `en`, …, or `auto` (default). On `auto` the post-meeting pass detects the language once per track, from the pieces of the whole recording also with a span; live calls detect it per call. |
