@@ -274,7 +274,10 @@ duration joins its neighbour, because diarization clears the label of a row
 without duration; one that repeats the words of the segment before it is
 dropped, since a looping decode often goes on with zero-length or past-the-end
 segments. Three or more consecutive rows with the same words merge
-(`merge_repeated_rows`); two stay, as one speaker can answer twice. Diarization then labels these sentence-sized rows by
+(`merge_repeated_rows`); two stay, as one speaker can answer twice. A
+retranscription sorts the rows of both tracks by start, with their speaker
+hints, before saving them (`in_time_order`), since a piece adds all its rows
+before the next piece. Diarization then labels these sentence-sized rows by
 overlap as before, and a rerun still changes labels only. Parakeet keeps the
 capped pieces and one row per piece. Both engines skip the same short or silent
 pieces (`skip_reason`). With the language on Auto (`None` or `"auto"`; not
@@ -291,7 +294,7 @@ calls; its decoding is greedy at temperature 0, and every Whisper call shares
 its language mapping, thresholds and output wrap (`WhisperDecoding::call_params`,
 see below). See [Whisper engine](#whisper-engine) for why and what was
 measured. Unit tests: `audio::post_meeting::tests` (VAD cap per engine, skips,
-rows from Whisper segments, merged repeats, which settings detect once,
+rows from Whisper segments, merged repeats, time order, which settings detect once,
 detection audio, threshold and agreement), `whisper_engine::decoding::tests` (the
 decodings and shared parameters as whisper.cpp receives them, the language
 mapping) and `audio::common::tests` (the cut at the quietest point, no cut in

@@ -524,6 +524,7 @@ async fn run_retranscription<R: Runtime>(
         }
     }
 
+    let (all_transcripts, speaker_hints) = post_meeting::in_time_order(all_transcripts, speaker_hints);
     let transcribed_count = all_transcripts.len();
     info!(
         "Transcription complete: {} rows from {} segments",

@@ -173,6 +173,17 @@ fn merge_repeated_rows(rows: Vec<(String, f64, f64)>) -> Vec<(String, f64, f64)>
     merged
 }
 
+/// Rows of a pass in time order, each with its own tag (a speaker hint). A
+/// piece adds all its rows, up to about 28 s of them, before the next piece,
+/// and the pieces of two tracks interleave, so the rows of one track's piece
+/// can start after the next piece of the other track. The sort is stable:
+/// rows that start together keep their order.
+pub fn in_time_order<T>(rows: Vec<(String, f64, f64)>, tags: Vec<T>) -> (Vec<(String, f64, f64)>, Vec<T>) {
+    let mut tagged: Vec<((String, f64, f64), T)> = rows.into_iter().zip(tags).collect();
+    tagged.sort_by(|a, b| a.0 .1.total_cmp(&b.0 .1));
+    tagged.into_iter().unzip()
+}
+
 /// whisper.cpp detects the language on the first 30 s of its input.
 const DETECTION_SAMPLES: usize = 30 * 16_000;
 
@@ -426,6 +437,23 @@ mod tests {
         // The loop goes on at the piece's end and past it.
         segments.extend((0..6).map(|i| timed(10_000.0 + i as f64 * 500.0, 10_500.0 + i as f64 * 500.0, "Да.")));
         assert_eq!(rows_from_piece(&piece, segments), vec![("Хорошо. Да.".to_string(), 0.0, 4_000.0)]);
+    }
+
+    #[test]
+    fn rows_of_two_tracks_are_put_in_time_order_with_their_hints() {
+        // A 25 s microphone piece from 0 s, then a system piece from 3 s.
+        let rows = vec![
+            ("a".to_string(), 0.0, 5_000.0),
+            ("b".to_string(), 5_000.0, 12_000.0),
+            ("c".to_string(), 12_000.0, 25_000.0),
+            ("d".to_string(), 3_000.0, 9_000.0),
+            ("e".to_string(), 12_000.0, 14_000.0),
+        ];
+        let hints = vec!["You", "You", "You", "Guest", "Guest"];
+        let (rows, hints) = in_time_order(rows, hints);
+        let texts: Vec<&str> = rows.iter().map(|(text, _, _)| text.as_str()).collect();
+        assert_eq!(texts, ["a", "d", "b", "c", "e"]);
+        assert_eq!(hints, ["You", "Guest", "You", "You", "Guest"]);
     }
 
     #[test]
