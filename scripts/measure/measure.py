@@ -1,5 +1,6 @@
 """Scores transcription measurements: the method is docs/MEASURING_TRANSCRIPTION.md.
 
+    python scripts/measure/measure.py fetch-fixture
     python scripts/measure/measure.py score OUT/post-meeting.json OUT/live.json --reference REF.json
     python scripts/measure/measure.py spotcheck OUT/post-meeting.json OUT/live.json --reference REF.json
 
@@ -11,8 +12,16 @@ import json
 import sys
 from pathlib import Path
 
-from kit import report, spotcheck
+from kit import fixture, report, spotcheck
 from kit.runs import load_diarization, load_reference, load_run
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+def fetch_fixture(args: argparse.Namespace) -> None:
+    for item in fixture.FIXTURES:
+        fixture.build(item, args.cache, args.into)
+
 
 def labels(paths: list[Path], settings: list[str]) -> list[str]:
     """Each run's setting, with its folder when two runs share a setting (the same setting on two builds)."""
@@ -54,6 +63,11 @@ def spot_check(args: argparse.Namespace) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     commands = parser.add_subparsers(required=True)
+
+    fetch = commands.add_parser("fetch-fixture", help="download FLEURS and assemble the public fixtures")
+    fetch.add_argument("--cache", type=Path, default=ROOT / ".measure" / "cache")
+    fetch.add_argument("--into", type=Path, default=ROOT / ".measure" / "fixtures")
+    fetch.set_defaults(command=fetch_fixture)
 
     for name, command, help_text in (("score", score, "score runs side by side"),
                                      ("spotcheck", spot_check, "print passages of the runs side by side")):
