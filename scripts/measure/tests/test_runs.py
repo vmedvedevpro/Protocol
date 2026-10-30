@@ -8,7 +8,7 @@ from tests.helpers import row, run
 
 RUN = {
     "format": 1, "setting": "live", "model": "m.bin", "acceleration": "CPU processing only", "optimized": True,
-    "language": "ru", "vocabulary": False, "span_ms": [0.0, 10_000.0],
+    "language": "ru", "vocabulary": True, "vocabulary_sha256": "1a2b", "span_ms": [0.0, 10_000.0],
     "tracks": [{"label": "microphone", "speaker_hint": "You", "language": None},
                {"label": "system audio", "speaker_hint": "Guest", "language": None}],
     "timing": {"warmup_ms": 1.0, "vad_ms": 2.0, "detection_ms": 0.0, "transcription_ms": 3.0, "speech_ms": 4.0},
@@ -31,11 +31,13 @@ class LoadTest(unittest.TestCase):
     def test_a_run_and_its_rows(self):
         run = load_run(self.write(RUN))
         self.assertEqual((run.setting, run.tracks, run.span_ms), ("live", ("microphone", "system audio"), (0.0, 10_000.0)))
+        self.assertEqual((run.language, run.vocabulary), ("ru", "1a2b"))
         self.assertEqual(run.rows(), [row(0.0, 5000.0, "Да.", "system audio", [2, 1])])
         self.assertEqual(run.decodings(), {"greedy": 1})
 
     def test_a_reference_is_a_run_or_a_list_of_rows(self):
-        self.assertEqual(load_reference(self.write(RUN)), Reference(load_run(self.write(RUN)).rows(), (0.0, 10_000.0)))
+        model_run = load_run(self.write(RUN))
+        self.assertEqual(load_reference(self.write(RUN)), Reference(model_run.rows(), model_run))
         human = {"rows": [{"start_ms": 0, "end_ms": 900, "text": "Раз.", "voice": "female"}]}
         self.assertEqual(load_reference(self.write(human)), Reference([row(0, 900, "Раз.")]))
 
@@ -81,12 +83,22 @@ class ClipTest(unittest.TestCase):
 
 class ReferenceTest(unittest.TestCase):
     def test_a_reference_must_cover_the_run(self):
-        reference = Reference([], (1000.0, 5000.0))
+        reference = Reference([], run(span_ms=(1000.0, 5000.0)))
         reference.check(run(span_ms=(1000.0, 3000.0)))
         for span in ((0.0, 3000.0), (2000.0, 6000.0), None):
             with self.assertRaises(ValueError):
                 reference.check(run(span_ms=span))
-        Reference([]).check(run(span_ms=None))
+        Reference([], run(span_ms=None)).check(run(span_ms=(1000.0, 3000.0)))
+
+    def test_a_reference_must_share_the_language_and_vocabulary(self):
+        reference = Reference([], run(language="ru", vocabulary="1a2b"))
+        reference.check(run(language="ru", vocabulary="1a2b"))
+        for other in (run(language="auto", vocabulary="1a2b"), run(language="ru"), run(language="ru", vocabulary="3c")):
+            with self.assertRaises(ValueError):
+                reference.check(other)
+
+    def test_a_human_reference_is_not_checked(self):
+        Reference([]).check(run(span_ms=(1000.0, 3000.0), language="auto", vocabulary="1a2b"))
 
 
 if __name__ == "__main__":

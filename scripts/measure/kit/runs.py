@@ -63,6 +63,8 @@ class Run:
     tracks: tuple[str, ...]
     timing: dict[str, float]
     pieces: tuple[Piece, ...]
+    # The vocabulary's SHA-256, not its text, which can be private; None without a vocabulary.
+    vocabulary: str | None = None
 
     def rows(self) -> list[Row]:
         """The rows the pass stores."""
@@ -80,19 +82,33 @@ class Run:
 @dataclass(frozen=True)
 class Reference:
     rows: list[Row]
-    # A model reference's span; None for a whole recording or a human reference.
-    span_ms: tuple[float, float] | None = None
+    # A model reference's own run (`build_reference`), with the span, language and vocabulary it was built with;
+    # None for a human reference.
+    made_by: Run | None = None
 
     def check(self, run: Run) -> None:
-        """Refuses a reference that does not cover the run's span."""
-        if self.span_ms is None:
+        """Refuses a model reference that does not cover the run's span, or that was built with another language or
+        vocabulary: the vocabulary mostly changes names, which is the size of the differences a comparison has to
+        resolve."""
+        made = self.made_by
+        if made is None:
             return
-        if run.span_ms is None or run.span_ms[0] < self.span_ms[0] or run.span_ms[1] > self.span_ms[1]:
-            raise ValueError(f"the reference covers {_span(self.span_ms)}, the {run.setting} run {_span(run.span_ms)}")
+        if made.span_ms is not None and (run.span_ms is None or run.span_ms[0] < made.span_ms[0]
+                                         or run.span_ms[1] > made.span_ms[1]):
+            raise ValueError(f"the reference covers {_span(made.span_ms)}, the {run.setting} run {_span(run.span_ms)}")
+        if made.language != run.language:
+            raise ValueError(f"the reference was built with the language {made.language}, the {run.setting} run "
+                             f"with {run.language}")
+        if made.vocabulary != run.vocabulary:
+            raise ValueError(f"the reference was built {_vocabulary(made)}, the {run.setting} run {_vocabulary(run)}")
 
 
 def _span(span_ms: tuple[float, float] | None) -> str:
     return "the whole recording" if span_ms is None else f"{clock(span_ms[0])}–{clock(span_ms[1])}"
+
+
+def _vocabulary(run: Run) -> str:
+    return "without a vocabulary" if run.vocabulary is None else f"with the vocabulary {run.vocabulary[:12]}…"
 
 
 @dataclass(frozen=True)
@@ -146,15 +162,16 @@ def load_run(path: Path) -> Run:
     data = _read(path)
     return Run(setting=data["setting"], model=data["model"], language=data["language"], optimized=data["optimized"],
                span_ms=_pair(data.get("span_ms")), tracks=tuple(track["label"] for track in data["tracks"]),
-               timing=data["timing"], pieces=tuple(_piece(piece) for piece in data["pieces"]))
+               timing=data["timing"], pieces=tuple(_piece(piece) for piece in data["pieces"]),
+               vocabulary=data["vocabulary_sha256"])
 
 
 def load_reference(path: Path) -> Reference:
-    """A model reference's stored rows and span, or a human transcript's rows."""
+    """A model reference's stored rows and its run, or a human transcript's rows."""
     data = _read(path)
     if "pieces" in data:
         run = load_run(path)
-        return Reference(run.rows(), run.span_ms)
+        return Reference(run.rows(), run)
     return Reference([_row(row, None) for row in data["rows"]])
 
 

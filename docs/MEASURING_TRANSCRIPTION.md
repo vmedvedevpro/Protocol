@@ -113,8 +113,8 @@ same VAD cap (`live` and `parakeet`) share one VAD pass.
 Writes `reference.json` with Large V3 (`MEASURE_REFERENCE_MODEL`); it reads
 `MEASURE_AUDIO`, `MEASURE_OUT`, `MEASURE_LANGUAGE`, `MEASURE_VOCABULARY` and
 `MEASURE_SPAN` like the command above, and refuses to overwrite a reference.
-Give it the language and vocabulary of the settings it will score. See
-[References](#references) for the method.
+Give it the language and vocabulary of the settings it will score: the
+scoring refuses it otherwise. See [References](#references) for the method.
 
 ### Scoring
 
@@ -127,7 +127,10 @@ Give it the language and vocabulary of the settings it will score. See
 also writes every number as JSON, the rates included. It refuses a reference
 whose tracks or span do not match the run's (a reference built from the audio
 file scored against a run on the meeting folder, or one built for a smaller
-span), and a timeline of other tracks. `spotcheck` prints ten random 25 s
+span), a model reference built with another language setting or vocabulary,
+and a timeline of other tracks. The outputs record the vocabulary's SHA-256,
+not its text; a short word list is easy to guess from its hash, so a private
+vocabulary's outputs stay private like the transcripts. `spotcheck` prints ten random 25 s
 passages of the span (`--passages`, `--seconds`, `--seed`) with each run's
 rows and the reference's, to read what the numbers count; runs are named as
 in `score`.

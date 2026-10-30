@@ -282,6 +282,7 @@ pub async fn run(
         optimized: !cfg!(debug_assertions),
         language: inputs.language.clone(),
         vocabulary: inputs.vocabulary.is_some(),
+        vocabulary_sha256: inputs.vocabulary_sha256(),
         whisper_strict_silence: setting.uses_whisper() && crate::whisper_engine::labs::strict_silence_enabled(),
         span_ms: span.map(|span| [span.start_ms, span.end_ms]),
         tracks: tracks

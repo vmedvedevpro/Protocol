@@ -3,6 +3,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, bail, ensure, Context, Result};
+use sha2::{Digest, Sha256};
 
 /// What every command reads.
 pub struct Inputs {
@@ -28,6 +29,13 @@ impl Inputs {
             vocabulary: optional("MEASURE_VOCABULARY"),
             span: optional("MEASURE_SPAN").map(|span| Span::parse(&span)).transpose()?,
         })
+    }
+
+    /// The SHA-256 of the vocabulary as given. The outputs record it instead
+    /// of the text, which can be private, so that the scoring can tell two
+    /// vocabularies apart.
+    pub fn vocabulary_sha256(&self) -> Option<String> {
+        self.vocabulary.as_deref().map(|vocabulary| format!("{:x}", Sha256::digest(vocabulary.as_bytes())))
     }
 }
 
@@ -125,6 +133,22 @@ mod tests {
         let span = Span::parse("100-200").unwrap();
         assert_eq!(span.within(150_000.0).unwrap(), Span { start_ms: 100_000.0, end_ms: 150_000.0 });
         assert!(span.within(100_000.0).is_err());
+    }
+
+    #[test]
+    fn the_vocabulary_is_recorded_by_its_hash() {
+        let inputs = |vocabulary: Option<&str>| Inputs {
+            audio: PathBuf::new(),
+            out: PathBuf::new(),
+            language: "auto".to_string(),
+            vocabulary: vocabulary.map(str::to_string),
+            span: None,
+        };
+        assert_eq!(
+            inputs(Some("abc")).vocabulary_sha256().as_deref(),
+            Some("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+        );
+        assert_eq!(inputs(None).vocabulary_sha256(), None);
     }
 
     #[test]

@@ -78,7 +78,7 @@ class ScoreTest(unittest.TestCase):
     def test_a_reference_of_a_smaller_span_is_refused(self):
         result = run(piece("mixed audio", 0, 6000, (0, 6000, "раз")), span_ms=(0, 6000))
         with self.assertRaises(ValueError):
-            score(result, Reference([row(1000, 2000, "раз")], span_ms=(1000, 3000)))
+            score(result, Reference([row(1000, 2000, "раз")], run(span_ms=(1000, 3000))))
 
 
 if __name__ == "__main__":

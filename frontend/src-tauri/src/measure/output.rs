@@ -22,6 +22,9 @@ pub struct Run {
     pub optimized: bool,
     pub language: String,
     pub vocabulary: bool,
+    /// `Inputs::vocabulary_sha256`: the scoring refuses a reference built
+    /// with another vocabulary.
+    pub vocabulary_sha256: Option<String>,
     /// Settings › Labs › strict silence threshold for Whisper, read from the
     /// app's data folder (see `engines`).
     pub whisper_strict_silence: bool,
