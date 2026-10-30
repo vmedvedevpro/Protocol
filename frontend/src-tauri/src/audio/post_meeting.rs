@@ -168,25 +168,36 @@ pub fn detects_once(language: Option<&str>) -> bool {
     matches!(language, None | Some("auto"))
 }
 
-/// Up to 30 s of one track's speech for the detection: its longest pieces
-/// among those the pass transcribes, joined in time order.
+/// Up to 30 s of one track's speech for the detection: the pieces the pass
+/// transcribes with the most energy (sum of squared samples), joined in time
+/// order; the last piece chosen gives only what is left of the 30 s.
+///
+/// Why energy, not length: the microphone's lenient VAD thresholds (0.20 /
+/// 0.10) accept long stretches of fan, keyboard or breathing, and without the
+/// continuous-speech cap such a stretch can be the track's longest piece.
+/// Whisper's language identification on noise is unreliable, and a confident
+/// wrong answer would fix the whole track's language. Energy grows with the
+/// square of the level, so a stretch five times quieter than the speech has to
+/// be 25 times longer to be chosen.
 pub fn detection_audio<'a>(segments: impl IntoIterator<Item = &'a SpeechSegment>) -> Vec<f32> {
-    let mut longest: Vec<&SpeechSegment> =
-        segments.into_iter().filter(|s| skip_reason(&s.samples).is_none()).collect();
-    longest.sort_by(|a, b| b.samples.len().cmp(&a.samples.len()));
-    let mut chosen = Vec::new();
+    let mut candidates: Vec<(f32, &SpeechSegment)> = segments
+        .into_iter()
+        .filter(|s| skip_reason(&s.samples).is_none())
+        .map(|s| (s.samples.iter().map(|x| x * x).sum::<f32>(), s))
+        .collect();
+    candidates.sort_by(|a, b| b.0.total_cmp(&a.0));
+    let mut chosen: Vec<(&SpeechSegment, usize)> = Vec::new();
     let mut total = 0;
-    for segment in longest {
+    for (_, segment) in candidates {
         if total >= DETECTION_SAMPLES {
             break;
         }
-        total += segment.samples.len();
-        chosen.push(segment);
+        let take = segment.samples.len().min(DETECTION_SAMPLES - total);
+        total += take;
+        chosen.push((segment, take));
     }
-    chosen.sort_by(|a, b| a.start_timestamp_ms.total_cmp(&b.start_timestamp_ms));
-    let mut audio: Vec<f32> = chosen.iter().flat_map(|segment| segment.samples.iter().copied()).collect();
-    audio.truncate(DETECTION_SAMPLES);
-    audio
+    chosen.sort_by(|a, b| a.0.start_timestamp_ms.total_cmp(&b.0.start_timestamp_ms));
+    chosen.iter().flat_map(|(segment, take)| segment.samples[..*take].iter().copied()).collect()
 }
 
 /// Whether a detection is confident enough to fix a track's language.
@@ -363,24 +374,31 @@ mod tests {
     }
 
     #[test]
-    fn detection_takes_the_longest_speech_in_time_order() {
+    fn detection_prefers_speech_to_a_longer_quiet_stretch() {
+        // A 25 s stretch of quiet noise first, then 32 s of speech in 8 s pieces.
         let segments = [
-            segment(0.0, 6.0, 0.1),
-            segment(10.0, 2.0, 0.2),
-            segment(20.0, 6.0, 0.3),
-            segment(30.0, 6.0, 0.4),
-            segment(40.0, 6.0, 0.5),
-            segment(50.0, 5.0, 0.6),
-            segment(60.0, 4.0, 0.7),
+            segment(0.0, 25.0, 0.02),
+            segment(30.0, 8.0, 0.2),
+            segment(40.0, 8.0, 0.2),
+            segment(50.0, 8.0, 0.2),
+            segment(60.0, 8.0, 0.2),
         ];
         let audio = detection_audio(&segments);
         assert_eq!(audio.len(), DETECTION_SAMPLES);
-        // 6 + 6 + 6 + 6 + 5 + 4 s: the 2 s piece is left out, the 4 s one is cut at 30 s.
+        assert!(audio.iter().all(|&x| x == 0.2));
+    }
+
+    #[test]
+    fn detection_joins_the_chosen_pieces_in_time_order() {
+        // By energy: the 20 s piece, the 8 s piece, then 2 s of the 6 s piece.
+        let segments = [segment(0.0, 6.0, 0.1), segment(10.0, 20.0, 0.5), segment(40.0, 8.0, 0.3)];
+        let audio = detection_audio(&segments);
+        assert_eq!(audio.len(), DETECTION_SAMPLES);
         assert_eq!(audio[0], 0.1);
-        assert!(!audio.contains(&0.2));
-        assert_eq!(audio[28 * 16_000], 0.6);
-        assert_eq!(audio[29 * 16_000], 0.7);
-        assert_eq!(audio[DETECTION_SAMPLES - 1], 0.7);
+        assert_eq!(audio[2 * 16_000 - 1], 0.1);
+        assert_eq!(audio[2 * 16_000], 0.5);
+        assert_eq!(audio[22 * 16_000], 0.3);
+        assert_eq!(audio[DETECTION_SAMPLES - 1], 0.3);
     }
 
     #[test]
