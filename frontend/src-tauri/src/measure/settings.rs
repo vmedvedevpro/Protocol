@@ -11,7 +11,7 @@ use super::output::{PieceResult, Row, Run, Timing, TrackInfo, FORMAT};
 use super::tracks::{self, Piece, Track};
 use crate::audio::post_meeting::{self, PieceTranscriber};
 use crate::audio::retranscription::is_silence_hallucination;
-use crate::audio::transcription::worker::is_digital_silence;
+use crate::audio::transcription::worker::{is_digital_silence, peak_level};
 use crate::audio::vad::ContinuousSpeechCap;
 use crate::whisper_engine::decoding::WhisperDecoding;
 use crate::whisper_engine::post_meeting::KV_CACHE_RECREATE_FAILED;
@@ -81,7 +81,7 @@ impl Setting {
     /// rule, or the live path's digital silence.
     fn skip_reason(self, samples: &[f32]) -> Option<&'static str> {
         match self {
-            Self::Live => is_digital_silence(samples).then_some("silent"),
+            Self::Live => is_digital_silence(peak_level(samples)).then_some("silent"),
             _ => post_meeting::skip_reason(samples),
         }
     }

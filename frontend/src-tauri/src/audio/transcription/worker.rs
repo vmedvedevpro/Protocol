@@ -59,11 +59,19 @@ pub struct TranscriptUpdate {
     pub duration: f64,          // Segment duration in seconds (e.g., 3.3)
 }
 
-/// The live path skips only a chunk of digital silence: its VAD has already
-/// cut the speech, and quiet replies are speech.
-// pub(crate) for the measurement kit (crate::measure), which skips what the live path skips.
-pub(crate) fn is_digital_silence(samples: &[f32]) -> bool {
-    samples.iter().fold(0.0f32, |m, &x| m.max(x.abs())) == 0.0
+// The next two are pub(crate) for the measurement kit (crate::measure), which
+// skips what the live path skips.
+
+/// The largest absolute sample.
+pub(crate) fn peak_level(samples: &[f32]) -> f32 {
+    samples.iter().fold(0.0f32, |m, &x| m.max(x.abs()))
+}
+
+/// Whether a chunk with this [`peak_level`] is digital silence, the only
+/// chunk the live path skips: its VAD has already cut the speech, and quiet
+/// replies are speech.
+pub(crate) fn is_digital_silence(peak: f32) -> bool {
+    peak == 0.0
 }
 
 fn should_emit_transcript(transcript: &str, _confidence: Option<f32>) -> bool {
@@ -527,10 +535,10 @@ async fn transcribe_chunk_with_provider(
     let energy: f32 =
         speech_samples.iter().map(|&x| x * x).sum::<f32>() / speech_samples.len() as f32;
     let rms = energy.sqrt();
-    let peak = speech_samples.iter().fold(0.0f32, |m, &x| m.max(x.abs()));
+    let peak = peak_level(&speech_samples);
 
     // Skip silent chunks to avoid Whisper silence hallucinations
-    if is_digital_silence(&speech_samples) {
+    if is_digital_silence(peak) {
         info!(
             "Audio chunk {} has near-zero energy (rms: {:.6}, peak: {:.6}), skipping transcription",
             chunk.chunk_id, rms, peak
