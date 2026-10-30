@@ -2,6 +2,7 @@
 //! table they print. Times are ms from the start of the recording; a
 //! `wall_ms` is time measured on the clock.
 
+use std::io::Write;
 use std::path::Path;
 
 use anyhow::{Context, Result};
@@ -22,7 +23,7 @@ pub struct Run {
     pub language: String,
     pub vocabulary: bool,
     /// Settings › Labs › strict silence threshold for Whisper, read from the
-    /// test binary's own data folder (see `engines`), so off unless set there.
+    /// app's data folder (see `engines`).
     pub whisper_strict_silence: bool,
     /// `MEASURE_SPAN` inside the recording. The pieces are those that reach
     /// into it, whole; the scoring clips their words to it.
@@ -115,7 +116,10 @@ pub struct Turn {
 pub fn write(folder: &Path, name: &str, value: &impl Serialize) -> Result<()> {
     let path = folder.join(format!("{name}.json"));
     let file = std::fs::File::create(&path).with_context(|| format!("creating {}", path.display()))?;
-    serde_json::to_writer_pretty(std::io::BufWriter::new(file), value)?;
+    let mut writer = std::io::BufWriter::new(file);
+    serde_json::to_writer_pretty(&mut writer, value)?;
+    // Dropping the writer would flush it too, and lose the error.
+    writer.flush().with_context(|| format!("writing {}", path.display()))?;
     println!("wrote {}", path.display());
     Ok(())
 }

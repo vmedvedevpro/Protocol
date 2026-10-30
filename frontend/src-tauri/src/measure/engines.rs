@@ -1,10 +1,13 @@
 //! The engines a command loads. Models are opened in place and read only.
 //!
 //! The Labs switches (Whisper's strict silence threshold, Parakeet's DirectML
-//! encoder) are read from the app's data folder, which for a test binary is
-//! `data/` beside it (`paths::install_data_root`, created empty): they are
-//! off, as on a new install, unless `true` is written into
-//! `whisper_strict_silence.txt` or `parakeet_gpu_enabled.txt` there.
+//! encoder) are read from the app's data folder (`paths::install_data_root`).
+//! On Windows and Linux that is `data/` beside the test binary, created empty:
+//! the switches are off, as on a new install, unless `true` is written into
+//! `whisper_strict_silence.txt` or `parakeet_gpu_enabled.txt` there. On macOS
+//! it is the installed app's own data folder, so a run takes the switches set
+//! in the app. A run records both: `whisper_strict_silence`, and Parakeet's
+//! `acceleration`.
 
 use std::path::Path;
 
