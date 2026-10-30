@@ -372,15 +372,6 @@ async fn run_retranscription<R: Runtime>(
             total_speech_ms / 1000.0, duration_seconds,
             (total_speech_ms / 1000.0 / duration_seconds) * 100.0
         );
-        // Log first 10 segments for detailed inspection
-        for (i, (seg, speaker_hint)) in speech_segments.iter().take(10).enumerate() {
-            let dur = seg.end_timestamp_ms - seg.start_timestamp_ms;
-            debug!("  Segment {}: {:.0}ms-{:.0}ms ({:.0}ms, {} samples, {:?})",
-                i, seg.start_timestamp_ms, seg.end_timestamp_ms, dur, seg.samples.len(), speaker_hint);
-        }
-        if total_segments > 10 {
-            debug!("  ... and {} more segments", total_segments - 10);
-        }
     }
 
     if total_segments == 0 {
@@ -405,6 +396,16 @@ async fn run_retranscription<R: Runtime>(
     let processable_segments = post_meeting::pieces(speech_segments);
     let processable_count = processable_segments.len();
     info!("Processing {} segments (after splitting)", processable_count);
+    // Log the first 10 segments for detailed inspection; `pieces` put the
+    // tracks' segments in time order.
+    for (i, (seg, speaker_hint)) in processable_segments.iter().take(10).enumerate() {
+        let dur = seg.end_timestamp_ms - seg.start_timestamp_ms;
+        debug!("  Segment {}: {:.0}ms-{:.0}ms ({:.0}ms, {} samples, {:?})",
+            i, seg.start_timestamp_ms, seg.end_timestamp_ms, dur, seg.samples.len(), speaker_hint);
+    }
+    if processable_count > 10 {
+        debug!("  ... and {} more segments", processable_count - 10);
+    }
 
     // With the language on Auto, Whisper detects it once per retained track,
     // keyed by the source's speaker hint (see post_meeting).

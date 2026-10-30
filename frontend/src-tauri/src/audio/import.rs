@@ -579,7 +579,8 @@ async fn run_import<R: Runtime>(
                 continue;
             }
             // The import's pass has no silence-hallucination filter, so it drops nothing.
-            PieceOutcome::Dropped(rows) | PieceOutcome::Rows(rows) => rows,
+            PieceOutcome::Dropped(_) => continue,
+            PieceOutcome::Rows(rows) => rows,
         };
 
         if !rows.is_empty() {
