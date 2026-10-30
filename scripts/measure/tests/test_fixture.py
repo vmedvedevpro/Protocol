@@ -2,7 +2,7 @@ import array
 import struct
 import unittest
 
-from kit.fixture import FIXTURES, Utterance, choose, float_wav_samples, layout, leveled
+from kit.fixture import FIXTURES, SAMPLE_RATE, Utterance, choose, float_wav_samples, layout, leveled, trimmed
 
 
 def float_wav(samples: list[float], rate: int = 16_000) -> bytes:
@@ -38,6 +38,19 @@ class LevelTest(unittest.TestCase):
     def test_a_sentence_is_scaled_to_the_common_peak(self):
         self.assertEqual(leveled(array.array("f", [0.0, 0.125, -0.25])), [0.0, 0.25, -0.5])
         self.assertEqual(leveled(array.array("f", [0.0, 0.0])), [0.0, 0.0])
+
+
+class TrimTest(unittest.TestCase):
+    def test_silence_around_the_speech_is_cut_to_a_margin(self):
+        # 0.3 s of faint noise, 20 ms of speech, 0.3 s of noise; the margin is 0.1 s.
+        noise = [0.001] * (SAMPLE_RATE * 3 // 10)
+        clip = noise + [0.5] * (SAMPLE_RATE // 50) + noise
+        cut = trimmed(clip)
+        self.assertEqual(len(cut), SAMPLE_RATE // 10 + SAMPLE_RATE // 50 + SAMPLE_RATE // 10)
+        self.assertEqual(cut[SAMPLE_RATE // 10], 0.5)
+
+    def test_a_clip_without_speech_is_left_alone(self):
+        self.assertEqual(trimmed([0.001] * 800), [0.001] * 800)
 
 
 class FloatWavTest(unittest.TestCase):
