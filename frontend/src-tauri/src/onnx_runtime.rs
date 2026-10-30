@@ -1,5 +1,8 @@
-//! One packaged Windows runtime for CPU speech models and DirectML diarization.
-//! Do not search PATH or accept an environment-selected DLL for the desktop app.
+//! One ONNX Runtime environment for the speech models: CPU VAD, Parakeet and
+//! Pyannote, DirectML diarization on Windows. Windows loads the packaged
+//! runtime by absolute path; do not search PATH or accept an
+//! environment-selected DLL for the desktop app. macOS and Linux link the
+//! runtime ort downloads at build time.
 
 pub const START_ERROR_CODE: &str = "TRANSCRIPTION_RUNTIME_INITIALIZATION_FAILED";
 
@@ -7,17 +10,24 @@ pub const START_ERROR_CODE: &str = "TRANSCRIPTION_RUNTIME_INITIALIZATION_FAILED"
 #[error("Speech recognition could not initialize: {0}")]
 pub struct InitializationError(#[source] pub anyhow::Error);
 
+// ort allows one environment per process, and every session is built from it.
+// Like ort's own global before rc.14, it lives until the process exits.
+static ENVIRONMENT: std::sync::OnceLock<Result<ort::environment::Environment, String>> =
+    std::sync::OnceLock::new();
+
+#[cfg(windows)]
+const RUNTIME_FILE: &str = "onnxruntime.dll";
+
 #[cfg(windows)]
 static RUNTIME_PATH: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
-#[cfg(windows)]
-static INITIALIZED: std::sync::OnceLock<Result<(), String>> = std::sync::OnceLock::new();
 #[cfg(windows)]
 static DIRECTML: std::sync::OnceLock<libloading::Library> = std::sync::OnceLock::new();
 
 #[cfg(windows)]
 pub fn initialize<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
     use tauri::Manager;
-    if let Ok(path) = app.path().resolve("binaries/onnxruntime/onnxruntime.dll", tauri::path::BaseDirectory::Resource) {
+    let resource = std::path::Path::new("binaries/onnxruntime").join(RUNTIME_FILE);
+    if let Ok(path) = app.path().resolve(resource, tauri::path::BaseDirectory::Resource) {
         let _ = RUNTIME_PATH.set(path);
     }
     if let Err(error) = ensure_available() {
@@ -26,34 +36,43 @@ pub fn initialize<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
 }
 
 pub fn ensure_available() -> anyhow::Result<()> {
-    #[cfg(windows)]
-    {
-        let initialized = INITIALIZED.get_or_init(|| {
-            let path = RUNTIME_PATH.get_or_init(|| {
-                #[cfg(test)]
-                { std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("binaries/onnxruntime/onnxruntime.dll") }
-                #[cfg(not(test))]
-                { std::env::current_exe().unwrap_or_default().with_file_name("binaries").join("onnxruntime/onnxruntime.dll") }
-            });
-            initialize_library(path)
-        });
-        initialized.as_ref().map_err(|error| anyhow::anyhow!("{error}"))?;
-    }
-    Ok(())
+    environment().map(|_| ())
+}
+
+/// The environment to build ONNX sessions from; loads the runtime on first use.
+pub fn environment() -> anyhow::Result<&'static ort::environment::Environment> {
+    ENVIRONMENT
+        .get_or_init(|| {
+            #[cfg(windows)]
+            {
+                let path = RUNTIME_PATH.get_or_init(|| {
+                    #[cfg(test)]
+                    { std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("binaries/onnxruntime").join(RUNTIME_FILE) }
+                    #[cfg(not(test))]
+                    { std::env::current_exe().unwrap_or_default().with_file_name("binaries").join("onnxruntime").join(RUNTIME_FILE) }
+                });
+                initialize_library(path)
+            }
+            #[cfg(not(windows))]
+            {
+                let environment = ort::init().with_telemetry(false).build().map_err(|error| error.to_string())?;
+                log::info!("Initialized ONNX Runtime: {}", ort::info());
+                Ok(environment)
+            }
+        })
+        .as_ref()
+        .map_err(|error| anyhow::anyhow!("{error}"))
 }
 
 #[cfg(windows)]
-fn initialize_library(path: &std::path::Path) -> Result<(), String> {
+fn initialize_library(path: &std::path::Path) -> Result<ort::environment::Environment, String> {
     if !path.is_absolute() || !path.is_file() {
         return Err("The bundled ONNX Runtime is missing. Repair or reinstall Protocol, then restart it.".into());
     }
-    // Preflight OS loading and the expected export as a Result, so a missing
-    // dependency does not trigger ort's panic-based dynamic-loader failure.
-    // SAFETY: the build/package validator pins this app-owned native library;
-    // no function or pointer is used after the handle is dropped. ort retains
-    // its own handle when init_from succeeds.
     // Keep the app-owned DirectML dependency loaded by absolute path for the
     // lifetime of ORT. Never resolve a different DirectML.dll from PATH.
+    // SAFETY: the build/package validator pins this app-owned native library;
+    // no function or pointer from it is used here.
     let directml_path = path.with_file_name("DirectML.dll");
     if directml_path.is_file() && DIRECTML.get().is_none() {
         match unsafe { libloading::Library::new(&directml_path) } {
@@ -61,19 +80,29 @@ fn initialize_library(path: &std::path::Path) -> Result<(), String> {
             Err(error) => log::warn!("DirectML unavailable; speech models can use CPU: {error}"),
         }
     }
-    let library = unsafe { libloading::Library::new(path) }
-        .map_err(|error| format!("Cannot load bundled ONNX Runtime: {error}. Repair/reinstall and restart Protocol."))?;
-    unsafe { library.get::<unsafe extern "system" fn() -> *const std::ffi::c_void>(b"OrtGetApiBase\0") }
-        .map_err(|error| format!("Invalid bundled ONNX Runtime: {error}"))?;
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        ort::init_from(path.to_string_lossy().into_owned()).with_telemetry(false).commit()
-    })).map_err(|_| "ONNX Runtime initialization failed. Repair/reinstall and restart Protocol.".to_string())?
-        .map_err(|error| error.to_string())?;
-    if !result {
-        return Err("An ONNX environment was initialized before the bundled runtime. Restart Protocol.".into());
+    // A runtime older than ort's API level is refused before ort keeps it
+    // loaded. One that cannot be probed is left to init_from, which reports
+    // the loader's error (a missing dependency, a wrong file).
+    if let Some(minor) = ort::util::probe(path) {
+        if minor < ort::MINOR_VERSION {
+            return Err(format!(
+                "The bundled ONNX Runtime is 1.{minor}; Protocol needs 1.{} or later. Repair/reinstall and restart Protocol.",
+                ort::MINOR_VERSION
+            ));
+        }
     }
-    log::info!("Initialized verified bundled Windows ONNX Runtime");
-    Ok(())
+    // init_from returns loader errors, but ort still asserts on a malformed
+    // library; that stays a recoverable error too.
+    let environment = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        ort::init_from(path)
+            .map_err(|error| format!("Cannot load bundled ONNX Runtime: {error}. Repair/reinstall and restart Protocol."))?
+            .with_telemetry(false)
+            .build()
+            .map_err(|error| error.to_string())
+    }))
+    .map_err(|_| "ONNX Runtime initialization failed. Repair/reinstall and restart Protocol.".to_string())??;
+    log::info!("Initialized verified bundled ONNX Runtime: {}", ort::info());
+    Ok(environment)
 }
 
 #[tauri::command]
@@ -106,13 +135,14 @@ mod tests {
     #[test]
     fn missing_runtime_is_a_recoverable_error() {
         let dir = tempfile::tempdir().unwrap();
-        assert!(initialize_library(&dir.path().join("onnxruntime.dll")).unwrap_err().contains("missing"));
+        assert!(initialize_library(&dir.path().join(RUNTIME_FILE)).unwrap_err().contains("missing"));
     }
     #[test]
     fn bundled_runtime_initialization_is_shared_and_idempotent() {
         ensure_available().unwrap();
-        ensure_available().unwrap();
-        assert!(ort::session::Session::builder().is_ok());
+        let environment = environment().unwrap();
+        assert!(std::ptr::eq(environment, super::environment().unwrap()));
+        assert!(ort::session::Session::builder(environment).is_ok());
     }
 
     #[test]
@@ -137,7 +167,7 @@ mod tests {
             return;
         }
         let dir = tempfile::tempdir().unwrap();
-        RUNTIME_PATH.set(dir.path().join("missing/onnxruntime.dll")).unwrap();
+        RUNTIME_PATH.set(dir.path().join("missing").join(RUNTIME_FILE)).unwrap();
         let recordings = dir.path().join("recordings");
         let mut manager = crate::audio::recording_manager::RecordingManager::new();
         manager.set_recordings_folder(recordings.clone());

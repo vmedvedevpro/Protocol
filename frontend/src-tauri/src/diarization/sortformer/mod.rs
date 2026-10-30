@@ -254,10 +254,10 @@ pub trait SessionRouter: Send + Sync {
 pub fn graph_window(session: &Session) -> Option<StreamingWindow> {
     let dim = |name: &str| -> Option<usize> {
         let shape = session
-            .inputs
+            .inputs()
             .iter()
-            .find(|i| i.name == name)?
-            .input_type
+            .find(|i| i.name() == name)?
+            .dtype()
             .tensor_shape()?
             .get(1)
             .copied()?;
@@ -309,7 +309,7 @@ impl Sortformer {
         let config_to_use = execution_config.unwrap_or_default();
         let session = config_to_use.build_session(model_path.as_ref())?;
 
-        let has_output = |name: &str| session.outputs.iter().any(|o| o.name == name);
+        let has_output = |name: &str| session.outputs().iter().any(|o| o.name() == name);
         if !has_output("preds_diar") || !has_output("preds_hires") {
             return Err(Error::Config(
                 "this ONNX has no preds_diar/preds_hires outputs; it looks like a Sortformer v2 \
@@ -324,13 +324,13 @@ impl Sortformer {
             let get = |key: &str, default: usize| -> usize {
                 metadata
                     .as_ref()
-                    .and_then(|m| m.custom(key).ok().flatten())
+                    .and_then(|m| m.custom(key))
                     .and_then(|v| v.parse().ok())
                     .unwrap_or(default)
             };
             let sil_emb = metadata
                 .as_ref()
-                .and_then(|m| m.custom("learnable_sil_emb").ok().flatten())
+                .and_then(|m| m.custom("learnable_sil_emb"))
                 .map(|raw| {
                     raw.split(',')
                         .filter_map(|v| v.trim().parse().ok())

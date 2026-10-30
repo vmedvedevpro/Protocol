@@ -4,12 +4,11 @@
 
 use anyhow::{anyhow, Result};
 use ndarray::Array3;
-use ort::execution_providers::CPUExecutionProvider;
+use ort::ep::CPU;
 use ort::inputs;
 use ort::session::builder::GraphOptimizationLevel;
 use ort::session::Session;
-use ort::tensor::TensorElementType;
-use ort::value::TensorRef;
+use ort::value::{TensorElementType, TensorRef};
 use std::io::Read;
 use std::path::Path;
 
@@ -61,30 +60,30 @@ impl Io {
         input_last: Option<i64>,
         output_last: i64,
     ) -> Result<Self> {
-        let [input] = session.inputs.as_slice() else {
-            return Err(anyhow!("{what} model must have one input, found {}", session.inputs.len()));
+        let [input] = session.inputs() else {
+            return Err(anyhow!("{what} model must have one input, found {}", session.inputs().len()));
         };
-        let [output] = session.outputs.as_slice() else {
-            return Err(anyhow!("{what} model must have one output, found {}", session.outputs.len()));
+        let [output] = session.outputs() else {
+            return Err(anyhow!("{what} model must have one output, found {}", session.outputs().len()));
         };
-        let input_ok = input.input_type.tensor_type() == Some(TensorElementType::Float32)
-            && input.input_type.tensor_shape().is_some_and(|shape| {
+        let input_ok = input.dtype().tensor_type() == Some(TensorElementType::Float32)
+            && input.dtype().tensor_shape().is_some_and(|shape| {
                 shape.len() == 3 && input_last.is_none_or(|last| shape[2] == last)
             });
-        let output_ok = output.output_type.tensor_type() == Some(TensorElementType::Float32)
-            && output.output_type.tensor_shape().is_some_and(|shape| {
+        let output_ok = output.dtype().tensor_type() == Some(TensorElementType::Float32)
+            && output.dtype().tensor_shape().is_some_and(|shape| {
                 shape.len() == output_rank && shape[output_rank - 1] == output_last
             });
         if !input_ok || !output_ok {
             return Err(anyhow!(
                 "{what} model has an unexpected interface: input {} {:?}, output {} {:?}",
-                input.name,
-                input.input_type,
-                output.name,
-                output.output_type
+                input.name(),
+                input.dtype(),
+                output.name(),
+                output.dtype()
             ));
         }
-        Ok(Self { input: input.name.clone(), output: output.name.clone() })
+        Ok(Self { input: input.name().to_owned(), output: output.name().to_owned() })
     }
 }
 
@@ -167,7 +166,7 @@ pub struct DiarizationModels {
 
 impl DiarizationModels {
     pub fn load(model_dir: &Path) -> Result<Self> {
-        crate::onnx_runtime::ensure_available()?;
+        let environment = crate::onnx_runtime::environment()?;
         let seg_path = model_dir.join(SEGMENTATION_FILE);
         let emb_path = model_dir.join(EMBEDDING_FILE);
         let xform_path = model_dir.join(XVEC_TRANSFORM_FILE);
@@ -178,11 +177,12 @@ impl DiarizationModels {
             }
         }
 
-        let build = |path: &Path| -> Result<Session> {
-            Ok(Session::builder()?
+        // ort::Result: the builder's errors carry the builder, which anyhow cannot hold.
+        let build = |path: &Path| -> ort::Result<Session> {
+            Session::builder(environment)?
                 .with_optimization_level(GraphOptimizationLevel::Level3)?
-                .with_execution_providers(vec![CPUExecutionProvider::default().build()])?
-                .commit_from_file(path)?)
+                .with_execution_providers(vec![CPU::default().build()])?
+                .commit_from_file(path)
         };
 
         let segmentation = build(&seg_path)?;

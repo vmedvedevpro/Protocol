@@ -11,9 +11,9 @@ use std::{
 use std::os::windows::fs::MetadataExt;
 
 const WINDOWS_X64_TARGET: &str = "x86_64-pc-windows-msvc";
-const ARCHIVE_URL: &str = "https://www.nuget.org/api/v2/package/Microsoft.ML.OnnxRuntime.DirectML/1.22.0";
-const ARCHIVE_SHA256: &str = "29f9872d786236b79aa83f94482f3a17c14297e4833768d6d0ed4883ee732e60";
-const ARCHIVE_SIZE: u64 = 17_898_472;
+const ARCHIVE_URL: &str = "https://www.nuget.org/api/v2/package/Microsoft.ML.OnnxRuntime.DirectML/1.24.4";
+const ARCHIVE_SHA256: &str = "57e9f11b73437bef7a309496135d4c1f96b1a8e9ddba60013fa27bfc1d788681";
+const ARCHIVE_SIZE: u64 = 12_458_649;
 const DML_URL: &str = "https://www.nuget.org/api/v2/package/Microsoft.AI.DirectML/1.15.4";
 const DML_SHA256: &str = "4e7cb7ddce8cf837a7a75dc029209b520ca0101470fcdf275c1f49736a3615b9";
 const DML_SIZE: u64 = 202_292_617;
@@ -29,14 +29,14 @@ const ARTIFACTS: [Artifact; 5] = [
     Artifact {
         archive_path: "runtimes/win-x64/native/onnxruntime.dll",
         output_name: "onnxruntime.dll",
-        size: 16_471_584,
-        sha256: "95366724919f4e95ecc60010912ed538ad9804b6683fbd0aad389749102834b9",
+        size: 17_328_152,
+        sha256: "e7eedec6a6f26dc39dc948276a75ef6d2bee3fff944d874ceed0bbd3b97bff40",
     },
     Artifact {
         archive_path: "runtimes/win-x64/native/onnxruntime_providers_shared.dll",
         output_name: "onnxruntime_providers_shared.dll",
-        size: 22_048,
-        sha256: "dea79756b1ef0deb317115aa5da45eca8946eafcf1be2dbd9fa3b309551faae5",
+        size: 22_040,
+        sha256: "265c8daf29637cb259cac8be9f08f2cd45f3883f0f0e4949cbfddd5b4cbec3b6",
     },
     Artifact {
         archive_path: "LICENSE",

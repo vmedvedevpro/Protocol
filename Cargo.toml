@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "frontend/src-tauri",
     "llama-helper",
+    "vendor/silero-rs",
     "vendor/tauri-runtime-wry"
 ]
 # Keep normal workspace builds unchanged; allow package-only runtime feature tests.

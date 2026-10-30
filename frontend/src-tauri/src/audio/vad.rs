@@ -103,7 +103,7 @@ impl ContinuousVadProcessor {
         // session so repeated callback-silence finalizations stay O(utterance)
         // in memory, then offset its future relative timestamps onto the
         // continuous meeting timeline.
-        match VadSession::new(self.config) {
+        match new_vad_session(self.config) {
             Ok(session) => {
                 self.session = session;
                 self.session_start_sample = self.processed_samples;
@@ -137,7 +137,7 @@ impl ContinuousVadProcessor {
         if target_sample <= self.processed_samples {
             return;
         }
-        match VadSession::new(self.config) {
+        match new_vad_session(self.config) {
             Ok(session) => self.session = session,
             Err(error) => {
                 warn!("Failed to recreate VAD session after timeline discontinuity: {error:?}");
@@ -205,8 +205,8 @@ impl ContinuousVadProcessor {
                VAD_SAMPLE_RATE, redemption_time_ms, positive_speech_threshold,
                negative_speech_threshold, 250, input_sample_rate);
 
-        crate::onnx_runtime::ensure_available()?;
-        let session = VadSession::new(config)
+        let environment = crate::onnx_runtime::environment()?;
+        let session = VadSession::new(environment, config)
             .map_err(|e| anyhow!("Failed to create VAD session: {:?}", e))?;
 
         // VAD uses 30ms chunks at 16kHz (480 samples)
@@ -403,7 +403,7 @@ impl ContinuousVadProcessor {
                     "unknown panic".to_string()
                 };
                 error!("VAD: Silero session panicked: {}. Recreating session safely to prevent pipeline crash.", panic_msg);
-                if let Ok(new_session) = VadSession::new(self.config) {
+                if let Ok(new_session) = new_vad_session(self.config) {
                     self.session = new_session;
                     self.session_start_sample = self.processed_samples + chunk.len();
                 } else {
@@ -481,7 +481,7 @@ impl ContinuousVadProcessor {
                     self.current_speech.clear();
 
                     // Recreate session so internal session_audio memory does not grow unbounded
-                    match VadSession::new(self.config) {
+                    match new_vad_session(self.config) {
                         Ok(session) => {
                             self.session = session;
                             // This frame was consumed by the old session; the new
@@ -519,7 +519,7 @@ impl ContinuousVadProcessor {
                         self.current_speech.clear();
                         self.in_speech = false;
                         self.last_logged_state = false;
-                        if let Ok(new_session) = VadSession::new(self.config) {
+                        if let Ok(new_session) = new_vad_session(self.config) {
                             self.session = new_session;
                             self.session_start_sample = self.processed_samples + chunk.len();
                         }
@@ -554,6 +554,11 @@ impl ContinuousVadProcessor {
 }
 
 /// Legacy function for backward compatibility - now uses the optimized approach
+/// A replacement Silero session, built from the app's one ONNX Runtime environment.
+fn new_vad_session(config: VadConfig) -> Result<VadSession> {
+    VadSession::new(crate::onnx_runtime::environment()?, config)
+}
+
 pub fn extract_speech_16k(samples_mono_16k: &[f32]) -> Result<Vec<f32>> {
     let mut processor = ContinuousVadProcessor::new(16000, 400)?;
 
