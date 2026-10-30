@@ -29,7 +29,12 @@ is inherited from the project Protocol forked from; Protocol did not release it.
   is detected once for each audio track when the detection is clear, which
   keeps the pass fast and stops short pieces coming out in the wrong language;
   a track whose speakers switch language mid-meeting is then transcribed in one
-  language. Live transcription and Parakeet are unchanged.
+  language. Parakeet is unchanged.
+- **Live Whisper transcription decodes the same way on every computer**
+  ([#62](https://github.com/vmedvedevpro/Protocol/issues/62)): it takes the
+  most likely words instead of the slightly randomized choice it used on every
+  hardware tier, whatever setting the tier named. On the meeting it was checked
+  on, the text was as accurate and came about 7 % faster.
 
 ## Protocol 0.4.2 — 2026-10-29
 

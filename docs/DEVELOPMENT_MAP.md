@@ -273,10 +273,13 @@ pieces (`skip_reason`). With the language on Auto (`None` or `"auto"`; not
 the track's longest pieces (`detect_once`, `detect_per_track`) and uses it for
 the whole track when its probability is above 0.5; otherwise the track keeps
 per-call detection. A track whose speakers switch language mid-meeting is then
-transcribed in one language. Live transcription is unchanged. See
+transcribed in one language. Live transcription keeps its pieces and calls;
+only its decoding changed (greedy at temperature 0, see below). See
 [Whisper engine](#whisper-engine) for why and what was measured. Unit tests:
 `audio::post_meeting::tests` (VAD cap per engine, skips, rows from Whisper
-segments, which settings detect once, detection audio and threshold).
+segments, which settings detect once, detection audio and threshold) and
+`whisper_engine::decoding::tests` (the live and post-meeting decodings as
+whisper.cpp receives them).
 
 ### Audio import and the recordings folder
 
@@ -655,12 +658,22 @@ what Protocol does about it:
 - On the CPU (whisper.cpp's default of 4 threads; the app's `max_threads` is
   still not applied) a 20-second clip took 197 s instead of 252 s with Large
   V3 Turbo Compressed and 10.5 s instead of 7.9 s with Base.
-- whisper.cpp runs beam search only at temperature 0. The live calls take
-  their decoding from the hardware profile (`get_whisper_config`): beam 2 at
-  temperature 0.2 on Windows, from beam 5 at 0.1 to beam 1 at 0.4 by tier
-  elsewhere. Every one of these is above 0, so each live call is one sampling
-  decoder (whisper-rs leaves `greedy.best_of` at -1 for `BeamSearch`); the
-  +0.2 temperature fallback applies to every strategy.
+- whisper.cpp runs beam search only at temperature 0. Before #62 the live
+  calls took their decoding from the hardware profile (`get_whisper_config`):
+  beam 2 at temperature 0.2 on Windows, from beam 5 at 0.1 to beam 1 at 0.4 by
+  tier elsewhere. Every one of these is above 0, so each live call was one
+  sampling decoder (whisper-rs leaves `greedy.best_of` at -1 for
+  `BeamSearch`), seeded per state, so repeatable. The live calls now decode
+  greedily at temperature 0 on every tier (`WhisperDecoding::LIVE` in
+  `whisper_engine/decoding.rs`; the hardware profile no longer has decoding
+  fields). On the 6 s pieces of 20 minutes of a recorded meeting (Turbo q5_0,
+  Vulkan, Intel Arc B390, language `ru`), WER against the long-form reference
+  went from 0.297 to 0.293 and the calls took 162 s instead of 175 s (median
+  call 652 ms instead of 692 ms); two runs gave identical text. Both decodings
+  keep whisper.cpp's +0.2 temperature fallback; greedy keeps it on one decoder
+  (`best_of` 1). Beam search 5 at temperature 0 measured 0.263 on the same
+  pieces in about 11 % more time than the old decoding; the live calls do not
+  use it, which keeps them on one decoder (see the KV-cache note below).
 - Decoding without timestamps, as the live calls do, Large V3 Turbo puts more
   than 0.2 of its probability on end-of-text while the speech goes on, 12 to
   25 s into a window (#62). Forced through a reference transcript of 34 windows
