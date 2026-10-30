@@ -293,7 +293,8 @@ is then transcribed in one language. Live transcription keeps its pieces and
 calls; its decoding is greedy at temperature 0, and every Whisper call shares
 its language mapping, thresholds and output wrap (`WhisperDecoding::call_params`,
 see below). See [Whisper engine](#whisper-engine) for why and what was
-measured. Unit tests: `audio::post_meeting::tests` (VAD cap per engine, skips,
+measured, and [MEASURING_TRANSCRIPTION.md](MEASURING_TRANSCRIPTION.md) for
+how to measure a change to this pass. Unit tests: `audio::post_meeting::tests` (VAD cap per engine, skips,
 rows from Whisper segments, merged repeats, time order, which settings detect once,
 detection audio, threshold and agreement), `whisper_engine::decoding::tests` (the
 decodings and shared parameters as whisper.cpp receives them, the language
@@ -1086,6 +1087,18 @@ checkout's pre-rename `meetily-*.exe` are not signed and packaged; that cleanup
 was tested on temporary folders, not in a full universal build.
 
 ## 6. Tests, qualification, and historical notes
+
+Changes to transcription and speaker labels are measured with the kit in
+[MEASURING_TRANSCRIPTION.md](MEASURING_TRANSCRIPTION.md) (#75): ignored test
+commands in `src/measure/` (test builds only) run the post-meeting pass, the
+live Whisper call, Parakeet and the row labelling on a recording and write
+JSON; `scripts/measure/` scores it in Python against a reference (WER, CER,
+lost words, loops, hallucinations, speaker agreement); a fetch script builds a
+public FLEURS fixture. The commands use the product's own functions through a
+few `pub(crate)` seams: retranscription's sources, VAD constants and
+silence-hallucination test, `diarization::row_speakers` (the row labelling
+`diarize_meeting` applies), and `load_model_in_place` on both engines, which
+opens a model without the integrity markers `load_model` writes beside it.
 
 Upstream published macOS separately, through `publish-macos.yml` and
 `MACOS_RELEASE.md` (an explicitly labeled CI-qualified preview, a separate

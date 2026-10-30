@@ -79,6 +79,10 @@ planned work is tracked in [GitHub issues](https://github.com/vmedvedevpro/Proto
   groups must run as separate invocations; see the map for known groups.
 - Serialize Next production builds with native builds/tests embedding
   `frontend/out`. Do not run standalone TypeScript checking during a Next build.
+- Measure a change to VAD, decoding, segmentation, Parakeet, speaker labels
+  or the speech runtimes with the kit in
+  [docs/MEASURING_TRANSCRIPTION.md](docs/MEASURING_TRANSCRIPTION.md), against
+  `main` on the same audio.
 - Releases are built by `.github/workflows/release.yml` from a pushed
   `vX.Y.Z` tag into a draft that the owner publishes; pushes to `main` and
   manual runs are dry runs. Pull requests run only `pr-checks.yml`; the dry run

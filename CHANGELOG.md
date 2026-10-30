@@ -7,6 +7,15 @@ is inherited from the project Protocol forked from; Protocol did not release it.
 
 ## Protocol — unreleased
 
+### For developers
+
+- **A kit to measure transcription**
+  ([#75](https://github.com/vmedvedevpro/Protocol/issues/75)): test commands
+  run the post-meeting pass, live Whisper, Parakeet and speaker labelling on a
+  recording, a Python script scores them against a reference, and a public
+  FLEURS fixture can be fetched to reproduce the numbers; the method is in
+  [docs/MEASURING_TRANSCRIPTION.md](docs/MEASURING_TRANSCRIPTION.md).
+
 ## Protocol 0.4.3 — 2026-10-30
 
 After a meeting, Whisper listens from pause to pause and keeps its own
