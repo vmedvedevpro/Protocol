@@ -12,9 +12,29 @@ use tokio::fs;
 use tokio::io::AsyncWriteExt;
 use crate::model_catalog::{self, huggingface, installed, schema::Engine};
 use crate::model_integrity;
-use super::acceleration::{whisper_context_acceleration_for, whisper_gpu_device, WhisperCompiledBackend};
+use super::acceleration::{whisper_context_acceleration_for, whisper_gpu_device, WhisperCompiledBackend, WhisperContextAcceleration};
 
 const MAX_INITIAL_PROMPT_TOKENS: usize = 224;
+
+/// The parameters a model is opened with: the acceleration that the build's
+/// backend and the hardware profile decide (`acceleration.rs`).
+fn context_parameters(
+    profile: &crate::audio::HardwareProfile,
+) -> (WhisperContextParameters<'static>, WhisperContextAcceleration) {
+    let mut acceleration = whisper_context_acceleration_for(
+        WhisperCompiledBackend::current(),
+        profile.gpu_type,
+        profile.performance_tier,
+    );
+    acceleration.gpu_device = whisper_gpu_device(acceleration.compiled_backend);
+    let params = WhisperContextParameters {
+        use_gpu: acceleration.use_gpu,
+        gpu_device: acceleration.gpu_device,
+        flash_attn: acceleration.flash_attn,
+        ..Default::default()
+    };
+    (params, acceleration)
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ModelStatus {
@@ -369,19 +389,7 @@ impl WhisperEngine {
                 // PERFORMANCE OPTIMIZATION: Use comprehensive hardware profile for optimal GPU configuration
                 let hardware_profile = crate::audio::HardwareProfile::detect();
                 let adaptive_config = hardware_profile.get_whisper_config();
-                let mut acceleration = whisper_context_acceleration_for(
-                    WhisperCompiledBackend::current(),
-                    hardware_profile.gpu_type,
-                    hardware_profile.performance_tier,
-                );
-                acceleration.gpu_device = whisper_gpu_device(acceleration.compiled_backend);
-
-                let context_param = WhisperContextParameters {
-                    use_gpu: acceleration.use_gpu,
-                    gpu_device: acceleration.gpu_device,
-                    flash_attn: acceleration.flash_attn,
-                    ..Default::default()
-                };
+                let (context_param, acceleration) = context_parameters(&hardware_profile);
 
                 log::info!(
                     "Whisper acceleration decision: compiled_backend={} runtime_detected_gpu={:?} use_gpu={} flash_attn={} gpu_device={}",
@@ -428,6 +436,21 @@ impl WhisperEngine {
                 Err(anyhow!("Model {} is corrupted and cannot be loaded", model_name))
             }
         }
+    }
+
+    /// Opens the model file at `path` with the context parameters `load_model`
+    /// uses, but read only: `load_model`'s integrity check writes a marker
+    /// beside the file. For the ignored model test and the measurement kit
+    /// (`crate::measure`), which open installed models in place. Returns the
+    /// acceleration it chose.
+    #[cfg(test)]
+    pub(crate) async fn load_model_in_place(&self, path: &std::path::Path) -> Result<&'static str> {
+        let (params, acceleration) = context_parameters(&crate::audio::HardwareProfile::detect());
+        let ctx = WhisperContext::new_with_params(path, params)
+            .map_err(|e| anyhow!("Failed to load model {}: {}", path.display(), e))?;
+        *self.current_context.write().await = Some(ctx);
+        *self.current_model.write().await = Some(path.display().to_string());
+        Ok(acceleration.status_label())
     }
 
     pub async fn unload_model(&self) -> bool  {
@@ -1351,24 +1374,10 @@ mod tests {
         let (audio, rate) = crate::diarization::dsp::read_wav(std::path::Path::new(&wav)).unwrap();
         assert_eq!(rate, 16000);
 
-        let profile = crate::audio::HardwareProfile::detect();
-        let mut acceleration = whisper_context_acceleration_for(
-            WhisperCompiledBackend::current(),
-            profile.gpu_type,
-            profile.performance_tier,
-        );
-        acceleration.gpu_device = whisper_gpu_device(acceleration.compiled_backend);
-        let params = WhisperContextParameters {
-            use_gpu: acceleration.use_gpu,
-            gpu_device: acceleration.gpu_device,
-            flash_attn: acceleration.flash_attn,
-            ..Default::default()
-        };
-        println!("whisper.cpp {}, {}", whisper_rs::WHISPER_CPP_VERSION, acceleration.status_label());
-        let ctx = WhisperContext::new_with_params(&model, params).unwrap();
         let dir = tempfile::tempdir().unwrap();
         let engine = WhisperEngine::new_with_models_dir(Some(dir.path().to_path_buf())).unwrap();
-        *engine.current_context.write().await = Some(ctx);
+        let acceleration = engine.load_model_in_place(std::path::Path::new(&model)).await.unwrap();
+        println!("whisper.cpp {}, {}", whisper_rs::WHISPER_CPP_VERSION, acceleration);
 
         let (text, _, _) = engine.transcribe_audio_with_confidence(audio.clone(), language.clone(), None).await.unwrap();
         println!("{text}");

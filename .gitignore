@@ -88,3 +88,7 @@ frontend/.next/
 frontend/tsconfig.tsbuildinfo
 
 CLAUDE.md
+
+# Measurement kit: venv, downloads, fixtures, outputs (docs/MEASURING_TRANSCRIPTION.md)
+/.measure/
+/scripts/measure/**/__pycache__/

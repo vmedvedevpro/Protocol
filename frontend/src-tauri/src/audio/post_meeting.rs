@@ -1,7 +1,9 @@
-//! Shared parts of the post-meeting pass, retranscription and import (#62):
-//! how the batch VAD cuts the audio for each engine, which pieces are skipped,
-//! how a piece's Whisper segments become transcript rows, and the language
-//! when the setting is Auto.
+//! The post-meeting pass that retranscription and import share (#62), and
+//! that the measurement kit (`crate::measure`, #75) runs: how the batch VAD
+//! cuts each track for the engine ([`speech`], [`pieces`]), and the loop over
+//! the pieces ([`Pass`]): which are skipped, the language when the setting is
+//! Auto, how a piece's Whisper segments become transcript rows, and which
+//! texts are dropped as silence hallucinations.
 //!
 //! Whisper gets pieces that run from pause to pause (the batch VAD without its
 //! continuous-speech cap) and decodes them with timestamps
@@ -12,9 +14,10 @@
 use std::fmt::Debug;
 
 use anyhow::anyhow;
-use log::{info, warn};
+use log::{debug, info, warn};
 
-use crate::audio::vad::{ContinuousSpeechCap, SpeechSegment};
+use crate::audio::common::split_segment_at_silence;
+use crate::audio::vad::{get_speech_chunks_with_cap_and_progress, ContinuousSpeechCap, SpeechSegment};
 use crate::parakeet_engine::ParakeetEngine;
 use crate::whisper_engine::post_meeting::PostMeetingWhisper;
 use crate::whisper_engine::{TimedText, WhisperEngine};
@@ -38,6 +41,60 @@ pub fn vad_cap(use_parakeet: bool) -> ContinuousSpeechCap {
     }
 }
 
+/// The batch VAD's redemption time. The live pipeline's is shorter; here the
+/// whole file is in memory, and a short redemption would cut the speech at
+/// every natural pause of 0.5–2 s.
+pub const VAD_REDEMPTION_TIME_MS: u32 = 2000;
+
+/// Pieces longer than this (25 s) are cut at their quietest points
+/// ([`split_segment_at_silence`]), so that a piece stays inside Whisper's 30 s
+/// window.
+const MAX_PIECE_SAMPLES: usize = 25 * 16_000;
+
+/// One track's speech as the pass's batch VAD finds it, with the track's
+/// thresholds and the engine's cap ([`vad_cap`]). `progress` gets the
+/// percentage done and the segments found so far, and stops the VAD by
+/// returning false.
+pub fn speech(
+    samples: &[f32],
+    positive_threshold: f32,
+    negative_threshold: f32,
+    cap: ContinuousSpeechCap,
+    progress: impl FnMut(u32, usize) -> bool,
+) -> anyhow::Result<Vec<SpeechSegment>> {
+    get_speech_chunks_with_cap_and_progress(
+        samples,
+        VAD_REDEMPTION_TIME_MS,
+        positive_threshold,
+        negative_threshold,
+        cap,
+        progress,
+    )
+}
+
+/// The pieces a pass transcribes, from the speech of all its tracks, each
+/// segment tagged with its track: in start order, a segment over 25 s cut
+/// at its quietest points.
+pub fn pieces<K: Copy>(mut segments: Vec<(SpeechSegment, K)>) -> Vec<(SpeechSegment, K)> {
+    segments.sort_by(|a, b| a.0.start_timestamp_ms.total_cmp(&b.0.start_timestamp_ms));
+    let mut pieces = Vec::with_capacity(segments.len());
+    for (segment, track) in segments {
+        if segment.samples.len() > MAX_PIECE_SAMPLES {
+            let parts = split_segment_at_silence(&segment, MAX_PIECE_SAMPLES);
+            debug!(
+                "A {:.0} ms segment at {:.0} ms became {} piece(s)",
+                segment.end_timestamp_ms - segment.start_timestamp_ms,
+                segment.start_timestamp_ms,
+                parts.len()
+            );
+            pieces.extend(parts.into_iter().map(|part| (part, track)));
+        } else {
+            pieces.push((segment, track));
+        }
+    }
+    pieces
+}
+
 pub fn rms(samples: &[f32]) -> f32 {
     (samples.iter().map(|x| x * x).sum::<f32>() / samples.len().max(1) as f32).sqrt()
 }
@@ -54,22 +111,143 @@ pub fn skip_reason(samples: &[f32]) -> Option<&'static str> {
     (rms(samples) < 0.005 && peak < 0.01).then_some("silent")
 }
 
+/// Whisper's commonest outputs over a quiet piece. Retranscription drops a
+/// piece whose whole text is one of them when its RMS is under 0.02; the
+/// import never did.
+fn is_silence_hallucination(text: &str, rms: f32) -> bool {
+    let lower = text.to_lowercase();
+    (lower == "you" || lower == "you." || lower == "thank you." || lower == "thank you" || lower == "thanks." || lower == "bye." || lower == "bye") && rms < 0.02
+}
+
+/// What the pass did with one piece. Rows are (text, start ms, end ms) in
+/// meeting time.
+pub enum PieceOutcome {
+    /// Not transcribed ([`skip_reason`]).
+    Skipped(&'static str),
+    /// Transcribed and dropped as a silence hallucination: the pass stores
+    /// none of these rows.
+    Dropped(Vec<(String, f64, f64)>),
+    /// The rows that have text; none when the engine wrote nothing.
+    Rows(Vec<(String, f64, f64)>),
+}
+
+/// The loop over a pass's pieces, each tagged with its track `K`: the skip
+/// rule, the piece's language, the engine call and, where the caller keeps
+/// it, the silence-hallucination filter. The caller owns progress, Cancel and
+/// what becomes of the rows.
+pub struct Pass<'a, K> {
+    transcriber: PieceTranscriber<'a>,
+    language: Option<String>,
+    vocabulary: Option<String>,
+    track_languages: Vec<(K, String)>,
+    drops_silence_hallucinations: bool,
+}
+
+impl<'a, K: Copy + PartialEq + Debug> Pass<'a, K> {
+    /// Parakeet when the pass loaded it, otherwise Whisper. `language` is the
+    /// app's setting.
+    pub fn new(
+        parakeet: Option<&'a ParakeetEngine>,
+        whisper: Option<&'a WhisperEngine>,
+        language: Option<&str>,
+        vocabulary: Option<&str>,
+    ) -> Self {
+        Self {
+            transcriber: PieceTranscriber::new(parakeet, whisper),
+            language: language.map(str::to_string),
+            vocabulary: vocabulary.map(str::to_string),
+            track_languages: Vec::new(),
+            drops_silence_hallucinations: false,
+        }
+    }
+
+    /// Drops a quiet piece whose whole text is a known silence hallucination
+    /// ([`is_silence_hallucination`]), as retranscription does.
+    pub fn dropping_silence_hallucinations(mut self) -> Self {
+        self.drops_silence_hallucinations = true;
+        self
+    }
+
+    /// Whether the pass first detects each track's language: Whisper with the
+    /// language on Auto ([`detects_once`]).
+    pub fn detects_language(&self) -> bool {
+        self.transcriber.parakeet.is_none() && self.transcriber.whisper.is_some() && detects_once(self.language.as_deref())
+    }
+
+    /// Detects each track's language on its pieces ([`detect_per_track`]) when
+    /// [`Self::detects_language`]; a track without a clear language keeps
+    /// per-call detection.
+    pub async fn detect_languages<'s>(
+        &mut self,
+        pieces: impl IntoIterator<Item = (&'s SpeechSegment, K)>,
+        cancelled: impl Fn() -> bool,
+    ) {
+        if !self.detects_language() {
+            return;
+        }
+        if let Some(whisper) = &self.transcriber.whisper {
+            self.track_languages = detect_per_track(whisper.engine(), pieces, cancelled).await;
+        }
+    }
+
+    /// The language detected for `track`, if one was.
+    pub fn detected_language(&self, track: K) -> Option<&str> {
+        self.track_languages.iter().find(|(known, _)| *known == track).map(|(_, language)| language.as_str())
+    }
+
+    /// The language a piece of `track` is transcribed in: the track's
+    /// detected language, otherwise the setting.
+    pub fn language(&self, track: K) -> Option<&str> {
+        self.detected_language(track).or(self.language.as_deref())
+    }
+
+    pub async fn transcribe(&mut self, piece: &SpeechSegment, track: K) -> anyhow::Result<PieceOutcome> {
+        if let Some(reason) = skip_reason(&piece.samples) {
+            return Ok(PieceOutcome::Skipped(reason));
+        }
+        let language = self.language(track).map(str::to_string);
+        let rows = self.transcriber.rows(piece, language.as_deref(), self.vocabulary.as_deref()).await?;
+        if self.drops_silence_hallucinations && !rows.is_empty() {
+            let text = rows.iter().map(|(text, _, _)| text.trim()).collect::<Vec<_>>().join(" ");
+            let rms = rms(&piece.samples);
+            if is_silence_hallucination(&text, rms) {
+                warn!(
+                    "Dropping suspected silence hallucination at {:.1}s: '{}' (rms={:.5})",
+                    piece.start_timestamp_ms / 1000.0,
+                    text,
+                    rms
+                );
+                return Ok(PieceOutcome::Dropped(rows));
+            }
+        }
+        Ok(PieceOutcome::Rows(rows))
+    }
+
+    /// The Whisper decoding the pass uses now: it turns greedy for the rest
+    /// of the app session when a beam's KV cache cannot be allocated. For the
+    /// measurement kit, which records it.
+    #[cfg(test)]
+    pub(crate) fn whisper_decoding(&self) -> Option<crate::whisper_engine::decoding::WhisperDecoding> {
+        self.transcriber.whisper.as_ref().map(PostMeetingWhisper::decoding)
+    }
+}
+
 /// Transcribes the pieces of one post-meeting pass with the engine the pass
 /// loaded: Parakeet gives one row per piece, Whisper one row per segment.
-pub struct PieceTranscriber<'a> {
+struct PieceTranscriber<'a> {
     parakeet: Option<&'a ParakeetEngine>,
     whisper: Option<PostMeetingWhisper<'a>>,
 }
 
 impl<'a> PieceTranscriber<'a> {
     /// Parakeet when the pass loaded it, otherwise Whisper.
-    pub fn new(parakeet: Option<&'a ParakeetEngine>, whisper: Option<&'a WhisperEngine>) -> Self {
+    fn new(parakeet: Option<&'a ParakeetEngine>, whisper: Option<&'a WhisperEngine>) -> Self {
         Self { parakeet, whisper: whisper.map(PostMeetingWhisper::new) }
     }
 
     /// The rows of one piece that have text, as (text, start ms, end ms) in
     /// meeting time. `language` is the Whisper setting for this piece.
-    pub async fn rows(
+    async fn rows(
         &mut self,
         piece: &SpeechSegment,
         language: Option<&str>,
@@ -199,7 +377,7 @@ const MIN_TRACK_LANGUAGE_PROBABILITY: f32 = 0.5;
 /// slower and misread 7 of 230 short or noisy pieces). "auto-translate" and
 /// Parakeet keep their behaviour. Limit: a track whose speakers switch language
 /// mid-meeting is transcribed in the one detected language.
-pub fn detects_once(language: Option<&str>) -> bool {
+fn detects_once(language: Option<&str>) -> bool {
     matches!(language, None | Some("auto"))
 }
 
@@ -214,7 +392,7 @@ pub fn detects_once(language: Option<&str>) -> bool {
 /// wrong answer would fix the whole track's language. Energy grows with the
 /// square of the level, so a stretch five times quieter than the speech has to
 /// be 25 times longer to be chosen.
-pub fn detection_audio<'a>(segments: impl IntoIterator<Item = &'a SpeechSegment>) -> Vec<f32> {
+fn detection_audio<'a>(segments: impl IntoIterator<Item = &'a SpeechSegment>) -> Vec<f32> {
     let mut candidates: Vec<(f32, &SpeechSegment)> = segments
         .into_iter()
         .filter(|s| skip_reason(&s.samples).is_none())
@@ -265,7 +443,7 @@ fn describe(detection: &Option<(String, f32)>) -> String {
 /// The language of one track's pieces, or `None` when the track keeps per-call
 /// detection (no speech, a failed detection, or halves that do not agree; see
 /// [`agreed_language`]). Two encoder passes, one per half.
-pub async fn detect_once<'a>(
+async fn detect_once<'a>(
     engine: &WhisperEngine,
     track: impl Debug,
     segments: impl IntoIterator<Item = &'a SpeechSegment>,
@@ -309,7 +487,7 @@ pub async fn detect_once<'a>(
 
 /// [`detect_once`] for each distinct `track` among `segments`, stopping when
 /// `cancelled` says so. A track without a language is left out.
-pub async fn detect_per_track<'a, K: Copy + PartialEq + Debug>(
+async fn detect_per_track<'a, K: Copy + PartialEq + Debug>(
     engine: &WhisperEngine,
     segments: impl IntoIterator<Item = (&'a SpeechSegment, K)>,
     cancelled: impl Fn() -> bool,
@@ -337,6 +515,12 @@ pub async fn detect_per_track<'a, K: Copy + PartialEq + Debug>(
 mod tests {
     use super::*;
 
+    #[test]
+    fn test_vad_redemption_time_constant() {
+        // Batch processing uses 2000ms to bridge natural pauses in full-file VAD
+        assert_eq!(VAD_REDEMPTION_TIME_MS, 2000);
+    }
+
     fn segment(start_s: f64, seconds: f64, level: f32) -> SpeechSegment {
         SpeechSegment {
             samples: vec![level; (seconds * 16_000.0) as usize],
@@ -354,6 +538,33 @@ mod tests {
     fn whisper_pieces_run_from_pause_to_pause_and_parakeet_keeps_the_cap() {
         assert_eq!(vad_cap(false), ContinuousSpeechCap::PauseToPause);
         assert_eq!(vad_cap(true), ContinuousSpeechCap::Streaming);
+    }
+
+    #[test]
+    fn segments_of_two_tracks_come_in_start_order_and_long_ones_are_cut() {
+        let segments = vec![(segment(10.0, 30.0, 0.1), "system"), (segment(0.0, 5.0, 0.1), "mic"), (segment(12.0, 3.0, 0.1), "mic")];
+        let pieces = pieces(segments);
+        // A cut segment's pieces stay together (the pass sorts its rows afterwards).
+        let tracks: Vec<&str> = pieces.iter().map(|(_, track)| *track).collect();
+        assert_eq!(tracks, ["mic", "system", "system", "mic"]);
+        assert_eq!(pieces[1].0.start_timestamp_ms, 10_000.0);
+        assert_eq!(pieces[2].0.end_timestamp_ms, 40_000.0);
+        assert!(pieces.iter().all(|(piece, _)| piece.samples.len() <= 28 * 16_000));
+    }
+
+    #[tokio::test]
+    async fn a_pass_skips_before_it_calls_an_engine() {
+        let mut pass = Pass::new(None, None, Some("ru"), None);
+        assert!(matches!(pass.transcribe(&segment(0.0, 2.0, 0.001), ()).await, Ok(PieceOutcome::Skipped("silent"))));
+        assert!(pass.transcribe(&segment(0.0, 2.0, 0.1), ()).await.is_err());
+        assert!(!pass.detects_language());
+    }
+
+    #[test]
+    fn only_a_quiet_lone_reply_is_a_silence_hallucination() {
+        assert!(is_silence_hallucination("Thank you.", 0.01));
+        assert!(!is_silence_hallucination("Thank you.", 0.05));
+        assert!(!is_silence_hallucination("Thank you, see you.", 0.01));
     }
 
     #[test]

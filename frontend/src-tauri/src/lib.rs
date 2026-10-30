@@ -54,6 +54,9 @@ pub mod groq;
 pub mod openrouter;
 pub mod live_assistant;
 pub mod meeting_detection;
+// Ignored test commands that measure transcription (#75); test builds only.
+#[cfg(test)]
+mod measure;
 pub mod minibar;
 pub mod model_catalog;
 pub mod model_integrity;

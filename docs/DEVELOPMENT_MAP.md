@@ -242,6 +242,10 @@ are documented in [SUMMARY_GENERATED_TITLES.md](SUMMARY_GENERATED_TITLES.md).
 `diarization/mod.rs` owns persisted engine settings and offline command dispatch.
 Nemotron is Auto-detect only; manual counts belong to Pyannote. Rerunning speaker
 identification must preserve transcript text, row identity, and timestamps.
+`row_speakers` labels a row with the speaker who overlaps it most, then those who
+overlap it for a fifth of that and talk at the same time; of speakers who overlap
+it equally the lower index comes first (#75; it was hash order), so one timeline
+always gives the same labels.
 Read [PR34_NEMOTRON.md](PR34_NEMOTRON.md) before changing that contract.
 
 Frontend post-call sequencing lives in
@@ -289,13 +293,20 @@ above 0.5 (`agreed_language`): the loudest stretch is not always speech, and
 one confident misreading would otherwise fix the track. Otherwise the track
 keeps per-call detection. Both loops check for
 Cancel before the detection. A track whose speakers switch language mid-meeting
-is then transcribed in one language. Live transcription keeps its pieces and
+is then transcribed in one language. Retranscription and import run these
+steps through the same functions: `post_meeting::speech` (the batch VAD),
+`pieces` (start order, the 25 s cut) and `Pass` (the skip, the language, the
+engine call and, for retranscription only, the silence-hallucination filter);
+the measurement kit calls them too. Live transcription keeps its pieces and
 calls; its decoding is greedy at temperature 0, and every Whisper call shares
 its language mapping, thresholds and output wrap (`WhisperDecoding::call_params`,
 see below). See [Whisper engine](#whisper-engine) for why and what was
-measured. Unit tests: `audio::post_meeting::tests` (VAD cap per engine, skips,
-rows from Whisper segments, merged repeats, time order, which settings detect once,
-detection audio, threshold and agreement), `whisper_engine::decoding::tests` (the
+measured, and [MEASURING_TRANSCRIPTION.md](MEASURING_TRANSCRIPTION.md) for
+how to measure a change to this pass. Unit tests: `audio::post_meeting::tests`
+(VAD cap per engine, pieces in start order with the 25 s cut, skips before an
+engine call, the silence-hallucination filter, rows from Whisper segments,
+merged repeats, time order, which settings detect once, detection audio,
+threshold and agreement), `whisper_engine::decoding::tests` (the
 decodings and shared parameters as whisper.cpp receives them, the language
 mapping) and `audio::common::tests` (the cut at the quietest point, no cut in
 a piece's trailing silence).
@@ -1086,6 +1097,27 @@ checkout's pre-rename `meetily-*.exe` are not signed and packaged; that cleanup
 was tested on temporary folders, not in a full universal build.
 
 ## 6. Tests, qualification, and historical notes
+
+Changes to transcription and speaker labels are measured with the kit in
+[MEASURING_TRANSCRIPTION.md](MEASURING_TRANSCRIPTION.md) (#75): ignored test
+commands in `src/measure/` (test builds only) run the post-meeting pass, the
+live Whisper call, Parakeet and the row labelling on a recording and write
+JSON; `scripts/measure/` scores it in Python against a reference (WER, CER,
+lost words, loops, hallucinations, speaker agreement); a fetch script builds a
+public FLEURS fixture. The commands run the post-meeting pass's own functions
+(`post_meeting::speech`, `pieces` and `Pass`, which retranscription and import
+call too) and reach the rest through a few `pub(crate)` seams:
+retranscription's source finder (`find_audio_file`,
+`find_retranscription_sources`), the live worker's skip rule (`peak_level`,
+`is_digital_silence`), `diarization::diarize_track_wavs` and `row_speakers`
+(the calls on a microphone and a system track with their merged timeline, and
+the row labelling `diarize_meeting` applies), the reference call
+`WhisperEngine::reference_text` beside the pass's Whisper call, and
+`load_model_in_place` on both engines, which opens a model without the
+integrity markers `load_model` writes beside it. `reference_text` and
+`load_model_in_place` are test-only (`#[cfg(test)]`), as are
+`Pass::whisper_decoding` and `PostMeetingWhisper::decoding`, which the kit
+records per piece.
 
 Upstream published macOS separately, through `publish-macos.yml` and
 `MACOS_RELEASE.md` (an explicitly labeled CI-qualified preview, a separate

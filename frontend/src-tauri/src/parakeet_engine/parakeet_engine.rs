@@ -429,6 +429,20 @@ impl ParakeetEngine {
         }
     }
 
+    /// Opens the model in `model_dir` as `load_model` opens the Int8 model
+    /// (`ParakeetModel` takes the full-precision files of a folder without
+    /// Int8 ones), but read only: `load_model`'s integrity check writes
+    /// markers beside the files. For the measurement kit (`crate::measure`),
+    /// which opens installed models in place.
+    #[cfg(test)]
+    pub(crate) async fn load_model_in_place(&self, model_dir: &Path) -> Result<()> {
+        let model = ParakeetModel::new(model_dir, true)
+            .map_err(|e| anyhow!("Failed to load Parakeet model {}: {}", model_dir.display(), e))?;
+        *self.current_model.write().await = Some(model);
+        *self.current_model_name.write().await = Some(model_dir.display().to_string());
+        Ok(())
+    }
+
     /// Unload the current model
     pub async fn unload_model(&self) -> bool {
         let mut model_guard = self.current_model.write().await;

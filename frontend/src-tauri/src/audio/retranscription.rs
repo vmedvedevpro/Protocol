@@ -1,9 +1,8 @@
 // Retranscription module - allows re-processing stored audio with different settings
 
 use crate::audio::decoder::decode_audio_file;
-use crate::audio::post_meeting;
-use crate::audio::vad::get_speech_chunks_with_cap_and_progress;
-use super::common::{create_transcript_segments, split_segment_at_silence, write_transcripts_json};
+use crate::audio::post_meeting::{self, PieceOutcome};
+use super::common::{create_transcript_segments, write_transcripts_json};
 use super::constants::AUDIO_EXTENSIONS;
 use crate::config::{DEFAULT_WHISPER_MODEL, DEFAULT_PARAKEET_MODEL};
 use crate::database::models::DateTimeUtc;
@@ -56,12 +55,6 @@ impl Drop for RetranscriptionGuard {
         RETRANSCRIPTION_IN_PROGRESS.store(false, Ordering::SeqCst);
     }
 }
-
-/// VAD redemption time in milliseconds - bridges natural pauses in speech
-/// Batch processing needs longer redemption (2000ms) than the live pipeline
-/// because the entire file is processed at once and short redemption fragments
-/// speech at every natural sentence/topic pause (500ms-2s)
-const VAD_REDEMPTION_TIME_MS: u32 = 2000;
 
 /// Progress update emitted during retranscription
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -157,7 +150,9 @@ async fn start_retranscription<R: Runtime>(
 
 /// Find audio file in meeting folder
 /// Tries common names first, then scans for any file with an audio extension
-fn find_audio_file(folder: &Path) -> Result<PathBuf> {
+// pub(crate) with the sources below for the measurement kit (crate::measure),
+// which reads a recording's tracks as this pass does.
+pub(crate) fn find_audio_file(folder: &Path) -> Result<PathBuf> {
     let candidates = [
         "audio.mp4", "audio.m4a", "audio.wav", "audio.mp3",
         "audio.flac", "audio.ogg", "recording.mp4",
@@ -187,15 +182,15 @@ fn find_audio_file(folder: &Path) -> Result<PathBuf> {
     Err(anyhow!("No audio file found in: {}", folder.display()))
 }
 
-struct RetranscriptionSource {
-    path: PathBuf,
-    label: &'static str,
-    speaker_hint: Option<&'static str>,
-    positive_threshold: f32,
-    negative_threshold: f32,
+pub(crate) struct RetranscriptionSource {
+    pub(crate) path: PathBuf,
+    pub(crate) label: &'static str,
+    pub(crate) speaker_hint: Option<&'static str>,
+    pub(crate) positive_threshold: f32,
+    pub(crate) negative_threshold: f32,
 }
 
-fn find_retranscription_sources(folder: &Path, fallback: &Path) -> Vec<RetranscriptionSource> {
+pub(crate) fn find_retranscription_sources(folder: &Path, fallback: &Path) -> Vec<RetranscriptionSource> {
     let mic_path = folder.join("mic.mp4");
     let system_path = folder.join("system.mp4");
     let mut sources = Vec::new();
@@ -325,9 +320,8 @@ async fn run_retranscription<R: Runtime>(
         let vad_progress_span = source_progress_span / 2.0;
 
         let mut source_segments = tokio::task::spawn_blocking(move || {
-            get_speech_chunks_with_cap_and_progress(
+            post_meeting::speech(
                 &audio_samples,
-                VAD_REDEMPTION_TIME_MS,
                 positive_threshold,
                 negative_threshold,
                 post_meeting::vad_cap(use_parakeet),
@@ -360,14 +354,8 @@ async fn run_retranscription<R: Runtime>(
         );
     }
 
-    speech_segments.sort_by(|a, b| {
-        a.0.start_timestamp_ms
-            .partial_cmp(&b.0.start_timestamp_ms)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
-
     let total_segments = speech_segments.len();
-    info!("VAD detected {} speech segments (redemption_time={}ms)", total_segments, VAD_REDEMPTION_TIME_MS);
+    info!("VAD detected {} speech segments (redemption_time={}ms)", total_segments, post_meeting::VAD_REDEMPTION_TIME_MS);
 
     // Diagnostic: log segment duration distribution
     if !speech_segments.is_empty() {
@@ -384,15 +372,6 @@ async fn run_retranscription<R: Runtime>(
             total_speech_ms / 1000.0, duration_seconds,
             (total_speech_ms / 1000.0 / duration_seconds) * 100.0
         );
-        // Log first 10 segments for detailed inspection
-        for (i, (seg, speaker_hint)) in speech_segments.iter().take(10).enumerate() {
-            let dur = seg.end_timestamp_ms - seg.start_timestamp_ms;
-            debug!("  Segment {}: {:.0}ms-{:.0}ms ({:.0}ms, {} samples, {:?})",
-                i, seg.start_timestamp_ms, seg.end_timestamp_ms, dur, seg.samples.len(), speaker_hint);
-        }
-        if total_segments > 10 {
-            debug!("  ... and {} more segments", total_segments - 10);
-        }
     }
 
     if total_segments == 0 {
@@ -414,54 +393,41 @@ async fn run_retranscription<R: Runtime>(
         None
     };
 
-    // Split very long segments at silence boundaries for better transcription quality.
-    // Hard cuts at arbitrary sample positions lose words at boundaries. Instead, scan
-    // for the lowest-energy window near the target split point and cut there.
-    const MAX_SEGMENT_SAMPLES: usize = 25 * 16000; // 25 seconds at 16kHz
-
-    let mut processable_segments: Vec<(crate::audio::vad::SpeechSegment, Option<&'static str>)> = Vec::new();
-    for (segment, speaker_hint) in &speech_segments {
-        if segment.samples.len() > MAX_SEGMENT_SAMPLES {
-            debug!(
-                "Splitting large segment ({:.0}ms, {} samples) at silence boundaries",
-                segment.end_timestamp_ms - segment.start_timestamp_ms,
-                segment.samples.len()
-            );
-
-            let sub_segments = split_segment_at_silence(segment, MAX_SEGMENT_SAMPLES);
-            debug!("Split into {} sub-segments", sub_segments.len());
-            processable_segments.extend(
-                sub_segments
-                    .into_iter()
-                    .map(|segment| (segment, *speaker_hint)),
-            );
-        } else {
-            processable_segments.push((segment.clone(), *speaker_hint));
-        }
-    }
-
+    let processable_segments = post_meeting::pieces(speech_segments);
     let processable_count = processable_segments.len();
     info!("Processing {} segments (after splitting)", processable_count);
+    // Log the first 10 segments for detailed inspection; `pieces` put the
+    // tracks' segments in time order.
+    for (i, (seg, speaker_hint)) in processable_segments.iter().take(10).enumerate() {
+        let dur = seg.end_timestamp_ms - seg.start_timestamp_ms;
+        debug!("  Segment {}: {:.0}ms-{:.0}ms ({:.0}ms, {} samples, {:?})",
+            i, seg.start_timestamp_ms, seg.end_timestamp_ms, dur, seg.samples.len(), speaker_hint);
+    }
+    if processable_count > 10 {
+        debug!("  ... and {} more segments", processable_count - 10);
+    }
 
     // With the language on Auto, Whisper detects it once per retained track,
     // keyed by the source's speaker hint (see post_meeting).
-    let track_languages = match whisper_engine.as_ref() {
-        Some(engine) if post_meeting::detects_once(language.as_deref()) => {
-            emit_progress(&app, &meeting_id, "transcribing", 25, "Detecting language...");
-            post_meeting::detect_per_track(
-                engine,
-                processable_segments.iter().map(|(segment, speaker_hint)| (segment, *speaker_hint)),
-                || RETRANSCRIPTION_CANCELLED.load(Ordering::SeqCst),
-            )
-            .await
-        }
-        _ => Vec::new(),
-    };
+    let mut pass = post_meeting::Pass::new(
+        parakeet_engine.as_deref(),
+        whisper_engine.as_deref(),
+        language.as_deref(),
+        vocabulary.as_deref(),
+    )
+    .dropping_silence_hallucinations();
+    if pass.detects_language() {
+        emit_progress(&app, &meeting_id, "transcribing", 25, "Detecting language...");
+        pass.detect_languages(
+            processable_segments.iter().map(|(segment, speaker_hint)| (segment, *speaker_hint)),
+            || RETRANSCRIPTION_CANCELLED.load(Ordering::SeqCst),
+        )
+        .await;
+    }
 
     // Process each speech segment with progress updates
     let mut all_transcripts: Vec<(String, f64, f64)> = Vec::new(); // (text, start_ms, end_ms)
     let mut speaker_hints: Vec<Option<&'static str>> = Vec::new();
-    let mut transcriber = post_meeting::PieceTranscriber::new(parakeet_engine.as_deref(), whisper_engine.as_deref());
 
     for (i, (segment, speaker_hint)) in processable_segments.iter().enumerate() {
         // Check for cancellation before each segment
@@ -485,33 +451,18 @@ async fn run_retranscription<R: Runtime>(
             ),
         );
 
-        if let Some(reason) = post_meeting::skip_reason(&segment.samples) {
-            debug!("Skipping {} segment {} with {} samples", reason, i, segment.samples.len());
-            continue;
-        }
-
-        let segment_language = track_languages
-            .iter()
-            .find(|(track, _)| track == speaker_hint)
-            .map(|(_, detected)| detected.as_str())
-            .or(language.as_deref());
-        let rows = transcriber
-            .rows(segment, segment_language, vocabulary.as_deref())
-            .await
-            .map_err(|e| anyhow!("{} (segment {})", e, i))?;
+        let rows = match pass.transcribe(segment, *speaker_hint).await.map_err(|e| anyhow!("{} (segment {})", e, i))? {
+            PieceOutcome::Skipped(reason) => {
+                debug!("Skipping {} segment {} with {} samples", reason, i, segment.samples.len());
+                continue;
+            }
+            PieceOutcome::Dropped(_) => continue,
+            PieceOutcome::Rows(rows) => rows,
+        };
 
         // Skip empty transcripts
         let text = rows.iter().map(|(text, _, _)| text.trim()).collect::<Vec<_>>().join(" ");
         if !text.is_empty() {
-            // Filter out known Whisper silence hallucinations if energy is low
-            let rms = post_meeting::rms(&segment.samples);
-            let lower = text.to_lowercase();
-            let is_hallucination = (lower == "you" || lower == "you." || lower == "thank you." || lower == "thank you" || lower == "thanks." || lower == "bye." || lower == "bye") && rms < 0.02;
-            if is_hallucination {
-                warn!("Dropping suspected silence hallucination on segment {}: '{}' (rms={:.5})", i + 1, text, rms);
-                continue;
-            }
-
             debug!(
                 "Segment {}/{}: {:.1}s, {} rows, text='{}'",
                 i + 1, processable_count, segment_duration_sec, rows.len(),
@@ -1201,12 +1152,6 @@ mod tests {
 
         // Reset for other tests
         RETRANSCRIPTION_CANCELLED.store(false, Ordering::SeqCst);
-    }
-
-    #[test]
-    fn test_vad_redemption_time_constant() {
-        // Batch processing uses 2000ms to bridge natural pauses in full-file VAD
-        assert_eq!(VAD_REDEMPTION_TIME_MS, 2000);
     }
 
     #[test]

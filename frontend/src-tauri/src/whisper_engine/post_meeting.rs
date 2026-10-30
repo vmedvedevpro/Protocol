@@ -99,6 +99,16 @@ impl<'a> PostMeetingWhisper<'a> {
         Self { engine, decoding: session_decoding(BEAM_CACHE_FAILED.load(Ordering::SeqCst)) }
     }
 
+    pub fn engine(&self) -> &'a WhisperEngine {
+        self.engine
+    }
+
+    /// The decoding of the next piece.
+    #[cfg(test)]
+    pub(crate) fn decoding(&self) -> WhisperDecoding {
+        self.decoding
+    }
+
     /// Transcribes one piece. `language` follows the app's setting: `None` or
     /// "auto" detects it in this call, "auto-translate" detects and translates
     /// to English.
@@ -129,6 +139,56 @@ impl WhisperEngine {
         })
         .await
     }
+
+    /// One call of the measurement kit's reference (`crate::measure`, #62's
+    /// REF-u): the pass's beam search on one utterance, without timestamps,
+    /// so that the model reads it as one text. A beam's KV cache that cannot
+    /// be allocated fails the call instead of turning the decoding greedy,
+    /// so a reference never mixes decodings. The text skips the pass's
+    /// repetition cleanup: the kit reports the repeats a reference has
+    /// instead of hiding them.
+    #[cfg(test)]
+    pub(crate) async fn reference_text(
+        &self,
+        samples: &[f32],
+        language: Option<&str>,
+        initial_prompt: Option<&str>,
+    ) -> Result<String> {
+        self.with_loaded_context(|ctx| {
+            let prompt_tokens = WhisperEngine::tokenize_initial_prompt(ctx, initial_prompt)?;
+            let params = piece_params(WhisperDecoding::POST_MEETING, &prompt_tokens, language, false);
+            let texts = decode_on_new_state(ctx, params, samples, |state| {
+                state
+                    .as_iter()
+                    .filter_map(|segment| segment.to_str_lossy().ok().map(|text| text.trim().to_string()))
+                    .filter(|text| !text.is_empty())
+                    .collect::<Vec<_>>()
+            })?
+            .ok_or_else(|| anyhow!("whisper.cpp could not allocate the KV cache for the reference's beam"))?;
+            Ok(texts.join(" "))
+        })
+        .await
+    }
+}
+
+/// One call on a new state, its result read by `read`; `None` when
+/// whisper.cpp could not allocate the KV cache for the decoders, in which case
+/// the state is leaked (see [`KV_CACHE_RECREATE_FAILED`]).
+fn decode_on_new_state<T>(
+    ctx: &WhisperContext,
+    params: FullParams,
+    samples: &[f32],
+    read: impl FnOnce(&WhisperState) -> T,
+) -> Result<Option<T>> {
+    let mut state = ctx.create_state()?;
+    match state.full(params, samples) {
+        Ok(_) => Ok(Some(read(&state))),
+        Err(WhisperError::GenericError(KV_CACHE_RECREATE_FAILED)) => {
+            std::mem::forget(state);
+            Ok(None)
+        }
+        Err(error) => Err(anyhow!("decoding a {:.1}s piece failed: {error}", samples.len() as f64 / 16_000.0)),
+    }
 }
 
 fn transcribe_piece_with(
@@ -140,11 +200,9 @@ fn transcribe_piece_with(
 ) -> Result<Vec<TimedText>> {
     let prompt_tokens = WhisperEngine::tokenize_initial_prompt(ctx, initial_prompt)?;
     loop {
-        let mut state = ctx.create_state()?;
-        match state.full(piece_params(*decoding, &prompt_tokens, language), samples) {
-            Ok(_) => return Ok(timed_segments(&state)),
-            Err(WhisperError::GenericError(KV_CACHE_RECREATE_FAILED)) => {
-                std::mem::forget(state);
+        match decode_on_new_state(ctx, piece_params(*decoding, &prompt_tokens, language, true), samples, timed_segments)? {
+            Some(segments) => return Ok(segments),
+            None => {
                 if *decoding == WhisperDecoding::Greedy {
                     return Err(anyhow!("whisper.cpp could not allocate the KV cache for one decoder"));
                 }
@@ -157,9 +215,6 @@ fn transcribe_piece_with(
                 }
                 *decoding = WhisperDecoding::Greedy;
             }
-            Err(error) => {
-                return Err(anyhow!("decoding a {:.1}s piece failed: {error}", samples.len() as f64 / 16_000.0));
-            }
         }
     }
 }
@@ -168,12 +223,13 @@ fn piece_params<'a, 'b>(
     decoding: WhisperDecoding,
     prompt_tokens: &'b [whisper_rs::WhisperTokenId],
     language: Option<&'a str>,
+    timestamps: bool,
 ) -> FullParams<'a, 'b> {
     let mut params = decoding.call_params(language);
     if !prompt_tokens.is_empty() {
         params.set_tokens(prompt_tokens);
     }
-    params.set_no_timestamps(false);
+    params.set_no_timestamps(!timestamps);
     params
 }
 

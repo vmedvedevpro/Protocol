@@ -1117,83 +1117,19 @@ pub async fn diarize_meeting(
                 };
 
                 let dual_result = (|| -> Result<DiarizationResult> {
-                    let remote_count = num_speakers.map(|k| k.saturating_sub(1).max(1));
-
                     if engine_for_blocking.eq_ignore_ascii_case("nemotron") {
                         let config = get_diarization_config();
-                        let max_spks = num_speakers.unwrap_or(config.nemotron_max_speakers);
-                        let thresh = threshold.unwrap_or(config.nemotron_threshold);
                         let model_path = diarization_user_model_dir().join(nemotron::NEMOTRON_MODEL_FILENAME);
-                        let mut nemotron_model = nemotron::NemotronDiarizationModel::new(&model_path, max_spks, thresh)?;
-
-                        let (mic_samples, mic_sr) = dsp::read_wav(&mic_wav)?;
-                        let mic_result = nemotron_model.diarize(&mic_samples, mic_sr)?;
-
-                        nemotron_model.reset_streaming_state();
-                        let system_result = if num_speakers == Some(1) {
-                            DiarizationResult {
-                                segments: Vec::new(),
-                                num_speakers: 0,
-                                duration: mic_result.duration,
-                                user_speaker: None,
-                            }
-                        } else {
-                            let (sys_samples, sys_sr) = dsp::read_wav(&system_wav)?;
-                            nemotron_model.diarize(&sys_samples, sys_sr)?
-                        };
-
-                        let mut segments: Vec<DiarizationSegment> = mic_result
-                            .segments
-                            .into_iter()
-                            .map(|mut s| {
-                                s.speaker = 0;
-                                s
-                            })
-                            .collect();
-                        segments.extend(system_result.segments.into_iter().map(|mut s| {
-                            s.speaker += 1;
-                            s
-                        }));
-                        segments.sort_by(|a, b| {
-                            a.start.partial_cmp(&b.start).unwrap_or(std::cmp::Ordering::Equal)
-                        });
-
-                        let snapshot = segments.clone();
-                        for seg in &mut segments {
-                            if snapshot.iter().any(|other| {
-                                other.speaker != seg.speaker
-                                    && other.start < seg.end
-                                    && other.end > seg.start
-                            }) {
-                                seg.overlapped = true;
-                            }
-                        }
-
-                        let num_remote = system_result.num_speakers;
-                        let duration = mic_result.duration.max(system_result.duration);
-                        return Ok(DiarizationResult {
-                            segments,
-                            num_speakers: 1 + num_remote,
-                            duration,
-                            user_speaker: Some(0),
-                        });
+                        let engine = TrackEngine::Nemotron { model: &model_path, config: &config };
+                        return diarize_track_wavs(engine, &mic_wav, &system_wav, num_speakers, threshold);
                     }
 
                     // Pyannote dual track path
                     let model_dir = diarization_model_dir();
                     let mic_embeddings = embeddings_for_debug(&mic_wav, &model_dir).ok();
 
-                    let mic_result = diarize_file_with_models(&mic_wav, &model_dir, Some(1), threshold)?;
-                    let system_result = if num_speakers == Some(1) {
-                        DiarizationResult {
-                            segments: Vec::new(),
-                            num_speakers: 0,
-                            duration: mic_result.duration,
-                            user_speaker: None,
-                        }
-                    } else {
-                        diarize_file_with_models(&system_wav, &model_dir, remote_count, threshold)?
-                    };
+                    let engine = TrackEngine::Pyannote { models: &model_dir };
+                    let result = diarize_track_wavs(engine, &mic_wav, &system_wav, num_speakers, threshold)?;
                     if let Some(embeddings) = mic_embeddings {
                         let labels = clustering::agglomerative(
                             &embeddings,
@@ -1216,45 +1152,7 @@ pub async fn diarize_meeting(
                         }
                     }
 
-                    // Speaker 0 is always You; remote speakers begin at 1.
-                    let mut segments: Vec<DiarizationSegment> = mic_result
-                        .segments
-                        .into_iter()
-                        .map(|mut s| {
-                            s.speaker = 0;
-                            s
-                        })
-                        .collect();
-                    segments.extend(system_result.segments.into_iter().map(|mut s| {
-                        s.speaker += 1;
-                        s
-                    }));
-                    segments.sort_by(|a, b| {
-                        a.start
-                            .partial_cmp(&b.start)
-                            .unwrap_or(std::cmp::Ordering::Equal)
-                    });
-
-                    // Cross-track overlap means local + remote speech at once.
-                    let snapshot = segments.clone();
-                    for seg in &mut segments {
-                        if snapshot.iter().any(|other| {
-                            other.speaker != seg.speaker
-                                && other.start < seg.end
-                                && other.end > seg.start
-                        }) {
-                            seg.overlapped = true;
-                        }
-                    }
-
-                    let num_remote = system_result.num_speakers;
-                    let duration = mic_result.duration.max(system_result.duration);
-                    Ok(DiarizationResult {
-                        segments,
-                        num_speakers: 1 + num_remote,
-                        duration,
-                        user_speaker: Some(0),
-                    })
+                    Ok(result)
                 })();
 
                 let profile_names = match &dual_result {
@@ -1468,49 +1366,11 @@ pub async fn diarize_meeting(
 
         // Generated labels are not durable capture-source provenance. Preserve
         // source hints without excluding genuine simultaneous speakers.
-        let relevant_segments: Vec<&DiarizationSegment> = result
-            .segments
-            .iter()
-            .filter(|seg| {
-                let ov = seg.end.min(e) - seg.start.max(s);
-                ov > 0.0
-            })
-            .collect();
-
         // Diarization updates labels only. Text length cannot establish word
         // alignment, and reruns must preserve every transcript byte and timing.
         {
-            let mut overlap_by_speaker: std::collections::HashMap<usize, f32> =
-                std::collections::HashMap::new();
-            for seg in &relevant_segments {
-                let ov = seg.end.min(e) - seg.start.max(s);
-                if ov > 0.0 {
-                    *overlap_by_speaker.entry(seg.speaker).or_insert(0.0) += ov;
-                }
-            }
-
-            if let Some((&primary, _)) = overlap_by_speaker
-                .iter()
-                .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
-            {
-                let cutoff = (overlap_by_speaker[&primary] * 0.20).max(0.08);
-                let mut speakers = vec![primary];
-                for (&other, &other_ov) in &overlap_by_speaker {
-                    if other != primary && other_ov >= cutoff {
-                        let has_simultaneous = relevant_segments.iter().any(|a| {
-                            a.speaker == primary
-                                && relevant_segments.iter().any(|b| {
-                                    b.speaker == other
-                                        && a.end.min(b.end).min(e) - a.start.max(b.start).max(s)
-                                            >= 0.08
-                                })
-                        });
-                        if has_simultaneous {
-                            speakers.push(other);
-                        }
-                    }
-                }
-
+            let mut speakers = row_speakers(&result.segments, s, e);
+            if !speakers.is_empty() {
                 speakers.sort_unstable();
                 let mut labels: Vec<_> = speakers.into_iter().map(&speaker_label).collect();
                 apply_source_track_hint(existing.as_deref(), used_source_tracks, num_speakers != Some(1), &mut labels);
@@ -1630,6 +1490,152 @@ pub async fn diarize_meeting(
         labeled: assignments.len(),
         assignments,
     })
+}
+
+/// The engine [`diarize_track_wavs`] runs, with its model.
+pub(crate) enum TrackEngine<'a> {
+    /// The `.onnx` file; its speaker limit and threshold come from `config`
+    /// unless the caller gives them.
+    Nemotron { model: &'a Path, config: &'a DiarizationConfig },
+    /// The folder with the Pyannote models.
+    Pyannote { models: &'a Path },
+}
+
+/// The timeline of a recording with separate tracks, from a WAV of each:
+/// Nemotron runs one model over both and resets its streaming state in
+/// between; Pyannote is told the microphone has one speaker and the system
+/// track `num_speakers - 1`; with `num_speakers` one, the system track is not
+/// diarized. Then [`merge_tracks`]. `diarize_meeting` calls it, and so does
+/// the measurement kit (`crate::measure`), so that the kit's speaker numbers
+/// are the app's.
+pub(crate) fn diarize_track_wavs(
+    engine: TrackEngine,
+    mic_wav: &Path,
+    system_wav: &Path,
+    num_speakers: Option<usize>,
+    threshold: Option<f32>,
+) -> Result<DiarizationResult> {
+    let remote_count = num_speakers.map(|k| k.saturating_sub(1).max(1));
+    let no_system_speakers = |mic: &DiarizationResult| DiarizationResult {
+        segments: Vec::new(),
+        num_speakers: 0,
+        duration: mic.duration,
+        user_speaker: None,
+    };
+
+    match engine {
+        TrackEngine::Nemotron { model, config } => {
+            let max_spks = num_speakers.unwrap_or(config.nemotron_max_speakers);
+            let thresh = threshold.unwrap_or(config.nemotron_threshold);
+            let mut nemotron_model = nemotron::NemotronDiarizationModel::new(model, max_spks, thresh)?;
+
+            let (mic_samples, mic_sr) = dsp::read_wav(mic_wav)?;
+            let mic_result = nemotron_model.diarize(&mic_samples, mic_sr)?;
+
+            nemotron_model.reset_streaming_state();
+            let system_result = if num_speakers == Some(1) {
+                no_system_speakers(&mic_result)
+            } else {
+                let (sys_samples, sys_sr) = dsp::read_wav(system_wav)?;
+                nemotron_model.diarize(&sys_samples, sys_sr)?
+            };
+            Ok(merge_tracks(mic_result, system_result))
+        }
+        TrackEngine::Pyannote { models } => {
+            let mic_result = diarize_file_with_models(mic_wav, models, Some(1), threshold)?;
+            let system_result = if num_speakers == Some(1) {
+                no_system_speakers(&mic_result)
+            } else {
+                diarize_file_with_models(system_wav, models, remote_count, threshold)?
+            };
+            Ok(merge_tracks(mic_result, system_result))
+        }
+    }
+}
+
+/// The timeline of a recording with separate tracks: all the microphone's
+/// speech is the user (speaker 0) and the system track's speakers follow from
+/// 1, in start order. A turn that overlaps another speaker's is marked
+/// overlapped; across the tracks that is local and remote speech at once.
+fn merge_tracks(mic: DiarizationResult, system: DiarizationResult) -> DiarizationResult {
+    let num_speakers = 1 + system.num_speakers;
+    let duration = mic.duration.max(system.duration);
+    let mut segments: Vec<DiarizationSegment> = mic
+        .segments
+        .into_iter()
+        .map(|mut s| {
+            s.speaker = 0;
+            s
+        })
+        .collect();
+    segments.extend(system.segments.into_iter().map(|mut s| {
+        s.speaker += 1;
+        s
+    }));
+    segments.sort_by(|a, b| a.start.partial_cmp(&b.start).unwrap_or(std::cmp::Ordering::Equal));
+
+    let snapshot = segments.clone();
+    for seg in &mut segments {
+        if snapshot
+            .iter()
+            .any(|other| other.speaker != seg.speaker && other.start < seg.end && other.end > seg.start)
+        {
+            seg.overlapped = true;
+        }
+    }
+    DiarizationResult { segments, num_speakers, duration, user_speaker: Some(0) }
+}
+
+/// The diarized speakers of the transcript row from `s` to `e` (seconds),
+/// the one who overlaps it most first, then each other speaker who overlaps
+/// it for at least a fifth of that (and 80 ms) and talks at the same time as
+/// the first for 80 ms inside it, in speaker order. Of speakers who overlap it
+/// equally, the lower index comes first, so a row's speakers do not change
+/// between runs. Empty when no diarized speech overlaps the row. pub(crate)
+/// for the measurement kit (`crate::measure`), which labels rows as
+/// `diarize_meeting` does.
+pub(crate) fn row_speakers(segments: &[DiarizationSegment], s: f32, e: f32) -> Vec<usize> {
+    let relevant_segments: Vec<&DiarizationSegment> = segments
+        .iter()
+        .filter(|seg| {
+            let ov = seg.end.min(e) - seg.start.max(s);
+            ov > 0.0
+        })
+        .collect();
+
+    let mut overlap_by_speaker: std::collections::BTreeMap<usize, f32> =
+        std::collections::BTreeMap::new();
+    for seg in &relevant_segments {
+        let ov = seg.end.min(e) - seg.start.max(s);
+        if ov > 0.0 {
+            *overlap_by_speaker.entry(seg.speaker).or_insert(0.0) += ov;
+        }
+    }
+
+    // `max_by` keeps the last of equal maxima; the reversed index makes it the lowest.
+    let Some((&primary, _)) = overlap_by_speaker.iter().max_by(|a, b| {
+        a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal).then_with(|| b.0.cmp(a.0))
+    }) else {
+        return Vec::new();
+    };
+    let cutoff = (overlap_by_speaker[&primary] * 0.20).max(0.08);
+    let mut speakers = vec![primary];
+    for (&other, &other_ov) in &overlap_by_speaker {
+        if other != primary && other_ov >= cutoff {
+            let has_simultaneous = relevant_segments.iter().any(|a| {
+                a.speaker == primary
+                    && relevant_segments.iter().any(|b| {
+                        b.speaker == other
+                            && a.end.min(b.end).min(e) - a.start.max(b.start).max(s)
+                                >= 0.08
+                    })
+            });
+            if has_simultaneous {
+                speakers.push(other);
+            }
+        }
+    }
+    speakers
 }
 
 async fn persist_speaker_labels(
@@ -1888,6 +1894,50 @@ mod tests {
         assert_eq!(parsed("Sync_2026-09-01_10-00-05-123_2"), expect("Sync", "2026-09-01T10:00:05.123+00:00"));
         assert_eq!(parsed("Weekly Beats"), None);
         assert_eq!(parsed("Live_2019_Remastered"), None);
+    }
+
+    #[test]
+    fn a_row_takes_its_main_speaker_and_those_talking_over_them() {
+        let turn = |start: f32, end: f32, speaker: usize| DiarizationSegment { start, end, speaker, overlapped: false };
+        // Speaker 1 talks over speaker 0; speaker 2 follows without overlap.
+        let segments = [turn(0.0, 6.0, 0), turn(4.0, 6.0, 1), turn(6.0, 9.0, 2)];
+
+        assert_eq!(row_speakers(&segments, 0.0, 6.0), vec![0, 1]);
+        // Speaker 2 overlaps the row for more than a fifth of speaker 0's
+        // time, but never at the same time.
+        assert_eq!(row_speakers(&segments, 0.0, 9.0)[0], 0);
+        assert!(!row_speakers(&segments, 0.0, 9.0).contains(&2));
+        assert_eq!(row_speakers(&segments, 6.5, 9.0), vec![2]);
+        assert!(row_speakers(&segments, 10.0, 12.0).is_empty());
+    }
+
+    #[test]
+    fn speakers_who_cover_a_row_equally_come_in_index_order() {
+        let turn = |start: f32, end: f32, speaker: usize| DiarizationSegment { start, end, speaker, overlapped: false };
+        // Three speakers talk over the whole row.
+        let segments = [turn(0.0, 4.0, 2), turn(0.0, 4.0, 0), turn(0.0, 4.0, 1)];
+        for _ in 0..20 {
+            assert_eq!(row_speakers(&segments, 1.0, 3.0), vec![0, 1, 2]);
+        }
+    }
+
+    #[test]
+    fn two_tracks_merge_into_the_user_and_the_remote_speakers() {
+        let turn = |start: f32, end: f32, speaker: usize| DiarizationSegment { start, end, speaker, overlapped: false };
+        let result = |segments: Vec<DiarizationSegment>, num_speakers: usize, duration: f32| DiarizationResult {
+            segments,
+            num_speakers,
+            duration,
+            user_speaker: None,
+        };
+        // The microphone's diarizer split the user in two; the system track has two speakers.
+        let mic = result(vec![turn(0.0, 2.0, 0), turn(5.0, 6.0, 1)], 2, 10.0);
+        let system = result(vec![turn(1.5, 4.0, 0), turn(7.0, 9.0, 1)], 2, 12.0);
+
+        let merged = merge_tracks(mic, system);
+        let timeline: Vec<(f32, usize, bool)> = merged.segments.iter().map(|s| (s.start, s.speaker, s.overlapped)).collect();
+        assert_eq!(timeline, [(0.0, 0, true), (1.5, 1, true), (5.0, 0, false), (7.0, 2, false)]);
+        assert_eq!((merged.num_speakers, merged.duration, merged.user_speaker), (3, 12.0, Some(0)));
     }
 
     #[test]
