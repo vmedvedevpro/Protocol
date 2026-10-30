@@ -262,7 +262,10 @@ The post-meeting pass (`run_retranscription` and the import) shares
 batch VAD without its continuous-speech cap (`vad_cap`,
 `ContinuousSpeechCap::PauseToPause`). A piece over 25 s is cut at the quietest
 100 ms within 3 s of each 25 s mark (`split_segment_at_silence`; that point is
-silent only when the recording has a pause there). Both loops transcribe a
+silent only when the recording has a pause there), except where less than 2 s
+would remain: the VAD keeps 2 s of non-speech at a piece's end, so that rest
+would hold no speech, and it stays with the piece, still under Whisper's 30 s
+window. Both loops transcribe a
 piece through `PieceTranscriber`. With Whisper, the pieces of a pass go through
 one `PostMeetingWhisper` (`whisper_engine/post_meeting.rs`: a new whisper.cpp
 state per piece, timestamps on, beam search 5 at temperature 0), and every
@@ -288,7 +291,8 @@ measured. Unit tests: `audio::post_meeting::tests` (VAD cap per engine, skips,
 rows from Whisper segments, merged repeats, which settings detect once,
 detection audio and threshold), `whisper_engine::decoding::tests` (the
 decodings and shared parameters as whisper.cpp receives them, the language
-mapping) and `audio::common::tests::a_long_piece_without_silence_is_cut_at_its_quietest_point`.
+mapping) and `audio::common::tests` (the cut at the quietest point, no cut in
+a piece's trailing silence).
 
 Known limits of the post-meeting Whisper pass:
 

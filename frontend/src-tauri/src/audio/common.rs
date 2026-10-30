@@ -307,7 +307,7 @@ pub(crate) fn write_transcripts_json(folder: &Path, segments: &[TranscriptSegmen
 /// split point and cuts at the centre of the quietest one, silent or not. The next
 /// piece starts at the cut, so there is no overlap: cutting 1 s after the quietest
 /// point when nothing was silent, as this did before #62, only moved the cut into
-/// speech.
+/// speech. A cut that would leave less than 2 s is not made (see `MIN_REST`).
 pub(crate) fn split_segment_at_silence(
     segment: &crate::audio::vad::SpeechSegment,
     max_samples: usize,
@@ -319,6 +319,15 @@ pub(crate) fn split_segment_at_silence(
     const SEARCH_RADIUS: usize = SAMPLE_RATE * 3;
     // RMS threshold below which we consider a window "silent" (only logged)
     const SILENCE_RMS_THRESHOLD: f32 = 0.02;
+    // A cut that would leave less than this is not made. The batch VAD ends a
+    // piece only after 2 s of non-speech (the import's and the
+    // retranscription's redemption time) and keeps those samples, so the
+    // quietest window of a 25-30 s piece usually lies there, and the rest would
+    // hold no speech; decoded alone, it invites a hallucinated row. The rest
+    // stays with the piece instead: a cut lies at most SEARCH_RADIUS past
+    // max_samples, so the piece stays under Whisper's 30 s window for the
+    // callers' 25 s.
+    const MIN_REST: usize = SAMPLE_RATE * 2;
 
     let total = segment.samples.len();
     if total <= max_samples {
@@ -384,11 +393,20 @@ pub(crate) fn split_segment_at_silence(
             );
         }
 
-        let chunk_end = split_at;
+        let chunk_end = if total - split_at < MIN_REST {
+            debug!("Keeping the last {} samples with the piece instead of cutting there", total - split_at);
+            total
+        } else {
+            split_at
+        };
 
         let chunk_samples = segment.samples[pos..chunk_end].to_vec();
         let chunk_start_ms = segment.start_timestamp_ms + (pos as f64 * ms_per_sample);
-        let chunk_end_ms = segment.start_timestamp_ms + (chunk_end as f64 * ms_per_sample);
+        let chunk_end_ms = if chunk_end == total {
+            segment.end_timestamp_ms
+        } else {
+            segment.start_timestamp_ms + (chunk_end as f64 * ms_per_sample)
+        };
 
         result.push(crate::audio::vad::SpeechSegment {
             samples: chunk_samples,
@@ -430,6 +448,26 @@ mod tests {
         assert_eq!(pieces[0].samples.len() + pieces[1].samples.len(), segment.samples.len());
         assert_eq!(pieces[0].end_timestamp_ms, 27_050.0);
         assert_eq!(pieces[1].start_timestamp_ms, 27_050.0);
+    }
+
+    #[test]
+    fn a_piece_is_not_cut_in_its_trailing_silence() {
+        // 25.5 s of speech level, then the 1.5 s of silence the VAD keeps
+        // before it ends a piece; the quietest window lies in that silence.
+        let mut samples: Vec<f32> = (0..27 * 16_000).map(|i| if i % 2 == 0 { 0.3 } else { -0.3 }).collect();
+        for sample in &mut samples[408_000..] {
+            *sample = 0.0;
+        }
+        let segment = crate::audio::vad::SpeechSegment {
+            samples,
+            start_timestamp_ms: 0.0,
+            end_timestamp_ms: 27_000.0,
+            confidence: 0.9,
+        };
+        let pieces = split_segment_at_silence(&segment, 25 * 16_000);
+        assert_eq!(pieces.len(), 1);
+        assert_eq!(pieces[0].samples.len(), segment.samples.len());
+        assert_eq!(pieces[0].end_timestamp_ms, 27_000.0);
     }
 
     #[tokio::test]

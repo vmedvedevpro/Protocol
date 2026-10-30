@@ -1265,8 +1265,8 @@ mod tests {
     }
 
     #[test]
-    fn test_split_segment_at_silence_no_silence_uses_overlap() {
-        // Continuous speech (constant energy) — should still split with overlap
+    fn test_split_segment_at_silence_no_silence_keeps_every_sample() {
+        // Continuous speech (constant energy) — still split, without overlap
         let segment = crate::audio::vad::SpeechSegment {
             samples: vec![0.5f32; 60 * 16000], // 60 seconds of "speech"
             start_timestamp_ms: 0.0,
@@ -1277,9 +1277,9 @@ mod tests {
         let result = split_segment_at_silence(&segment, 25 * 16000);
         assert!(result.len() >= 2);
 
-        // Total samples should exceed input due to overlap
+        // The pieces follow each other: every sample once
         let total_samples: usize = result.iter().map(|s| s.samples.len()).sum();
-        assert!(total_samples >= 60 * 16000, "Overlap should not lose samples");
+        assert_eq!(total_samples, 60 * 16000, "Pieces should neither lose nor repeat samples");
     }
 
     #[test]
