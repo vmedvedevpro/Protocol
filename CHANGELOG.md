@@ -34,7 +34,8 @@ is inherited from the project Protocol forked from; Protocol did not release it.
   ([#62](https://github.com/vmedvedevpro/Protocol/issues/62)): it takes the
   most likely words instead of the slightly randomized choice it used on every
   hardware tier, whatever setting the tier named. On the meeting it was checked
-  on, the text was as accurate and came about 7 % faster.
+  on, the text was as accurate and came about 7 % faster. Long live lines no
+  longer break inside a word.
 
 ## Protocol 0.4.2 — 2026-10-29
 

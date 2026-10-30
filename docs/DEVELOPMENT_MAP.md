@@ -259,27 +259,47 @@ saves the **post-call** default; it must not replace the live Parakeet selection
 
 The post-meeting pass (`run_retranscription` and the import) shares
 `audio/post_meeting.rs` (#62). With Whisper it cuts each track at pauses: the
-batch VAD without its continuous-speech cap (`vad_max_speech_ms`; pieces over
-25 s are still split at silence). Each piece goes to
-`WhisperEngine::transcribe_piece` (`whisper_engine/post_meeting.rs`: timestamps
-on, beam search 5 at temperature 0, wraps only before a word), and every Whisper
-segment becomes a row with its own start and end (`whisper_rows`). A segment
-without duration joins its neighbour, because diarization clears the label of a
-row without duration. Diarization then labels these sentence-sized rows by
+batch VAD without its continuous-speech cap (`vad_cap`,
+`ContinuousSpeechCap::PauseToPause`). A piece over 25 s is cut at the quietest
+100 ms within 3 s of each 25 s mark (`split_segment_at_silence`; that point is
+silent only when the recording has a pause there). Both loops transcribe a
+piece through `PieceTranscriber`. With Whisper, the pieces of a pass go through
+one `PostMeetingWhisper` (`whisper_engine/post_meeting.rs`: a new whisper.cpp
+state per piece, timestamps on, beam search 5 at temperature 0), and every
+Whisper segment becomes a row with its own start and end. A segment without
+duration joins its neighbour, because diarization clears the label of a row
+without duration, and consecutive rows with the same words merge
+(`merge_repeated_rows`). Diarization then labels these sentence-sized rows by
 overlap as before, and a rerun still changes labels only. Parakeet keeps the
 capped pieces and one row per piece. Both engines skip the same short or silent
 pieces (`skip_reason`). With the language on Auto (`None` or `"auto"`; not
 `"auto-translate"`), Whisper detects it once per retained track on up to 30 s of
-the track's longest pieces (`detect_once`, `detect_per_track`) and uses it for
-the whole track when its probability is above 0.5; otherwise the track keeps
-per-call detection. A track whose speakers switch language mid-meeting is then
-transcribed in one language. Live transcription keeps its pieces and calls;
-only its decoding changed (greedy at temperature 0, see below). See
-[Whisper engine](#whisper-engine) for why and what was measured. Unit tests:
-`audio::post_meeting::tests` (VAD cap per engine, skips, rows from Whisper
-segments, which settings detect once, detection audio and threshold) and
-`whisper_engine::decoding::tests` (the live and post-meeting decodings as
-whisper.cpp receives them).
+the track's most energetic pieces (`detection_audio`, `detect_once`,
+`detect_per_track`) and uses it for the whole track when its probability is
+above 0.5; otherwise the track keeps per-call detection. Both loops check for
+Cancel before the detection. A track whose speakers switch language mid-meeting
+is then transcribed in one language. Live transcription keeps its pieces and
+calls; its decoding is greedy at temperature 0, and every Whisper call shares
+its language mapping, thresholds and output wrap (`WhisperDecoding::call_params`,
+see below). See [Whisper engine](#whisper-engine) for why and what was
+measured. Unit tests: `audio::post_meeting::tests` (VAD cap per engine, skips,
+rows from Whisper segments, merged repeats, which settings detect once,
+detection audio and threshold), `whisper_engine::decoding::tests` (the
+decodings and shared parameters as whisper.cpp receives them, the language
+mapping) and `audio::common::tests::a_long_piece_without_silence_is_cut_at_its_quietest_point`.
+
+Known limits of the post-meeting Whisper pass:
+
+- The English silence-hallucination filter in retranscription still judges a
+  whole piece (its joined rows and its RMS), so a quiet "Thank you." that
+  Whisper writes as the last segment of a longer piece stays as a row; with
+  6 s pieces such a tail more often formed a piece of its own and was dropped.
+- If Turbo closes a segment with a single timestamp and then ends the text
+  before the piece ends, whisper.cpp treats the rest as silence and stops
+  (`single_timestamp_ending`); so does a segment closed long after its last
+  word. The rest of the piece is then lost. On the measured span the second
+  form caused the four largest remaining losses (14–21 words); the first was
+  seen only on joined test windows.
 
 ### Audio import and the recordings folder
 
@@ -698,9 +718,14 @@ what Protocol does about it:
   stretches of 14–21 words. Keeping the 6 s cap with timestamps measured 0.250
   but cut words at the cuts, brought back subtitle-credit hallucinations on
   short noisy pieces and took 196 s; pause-bounded pieces without timestamps
-  measured 0.333. Beam search 5 at temperature 0 is deterministic (a repeat run
-  gave identical text); greedy at temperature 0 was about as accurate and
-  took 22 % less time but fell into a one-word repetition loop on one piece;
+  measured 0.333. Beam search 5 at temperature 0 repeats its text on the same
+  audio (a repeat run gave identical text), but only on a new state:
+  whisper.cpp's beam draws its candidates from each decoder's sampler, not the
+  top ones (`whisper_sample_token_topk`), and decoder 0's sampler is seeded
+  only when a state is created, so a state shared between pieces would make a
+  piece's text depend on the pieces before it (the same audio decoded twice on
+  one state ended two segments 20 ms apart). Greedy at temperature 0, which
+  takes the most likely token, was about as accurate and took 22 % less time but fell into a one-word repetition loop on one piece;
   sampling at 0.2 measured 0.286. Rows are Whisper's segments (median 6.9 s,
   at most 22 s on that span). On the system track of a second meeting with
   several remote speakers, 13 % of the rows contained another diarized speaker
@@ -713,18 +738,25 @@ what Protocol does about it:
   track's language is used only above probability 0.5, so an unclear
   detection keeps per-call detection (`audio/post_meeting.rs`).
 - Beam search with more than one decoder makes `whisper_full_with_state`
-  re-create the KV cache for them in each call. If that allocation fails it
-  frees the caller's state and returns -7 (still so in whisper.cpp 1.9.5),
-  and whisper-rs frees the state again on drop; `transcribe_piece` leaks the
-  state on -7 instead. The live calls' single decoder never re-creates it.
-- Post-meeting output segments wrap at 200 bytes (`max_len` counts bytes) only
+  grow the new state's KV cache to 7 decoder slots (beam 5 plus 2 against
+  fragmentation: about 73 MB for Turbo, 587 MB for Large V3), once per piece.
+  If the allocation fails, whisper.cpp frees the caller's state and returns -7
+  (still so in whisper.cpp 1.9.5), and whisper-rs would free the state again
+  on drop. `PostMeetingWhisper` leaks the state instead and decodes that piece
+  and the rest of the pass greedily with one decoder, which never grows the
+  cache, so the pass neither fails nor asks again. The leak also keeps the
+  model loaded until the app restarts: a whisper-rs state holds a reference to
+  its model context, so unloading or switching the model then frees nothing.
+  The live calls' single decoder never grows the cache.
+- Every Whisper call's output wraps at 200 bytes (`max_len` counts bytes) only
   before a word (`split_on_word`); a byte wrap inside a Cyrillic word would
-  split it across two rows. The live calls keep the byte wrap.
+  split it in two.
 
 The ignored test `an_installed_model_loads_and_transcribes` loads a model
 (`PROTOCOL_WHISPER_TEST_MODEL`, read only) and transcribes a 16 kHz mono WAV
 (`PROTOCOL_WHISPER_TEST_WAV`, optional `PROTOCOL_WHISPER_TEST_LANGUAGE`) on the
-build's backend, through the live call and through `transcribe_piece`. Windows Vulkan builds need a short cargo target dir
+build's backend, through the live call and through `PostMeetingWhisper` (twice
+on one pass, which must give the same rows). Windows Vulkan builds need a short cargo target dir
 ([BUILDING.md](BUILDING.md#build-from-source-windows)).
 
 ### Windows installer

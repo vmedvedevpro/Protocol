@@ -124,10 +124,11 @@ the frontend meter.
 - Live VAD segments are capped at 3.5 or 6 s (bounded buffers, online
   diarization). After the meeting, Whisper gets pieces that run from pause to
   pause (the batch VAD without the cap, `audio/post_meeting.rs`; over 25 s they
-  are split at silence), decodes them with timestamps, and each Whisper segment
-  becomes a transcript row with its own times. Without timestamps Large V3
-  Turbo ends windows of more than about 12 s early and the rest is lost (#62;
-  see the development map's Whisper engine notes). Parakeet keeps the capped
+  are cut at their quietest point near each 25 s mark), decodes them with
+  timestamps, and each Whisper segment becomes a transcript row with its own
+  times. Without timestamps Large V3 Turbo ends windows of more than about
+  12 s early and the rest is lost (#62; see the development map's Whisper
+  engine notes). Parakeet keeps the capped
   pieces, one row each. With the language on Auto, the post-meeting Whisper pass
   detects it once per retained track when the detection is confident, so a
   track that switches language mid-meeting is transcribed in one language; live

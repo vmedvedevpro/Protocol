@@ -25,7 +25,7 @@ use crate::whisper_engine::{TimedText, WhisperEngine};
 /// live buffer and gives text and online diarization a turn every few seconds.
 /// The batch path inherited it from the VAD constructor. None of those reasons
 /// holds for Whisper after the meeting: the file is already in memory, Whisper
-/// reads 30 s at a time (pieces over 25 s are still split at silence), and the
+/// reads 30 s at a time (pieces over 25 s are cut at their quietest point), and the
 /// rows come from Whisper's own segments, not from the pieces. A cut inside
 /// continuous speech can only lose or double a word, so Whisper gets no cap.
 /// Parakeet keeps it: its rows are whole pieces, and it was not measured on
