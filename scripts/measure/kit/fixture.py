@@ -6,9 +6,11 @@ sentences; FLEURS does not say which reader read what, only the reader's gender.
 
 A fixture alternates women's and men's readings, so neighbouring sentences come from different voices. Every
 sentence is scaled to the same peak and cut to its speech. They are laid out in groups of three: inside a group the
-gaps are shorter than the batch VAD's 2 s redemption time, so a group is one piece of about 30 s with changes of voice
-inside it, which the post-meeting pass cuts at 25 s; between groups the gaps are longer, so pieces end there. The
-reference is FLEURS's transcripts with the times of the layout.
+gaps are shorter than the batch VAD's 2 s redemption time, so a group is mostly one piece of 25–34 s with changes of
+voice inside it; between groups the gaps are longer, so pieces end there. The post-meeting pass cuts a piece over
+25 s at its quietest point unless that point lies in its last 2 s: on Russian the VAD finds five pieces over 25 s
+and the pass cuts three, on English (where the VAD ends a few pieces inside a group) two and one. The reference is
+FLEURS's transcripts with the times of the layout.
 
 The downloads are pinned to one commit of the dataset with their sizes and SHA-256 and kept in a cache; the
 assembled audio is checked against its own SHA-256, so every machine measures the same file. Nothing here is
