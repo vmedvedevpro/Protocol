@@ -120,6 +120,23 @@ fn publish(shared: &Arc<(Mutex<Timeline>, Condvar)>, segments: Vec<StreamingSpea
     Ok(())
 }
 
+/// A session on the model file without an app, for the live-meeting probe of
+/// `measure::npu` (#80): it feeds audio as the pipeline does and reads labels
+/// as the transcription worker does; failures go to `notify`. Test builds only.
+#[cfg(test)]
+pub(crate) fn start_for_measure(
+    path: &std::path::Path,
+    threshold: f32,
+    notify: Arc<dyn Fn(String) + Send + Sync>,
+) -> Result<()> {
+    stop();
+    let mut model = NemotronDiarizationModel::new(path, 8, threshold)?;
+    model.enable_live_streaming()?;
+    let session = spawn_session(model, notify)?;
+    *SESSION.lock().map_err(|_| anyhow!("Live Nemotron lock poisoned"))? = Some(session);
+    Ok(())
+}
+
 pub fn active() -> bool { SESSION.lock().map(|s| s.is_some()).unwrap_or(false) }
 
 pub fn feed(start: u64, samples: &[f32]) {

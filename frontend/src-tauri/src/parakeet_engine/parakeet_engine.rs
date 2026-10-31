@@ -496,6 +496,24 @@ impl ParakeetEngine {
         Ok(result.text)
     }
 
+    /// The NPU probe's hooks into the loaded model (#80): another encoder
+    /// session, and the static feature length it was compiled for. Test
+    /// builds only.
+    #[cfg(test)]
+    pub(crate) async fn replace_encoder(
+        &self,
+        encoder: Option<ort::session::Session>,
+        static_frames: Option<usize>,
+    ) -> Result<()> {
+        let mut guard = self.current_model.write().await;
+        let model = guard.as_mut().ok_or_else(|| anyhow!("No Parakeet model loaded"))?;
+        if let Some(encoder) = encoder {
+            model.replace_encoder(encoder);
+        }
+        model.set_static_frames(static_frames);
+        Ok(())
+    }
+
     /// Get the models directory path
     pub async fn get_models_directory(&self) -> PathBuf {
         self.models_dir.clone()

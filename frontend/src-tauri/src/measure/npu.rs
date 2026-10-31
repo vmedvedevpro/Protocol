@@ -10,6 +10,12 @@
 //!   NPU. Whisper is the live worker's call (whisper.cpp, Vulkan in a Vulkan
 //!   build); Parakeet the pass's engine, on the CPU or, with the Labs switch
 //!   in the test binary's data folder, its DirectML encoder.
+//! - [`paced_meeting`] (#80): a simulated live meeting on the product's
+//!   engines. Parakeet transcribes the fixture's VAD pieces at the pace the
+//!   live worker gets them, on the CPU, its DirectML encoder or an NPU
+//!   encoder session swapped into the product's model, while live Nemotron
+//!   diarizes the same audio as the remote track, as the app does during a
+//!   meeting with Nemotron selected.
 
 use std::io::Write;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
@@ -273,5 +279,218 @@ async fn paced_live() -> Result<()> {
         "latency_ms_median": median, "latency_ms_max": sorted[sorted.len() - 1], "busy_share": busy,
     }))?;
     println!("paced: {calls} calls, median {median:.0} ms, max {:.0} ms, busy {:.1} %, late {late}", sorted[sorted.len() - 1], busy * 100.0);
+    Ok(())
+}
+
+/// One simulated speech turn of [`paced_meeting`]: its place on the meeting's
+/// timeline (16 kHz samples) and when the live worker would get it.
+struct Turn {
+    start: usize,
+    end: usize,
+    due_s: f64,
+}
+
+/// The fixture's VAD pieces (the kit's `parakeet.json`: the live setting's
+/// pieces of at most 6 s, which the live worker gets one by one as the VAD
+/// closes them), looped over `seconds`. A piece is due when it ends: the
+/// pipeline queues a turn once the VAD closes it, and the redemption time
+/// after the speech only shifts every turn by the same delay.
+fn turns(pieces: &std::path::Path, audio_len: usize, seconds: f64) -> Result<Vec<Turn>> {
+    let kit: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(pieces)?)?;
+    let mut spans = Vec::new();
+    for piece in kit["pieces"].as_array().context("no pieces")? {
+        if piece["skipped"].is_null() {
+            let ms = |key: &str| piece[key].as_f64().context("piece without times");
+            spans.push(((ms("start_ms")? * SAMPLES_PER_MS) as usize, (ms("end_ms")? * SAMPLES_PER_MS) as usize));
+        }
+    }
+    let total = (seconds * 1000.0 * SAMPLES_PER_MS) as usize;
+    let mut out = Vec::new();
+    for offset in (0..total).step_by(audio_len) {
+        for &(start, end) in &spans {
+            if offset + end <= total {
+                out.push(Turn { start: offset + start, end: offset + end, due_s: (offset + end) as f64 / 16_000.0 });
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// Inputs: `MEASURE_AUDIO`, `MEASURE_PARAKEET_MODEL`, `PACED_PIECES` (the
+/// kit's `parakeet.json` for that audio), `PACED_DEVICE` (`cpu`, `dml` or
+/// `npu`), and optionally `PACED_SECONDS` (1800), `PACED_OUT` (a JSON file
+/// with every call), `PACED_STATIC_FRAMES` (pad the features to this length;
+/// `npu` takes `NPU_FRAMES`), `PACED_ENGINE=none` (diarization alone, no
+/// Parakeet calls), and `MEASURE_DIARIZATION_MODEL` (the Nemotron `.onnx`;
+/// without it no diarization runs) with `PACED_NEMOTRON_THRESHOLD` (0.5, the
+/// app's default). `npu` also reads `NPU_EP_PLUGIN` and `NPU_EP_OPTIONS` as
+/// [`ort_plugin_smoke`] does.
+///
+/// What runs is the app's live path without capture and VAD: the remote
+/// track's audio goes to `live_nemotron` in 50 ms windows at real-time pace
+/// (the pipeline's observer windows) from its own thread, and each turn goes
+/// to `ParakeetEngine::transcribe_audio` when it is due, then its label is
+/// read with `live_nemotron::label`, as the transcription worker does. One
+/// turn at a time: a turn that is due while the previous one still runs
+/// waits, as in the worker's queue, and counts as late.
+///
+/// `dml` and `cpu` set the Labs switch (`parakeet_gpu_enabled.txt` in the
+/// test binary's data folder) through the app's own command before the model
+/// loads, and `dml` clears it at the end. `npu` loads the product's model on
+/// the CPU, then registers the plugin and swaps in an encoder session on the
+/// NPU: the CPU sessions (preprocessor, decoder) and Nemotron's DirectML
+/// session are built before the plugin is registered, since afterwards the
+/// app's `PreferCPU` policy would place CPU sessions on OpenVINO's CPU device
+/// (#66).
+#[tokio::test]
+#[ignore = "NPU probe (#80); inputs from PACED_*, NPU_* and MEASURE_* (scripts/npu-bench/README.md)"]
+async fn paced_meeting() -> Result<()> {
+    let _ = env_logger::builder().is_test(true).try_init();
+    let seconds: f64 = optional("PACED_SECONDS").map_or(Ok(1800.0), |v| v.parse())?;
+    let device = optional("PACED_DEVICE").context("PACED_DEVICE is cpu, dml or npu")?;
+    let calls_on = optional("PACED_ENGINE").as_deref() != Some("none");
+    let audio = existing_path("MEASURE_AUDIO", "a 16 kHz speech file")?;
+    let samples = tracks::load(&audio)?.into_iter().next().context("the audio has no track")?.samples;
+    let pieces = existing_path("PACED_PIECES", "the kit's parakeet.json for MEASURE_AUDIO")?;
+    let turns = turns(&pieces, samples.len(), seconds)?;
+    let total = (seconds * 1000.0 * SAMPLES_PER_MS) as usize;
+    let looped: std::sync::Arc<Vec<f32>> = std::sync::Arc::new(samples.iter().copied().cycle().take(total).collect());
+
+    let started = (unix_now(), Instant::now());
+    let gpu = match device.as_str() {
+        "dml" => true,
+        "cpu" | "npu" => false,
+        other => bail!("PACED_DEVICE {other} is not cpu, dml or npu"),
+    };
+    crate::parakeet_engine::labs::set_parakeet_gpu_enabled(gpu).await.map_err(anyhow::Error::msg)?;
+    let model = existing_path("MEASURE_PARAKEET_MODEL", "the Parakeet model folder")?;
+    let engines = Engines::open(None, Some(&model)).await?;
+    let parakeet = &engines.parakeet.as_ref().context("no Parakeet engine")?.engine;
+    let failures = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let diarization = match optional("MEASURE_DIARIZATION_MODEL") {
+        Some(_) => {
+            let path = existing_path("MEASURE_DIARIZATION_MODEL", "nemotron3_diar_v3.onnx")?;
+            let threshold: f32 = optional("PACED_NEMOTRON_THRESHOLD").map_or(Ok(0.5), |v| v.parse())?;
+            let reported = failures.clone();
+            let notify = std::sync::Arc::new(move |message: String| {
+                log::error!("{message}");
+                reported.lock().unwrap().push(message);
+            });
+            crate::diarization::live_nemotron::start_for_measure(&path, threshold, notify)?;
+            true
+        }
+        None => false,
+    };
+    let mut frames: Option<usize> = optional("PACED_STATIC_FRAMES").map(|v| v.parse()).transpose()?;
+    if device == "npu" {
+        let plugin = existing_path("NPU_EP_PLUGIN", "onnxruntime_providers_openvino_plugin.dll")?;
+        let environment = crate::onnx_runtime::environment()?;
+        environment
+            .register_ep_library("OpenVINOExecutionProvider", &plugin)
+            .context("registering the OpenVINO plugin EP")?;
+        let npu: Vec<_> = environment
+            .devices()
+            .filter(|d| d.ep().is_ok_and(|ep| ep == "OpenVINOExecutionProvider") && d.hardware_device().ty() == DeviceType::NPU)
+            .collect();
+        let compile = Instant::now();
+        let session = npu_session(environment, npu, &ep_options(), &model.join("encoder-model.int8.onnx"))?;
+        println!("NPU encoder session built in {:.0} ms", ms_since(compile));
+        frames = Some(optional("NPU_FRAMES").context("NPU_FRAMES: the static shape the NPU compiles")?.parse()?);
+        parakeet.replace_encoder(Some(session), frames).await?;
+    } else if frames.is_some() {
+        parakeet.replace_encoder(None, frames).await?;
+    }
+    let acceleration = if device == "npu" {
+        "NPU encoder (OpenVINO plugin EP)"
+    } else {
+        engines.parakeet.as_ref().map_or("?", |l| l.acceleration)
+    };
+    mark("load", started.0, unix_now(), serde_json::json!({ "device": device, "acceleration": acceleration }))?;
+    println!(
+        "parakeet on {acceleration}, static frames {frames:?}, diarization {diarization}, {} turns over {seconds} s",
+        turns.len()
+    );
+
+    let t0 = unix_now();
+    parakeet.transcribe_audio(looped[..6 * 16_000].to_vec(), None).await?;
+    mark("warmup", t0, unix_now(), serde_json::json!({}))?;
+
+    // The remote track, 50 ms at a time on the meeting's clock, from its own
+    // thread as the capture pipeline feeds it.
+    const WINDOW: usize = 800;
+    let start = Instant::now();
+    let t0 = unix_now();
+    let feeder = diarization.then(|| {
+        let audio = looped.clone();
+        std::thread::spawn(move || {
+            for (i, window) in audio.chunks(WINDOW).enumerate() {
+                let due = std::time::Duration::from_secs_f64((i * WINDOW) as f64 / 16_000.0);
+                if let Some(wait) = due.checked_sub(start.elapsed()) {
+                    std::thread::sleep(wait);
+                }
+                crate::diarization::live_nemotron::feed((i * WINDOW) as u64, window);
+            }
+        })
+    });
+
+    let mut calls = Vec::with_capacity(turns.len());
+    let mut late = 0;
+    for turn in turns.iter().filter(|_| calls_on) {
+        let due = std::time::Duration::from_secs_f64(turn.due_s);
+        match due.checked_sub(start.elapsed()) {
+            Some(wait) => tokio::time::sleep(wait).await,
+            None => late += 1,
+        }
+        let began = start.elapsed().as_secs_f64();
+        let text = parakeet.transcribe_audio(looped[turn.start..turn.end].to_vec(), None).await?;
+        let transcribed = start.elapsed().as_secs_f64();
+        let label = if diarization {
+            let (from, length) = (turn.start as f64 / 16_000.0, (turn.end - turn.start) as f64 / 16_000.0);
+            tokio::task::spawn_blocking(move || crate::diarization::live_nemotron::label(from, length)).await?
+        } else {
+            None
+        };
+        let done = start.elapsed().as_secs_f64();
+        calls.push(serde_json::json!({
+            "due_s": turn.due_s, "start_s": began, "transcribe_ms": (transcribed - began) * 1000.0,
+            "label_ms": (done - transcribed) * 1000.0, "lag_s": done - turn.due_s,
+            "audio_s": (turn.end - turn.start) as f64 / 16_000.0, "label": label, "text": text,
+        }));
+    }
+    if let Some(wait) = std::time::Duration::from_secs_f64(seconds).checked_sub(start.elapsed()) {
+        tokio::time::sleep(wait).await;
+    }
+    let t1 = unix_now();
+    if let Some(feeder) = feeder {
+        feeder.join().map_err(|_| anyhow::anyhow!("the feeder thread panicked"))?;
+    }
+    crate::diarization::live_nemotron::finish();
+    crate::diarization::live_nemotron::stop();
+    if gpu {
+        crate::parakeet_engine::labs::set_parakeet_gpu_enabled(false).await.map_err(anyhow::Error::msg)?;
+    }
+
+    let mut latencies: Vec<f64> = calls.iter().filter_map(|c| c["transcribe_ms"].as_f64()).collect();
+    latencies.sort_by(f64::total_cmp);
+    let pick = |q: f64| latencies.get(((latencies.len() as f64 - 1.0) * q).round() as usize).copied();
+    let max_lag = calls.iter().filter_map(|c| c["lag_s"].as_f64()).fold(0.0f64, f64::max);
+    let labelled = calls.iter().filter(|c| !c["label"].is_null()).count();
+    let failures = failures.lock().unwrap().clone();
+    let summary = serde_json::json!({
+        "device": device, "acceleration": acceleration, "static_frames": frames, "diarization": diarization,
+        "audio_s": seconds, "calls": calls.len(), "late_calls": late, "max_lag_s": max_lag,
+        "latency_ms_median": pick(0.5), "latency_ms_p95": pick(0.95), "latency_ms_max": pick(1.0),
+        "busy_share": latencies.iter().sum::<f64>() / 1000.0 / seconds, "labelled": labelled,
+        "diarization_failures": failures,
+    });
+    mark("meeting", t0, t1, summary.clone())?;
+    if let Some(out) = optional("PACED_OUT") {
+        let record = serde_json::json!({ "summary": summary, "calls": calls });
+        std::fs::write(out, serde_json::to_string_pretty(&record)?)?;
+    }
+    println!("meeting: {summary}");
+    if !failures.is_empty() {
+        bail!("live Nemotron failed: {failures:?}");
+    }
     Ok(())
 }

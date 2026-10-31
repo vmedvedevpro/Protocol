@@ -365,6 +365,12 @@ pub struct ParakeetModel {
     vocab_size: usize,
     vocabulary_source: Option<String>,
     vocabulary_bias: Option<VocabularyBias>,
+    /// The encoder's static input length in feature frames, for the NPU
+    /// probe of `measure::npu` (#80): the features are zero-padded to it and
+    /// the encoder gets their true `length`, so only the speech frames are
+    /// decoded. Test builds only.
+    #[cfg(test)]
+    static_frames: Option<usize>,
 }
 
 impl Drop for ParakeetModel {
@@ -404,7 +410,38 @@ impl ParakeetModel {
             vocab_size,
             vocabulary_source: None,
             vocabulary_bias: None,
+            #[cfg(test)]
+            static_frames: None,
         })
+    }
+
+    /// Puts another encoder session in place of the loaded one: the NPU probe
+    /// builds it on the OpenVINO plugin EP's NPU device (#80). Test builds only.
+    #[cfg(test)]
+    pub(crate) fn replace_encoder(&mut self, encoder: Session) {
+        self.encoder = encoder;
+    }
+
+    /// See `static_frames`. Test builds only.
+    #[cfg(test)]
+    pub(crate) fn set_static_frames(&mut self, frames: Option<usize>) {
+        self.static_frames = frames;
+    }
+
+    #[cfg(test)]
+    fn pad_to_static_frames(&self, features: ArrayD<f32>) -> Result<ArrayD<f32>, ParakeetError> {
+        let Some(frames) = self.static_frames else { return Ok(features) };
+        let features = features.into_dimensionality::<ndarray::Ix3>()?;
+        let (batch, bins, length) = features.dim();
+        if length > frames {
+            return Err(ParakeetError::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("{length} feature frames exceed the static shape of {frames}"),
+            )));
+        }
+        let mut padded = Array3::<f32>::zeros((batch, bins, frames));
+        padded.slice_mut(ndarray::s![.., .., ..length]).assign(&features);
+        Ok(padded.into_dyn())
     }
 
     fn configure_vocabulary(&mut self, vocabulary: Option<&str>) {
@@ -696,6 +733,8 @@ impl ParakeetModel {
     ) -> Result<Vec<TimestampedResult>, ParakeetError> {
         // Preprocess and encode
         let (features, features_lens) = self.preprocess(waveforms, waveforms_len)?;
+        #[cfg(test)]
+        let features = self.pad_to_static_frames(features)?;
         let (encoder_out, encoder_out_lens) =
             self.encode(&features.view(), &features_lens.view())?;
 
