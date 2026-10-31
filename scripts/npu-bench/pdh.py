@@ -118,6 +118,32 @@ def pids(utilization: dict[str, float], names: dict[str, str]) -> dict[str, floa
     return result
 
 
+def engine_pids(utilization: dict[str, float], names: dict[str, str]) -> dict[str, dict[str, float]]:
+    """Each process's utilization of the Arc's and the NPU's engines, `pid` to `adapter.engtype` to %, for the
+    non-zero shares: who else used the GPU during a measurement (#80)."""
+    result: dict[str, dict[str, float]] = {}
+    for name, value in utilization.items():
+        match = _ENGINE.search(name)
+        if match and 0.05 < value <= 100.0 and match.group(2) in names:
+            key = f"{names[match.group(2)]}.{match.group(4)}"
+            per = result.setdefault(match.group(1), {})
+            per[key] = round(per.get(key, 0.0) + value, 2)
+    return result
+
+
+def processes(cpu: dict[str, float], ids: dict[str, float], floor: float = 0.5) -> dict[str, float]:
+    """`name:pid` to % of one core for the processes above `floor` %, from the `Process` counter set's instance
+    arrays (instances of one name are `name`, `name#1`, ...; the pid tells them apart). `Idle` and `_Total` are
+    left out."""
+    result = {}
+    for instance, value in cpu.items():
+        base = instance.split("#")[0]
+        if base in ("Idle", "_Total") or not value > floor:
+            continue
+        result[f"{base}:{int(ids.get(instance, 0))}"] = round(value, 1)
+    return result
+
+
 def adapters(names: list[str]) -> dict[str, str]:
     """`npu` and `arc` LUIDs from the engine instance names: the NPU is the adapter with only Neural (or
     Compute) engines; the Arc iGPU the one with a VideoDecode engine."""
