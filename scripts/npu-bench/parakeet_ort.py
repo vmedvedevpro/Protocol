@@ -38,11 +38,13 @@ from pathlib import Path
 import numpy as np
 import onnxruntime as ort
 
+import chunking
 import paced
 from marks import phase
 
 SAMPLES_PER_MS = 16
 HOP = 160  # nemo128's hop: one feature frame per 10 ms, T = samples / 160 + 1
+ENCODER_FRAME_MS = 80.0  # the encoder subsamples the features 8 times
 DURATIONS = (0, 1, 2, 3, 4)
 MAX_TOKENS_PER_STEP = 3
 SPACES = re.compile(r"\A\s|\s\B|(\s)\b")
@@ -146,6 +148,12 @@ class Parakeet:
         return vocab, blank
 
     def transcribe(self, samples: np.ndarray) -> str:
+        tokens, _ = self.transcribe_tokens(samples)
+        text = "".join(self.vocab[i] for i in tokens)
+        return SPACES.sub(lambda m: " " if m.group(1) else "", text)
+
+    def transcribe_tokens(self, samples: np.ndarray) -> tuple[list[int], list[int]]:
+        """The decoded tokens and the encoder frame (80 ms) each was emitted at."""
         if self.frames is not None and self.pad == "wave":
             # Silence after the speech, as if the piece went on quietly: the features and their normalisation
             # see it, and the encoder decodes all frames (the silence decodes as blanks).
@@ -162,10 +170,11 @@ class Parakeet:
         self.encoder_ms += (time.perf_counter() - started) * 1000.0
         return self._decode(encoded[0].T, int(encoded_lens[0]))
 
-    def _decode(self, frames: np.ndarray, count: int) -> str:
+    def _decode(self, frames: np.ndarray, count: int) -> tuple[list[int], list[int]]:
         state1 = np.zeros(self.state_shape, dtype=np.float32)
         state2 = np.zeros(self.state_shape, dtype=np.float32)
         tokens: list[int] = []
+        at: list[int] = []
         t = emitted = 0
         vocab_size = len(self.vocab)
         while t < count:
@@ -179,6 +188,7 @@ class Parakeet:
             if token != self.blank:
                 state1, state2 = new1, new2
                 tokens.append(token)
+                at.append(t)
                 emitted += 1
             skip = DURATIONS[int(np.argmax(logits[vocab_size:]))] if logits.size > vocab_size else 1
             if skip == 0 and (token == self.blank or emitted >= MAX_TOKENS_PER_STEP):
@@ -186,8 +196,7 @@ class Parakeet:
             if skip > 0:
                 t += skip
                 emitted = 0
-        text = "".join(self.vocab[i] for i in tokens)
-        return SPACES.sub(lambda m: " " if m.group(1) else "", text)
+        return tokens, at
 
 
 def profile_summary(path: str) -> dict:
@@ -224,6 +233,14 @@ def main() -> None:
                         help="with --resident: seconds after the warm-up that are not part of the resident phase")
     parser.add_argument("--pad", choices=("features", "wave"), default="features",
                         help="features: zero features after the speech, masked by `length`; wave: silence samples")
+    parser.add_argument("--chunking", choices=("pieces", "span", "overlap"), default="pieces",
+                        help="batch only, with --frames: which audio each call sees (chunking.py)")
+    parser.add_argument("--span-s", type=float, default=5.0)
+    parser.add_argument("--hop-s", type=float, default=4.0)
+    parser.add_argument("--snap-s", type=float, default=0.0,
+                        help="overlap: start each window at the quietest 20 ms within this many seconds")
+    parser.add_argument("--merge", choices=("anchor", "midpoint"), default="anchor",
+                        help="overlap: where two calls' words are joined (chunking.py)")
     parser.add_argument("--ov-properties", type=json.loads, help='OpenVINO properties, e.g. {"INFERENCE_PRECISION_HINT": "f32"}')
     args = parser.parse_args()
 
@@ -267,9 +284,17 @@ def main() -> None:
 
     kit = json.loads(args.pieces.read_text(encoding="utf-8"))
     pieces = [p for p in kit["pieces"] if p["skipped"] is None]
-    samples = [audio[int(p["start_ms"] * SAMPLES_PER_MS):int(p["end_ms"] * SAMPLES_PER_MS)] for p in pieces]
-    speech_s = sum(len(s) for s in samples) / 16000.0
-    print(f"{len(pieces)} pieces, {speech_s:.1f} s; longest {max(len(s) for s in samples) / 16000:.2f} s")
+    speech_s = sum(p["end_ms"] - p["start_ms"] for p in pieces) / 1000.0
+    # The window a call fills: the static shape, or without one the same 6.07 s, so that the chunking's own effect
+    # can be measured apart from the padding's.
+    window_s = ((args.frames or 608) - 1) * HOP / 16000.0
+    frame = 20 * SAMPLES_PER_MS
+    rms = np.sqrt(np.mean(audio[:len(audio) // frame * frame].reshape(-1, frame) ** 2, axis=1))
+    windows = chunking.plan(pieces, args.chunking, window_s, args.span_s, args.hop_s,
+                            lambda ms: float(rms[min(int(ms // 20), len(rms) - 1)]), args.snap_s)
+    samples = [audio[int(w.start_ms * SAMPLES_PER_MS):int(w.end_ms * SAMPLES_PER_MS)] for w in windows]
+    print(f"{len(pieces)} pieces, {speech_s:.1f} s; {len(windows)} calls ({args.chunking}); longest "
+          f"{max(len(s) for s in samples) / 16000:.2f} s")
 
     with phase("warmup"):
         started = time.perf_counter()
@@ -280,11 +305,23 @@ def main() -> None:
         walls, texts = [], []
         model.encoder_ms = 0.0
         with phase(f"rep{rep}", audio_s=speech_s):
-            for piece_samples in samples:
+            decoded = []
+            for window, piece_samples in zip(windows, samples):
                 started = time.perf_counter()
-                texts.append(model.transcribe(piece_samples))
+                tokens, frames = model.transcribe_tokens(piece_samples)
                 walls.append((time.perf_counter() - started) * 1000.0)
-        reps.append({"walls": walls, "texts": texts, "total_ms": sum(walls), "encoder_ms": model.encoder_ms})
+                decoded.append(chunking.words(model.vocab, tokens, frames, window.start_ms, ENCODER_FRAME_MS))
+                if args.chunking == "pieces":
+                    text = "".join(model.vocab[i] for i in tokens)
+                    texts.append(SPACES.sub(lambda m: " " if m.group(1) else "", text))
+            if args.chunking != "pieces":
+                kept, junctions = chunking.merge(windows, decoded, "keep" if args.chunking == "span" else args.merge)
+                texts = chunking.assign(pieces, kept)
+                # A piece's share of the calls' time, by the length of audio it kept.
+                share = [(p["end_ms"] - p["start_ms"]) / (speech_s * 1000.0) for p in pieces]
+                walls = [sum(walls) * f for f in share]
+        reps.append({"walls": walls, "texts": texts, "total_ms": sum(walls), "encoder_ms": model.encoder_ms,
+                     "calls": len(windows), "junctions": junctions if args.chunking != "pieces" else None})
         print(f"rep{rep}: {sum(walls) / 1000:.2f} s ({speech_s / (sum(walls) / 1000):.1f}x), "
               f"encoder {model.encoder_ms / 1000:.2f} s")
     median = sorted(reps, key=lambda r: r["total_ms"])[len(reps) // 2]
@@ -307,7 +344,11 @@ def main() -> None:
             if text else []
     run["timing"] = dict(kit["timing"], transcription_ms=round(median["total_ms"], 1), warmup_ms=round(warmup_s * 1000, 1),
                          speech_ms=round(speech_s * 1000, 1))
-    info.update(rep_totals_ms=[round(r["total_ms"], 1) for r in reps],
+    info.update(chunking=args.chunking, calls=len(windows), span_s=args.span_s if args.chunking == "span" else None,
+                hop_s=args.hop_s if args.chunking == "overlap" else None,
+                merge=args.merge if args.chunking == "overlap" else None, junctions=reps[-1]["junctions"],
+                snap_s=args.snap_s if args.chunking == "overlap" else None,
+                rep_totals_ms=[round(r["total_ms"], 1) for r in reps],
                 encoder_ms=[round(r["encoder_ms"], 1) for r in reps],
                 repeats_identical=all(r["texts"] == reps[0]["texts"] for r in reps),
                 x_realtime_median=round(speech_s / (median["total_ms"] / 1000), 2))
