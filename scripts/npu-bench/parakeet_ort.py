@@ -3,6 +3,7 @@
     python parakeet_ort.py --model DIR --encoder cpu|dml|ov-npu|ov-gpu|ov-cpu --pieces KIT_parakeet.json
                            --audio WAV --out RUN.json [--frames N] [--cache DIR] [--reps 3] [--profile]
     python parakeet_ort.py ... --paced 300 --period 6        (the live-like scenario instead of the pieces)
+    python parakeet_ort.py ... --resident 120                (loaded and warm, no calls: the cost of staying open)
 
 The same steps as `parakeet_engine/model.rs`: the `nemo128` preprocessor and the decoder/joint on the CPU, the
 encoder on `--encoder`, greedy TDT decoding (durations 0-4, at most 3 tokens per frame) and the same detokenising
@@ -10,9 +11,14 @@ rule. Runtime: onnxruntime-directml 1.24.4 (the app's ONNX Runtime release and b
 EP (`onnxruntime-ep-openvino`) registered into it for the `ov-*` encoders.
 
 Static shapes: the NPU compiles one input shape. With `--frames N` the features are zero-padded to N frames (10 ms
-each) and the encoder gets the true `length`, which masks the padding in its attention and convolutions; only
-`encoded_lengths` frames are decoded. Every piece then costs an N-frame encoder call. `--frames` on the CPU gives
-the padding's own effect on the text.
+each) and the encoder gets the true `length`; only `encoded_lengths` frames are decoded. Every piece then costs an
+N-frame encoder call. The padding still changes the text: on the fixture's 6 s pieces it mostly changes the last
+word, the one the VAD's cap cut, so `--frames` on the CPU gives the padding's own effect (`--pad wave` pads with
+silence samples instead, which measured worse). DirectML also gains from one shape: it prepares its graph again
+for every new input shape.
+
+OpenVINO options go through the plugin's `load_config` file: its compile cache (`--cache`, OpenVINO's CACHE_DIR;
+the plugin ignores its own `cache_dir` option) and `--ov-properties`.
 
 Proof of placement: `--profile` writes ONNX Runtime's profile and counts the encoder's nodes and time per
 execution provider; `ov-*` sessions also refuse any CPU fallback (`session.disable_cpu_ep_fallback`), so a session
@@ -213,6 +219,7 @@ def main() -> None:
     parser.add_argument("--profile", type=Path)
     parser.add_argument("--paced", type=float)
     parser.add_argument("--period", type=float, default=6.0)
+    parser.add_argument("--resident", type=float, help="load, warm up, then only wait this many seconds")
     parser.add_argument("--pad", choices=("features", "wave"), default="features",
                         help="features: zero features after the speech, masked by `length`; wave: silence samples")
     parser.add_argument("--ov-properties", type=json.loads, help='OpenVINO properties, e.g. {"INFERENCE_PRECISION_HINT": "f32"}')
@@ -232,6 +239,13 @@ def main() -> None:
     print(f"load {load_s:.1f} s (encoder {model.encoder_load_s:.1f} s), cache {cache_before / 1e6:.0f} -> "
           f"{cache_after / 1e6:.0f} MB, providers {info['encoder_providers']}")
 
+    if args.resident:
+        # The engine loaded and warm but not called: what keeping it open costs between a meeting's calls.
+        with phase("warmup"):
+            model.transcribe(audio[:6 * 16000])
+        with phase("resident", seconds=args.resident):
+            time.sleep(args.resident)
+        return
     if args.paced:
         pieces = paced.windows(audio, args.paced, args.period)
         with phase("warmup"):

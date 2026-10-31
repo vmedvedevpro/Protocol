@@ -100,7 +100,9 @@ class Samples:
         mean = {key: round(statistics.mean(v for row in rows if (v := value(row, key)) is not None), 1)
                 for key in keys
                 if key.split(".")[-1] in ("3D", "Compute", "Neural")}
-        mean["cpu"] = round(sum(row["cpu"] for row in rows) / len(rows), 1)
+        # PDH returns NaN for a CPU sample now and then; such a sample counts as missing.
+        cpu = [row["cpu"] for row in rows if row["cpu"] == row["cpu"]]
+        mean["cpu"] = round(statistics.mean(cpu), 1) if cpu else None
         pids = sorted({pid for row in rows for pid in row.get("npu_pids", {})})
         return {"mean_pct": mean, "npu_pids": pids, "samples": len(rows)}
 
@@ -125,6 +127,25 @@ def kit_phases(out: Path) -> list[dict]:
     return phases
 
 
+def paced_increment(samples: Samples, t0: float, period: float, calls: int, gap: float = 2.0) -> dict:
+    """The paced scenario's cost against its own pauses instead of the idle baseline taken a minute earlier: per
+    period, its energy minus the power of its last `gap` seconds (no call runs then; the calls take well under
+    4 s, and a device's tail power after a call counts as the call's) times the period. Background power drifts by
+    a watt or more between minutes, as much as the whole cost of a 6 s call every 6 s."""
+    increments, quiet = [], []
+    for i in range(calls):
+        start, end = t0 + i * period, t0 + (i + 1) * period
+        quiet_w = samples.joules(end - gap, end)["PKG"] / gap
+        increments.append(samples.joules(start, end)["PKG"] - quiet_w * period)
+        quiet.append(quiet_w)
+    increments.sort()
+    quiet.sort()
+    return {"pkg_w_above_pauses": round(sum(increments) / (calls * period), 2),
+            # The median period, robust to a background spike in a few periods.
+            "pkg_w_above_pauses_median": round(increments[calls // 2] / period, 2),
+            "j_per_call_median": round(increments[calls // 2], 2), "pause_w_median": round(quiet[calls // 2], 2)}
+
+
 def analyse(out: Path) -> dict:
     samples = Samples(out / "samples.jsonl")
     meta = json.loads((out / "meta.json").read_text(encoding="utf-8"))
@@ -147,6 +168,8 @@ def analyse(out: Path) -> dict:
                      pkg_above_idle_w=round(joules["PKG"] / seconds - idle_w["PKG"], 2),
                      pkg_above_idle_j=round(joules["PKG"] - idle_w["PKG"] * seconds, 1),
                      utilization=samples.utilization(t0, t1))
+        if mark.get("period_s"):
+            entry["in_run"] = paced_increment(samples, t0, mark["period_s"], int(mark["calls"]))
         if mark.get("audio_s"):
             entry["pkg_above_idle_j_per_audio_min"] = round(entry["pkg_above_idle_j"] / (mark["audio_s"] / 60), 1)
             entry["x_realtime"] = round(mark["audio_s"] / seconds, 2)
@@ -173,6 +196,8 @@ def main() -> None:
     for phase in result["phases"]:
         extra = (f"  {phase['x_realtime']}x  {phase['pkg_above_idle_j_per_audio_min']} J/audio-min"
                  if "x_realtime" in phase else "")
+        if "in_run" in phase:
+            extra += f"  in-run {phase['in_run']}"
         print(f"{phase['phase']:<28} {phase['seconds']:>8.1f} s  PKG {phase['watts']['PKG']:>6.2f} W  "
               f"+{phase['pkg_above_idle_w']:>6.2f} W{extra}  {phase['utilization'].get('mean_pct', {})}")
 
