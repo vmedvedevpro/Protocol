@@ -6,7 +6,8 @@ picowatt-hours (measured on this laptop: 1.4826e9 units/s while the `Power` coun
 of two raw `Energy` readings, exact whatever the sampling rate, instead of an average of 1 Hz power samples.
 
 The NPU is an MCDM compute-only adapter: Windows lists it under `GPU Engine` like a GPU, as an adapter whose only
-engine type is `Compute`. The Arc iGPU is the adapter that also has `VideoDecode`/`GSC` engines.
+engine type is `Neural` (measured with driver 32.0.100.5540; its instances exist only while a process holds the NPU
+open). The Arc iGPU is the adapter that also has `VideoDecode`/`GSC` engines.
 """
 
 import ctypes
@@ -97,7 +98,8 @@ def engines(utilization: dict[str, float]) -> dict[tuple[str, str], float]:
     per_engine: dict[tuple[str, str, str], float] = {}
     for name, value in utilization.items():
         match = _ENGINE.search(name)
-        if match:
+        # An instance created between two collections can read as a huge number; one instance is at most 100 %.
+        if match and 0.0 <= value <= 100.0:
             key = (match.group(2), match.group(4), match.group(3))
             per_engine[key] = per_engine.get(key, 0.0) + value
     result: dict[tuple[str, str], float] = {}
@@ -117,8 +119,8 @@ def pids(utilization: dict[str, float], names: dict[str, str]) -> dict[str, floa
 
 
 def adapters(names: list[str]) -> dict[str, str]:
-    """`npu` and `arc` LUIDs from the engine instance names: the NPU is the adapter with only Compute engines;
-    the Arc iGPU the one with a VideoDecode engine."""
+    """`npu` and `arc` LUIDs from the engine instance names: the NPU is the adapter with only Neural (or
+    Compute) engines; the Arc iGPU the one with a VideoDecode engine."""
     types: dict[str, set[str]] = {}
     for name in names:
         match = _ENGINE.search(name)
@@ -126,7 +128,7 @@ def adapters(names: list[str]) -> dict[str, str]:
             types.setdefault(match.group(2), set()).add(match.group(4))
     found = {}
     for luid, engtypes in types.items():
-        if engtypes == {"Compute"}:
+        if engtypes <= {"Neural", "Compute"}:
             found["npu"] = luid
         elif "VideoDecode" in engtypes:
             found["arc"] = luid

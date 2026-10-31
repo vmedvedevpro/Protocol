@@ -20,6 +20,7 @@ import argparse
 import json
 import os
 import re
+import statistics
 import subprocess
 import sys
 import time
@@ -91,8 +92,14 @@ class Samples:
         if not rows:
             return {}
         keys = sorted({key for row in rows for key in row["eng"]})
-        mean = {key: round(sum(row["eng"].get(key, 0.0) for row in rows) / len(rows), 1) for key in keys
-                if key.split(".")[1] in ("3D", "Compute")}
+        def value(row, key):
+            # Samples taken before pdh.engines dropped implausible readings (> 100 %) count as missing.
+            reading = row["eng"].get(key, 0.0)
+            return reading if reading <= 100.0 else None
+
+        mean = {key: round(statistics.mean(v for row in rows if (v := value(row, key)) is not None), 1)
+                for key in keys
+                if key.split(".")[-1] in ("3D", "Compute", "Neural")}
         mean["cpu"] = round(sum(row["cpu"] for row in rows) / len(rows), 1)
         pids = sorted({pid for row in rows for pid in row.get("npu_pids", {})})
         return {"mean_pct": mean, "npu_pids": pids, "samples": len(rows)}
