@@ -1,0 +1,303 @@
+"""Parakeet TDT 0.6B v3 (the app's INT8 ONNX files) on ONNX Runtime, with the encoder on a chosen device.
+
+    python parakeet_ort.py --model DIR --encoder cpu|dml|ov-npu|ov-gpu|ov-cpu --pieces KIT_parakeet.json
+                           --audio WAV --out RUN.json [--frames N] [--cache DIR] [--reps 3] [--profile]
+    python parakeet_ort.py ... --paced 300 --period 6        (the live-like scenario instead of the pieces)
+
+The same steps as `parakeet_engine/model.rs`: the `nemo128` preprocessor and the decoder/joint on the CPU, the
+encoder on `--encoder`, greedy TDT decoding (durations 0-4, at most 3 tokens per frame) and the same detokenising
+rule. Runtime: onnxruntime-directml 1.24.4 (the app's ONNX Runtime release and build) with Intel's OpenVINO plugin
+EP (`onnxruntime-ep-openvino`) registered into it for the `ov-*` encoders.
+
+Static shapes: the NPU compiles one input shape. With `--frames N` the features are zero-padded to N frames (10 ms
+each) and the encoder gets the true `length`, which masks the padding in its attention and convolutions; only
+`encoded_lengths` frames are decoded. Every piece then costs an N-frame encoder call. `--frames` on the CPU gives
+the padding's own effect on the text.
+
+Proof of placement: `--profile` writes ONNX Runtime's profile and counts the encoder's nodes and time per
+execution provider; `ov-*` sessions also refuse any CPU fallback (`session.disable_cpu_ep_fallback`), so a session
+that builds runs its whole encoder graph inside the OpenVINO EP.
+"""
+
+import argparse
+import copy
+import json
+import os
+import re
+import statistics
+import time
+import wave
+from pathlib import Path
+
+import numpy as np
+import onnxruntime as ort
+
+import paced
+from marks import phase
+
+SAMPLES_PER_MS = 16
+HOP = 160  # nemo128's hop: one feature frame per 10 ms, T = samples / 160 + 1
+DURATIONS = (0, 1, 2, 3, 4)
+MAX_TOKENS_PER_STEP = 3
+SPACES = re.compile(r"\A\s|\s\B|(\s)\b")
+
+
+def read_wav(path: Path) -> np.ndarray:
+    with wave.open(str(path), "rb") as wav:
+        assert wav.getframerate() == 16000 and wav.getnchannels() == 1 and wav.getsampwidth() == 2, path
+        return np.frombuffer(wav.readframes(wav.getnframes()), dtype=np.int16).astype(np.float32) / 32768.0
+
+
+def dir_bytes(path: Path | None) -> int:
+    return sum(f.stat().st_size for f in path.rglob("*") if f.is_file()) if path and path.exists() else 0
+
+
+def cpu_options() -> ort.SessionOptions:
+    """The app's CPU session: level-3 optimisation, parallel execution, memory pattern, no spinning (#70)."""
+    options = ort.SessionOptions()
+    options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+    options.execution_mode = ort.ExecutionMode.ORT_PARALLEL
+    options.add_session_config_entry("session.intra_op.allow_spinning", "0")
+    options.add_session_config_entry("session.inter_op.allow_spinning", "0")
+    return options
+
+
+def openvino_devices() -> dict[str, object]:
+    import onnxruntime_ep_openvino as ep
+    library = os.path.join(os.path.dirname(ep.__file__), "onnxruntime_providers_openvino_plugin.dll")
+    if not any(d.ep_name == "OpenVINOExecutionProvider" for d in ort.get_ep_devices()):
+        ort.register_execution_provider_library("OpenVINOExecutionProvider", library)
+    return {d.ep_metadata.get("ov_device"): d for d in ort.get_ep_devices()
+            if d.ep_name == "OpenVINOExecutionProvider"}
+
+
+def encoder_session(path: Path, encoder: str, frames: int | None, cache: Path | None, profile: Path | None,
+                    ov_properties: dict | None = None):
+    if encoder == "cpu":
+        options = cpu_options()
+        providers = ["CPUExecutionProvider"]
+    else:
+        options = ort.SessionOptions()
+        options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+        options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
+        options.enable_mem_pattern = False
+        options.add_session_config_entry("session.intra_op.allow_spinning", "0")
+        options.add_session_config_entry("session.inter_op.allow_spinning", "0")
+        providers = None
+        if encoder == "dml":
+            providers = [("DmlExecutionProvider", {"device_id": 0})]
+        else:
+            device = openvino_devices()[encoder.split("-")[1].upper()]
+            ep_options = {}
+            properties = dict(ov_properties or {})
+            if cache is not None:
+                # The plugin ignores `cache_dir` (it says so in a warning); OpenVINO's CACHE_DIR goes through
+                # `load_config`, a JSON file of properties per OpenVINO device.
+                cache.mkdir(parents=True, exist_ok=True)
+                properties["CACHE_DIR"] = str(cache)
+            if properties:
+                config = (cache or path.parent).with_name((cache or path.parent).name + ".load_config.json")
+                config.write_text(json.dumps({encoder.split("-")[1].upper(): properties}), encoding="utf-8")
+                ep_options["load_config"] = str(config)
+            if frames is not None:
+                ep_options["reshape_input"] = f"audio_signal[1,128,{frames}],length[1]"
+            options.add_session_config_entry("session.disable_cpu_ep_fallback", "1")
+            options.add_provider_for_devices([device], ep_options)
+    if profile is not None:
+        options.enable_profiling = True
+        options.profile_file_prefix = str(profile)
+    if providers is None:
+        return ort.InferenceSession(str(path), sess_options=options)
+    return ort.InferenceSession(str(path), sess_options=options, providers=providers)
+
+
+class Parakeet:
+    def __init__(self, model: Path, encoder: str, frames: int | None, cache: Path | None, profile: Path | None,
+                 ov_properties: dict | None = None, pad: str = "features"):
+        self.frames = frames
+        self.pad = pad
+        self.preprocessor = ort.InferenceSession(str(model / "nemo128.onnx"), sess_options=cpu_options(),
+                                                 providers=["CPUExecutionProvider"])
+        self.decoder = ort.InferenceSession(str(model / "decoder_joint-model.int8.onnx"), sess_options=cpu_options(),
+                                            providers=["CPUExecutionProvider"])
+        started = time.perf_counter()
+        self.encoder = encoder_session(model / "encoder-model.int8.onnx", encoder, frames, cache, profile, ov_properties)
+        self.encoder_load_s = time.perf_counter() - started
+        self.vocab, self.blank = self._vocab(model / "vocab.txt")
+        shape = next(i.shape for i in self.decoder.get_inputs() if i.name == "input_states_1")
+        self.state_shape = (shape[0], 1, shape[2])
+        self.encoder_ms = 0.0
+
+    @staticmethod
+    def _vocab(path: Path) -> tuple[list[str], int]:
+        pairs = [line.rstrip().rsplit(" ", 1) for line in path.read_text(encoding="utf-8").splitlines() if " " in line]
+        vocab = [""] * (max(int(i) for _, i in pairs) + 1)
+        blank = None
+        for token, i in pairs:
+            vocab[int(i)] = token.replace("▁", " ")
+            if token == "<blk>":
+                blank = int(i)
+        return vocab, blank
+
+    def transcribe(self, samples: np.ndarray) -> str:
+        if self.frames is not None and self.pad == "wave":
+            # Silence after the speech, as if the piece went on quietly: the features and their normalisation
+            # see it, and the encoder decodes all frames (the silence decodes as blanks).
+            target = (self.frames - 1) * HOP
+            assert len(samples) <= target, f"{len(samples)} samples > {target} for --frames {self.frames}"
+            samples = np.pad(samples, (0, target - len(samples)))
+        features, lens = self.preprocessor.run(None, {"waveforms": samples[None, :].astype(np.float32),
+                                                      "waveforms_lens": np.array([len(samples)], dtype=np.int64)})
+        if self.frames is not None and self.pad == "features":
+            assert features.shape[2] <= self.frames, f"{features.shape[2]} feature frames > --frames {self.frames}"
+            features = np.pad(features, ((0, 0), (0, 0), (0, self.frames - features.shape[2])))
+        started = time.perf_counter()
+        encoded, encoded_lens = self.encoder.run(None, {"audio_signal": features, "length": lens})
+        self.encoder_ms += (time.perf_counter() - started) * 1000.0
+        return self._decode(encoded[0].T, int(encoded_lens[0]))
+
+    def _decode(self, frames: np.ndarray, count: int) -> str:
+        state1 = np.zeros(self.state_shape, dtype=np.float32)
+        state2 = np.zeros(self.state_shape, dtype=np.float32)
+        tokens: list[int] = []
+        t = emitted = 0
+        vocab_size = len(self.vocab)
+        while t < count:
+            target = tokens[-1] if tokens else self.blank
+            logits, new1, new2 = self.decoder.run(
+                ["outputs", "output_states_1", "output_states_2"],
+                {"encoder_outputs": frames[t][None, :, None], "targets": np.array([[target]], dtype=np.int32),
+                 "target_length": np.array([1], dtype=np.int32), "input_states_1": state1, "input_states_2": state2})
+            logits = logits.reshape(-1)
+            token = int(np.argmax(logits[:vocab_size]))
+            if token != self.blank:
+                state1, state2 = new1, new2
+                tokens.append(token)
+                emitted += 1
+            skip = DURATIONS[int(np.argmax(logits[vocab_size:]))] if logits.size > vocab_size else 1
+            if skip == 0 and (token == self.blank or emitted >= MAX_TOKENS_PER_STEP):
+                skip = 1
+            if skip > 0:
+                t += skip
+                emitted = 0
+        text = "".join(self.vocab[i] for i in tokens)
+        return SPACES.sub(lambda m: " " if m.group(1) else "", text)
+
+
+def profile_summary(path: str) -> dict:
+    """Nodes and time per execution provider among the encoder's node events."""
+    events = json.loads(Path(path).read_text(encoding="utf-8"))
+    per: dict[str, dict] = {}
+    for event in events:
+        if event.get("cat") != "Node" or not event.get("name", "").endswith("_kernel_time"):
+            continue
+        provider = event.get("args", {}).get("provider", "?")
+        entry = per.setdefault(provider, {"nodes": set(), "us": 0, "ops": set()})
+        entry["nodes"].add(event["name"])
+        entry["us"] += event.get("dur", 0)
+        entry["ops"].add(event.get("args", {}).get("op_name", "?"))
+    return {p: {"nodes": len(e["nodes"]), "ms": round(e["us"] / 1000, 1), "ops": sorted(e["ops"])[:40]}
+            for p, e in per.items()}
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--model", type=Path, required=True)
+    parser.add_argument("--encoder", required=True, choices=("cpu", "dml", "ov-npu", "ov-gpu", "ov-cpu"))
+    parser.add_argument("--audio", type=Path, required=True)
+    parser.add_argument("--pieces", type=Path)
+    parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--frames", type=int)
+    parser.add_argument("--cache", type=Path)
+    parser.add_argument("--reps", type=int, default=3)
+    parser.add_argument("--profile", type=Path)
+    parser.add_argument("--paced", type=float)
+    parser.add_argument("--period", type=float, default=6.0)
+    parser.add_argument("--pad", choices=("features", "wave"), default="features",
+                        help="features: zero features after the speech, masked by `length`; wave: silence samples")
+    parser.add_argument("--ov-properties", type=json.loads, help='OpenVINO properties, e.g. {"INFERENCE_PRECISION_HINT": "f32"}')
+    args = parser.parse_args()
+
+    audio = read_wav(args.audio)
+    cache_before = dir_bytes(args.cache)
+    with phase("load", cache_bytes_before=cache_before):
+        started = time.perf_counter()
+        model = Parakeet(args.model, args.encoder, args.frames, args.cache, args.profile, args.ov_properties, args.pad)
+        load_s = time.perf_counter() - started
+    cache_after = dir_bytes(args.cache)
+    info = {"encoder": args.encoder, "frames": args.frames, "pad": args.pad, "ov_properties": args.ov_properties, "ort": ort.__version__, "load_s": round(load_s, 2),
+            "encoder_load_s": round(model.encoder_load_s, 2), "cache_dir": str(args.cache) if args.cache else None,
+            "cache_bytes_before": cache_before, "cache_bytes_after": cache_after,
+            "encoder_providers": model.encoder.get_providers()}
+    print(f"load {load_s:.1f} s (encoder {model.encoder_load_s:.1f} s), cache {cache_before / 1e6:.0f} -> "
+          f"{cache_after / 1e6:.0f} MB, providers {info['encoder_providers']}")
+
+    if args.paced:
+        pieces = paced.windows(audio, args.paced, args.period)
+        with phase("warmup"):
+            model.transcribe(pieces[0])
+        result = paced.run(model.transcribe, pieces, args.period)
+        info.update({k: v for k, v in result.items() if k != "texts"})
+        args.out.parent.mkdir(parents=True, exist_ok=True)
+        args.out.write_text(json.dumps({"paced": info, "texts": result["texts"]}, indent=1, ensure_ascii=False),
+                            encoding="utf-8")
+        print(f"paced: median {result['latency_ms_median']} ms, p95 {result['latency_ms_p95']} ms, "
+              f"busy {result['busy_share']:.1%}, late {result['late_calls']}")
+        return
+
+    kit = json.loads(args.pieces.read_text(encoding="utf-8"))
+    pieces = [p for p in kit["pieces"] if p["skipped"] is None]
+    samples = [audio[int(p["start_ms"] * SAMPLES_PER_MS):int(p["end_ms"] * SAMPLES_PER_MS)] for p in pieces]
+    speech_s = sum(len(s) for s in samples) / 16000.0
+    print(f"{len(pieces)} pieces, {speech_s:.1f} s; longest {max(len(s) for s in samples) / 16000:.2f} s")
+
+    with phase("warmup"):
+        started = time.perf_counter()
+        model.transcribe(samples[0])
+        warmup_s = time.perf_counter() - started
+    reps = []
+    for rep in range(1, args.reps + 1):
+        walls, texts = [], []
+        model.encoder_ms = 0.0
+        with phase(f"rep{rep}", audio_s=speech_s):
+            for piece_samples in samples:
+                started = time.perf_counter()
+                texts.append(model.transcribe(piece_samples))
+                walls.append((time.perf_counter() - started) * 1000.0)
+        reps.append({"walls": walls, "texts": texts, "total_ms": sum(walls), "encoder_ms": model.encoder_ms})
+        print(f"rep{rep}: {sum(walls) / 1000:.2f} s ({speech_s / (sum(walls) / 1000):.1f}x), "
+              f"encoder {model.encoder_ms / 1000:.2f} s")
+    median = sorted(reps, key=lambda r: r["total_ms"])[len(reps) // 2]
+    if args.profile:
+        info["profile"] = profile_summary(model.encoder.end_profiling())
+
+    run = copy.deepcopy(kit)
+    run["model"] = f"{args.model.name} (ONNX Runtime {ort.__version__})"
+    run["acceleration"] = {"cpu": "CPU", "dml": "DirectML encoder", "ov-npu": "OpenVINO EP NPU encoder",
+                           "ov-gpu": "OpenVINO EP GPU encoder", "ov-cpu": "OpenVINO EP CPU encoder"}[args.encoder]
+    order = iter(range(len(pieces)))
+    for piece in run["pieces"]:
+        if piece["skipped"] is not None:
+            continue
+        i = next(order)
+        text = reps[-1]["texts"][i].strip()
+        piece["wall_ms"] = round(median["walls"][i], 1)
+        piece["dropped"] = False
+        piece["rows"] = [{"start_ms": piece["start_ms"], "end_ms": piece["end_ms"], "text": text, "speakers": None}] \
+            if text else []
+    run["timing"] = dict(kit["timing"], transcription_ms=round(median["total_ms"], 1), warmup_ms=round(warmup_s * 1000, 1),
+                         speech_ms=round(speech_s * 1000, 1))
+    info.update(rep_totals_ms=[round(r["total_ms"], 1) for r in reps],
+                encoder_ms=[round(r["encoder_ms"], 1) for r in reps],
+                repeats_identical=all(r["texts"] == reps[0]["texts"] for r in reps),
+                x_realtime_median=round(speech_s / (median["total_ms"] / 1000), 2))
+    run["ort"] = info
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    args.out.write_text(json.dumps(run, indent=1, ensure_ascii=False), encoding="utf-8")
+    print(json.dumps({k: v for k, v in info.items() if k != "profile"}))
+    print(json.dumps(info.get("profile", {}))[:2000])
+    print(f"saved {args.out}")
+
+
+if __name__ == "__main__":
+    main()
