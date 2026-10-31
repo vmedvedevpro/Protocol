@@ -4,7 +4,7 @@ use std::path::{PathBuf};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use whisper_rs::{FullParams, WhisperContext, WhisperContextParameters, WhisperTokenId};
+use whisper_rs::{FullParams, WhisperContext, WhisperContextParameters, WhisperState, WhisperTokenId};
 use serde::{Serialize, Deserialize};
 use anyhow::{Result, anyhow};
 use reqwest::Client;
@@ -70,6 +70,22 @@ pub struct ModelInfo {
 pub struct WhisperEngine {
     models_dir: PathBuf,
     current_context: Arc<RwLock<Option<WhisperContext>>>,
+    /// The whisper.cpp state the live calls decode on (#78), made from
+    /// `current_context`. Creating a state allocates its KV caches and compute
+    /// buffers (about 450 MB for Large V3 Turbo) and freeing it releases them:
+    /// on an Intel Arc B390 with Vulkan that took 23 + 62 ms of a 690 ms live
+    /// call. The live calls therefore share one state; what a call leaves in
+    /// it changes the next call's text only in the temperature fallback (see
+    /// `transcribe_audio_with_confidence`).
+    ///
+    /// Its only user is the live transcription worker (one worker,
+    /// `audio::transcription::worker`), through
+    /// `transcribe_audio_with_confidence`. The first live call creates it.
+    /// It is freed when live transcription ends (`release_live_state`, called
+    /// by the transcription task once its workers have finished), when the
+    /// model is unloaded or replaced (`unload_model`), and after a call that
+    /// failed on it. Lock order: `current_context`, then this.
+    live_state: Arc<tokio::sync::Mutex<Option<WhisperState>>>,
     current_model: Arc<RwLock<Option<String>>>,
     available_models: Arc<RwLock<HashMap<String, ModelInfo>>>,
     // State tracking for smart logging
@@ -202,6 +218,7 @@ impl WhisperEngine {
         let engine = Self {
             models_dir,
             current_context: Arc::new(RwLock::new(None)),
+            live_state: Arc::new(tokio::sync::Mutex::new(None)),
             current_model: Arc::new(RwLock::new(None)),
             available_models: Arc::new(RwLock::new(HashMap::new())),
             // Initialize state tracking
@@ -412,7 +429,11 @@ impl WhisperEngine {
                 };
 
                 // Update current context and model
-                *self.current_context.write().await = Some(ctx);
+                {
+                    let mut ctx_guard = self.current_context.write().await;
+                    self.live_state.lock().await.take();
+                    *ctx_guard = Some(ctx);
+                }
                 *self.current_model.write().await = Some(model_name.to_string());
 
                 // Enhanced acceleration status reporting
@@ -448,13 +469,17 @@ impl WhisperEngine {
         let (params, acceleration) = context_parameters(&crate::audio::HardwareProfile::detect());
         let ctx = WhisperContext::new_with_params(path, params)
             .map_err(|e| anyhow!("Failed to load model {}: {}", path.display(), e))?;
-        *self.current_context.write().await = Some(ctx);
+        let mut ctx_guard = self.current_context.write().await;
+        self.live_state.lock().await.take();
+        *ctx_guard = Some(ctx);
         *self.current_model.write().await = Some(path.display().to_string());
         Ok(acceleration.status_label())
     }
 
     pub async fn unload_model(&self) -> bool  {
         let mut ctx_guard = self.current_context.write().await;
+        // A state holds its context: the model is freed only with it.
+        self.live_state.lock().await.take();
         let unloaded = ctx_guard.take().is_some();
         if unloaded {
             log::info!("📉Whisper model unloaded");
@@ -464,6 +489,19 @@ impl WhisperEngine {
         model_name_guard.take();
 
         unloaded
+    }
+
+    /// Frees the live calls' state once live transcription has ended; the
+    /// next live call creates a new one.
+    pub async fn release_live_state(&self) {
+        if self.live_state.lock().await.take().is_some() {
+            log::info!("Released the live Whisper state");
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn holds_live_state(&self) -> bool {
+        self.live_state.lock().await.is_some()
     }
 
     pub async fn get_current_model(&self) -> Option<String> {
@@ -672,17 +710,23 @@ impl WhisperEngine {
         let duration_seconds = audio_data.len() as f64 / 16000.0;
         let is_partial = duration_seconds < 15.0; // Consider chunks under 15s as partial
 
-        // PERFORMANCE: Suppress verbose C library logs during transcription
-        // This hides whisper_full_with_state debug logs and beam search details
-        let state = {
-            // let _suppressor = crate::whisper_engine::StderrSuppressor::new();
-
-            let mut state = ctx.create_state()?;
-            state.full(params, &audio_data)?;
-
-            state
-            // Suppressor dropped here, stderr restored
+        // The shared live state (see `live_state`). `no_context` (whisper.cpp's
+        // default) clears the past text before each call, and every call
+        // resets or rewrites the KV cache, mel, results, language and
+        // token-timestamp state. Only decoder 0's sampler carries on: it draws
+        // only in the temperature fallback, whose text then depends on the
+        // fallbacks earlier in the recording instead of on a seed of 0.
+        let mut live_state = self.live_state.lock().await;
+        let state = match live_state.as_mut() {
+            Some(state) => state,
+            None => live_state.insert(ctx.create_state()?),
         };
+        if let Err(error) = state.full(params, &audio_data) {
+            // A failed call may leave the state half written: the next call
+            // gets a new one.
+            live_state.take();
+            return Err(error.into());
+        }
         let mut result = String::new();
         let mut total_confidence = 0.0;
         let mut segment_count = 0;
@@ -1379,6 +1423,15 @@ mod tests {
         let (text, _, _) = engine.transcribe_audio_with_confidence(audio.clone(), language.clone(), None).await.unwrap();
         println!("{text}");
         assert!(!text.trim().is_empty(), "no text from {wav}");
+        // Live calls share one state; a second call on it, and a call on a
+        // new one after it is released, give the same text.
+        assert!(engine.holds_live_state().await);
+        let (again, _, _) = engine.transcribe_audio_with_confidence(audio.clone(), language.clone(), None).await.unwrap();
+        assert_eq!(text, again, "the shared live state changed the text of {wav}");
+        engine.release_live_state().await;
+        assert!(!engine.holds_live_state().await);
+        let (after_release, _, _) = engine.transcribe_audio_with_confidence(audio.clone(), language.clone(), None).await.unwrap();
+        assert_eq!(text, after_release, "a new live state changed the text of {wav}");
 
         // The post-meeting pass: timestamps on, a row per Whisper segment. A
         // piece's rows must not depend on the pieces before it in the pass
@@ -1393,5 +1446,11 @@ mod tests {
             assert!(row.start_ms <= row.end_ms && row.start_ms < audio_ms + 1000.0, "{row:?} in {audio_ms} ms");
         }
         assert!(!rows.is_empty(), "no post-meeting rows from {wav}");
+
+        // The post-meeting pass leaves the live state alone; unloading the
+        // model frees it.
+        assert!(engine.holds_live_state().await);
+        assert!(engine.unload_model().await);
+        assert!(!engine.holds_live_state().await, "unloading the model kept the live state");
     }
 }
