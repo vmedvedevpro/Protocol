@@ -220,6 +220,8 @@ def main() -> None:
     parser.add_argument("--paced", type=float)
     parser.add_argument("--period", type=float, default=6.0)
     parser.add_argument("--resident", type=float, help="load, warm up, then only wait this many seconds")
+    parser.add_argument("--resident-settle", type=float, default=0.0,
+                        help="with --resident: seconds after the warm-up that are not part of the resident phase")
     parser.add_argument("--pad", choices=("features", "wave"), default="features",
                         help="features: zero features after the speech, masked by `length`; wave: silence samples")
     parser.add_argument("--ov-properties", type=json.loads, help='OpenVINO properties, e.g. {"INFERENCE_PRECISION_HINT": "f32"}')
@@ -243,7 +245,11 @@ def main() -> None:
         # The engine loaded and warm but not called: what keeping it open costs between a meeting's calls.
         with phase("warmup"):
             model.transcribe(audio[:6 * 16000])
-        with phase("resident", seconds=args.resident):
+        if args.resident_settle:
+            # The device's tail after the warm-up call belongs to the call, not to staying open (#80).
+            with phase("resident-settle", seconds=args.resident_settle):
+                time.sleep(args.resident_settle)
+        with phase("resident", seconds=args.resident, encoder=args.encoder):
             time.sleep(args.resident)
         return
     if args.paced:
