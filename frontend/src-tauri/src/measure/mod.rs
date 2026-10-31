@@ -26,6 +26,7 @@
 mod diarize;
 mod engines;
 mod input;
+mod npu;
 mod output;
 mod settings;
 mod tracks;
