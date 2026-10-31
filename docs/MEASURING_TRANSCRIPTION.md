@@ -89,8 +89,8 @@ app's own, so a run takes the switches set in the app. Each run records both
 
 ## The commands
 
-Both commands run in one process one at a time: when a test filter selects
-both, the second waits for the first, which would otherwise share the GPU,
+The commands run in one process one at a time: when a test filter selects
+several, each waits for the one before, which would otherwise share the GPU,
 the pass's greedy fallback and `MEASURE_OUT` with it.
 
 ### `measure::transcribe_settings`
@@ -120,6 +120,38 @@ Writes `reference.json` with Large V3 (`MEASURE_REFERENCE_MODEL`); it reads
 `MEASURE_SPAN` like the command above, and refuses to overwrite a reference.
 Give it the language and vocabulary of the settings it will score: the
 scoring refuses it otherwise. See [References](#references) for the method.
+
+### `measure::stages::whisper_stages`
+
+Splits each Whisper call into its stages (#78): the state's creation
+(`whisper_init_state`), whisper.cpp's own counters for mel, encoder, prompt,
+generated tokens and sampling (the ones `whisper_print_timings` prints, read
+from the state), the rest of `whisper_full`, and the state's freeing. It
+decodes the pieces of one setting with its path's parameters and skip rule:
+`PROBE_SETTING=live` (default) or `post-meeting`, on the whole recording
+(`MEASURE_AUDIO`, `MEASURE_OUT`, `MEASURE_WHISPER_MODEL`, `MEASURE_LANGUAGE`,
+`MEASURE_VOCABULARY`; no span). `PROBE_MODES` lists the passes over all pieces:
+`fresh` (a new state per call, the post-meeting pass's way), `reuse` (one
+state, the live calls' way) and `churn` (one state, plus another created and
+freed after each call); default `fresh,reuse`. `PROBE_FLASH_ATTN` overrides
+the app's flash attention choice, `PROBE_PIECES` keeps the first N pieces,
+`PROBE_GAP_MS` pauses after each call. It writes `stages-<setting>.json` with
+every call's times, counters and text, prints the means per mode and how many
+texts each mode shares with the first. With `GGML_VK_PERF_LOGGER=1` a Vulkan
+build also prints the GPU time of every op of every graph (it slows the
+calls; use it on a few pieces). The probe reads whisper.cpp 1.8.3's
+`whisper_state` layout: check `Counters` in `measure/stages.rs` after a
+whisper.cpp update.
+
+### `measure::stages::whisper_paced`
+
+The live scenario at its pace: one window of `PACED_PERIOD` seconds (6) every
+period for `PACED_SECONDS` (300), cut from `MEASURE_AUDIO` in a loop, each
+decoded by the live worker's call after a warm-up call. It prints the call
+latencies and, with `MEASURE_OUT`, writes `paced.json`. Run under #66's energy
+harness (`scripts/npu-bench/bench.py` on branch `66-npu-benchmark`), it marks
+its phases in `BENCH_MARKS` so that the harness reports the power above the
+pauses between calls.
 
 ### Scoring
 

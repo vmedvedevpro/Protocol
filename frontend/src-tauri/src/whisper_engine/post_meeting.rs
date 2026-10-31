@@ -219,7 +219,7 @@ fn transcribe_piece_with(
     }
 }
 
-fn piece_params<'a, 'b>(
+pub(crate) fn piece_params<'a, 'b>(
     decoding: WhisperDecoding,
     prompt_tokens: &'b [whisper_rs::WhisperTokenId],
     language: Option<&'a str>,
@@ -233,7 +233,7 @@ fn piece_params<'a, 'b>(
     params
 }
 
-fn timed_segments(state: &WhisperState) -> Vec<TimedText> {
+pub(crate) fn timed_segments(state: &WhisperState) -> Vec<TimedText> {
     let mut rows = Vec::new();
     for segment in state.as_iter() {
         let Ok(text) = segment.to_str_lossy() else { continue };

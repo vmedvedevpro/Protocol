@@ -4,7 +4,7 @@ use std::path::{PathBuf};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use whisper_rs::{WhisperContext, WhisperContextParameters, WhisperTokenId};
+use whisper_rs::{FullParams, WhisperContext, WhisperContextParameters, WhisperTokenId};
 use serde::{Serialize, Deserialize};
 use anyhow::{Result, anyhow};
 use reqwest::Client;
@@ -18,7 +18,7 @@ const MAX_INITIAL_PROMPT_TOKENS: usize = 224;
 
 /// The parameters a model is opened with: the acceleration that the build's
 /// backend and the hardware profile decide (`acceleration.rs`).
-fn context_parameters(
+pub(crate) fn context_parameters(
     profile: &crate::audio::HardwareProfile,
 ) -> (WhisperContextParameters<'static>, WhisperContextAcceleration) {
     let mut acceleration = whisper_context_acceleration_for(
@@ -636,6 +636,25 @@ impl WhisperEngine {
         repeated_words as f32 / total_words
     }
     
+    /// The parameters of a live call (and of the `whisper_transcribe_audio`
+    /// command): greedy at temperature 0 with the language, thresholds and
+    /// wrap every Whisper call shares (decoding.rs, #62), without timestamps.
+    pub(crate) fn live_params<'a, 'b>(
+        language: Option<&'a str>,
+        prompt_tokens: &'b [WhisperTokenId],
+    ) -> FullParams<'a, 'b> {
+        let mut params = super::decoding::WhisperDecoding::LIVE.call_params(language);
+        if !prompt_tokens.is_empty() {
+            params.set_tokens(prompt_tokens);
+        }
+
+        // CRITICAL: Disable timestamp tokens to prevent whisper.cpp chunking heuristics
+        // The "single timestamp ending - skip entire chunk" optimization incorrectly discards
+        // complete, valid transcriptions. Disabling timestamps forces whisper to return ALL text.
+        params.set_no_timestamps(true);     // Prevent timestamp-based segment skipping
+        params
+    }
+
     /// Transcribe audio with streaming support for partial results and adaptive quality
     pub async fn transcribe_audio_with_confidence(
         &self,
@@ -648,18 +667,7 @@ impl WhisperEngine {
             .ok_or_else(|| anyhow!("No model loaded. Please load a model first."))?;
 
         let prompt_tokens = Self::tokenize_initial_prompt(ctx, initial_prompt)?;
-
-        // Greedy at temperature 0 with the language, thresholds and wrap every
-        // Whisper call shares (decoding.rs, #62)
-        let mut params = super::decoding::WhisperDecoding::LIVE.call_params(language.as_deref());
-        if !prompt_tokens.is_empty() {
-            params.set_tokens(&prompt_tokens);
-        }
-
-        // CRITICAL: Disable timestamp tokens to prevent whisper.cpp chunking heuristics
-        // The "single timestamp ending - skip entire chunk" optimization incorrectly discards
-        // complete, valid transcriptions. Disabling timestamps forces whisper to return ALL text.
-        params.set_no_timestamps(true);     // Prevent timestamp-based segment skipping
+        let params = Self::live_params(language.as_deref(), &prompt_tokens);
 
         let duration_seconds = audio_data.len() as f64 / 16000.0;
         let is_partial = duration_seconds < 15.0; // Consider chunks under 15s as partial
@@ -727,18 +735,7 @@ impl WhisperEngine {
             .ok_or_else(|| anyhow!("No model loaded. Please load a model first."))?;
 
         let prompt_tokens = Self::tokenize_initial_prompt(ctx, initial_prompt)?;
-
-        // Greedy at temperature 0 with the language, thresholds and wrap every
-        // Whisper call shares (decoding.rs, #62)
-        let mut params = super::decoding::WhisperDecoding::LIVE.call_params(language.as_deref());
-        if !prompt_tokens.is_empty() {
-            params.set_tokens(&prompt_tokens);
-        }
-
-        // CRITICAL: Disable timestamp tokens to prevent whisper.cpp chunking heuristics
-        // The "single timestamp ending - skip entire chunk" optimization incorrectly discards
-        // complete, valid transcriptions. Disabling timestamps forces whisper to return ALL text.
-        params.set_no_timestamps(true);     // Prevent timestamp-based segment skipping
+        let params = Self::live_params(language.as_deref(), &prompt_tokens);
 
         // Note: compression_ratio_threshold would be ideal but not available in current whisper-rs
         // This would help detect repetitive outputs: params.set_compression_ratio_threshold(2.4);
