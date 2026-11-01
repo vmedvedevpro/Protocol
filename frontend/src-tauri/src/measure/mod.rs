@@ -82,7 +82,7 @@ async fn transcribe_settings() -> Result<()> {
     let inputs = Inputs::from_env()?;
     let settings = Setting::list(optional("MEASURE_SETTINGS").as_deref())?;
     let whisper_model = settings.iter().any(|s| s.uses_whisper())
-        .then(|| existing_path("MEASURE_WHISPER_MODEL", "the ggml model file of the Whisper settings"))
+        .then(|| existing_path("MEASURE_WHISPER_MODEL", "the ggml model file of the Whisper settings, or on Windows an OpenVINO model folder"))
         .transpose()?;
     let parakeet_model = settings.contains(&Setting::Parakeet)
         .then(|| existing_path("MEASURE_PARAKEET_MODEL", "the Parakeet model folder"))

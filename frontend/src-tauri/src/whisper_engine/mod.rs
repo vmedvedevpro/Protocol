@@ -4,6 +4,8 @@ pub mod decoding;
 pub mod labs;
 pub mod acceleration;
 pub mod commands;
+#[cfg(windows)]
+pub mod openvino;
 // pub mod stderr_suppressor;
 
 pub use whisper_engine::*;

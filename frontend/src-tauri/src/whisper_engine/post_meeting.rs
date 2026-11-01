@@ -119,6 +119,10 @@ impl<'a> PostMeetingWhisper<'a> {
         initial_prompt: Option<&str>,
     ) -> Result<Vec<TimedText>> {
         let Self { engine, decoding } = self;
+        #[cfg(windows)]
+        if let Some(openvino) = engine.loaded_openvino() {
+            return super::openvino::piece_call(openvino, samples, language, initial_prompt).await;
+        }
         engine
             .with_loaded_context(|ctx| transcribe_piece_with(ctx, decoding, samples, language, initial_prompt))
             .await
@@ -129,6 +133,10 @@ impl WhisperEngine {
     /// The language whisper.cpp detects in the first 30 s of `samples`, with
     /// its probability: one encoder pass, no decoding.
     pub async fn detect_language_with_probability(&self, samples: &[f32]) -> Result<Option<(String, f32)>> {
+        #[cfg(windows)]
+        if self.loaded_openvino().is_some() {
+            return Err(anyhow!("GenAI's C API does not report the language it detects (#79)"));
+        }
         self.with_loaded_context(|ctx| {
             let threads = whisper_threads();
             let mut state = ctx.create_state()?;

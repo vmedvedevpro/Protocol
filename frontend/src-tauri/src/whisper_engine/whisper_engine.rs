@@ -81,6 +81,9 @@ pub struct WhisperEngine {
     cancel_download_flag: Arc<RwLock<Option<String>>>, // Model name being cancelled
     // Active downloads tracking to prevent concurrent downloads
     active_downloads: Arc<RwLock<HashSet<String>>>, // Set of models currently being downloaded
+    /// The model on OpenVINO instead of `current_context` (#79, `openvino`).
+    #[cfg(windows)]
+    pub(crate) openvino: super::openvino::Slot,
 }
 
 impl WhisperEngine {
@@ -213,6 +216,8 @@ impl WhisperEngine {
             cancel_download_flag: Arc::new(RwLock::new(None)),
             // Initialize active downloads tracking
             active_downloads: Arc::new(RwLock::new(HashSet::new())),
+            #[cfg(windows)]
+            openvino: Default::default(),
         };
         
         Ok(engine)
@@ -386,6 +391,12 @@ impl WhisperEngine {
 
                 log::info!("Loading model: {}", model_name);
 
+                #[cfg(windows)]
+                if self.load_openvino_companion(model_name).await {
+                    *self.current_model.write().await = Some(model_name.to_string());
+                    return Ok(());
+                }
+
                 // PERFORMANCE OPTIMIZATION: Use comprehensive hardware profile for optimal GPU configuration
                 let hardware_profile = crate::audio::HardwareProfile::detect();
                 let adaptive_config = hardware_profile.get_whisper_config();
@@ -445,6 +456,15 @@ impl WhisperEngine {
     /// acceleration it chose.
     #[cfg(test)]
     pub(crate) async fn load_model_in_place(&self, path: &std::path::Path) -> Result<&'static str> {
+        #[cfg(windows)]
+        if super::openvino::is_model_dir(path) {
+            let device = self.load_openvino(path).await?.ok_or_else(|| {
+                anyhow!("{} is an OpenVINO model, and the device rule picks no OpenVINO GPU here", path.display())
+            })?;
+            log::info!("Opened {} on OpenVINO {device}", path.display());
+            *self.current_model.write().await = Some(path.display().to_string());
+            return Ok("OpenVINO GPU");
+        }
         let (params, acceleration) = context_parameters(&crate::audio::HardwareProfile::detect());
         let ctx = WhisperContext::new_with_params(path, params)
             .map_err(|e| anyhow!("Failed to load model {}: {}", path.display(), e))?;
@@ -456,6 +476,8 @@ impl WhisperEngine {
     pub async fn unload_model(&self) -> bool  {
         let mut ctx_guard = self.current_context.write().await;
         let unloaded = ctx_guard.take().is_some();
+        #[cfg(windows)]
+        let unloaded = self.set_openvino(None) || unloaded;
         if unloaded {
             log::info!("📉Whisper model unloaded");
         }
@@ -471,6 +493,10 @@ impl WhisperEngine {
     }
     
     pub async fn is_model_loaded(&self) -> bool {
+        #[cfg(windows)]
+        if self.loaded_openvino().is_some() {
+            return true;
+        }
         self.current_context.read().await.is_some()
     }
 
@@ -643,6 +669,10 @@ impl WhisperEngine {
         language: Option<String>,
         initial_prompt: Option<&str>,
     ) -> Result<(String, f32, bool)> {
+        #[cfg(windows)]
+        if let Some(openvino) = self.loaded_openvino() {
+            return super::openvino::live_call(openvino, audio_data, language, initial_prompt).await;
+        }
         let ctx_lock = self.current_context.read().await;
         let ctx = ctx_lock.as_ref()
             .ok_or_else(|| anyhow!("No model loaded. Please load a model first."))?;
@@ -722,6 +752,10 @@ impl WhisperEngine {
         language: Option<String>,
         initial_prompt: Option<&str>,
     ) -> Result<String> {
+        #[cfg(windows)]
+        if let Some(openvino) = self.loaded_openvino() {
+            return super::openvino::live_call(openvino, audio_data, language, initial_prompt).await.map(|(text, ..)| text);
+        }
         let ctx_lock = self.current_context.read().await;
         let ctx = ctx_lock.as_ref()
             .ok_or_else(|| anyhow!("No model loaded. Please load a model first."))?;

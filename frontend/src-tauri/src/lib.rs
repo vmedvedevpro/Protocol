@@ -407,6 +407,8 @@ pub fn run() {
             }
             #[cfg(any(windows, target_os = "linux"))]
             onnx_runtime::initialize(_app.handle());
+            #[cfg(windows)]
+            whisper_engine::openvino::initialize(_app.handle());
             log::info!("Application setup complete");
 
             // Initialize system tray

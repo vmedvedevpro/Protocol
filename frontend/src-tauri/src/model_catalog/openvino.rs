@@ -562,4 +562,13 @@ mod tests {
         }
         assert!(companion_for("small").is_none());
     }
+
+    #[test]
+    fn the_engine_and_the_catalog_expect_the_same_files() {
+        let mut engine: Vec<&str> = crate::whisper_engine::openvino::MODEL_FILES.to_vec();
+        let mut catalog: Vec<&str> = OPENVINO_WHISPER_FILES.to_vec();
+        engine.sort_unstable();
+        catalog.sort_unstable();
+        assert_eq!(engine, catalog);
+    }
 }

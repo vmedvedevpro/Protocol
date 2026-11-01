@@ -21,6 +21,7 @@ export type BusyReason =
   | 'summary'
   | 'postCall'
   | 'modelDownload'
+  | 'modelCompile'
   | 'onboarding'
   | 'speechEngine';
 
@@ -118,6 +119,7 @@ const BUSY_SENTENCES: Record<BusyReason, string> = {
   summary: 'a summary is being generated',
   postCall: 'a meeting is being processed',
   modelDownload: 'a model is downloading',
+  modelCompile: 'a speech model is being prepared for the GPU',
   onboarding: "setup isn't finished",
   speechEngine: 'the speech engine is busy',
 };
