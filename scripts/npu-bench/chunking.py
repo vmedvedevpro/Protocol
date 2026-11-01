@@ -101,6 +101,10 @@ def plan(pieces: list[dict], mode: str, window_s: float, span_s: float = 5.0, ho
             last = end - window
             if energy is not None and snap:
                 last = quietest(energy, last, last, min(last + snap, end - 2000.0))
+            # Snapped starts drift later, so the window before the last can end up within a second of it; it
+            # goes when the last one still overlaps the window before it by a second.
+            if len(starts) > 1 and last - starts[-1] < 1000.0 and last <= starts[-2] + window - 1000.0:
+                starts.pop()
             if last > starts[-1]:
                 starts.append(last)
             ends = [min(s + window, end) for s in starts]
