@@ -8,6 +8,20 @@
 The floor cell: no-model idle blocks between every two resident blocks, the three devices in a random order and
 then in the reverse order (ABC CBA), so that a linear drift over the cell cancels in each device's mean and every
 resident block has an idle block on both sides.
+
+Round 2 (GPU against NPU for Whisper and Parakeet, each comparison inside one cell, a no-model idle block around
+every workload block):
+
+    python make_cells.py r2-meeting --model wh --order gpu,npu --exe TEST_EXE --out CELL.json
+    python make_cells.py r2-paced --model pk --out CELL.json              (6 s every 6 s, 5 min, GPU NPU NPU GPU)
+    python make_cells.py r2-floor --out CELL.json                         (Whisper resident, GPU NPU NPU GPU)
+    python make_cells.py r2-batch --model wh --seed 1 --out CELL.json     (5 fresh processes per device and feed)
+    python make_cells.py r2-starts --seed 1 --out CELL.json               (first start into empty caches)
+
+Whisper is OpenVINO GenAI's WhisperPipeline on one IR for both devices; Parakeet's encoder runs on DirectML
+(`gpu`) or the NPU through the OpenVINO plugin EP, always with 608-frame static shapes, the preprocessor and
+decoder on the CPU. Step names are `<model>-<device>` (`wh-gpu`, `pk-npu`), batch runs
+`<model>-<feed>-<device>-<n>` (`wh-live-gpu-3`, `pk-b-npu-1`); `summarise.py r2-*` pairs them by that name.
 """
 
 import argparse
@@ -49,6 +63,27 @@ ENCODERS = {"npu": ["--encoder", "ov-npu", "--frames", "608", "--cache", NPU_CAC
 # windows over each stretch, 3.5 s apart, started in a pause, a window TDT skips run again 0.5 s later.
 CHUNKED = ["--chunking", "overlap", "--hop-s", "3.5", "--snap-s", "0.5", "--retry-words-per-s", "0.5"]
 ENCODERS["npu-overlap"] = ENCODERS["npu"] + CHUNKED
+
+# Round 2. Whisper: the IR the product will ship (#79's pin: OpenVINO/whisper-large-v3-turbo-int8-ov at
+# b568445d, the 11 files GenAI reads), copied out of #79's folder; the same files on the GPU and the NPU.
+OV = str(NB / "venv-ov/Scripts/python.exe")
+WH = str(NB / "80/models/whisper-large-v3-turbo-int8-ov")
+WH_SCRIPT = str(ROOT / "scripts/npu-bench/whisper_ov.py")
+WH_MEETING = str(ROOT / "scripts/npu-bench/whisper_meeting.py")
+WH_LIVE = str(ROOT / ".measure/runs/66/vulkan-q5_0/rep1/live.json")  # 46 pieces <= 6 s, the same as PIECES
+WH_POST = str(ROOT / ".measure/runs/66/vulkan-q5_0/rep1/post-meeting.json")  # 15 pause-to-pause pieces
+WH_HEARD = str(ROOT / ".measure/runs/80/r2-heard/heard.json")  # measure::npu::whisper_heard on WH_POST
+OV_DEVICE = {"gpu": "GPU", "npu": "NPU"}
+# Warm compile caches, filled by the smoke run before the cells; the starts cell compiles into empty ones.
+WH_CACHE = {d: str(NB / f"80/cache/wh-{d}") for d in OV_DEVICE}
+# Parakeet: feed A is each VAD piece zero-padded to 608 frames, feed B the overlapping 608-frame windows of
+# round 1 (CHUNKED); DirectML gets the static shape too, so both devices run the same graph on the same input.
+PK_ENCODER = {"gpu": ["--encoder", "dml", "--frames", "608"],
+              "npu": ["--encoder", "ov-npu", "--frames", "608", "--cache", NPU_CACHE]}
+PK_FEED = {"a": [], "b": CHUNKED}
+# Passes per batch repeat: at least 60 s of work per repeat at the smoke's speeds (round 2's rule), the same
+# count on both devices, so both transcribe the same audio and the faster device still works over 60 s.
+BATCH_PASSES = {("wh", "live"): 10, ("wh", "post"): 12, ("pk", "a"): 14, ("pk", "b"): 11}
 
 
 def idle(seconds: float, settle: float, phase: str = "idle") -> dict:
@@ -128,19 +163,129 @@ def batch(seed: int, reps: int, cold_idle_s: float, out: Path, devices: list[str
     return {"kind": "batch", "seed": seed, "order": runs, "steps": steps}
 
 
+def wh_cmd(device: str, *args: str, cache: str | None = None) -> list[str]:
+    return [OV, WH_SCRIPT, "--model", WH, "--device", OV_DEVICE[device], "--cache", cache or WH_CACHE[device],
+            "--audio", AUDIO, "--language", "ru", *args]
+
+
+def pk_cmd(device: str, feed: str, *args: str, cache: str | None = None) -> list[str]:
+    encoder = list(PK_ENCODER[device])
+    if cache is not None and "--cache" in encoder:
+        encoder[encoder.index("--cache") + 1] = cache
+    return [ORT, SCRIPT, "--model", PK, *encoder, *PK_FEED[feed], "--audio", AUDIO, *args]
+
+
+def r2_meeting(model: str, order: list[str], exe: str, seconds: float, idle_s: float, out: Path) -> dict:
+    """Idle, the first device's meeting, idle, the second's, idle. Two such cells, GPU NPU then NPU GPU, make
+    the ABBA order; each cell compares the devices inside itself, pass by pass."""
+    steps = [idle(idle_s, 20)]
+    for device in order:
+        name = f"{model}-{device}"
+        if model == "pk":
+            step = meeting_step(exe, "dml" if device == "gpu" else "npu", seconds, str(out / f"meeting-{name}.json"),
+                                608 if device == "gpu" else None)
+            step["name"] = name
+        else:
+            step = {"name": name, "kind": "cmd", "env": {"MEASURE_AUDIO": AUDIO},
+                    "cmd": [OV, WH_MEETING, "--model", WH, "--device", OV_DEVICE[device], "--cache", WH_CACHE[device],
+                            "--pieces", WH_LIVE, "--audio", AUDIO, "--language", "ru", "--seconds", str(seconds),
+                            "--exe", exe, "--nemotron", NEMOTRON, "--out", str(out / f"meeting-{name}.json")]}
+        steps += [step, idle(idle_s, 30)]
+    return {"kind": "r2-meeting", "model": model, "order": order, "steps": steps}
+
+
+def r2_paced(model: str, order: list[str], seconds: float, idle_s: float, out: Path) -> dict:
+    """One 6 s window every 6 s for `seconds`, each device twice in ABBA order, a fresh process per block and a
+    no-model idle block between any two."""
+    steps = [idle(idle_s, 20)]
+    for device in order + order[::-1]:
+        n = sum(1 for s in steps if s.get("name", "").startswith(f"{model}-{device}")) + 1
+        name = f"{model}-{device}"
+        result = str(out / f"{name}-{n}" / "paced.json")
+        cmd = (wh_cmd(device, "--pieces", "none", "--out", result, "--paced", str(seconds)) if model == "wh"
+               else pk_cmd(device, "a", "--out", result, "--paced", str(seconds)))
+        steps += [{"name": name, "kind": "cmd", "cmd": cmd}, idle(idle_s, 20)]
+    return {"kind": "r2-paced", "model": model, "order": order + order[::-1], "steps": steps}
+
+
+def r2_floor(order: list[str], seconds: float, settle: float) -> dict:
+    """Whisper loaded and warm, no calls, each device twice in ABBA order between no-model idle blocks."""
+    steps = [idle(seconds, settle)]
+    for device in order + order[::-1]:
+        cmd = wh_cmd(device, "--pieces", "none", "--out", "none", "--resident", str(seconds),
+                     "--resident-settle", str(settle))
+        steps += [{"name": f"wh-{device}", "kind": "cmd", "cmd": cmd}, idle(seconds, settle)]
+    return {"kind": "r2-floor", "order": order + order[::-1], "steps": steps}
+
+
+def r2_batch(model: str, seed: int, reps: int, out: Path, feeds: list[str] | None = None,
+             passes: int | None = None) -> dict:
+    """`reps` runs per device and feed, each a fresh process (a warm load from the caches) whose timed repeat is
+    BATCH_PASSES passes over the feed, with a no-model idle block before every run. The order is randomised in
+    complete blocks: every block holds each device and feed once, shuffled, so the devices interleave and a drift
+    over the cell falls on all of them alike."""
+    feeds = feeds or (["live", "post"] if model == "wh" else ["a", "b"])
+    configs = [(feed, device) for feed in feeds for device in ("gpu", "npu")]
+    rng = random.Random(seed)
+    runs = [run for _ in range(reps) for run in rng.sample(configs, len(configs))]
+    steps: list[dict] = []
+    count: dict[tuple[str, str], int] = {}
+    for feed, device in runs:
+        count[(feed, device)] = count.get((feed, device), 0) + 1
+        name = f"{model}-{feed}-{device}-{count[(feed, device)]}"
+        count_passes = str(passes or BATCH_PASSES[(model, feed)])
+        if model == "wh":
+            kind = "live" if feed == "live" else "post-meeting"
+            args = ["--pieces", WH_LIVE if feed == "live" else WH_POST, "--reps", "1", "--passes", count_passes,
+                    "--out", str(out / name / f"{kind}.json")]
+            if feed == "post":
+                args += ["--timestamps", "segment", "--heard", WH_HEARD]
+            cmd = wh_cmd(device, *args)
+        else:
+            cmd = pk_cmd(device, feed, "--pieces", PIECES, "--reps", "1", "--passes", count_passes,
+                         "--out", str(out / name / "parakeet.json"))
+        steps += [idle(120 if not steps else 40, 15), {"name": name, "kind": "cmd", "cmd": cmd}]
+    steps.append(idle(40, 15))
+    return {"kind": "r2-batch", "model": model, "seed": seed, "order": [f"{f}-{d}" for f, d in runs], "steps": steps}
+
+
+def r2_starts(seed: int, warm: bool = False) -> dict:
+    """First start of each model and device into an empty compile cache (a fresh folder per cell), between idle
+    blocks: the load and the first call. Warm loads come from the batch cells' runs. `warm` (the smoke) points
+    at the warm caches instead."""
+    cold = NB / f"80/cache/r2-cold-{seed}"
+    steps = [idle(120, 0)]
+    for device in ("gpu", "npu"):
+        steps += [{"name": f"wh-{device}-cold", "kind": "cmd",
+                   "cmd": wh_cmd(device, "--pieces", WH_LIVE, "--out", "none", "--load-only",
+                                 cache=None if warm else str(cold / f"wh-{device}"))}, idle(60, 15)]
+    for device in ("gpu", "npu"):
+        steps += [{"name": f"pk-{device}-cold", "kind": "cmd",
+                   "cmd": pk_cmd(device, "a", "--pieces", PIECES, "--out", "none", "--load-only",
+                                 cache=None if warm else str(cold / f"pk-{device}"))}, idle(60, 15)]
+    return {"kind": "r2-starts", "seed": seed, "cache_root": str(cold), "steps": steps}
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("kind", choices=("floor", "meeting", "busy", "batch"))
+    parser.add_argument("kind", choices=("floor", "meeting", "busy", "batch", "r2-meeting", "r2-paced", "r2-floor",
+                                         "r2-batch", "r2-starts"))
+    parser.add_argument("--model", choices=("wh", "pk"), help="round 2: Whisper or Parakeet")
+    parser.add_argument("--order", default="gpu,npu", help="round 2: the devices' order (gpu,npu or npu,gpu)")
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--seconds", type=float, help="floor: 180 per block; meeting: 1800; busy: 900 per device")
     parser.add_argument("--settle", type=float, default=20.0)
-    parser.add_argument("--idle", type=float, default=240.0, help="meeting/busy: the idle blocks around it")
+    parser.add_argument("--idle", type=float, help="meeting/busy: the idle blocks around it (240; round 2: 180, "
+                        "paced 120)")
     parser.add_argument("--exe", help="the kit's test binary with measure::npu::paced_meeting")
     parser.add_argument("--device", choices=("cpu", "dml", "npu"))
     parser.add_argument("--frames", type=int, help="meeting: pad to this static shape (DirectML 608)")
     parser.add_argument("--devices", help="busy: cpu, dml, dml-608, npu (dml,npu); batch: npu, dml, cpu, "
                         "npu-overlap (npu,dml,cpu)")
     parser.add_argument("--reps", type=int, default=5)
+    parser.add_argument("--feeds", help="r2-batch: live,post (wh) or a,b (pk)")
+    parser.add_argument("--passes", type=int, help="r2-batch: passes per repeat instead of BATCH_PASSES (smoke)")
+    parser.add_argument("--warm", action="store_true", help="r2-starts: the warm caches (smoke)")
     parser.add_argument("--cold-idle", type=float, default=600.0)
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
@@ -148,11 +293,23 @@ def main() -> None:
     if args.kind == "floor":
         spec = floor(args.seed, args.seconds or 180.0, args.settle)
     elif args.kind == "meeting":
-        spec = meeting(args.exe, args.device, args.seconds or 1800.0, args.idle, cell_dir, args.frames)
+        spec = meeting(args.exe, args.device, args.seconds or 1800.0, args.idle or 240.0, cell_dir, args.frames)
     elif args.kind == "busy":
-        spec = busy(args.exe, (args.devices or "dml,npu").split(","), args.seconds or 900.0, args.idle, cell_dir)
-    else:
+        spec = busy(args.exe, (args.devices or "dml,npu").split(","), args.seconds or 900.0, args.idle or 240.0,
+                    cell_dir)
+    elif args.kind == "batch":
         spec = batch(args.seed, args.reps, args.cold_idle, cell_dir, (args.devices or "npu,dml,cpu").split(","))
+    elif args.kind == "r2-meeting":
+        spec = r2_meeting(args.model, args.order.split(","), args.exe, args.seconds or 900.0, args.idle or 180.0,
+                          cell_dir)
+    elif args.kind == "r2-paced":
+        spec = r2_paced(args.model, args.order.split(","), args.seconds or 300.0, args.idle or 120.0, cell_dir)
+    elif args.kind == "r2-floor":
+        spec = r2_floor(args.order.split(","), args.seconds or 180.0, args.settle)
+    elif args.kind == "r2-batch":
+        spec = r2_batch(args.model, args.seed, args.reps, cell_dir, args.feeds and args.feeds.split(","), args.passes)
+    else:
+        spec = r2_starts(args.seed, args.warm)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(spec, indent=1), encoding="utf-8")
     print(f"{args.out}: {[s.get('name', s['kind']) for s in spec['steps']]}")
