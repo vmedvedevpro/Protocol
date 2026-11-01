@@ -45,6 +45,30 @@
         "sampling": { "temperature": 1.0, "top_k": 64, "top_p": 0.95, "presence_penalty": 0.0, "frequency_penalty": 0.0, "repeat_penalty": 1.0, "penalty_last_n": 0 },
         "stop_tokens": ["<end_of_turn>"]
       }
+    },
+    "openvino": {
+      "id": "large-v3-turbo-openvino-int8",
+      "engine": "whisper",
+      "format": "openvino-ir",
+      "name": "Large V3 Turbo for Intel GPUs",
+      "languages": ["*"],
+      "companion_of": ["large-v3-turbo"],
+      "license": { "name": "MIT", "url": "https://github.com/openai/whisper/blob/main/LICENSE" },
+      "repo": "OpenVINO/whisper-large-v3-turbo-int8-ov",
+      "revision": "b568445dd5dc8c695bde596f8acbb4694fd6ba64",
+      "files": [
+        { "name": "openvino_encoder_model.xml", "path": "openvino_encoder_model.xml" },
+        { "name": "openvino_encoder_model.bin", "path": "openvino_encoder_model.bin" },
+        { "name": "openvino_decoder_model.xml", "path": "openvino_decoder_model.xml" },
+        { "name": "openvino_decoder_model.bin", "path": "openvino_decoder_model.bin" },
+        { "name": "openvino_tokenizer.xml", "path": "openvino_tokenizer.xml" },
+        { "name": "openvino_tokenizer.bin", "path": "openvino_tokenizer.bin" },
+        { "name": "openvino_detokenizer.xml", "path": "openvino_detokenizer.xml" },
+        { "name": "openvino_detokenizer.bin", "path": "openvino_detokenizer.bin" },
+        { "name": "config.json", "path": "config.json" },
+        { "name": "generation_config.json", "path": "generation_config.json" },
+        { "name": "preprocessor_config.json", "path": "preprocessor_config.json" }
+      ]
     }
   },
   "cases": [
@@ -100,6 +124,17 @@
     { "name": "min_ram_gb written as a float", "base": "llama", "set": { "min_ram_gb": 15.5 }, "valid": true },
     { "name": "sampling field as text", "base": "llama", "set": { "params.sampling.temperature": "0.5" }, "valid": false },
     { "name": "no stop tokens", "base": "llama", "set": { "params.stop_tokens": [] }, "valid": false },
-    { "name": "params on whisper", "base": "whisper", "set": { "params": { "context_size": 4096 } }, "valid": false }
+    { "name": "params on whisper", "base": "whisper", "set": { "params": { "context_size": 4096 } }, "valid": false },
+    { "name": "openvino companion base entry", "base": "openvino", "valid": true },
+    { "name": "openvino companion of two models", "base": "openvino", "set": { "companion_of": ["large-v3-turbo", "large-v3-turbo-q5_0"] }, "valid": true },
+    { "name": "openvino companion serving nothing", "base": "openvino", "set": { "companion_of": [] }, "valid": false },
+    { "name": "openvino companion without companion_of", "base": "openvino", "remove": ["companion_of"], "valid": false },
+    { "name": "openvino companion naming a malformed id", "base": "openvino", "set": { "companion_of": ["Large V3"] }, "valid": false },
+    { "name": "openvino companion without a pinned revision", "base": "openvino", "remove": ["revision"], "valid": false },
+    { "name": "openvino companion missing a file", "base": "openvino", "set": { "files": [{ "name": "openvino_encoder_model.xml", "path": "openvino_encoder_model.xml" }, { "name": "openvino_encoder_model.bin", "path": "openvino_encoder_model.bin" }, { "name": "openvino_decoder_model.xml", "path": "openvino_decoder_model.xml" }, { "name": "openvino_decoder_model.bin", "path": "openvino_decoder_model.bin" }, { "name": "openvino_tokenizer.xml", "path": "openvino_tokenizer.xml" }, { "name": "openvino_tokenizer.bin", "path": "openvino_tokenizer.bin" }, { "name": "openvino_detokenizer.xml", "path": "openvino_detokenizer.xml" }, { "name": "openvino_detokenizer.bin", "path": "openvino_detokenizer.bin" }, { "name": "config.json", "path": "config.json" }, { "name": "generation_config.json", "path": "generation_config.json" }] }, "valid": false },
+    { "name": "openvino companion as a ggml file", "base": "openvino", "set": { "files": [{ "name": "ggml-large-v3-turbo-openvino-int8.bin", "path": "ggml-large-v3-turbo-openvino-int8.bin" }] }, "valid": false },
+    { "name": "companion_of on a ggml model", "base": "whisper", "set": { "companion_of": ["base"] }, "valid": false },
+    { "name": "empty companion_of on a ggml model", "base": "whisper", "set": { "companion_of": [] }, "valid": true },
+    { "name": "openvino-ir on parakeet", "base": "parakeet", "set": { "format": "openvino-ir" }, "valid": false }
   ]
 }

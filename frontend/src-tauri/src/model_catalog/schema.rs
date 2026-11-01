@@ -20,6 +20,29 @@ pub const SCHEMA: u64 = 1;
 pub const PARAKEET_FILES: [&str; 4] =
     ["encoder-model.int8.onnx", "decoder_joint-model.int8.onnx", "nemo128.onnx", "vocab.txt"];
 
+/// The format of a Whisper model exported to OpenVINO IR by `optimum-intel`,
+/// run by OpenVINO GenAI on an Intel GPU (#79). Such an entry is a companion:
+/// it is never offered as a model of its own, only beside the ggml models it
+/// names in `companion_of` (`super::openvino`).
+pub const OPENVINO_IR: &str = "openvino-ir";
+
+/// The files of an OpenVINO Whisper model that GenAI's `WhisperPipeline`
+/// reads, as `OpenVINO/whisper-*-ov` on Hugging Face has them; the engine
+/// checks the same list (`whisper_engine::openvino::MODEL_FILES`).
+pub const OPENVINO_WHISPER_FILES: [&str; 11] = [
+    "openvino_encoder_model.xml",
+    "openvino_encoder_model.bin",
+    "openvino_decoder_model.xml",
+    "openvino_decoder_model.bin",
+    "openvino_tokenizer.xml",
+    "openvino_tokenizer.bin",
+    "openvino_detokenizer.xml",
+    "openvino_detokenizer.bin",
+    "config.json",
+    "generation_config.json",
+    "preprocessor_config.json",
+];
+
 /// Chat templates `summary_engine::models::format_prompt` knows.
 pub const CHAT_FORMATS: [&str; 2] = ["gemma3", "qwen3.5_nonthinking"];
 
@@ -44,7 +67,7 @@ impl Engine {
     /// The file formats this build can run for the engine.
     fn formats(self) -> &'static [&'static str] {
         match self {
-            Engine::Whisper => &["ggml"],
+            Engine::Whisper => &["ggml", OPENVINO_IR],
             Engine::Parakeet => &["onnx-tdt-int8"],
             Engine::Llama => &["gguf"],
         }
@@ -124,6 +147,10 @@ pub struct Entry {
     pub min_app_version: Option<String>,
     #[serde(default)]
     pub params: Option<LlamaParams>,
+    /// An `openvino-ir` entry: the ids of the ggml Whisper models it runs in
+    /// place of. Older apps ignore the field and hide the entry for its format.
+    #[serde(default)]
+    pub companion_of: Vec<String>,
 }
 
 fn listed_by_default() -> bool {
@@ -201,6 +228,7 @@ impl Entry {
             problems.push("min_app_version must be X.Y.Z".to_string());
         }
         problems.extend(self.file_problems());
+        problems.extend(self.companion_problems());
         match (self.engine, &self.params) {
             (Engine::Llama, Some(params)) => problems.extend(llama_problems(params)),
             (Engine::Llama, None) => problems.push("params are required for llama".to_string()),
@@ -229,6 +257,13 @@ impl Entry {
             return problems;
         }
         match self.engine {
+            Engine::Whisper if self.format == OPENVINO_IR => {
+                if self.files.len() != OPENVINO_WHISPER_FILES.len()
+                    || !OPENVINO_WHISPER_FILES.iter().all(|name| names.contains(name))
+                {
+                    problems.push(format!("an openvino-ir model is the files {}", OPENVINO_WHISPER_FILES.join(", ")));
+                }
+            }
             Engine::Whisper if self.files.len() != 1 || self.files[0].name != format!("ggml-{}.bin", self.id) => {
                 problems.push(format!("a whisper model is one file named ggml-{}.bin", self.id));
             }
@@ -243,6 +278,30 @@ impl Entry {
             _ => {}
         }
         problems
+    }
+
+    /// An `openvino-ir` entry names the models it serves and a pinned commit:
+    /// GenAI reads an IR export only as far as the runtime the app ships
+    /// understands it, so a new commit must come with a release that was
+    /// measured with it, not reach installed apps through the catalog.
+    fn companion_problems(&self) -> Vec<String> {
+        let mut problems = Vec::new();
+        if self.format == OPENVINO_IR {
+            if self.companion_of.is_empty() || !self.companion_of.iter().all(|id| ID.is_match(id)) {
+                problems.push("companion_of must list the ids of the whisper models it serves".to_string());
+            }
+            if self.revision.is_none() {
+                problems.push("an openvino-ir model needs a pinned revision".to_string());
+            }
+        } else if !self.companion_of.is_empty() {
+            problems.push("companion_of is only used by openvino-ir models".to_string());
+        }
+        problems
+    }
+
+    /// Whether this is an OpenVINO companion rather than a model of its own.
+    pub fn is_companion(&self) -> bool {
+        self.engine == Engine::Whisper && self.format == OPENVINO_IR
     }
 
     /// The single file of a Whisper or summary model.

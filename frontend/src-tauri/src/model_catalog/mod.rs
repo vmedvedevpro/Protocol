@@ -16,6 +16,8 @@
 pub mod commands;
 pub mod huggingface;
 pub mod installed;
+#[cfg(windows)]
+pub mod openvino;
 pub mod remote;
 pub mod schema;
 pub mod service;
@@ -127,11 +129,35 @@ pub fn entry(engine: Engine, id: &str) -> Option<Entry> {
     find(&active()).or_else(|| find(&built_in()))
 }
 
+/// The models of `engine`. OpenVINO companions are left out: Whisper's model
+/// list, downloads and updates handle ggml files only, and a companion is
+/// listed beside its models instead ([`companions`]).
 fn usable(catalog: &Catalog, engine: Engine) -> impl Iterator<Item = &Entry> {
     catalog
         .entries
         .iter()
-        .filter(move |entry| entry.engine == engine && entry.runs_on(app_version()))
+        .filter(move |entry| entry.engine == engine && !entry.is_companion() && entry.runs_on(app_version()))
+}
+
+/// The OpenVINO companions this build can run (#79): the catalog in use's,
+/// then built-in ones it no longer has, so a companion removed from `main`
+/// stays known to the installs that have it.
+pub fn companions() -> Vec<Entry> {
+    let runnable = |catalog: &Catalog| -> Vec<Entry> {
+        catalog
+            .entries
+            .iter()
+            .filter(|entry| entry.is_companion() && entry.runs_on(app_version()))
+            .cloned()
+            .collect()
+    };
+    let mut companions = runnable(&active());
+    for entry in runnable(&built_in()) {
+        if !companions.iter().any(|known| known.id == entry.id) {
+            companions.push(entry);
+        }
+    }
+    companions
 }
 
 #[cfg(test)]
@@ -171,6 +197,21 @@ mod tests {
         assert!(with_installed.iter().any(|entry| entry.id == "tiny"));
         assert!(!entries_with_installed(Engine::Whisper, |_| false).iter().any(|entry| entry.id == "tiny"));
         assert_eq!(entry(Engine::Whisper, "tiny").unwrap().files[0].name, "ggml-tiny.bin");
+    }
+
+    #[test]
+    fn companions_serve_whisper_models_and_are_not_whisper_models_themselves() {
+        let _catalog = testing::built_in_catalog();
+        let companions = companions();
+        assert!(!companions.is_empty());
+        let whisper = entries(Engine::Whisper);
+        for companion in &companions {
+            assert!(!whisper.iter().any(|entry| entry.id == companion.id), "{} is listed as a Whisper model", companion.id);
+            assert!(entry(Engine::Whisper, &companion.id).is_none());
+            for id in &companion.companion_of {
+                assert!(whisper.iter().any(|entry| &entry.id == id && entry.format == "ggml"), "{} serves unknown {id}", companion.id);
+            }
+        }
     }
 
     #[test]

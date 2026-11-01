@@ -412,7 +412,7 @@ mod tests {
     /// Resolves every built-in entry against Hugging Face: each repository
     /// and file still exists and has a SHA-256 or a matching blob id.
     #[tokio::test]
-    #[ignore = "Asks Hugging Face about 18 models and fetches two small files"]
+    #[ignore = "Asks Hugging Face about 19 models and fetches nine small files"]
     async fn every_built_in_entry_resolves_on_hugging_face() {
         let client = client();
         for entry in &crate::model_catalog::built_in().entries {

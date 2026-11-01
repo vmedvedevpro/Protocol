@@ -16,11 +16,27 @@ export const SCHEMA = 1;
 
 // Engines and file formats this version of the app can run.
 export const ENGINES = {
-  whisper: { formats: ['ggml'] },
+  whisper: { formats: ['ggml', 'openvino-ir'] },
   parakeet: { formats: ['onnx-tdt-int8'] },
   llama: { formats: ['gguf'] },
 };
 export const PARAKEET_FILES = ['encoder-model.int8.onnx', 'decoder_joint-model.int8.onnx', 'nemo128.onnx', 'vocab.txt'];
+// An OpenVINO companion of Whisper models (#79): the files GenAI's
+// WhisperPipeline reads.
+export const OPENVINO_IR = 'openvino-ir';
+export const OPENVINO_WHISPER_FILES = [
+  'openvino_encoder_model.xml',
+  'openvino_encoder_model.bin',
+  'openvino_decoder_model.xml',
+  'openvino_decoder_model.bin',
+  'openvino_tokenizer.xml',
+  'openvino_tokenizer.bin',
+  'openvino_detokenizer.xml',
+  'openvino_detokenizer.bin',
+  'config.json',
+  'generation_config.json',
+  'preprocessor_config.json',
+];
 export const CHAT_FORMATS = ['gemma3', 'qwen3.5_nonthinking'];
 export const SAMPLING_FIELDS = [
   'temperature',
@@ -113,6 +129,7 @@ export function entryProblems(entry) {
     problems.push('min_app_version must be X.Y.Z');
   }
   problems.push(...fileProblems(entry, known ? engine : null));
+  problems.push(...companionProblems(entry));
   if (known && engine === 'llama') problems.push(...llamaProblems(entry.params));
   else if (entry.params !== undefined) problems.push(`params are not used by ${engine}`);
   return problems;
@@ -132,7 +149,11 @@ function fileProblems(entry, engine) {
     names.add(file.name);
   }
   if (problems.length > 0) return problems;
-  if (engine === 'whisper' && (files.length !== 1 || files[0].name !== `ggml-${entry.id}.bin`)) {
+  if (engine === 'whisper' && entry.format === OPENVINO_IR) {
+    if (files.length !== OPENVINO_WHISPER_FILES.length || !OPENVINO_WHISPER_FILES.every((name) => names.has(name))) {
+      problems.push(`an openvino-ir model is the files ${OPENVINO_WHISPER_FILES.join(', ')}`);
+    }
+  } else if (engine === 'whisper' && (files.length !== 1 || files[0].name !== `ggml-${entry.id}.bin`)) {
     problems.push(`a whisper model is one file named ggml-${entry.id}.bin`);
   }
   if (engine === 'parakeet' && (files.length !== PARAKEET_FILES.length || !PARAKEET_FILES.every((name) => names.has(name)))) {
@@ -140,6 +161,23 @@ function fileProblems(entry, engine) {
   }
   if (engine === 'llama' && (files.length !== 1 || !files[0].name.endsWith('.gguf'))) {
     problems.push('a llama model is one .gguf file');
+  }
+  return problems;
+}
+
+// A companion names the models it serves and a pinned commit: the runtime the
+// app ships reads an IR export only as far as it understands it, so a new
+// commit comes with a measured release, not through the catalog.
+function companionProblems(entry) {
+  const problems = [];
+  const { companion_of: serves } = entry;
+  if (entry.format === OPENVINO_IR) {
+    if (!Array.isArray(serves) || serves.length === 0 || !serves.every((id) => typeof id === 'string' && ID.test(id))) {
+      problems.push('companion_of must list the ids of the whisper models it serves');
+    }
+    if (entry.revision === undefined) problems.push('an openvino-ir model needs a pinned revision');
+  } else if (serves !== undefined && !(Array.isArray(serves) && serves.length === 0)) {
+    problems.push('companion_of is only used by openvino-ir models');
   }
   return problems;
 }
@@ -196,6 +234,18 @@ export function catalogProblems(document) {
     }
     ids.add(key);
     if (entry.engine === 'llama') ggufNames.add(entry.files[0].name);
+  });
+  // A companion must serve models the catalog has. The app does not need
+  // this (a companion of an unknown model is never offered), so it is a
+  // pull-request rule only.
+  const ggml = new Set(
+    document.models.filter((entry) => isObject(entry) && entry.engine === 'whisper' && entry.format === 'ggml').map((entry) => entry.id),
+  );
+  document.models.forEach((entry, index) => {
+    if (!isObject(entry) || entry.format !== OPENVINO_IR || !Array.isArray(entry.companion_of)) return;
+    for (const id of entry.companion_of) {
+      if (!ggml.has(id)) problems.push({ index, id: entry.id, problem: `companion_of names ${id}, which is not a ggml whisper model here` });
+    }
   });
   return { fatal: null, problems };
 }

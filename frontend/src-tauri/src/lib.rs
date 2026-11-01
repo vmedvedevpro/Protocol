@@ -792,6 +792,15 @@ pub fn run() {
             model_catalog::commands::model_catalog_model_size,
             model_catalog::commands::model_update_start,
             model_catalog::commands::model_update_cancel,
+            // OpenVINO companions of Whisper models (#79)
+            #[cfg(windows)]
+            model_catalog::openvino::openvino_companion_status,
+            #[cfg(windows)]
+            model_catalog::openvino::openvino_companion_download,
+            #[cfg(windows)]
+            model_catalog::openvino::openvino_companion_cancel,
+            #[cfg(windows)]
+            model_catalog::openvino::openvino_companion_delete,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

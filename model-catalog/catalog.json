@@ -165,6 +165,31 @@
       "files": [{ "name": "ggml-large-v3-turbo-q5_0.bin", "path": "ggml-large-v3-turbo-q5_0.bin" }]
     },
     {
+      "id": "large-v3-turbo-openvino-int8",
+      "engine": "whisper",
+      "format": "openvino-ir",
+      "name": "Large V3 Turbo for Intel GPUs",
+      "description": "Large V3 Turbo for OpenVINO, int8. Runs on an Intel GPU instead of the Large V3 Turbo models: about four times faster for a third of the energy",
+      "languages": ["*"],
+      "companion_of": ["large-v3-turbo", "large-v3-turbo-q5_0"],
+      "license": { "name": "MIT", "url": "https://github.com/openai/whisper/blob/main/LICENSE" },
+      "repo": "OpenVINO/whisper-large-v3-turbo-int8-ov",
+      "revision": "b568445dd5dc8c695bde596f8acbb4694fd6ba64",
+      "files": [
+        { "name": "openvino_encoder_model.xml", "path": "openvino_encoder_model.xml" },
+        { "name": "openvino_encoder_model.bin", "path": "openvino_encoder_model.bin" },
+        { "name": "openvino_decoder_model.xml", "path": "openvino_decoder_model.xml" },
+        { "name": "openvino_decoder_model.bin", "path": "openvino_decoder_model.bin" },
+        { "name": "openvino_tokenizer.xml", "path": "openvino_tokenizer.xml" },
+        { "name": "openvino_tokenizer.bin", "path": "openvino_tokenizer.bin" },
+        { "name": "openvino_detokenizer.xml", "path": "openvino_detokenizer.xml" },
+        { "name": "openvino_detokenizer.bin", "path": "openvino_detokenizer.bin" },
+        { "name": "config.json", "path": "config.json" },
+        { "name": "generation_config.json", "path": "generation_config.json" },
+        { "name": "preprocessor_config.json", "path": "preprocessor_config.json" }
+      ]
+    },
+    {
       "id": "parakeet-tdt-0.6b-v3-int8",
       "engine": "parakeet",
       "format": "onnx-tdt-int8",

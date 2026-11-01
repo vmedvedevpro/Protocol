@@ -77,6 +77,14 @@ test('a broken entry is reported on its own and the first of two duplicates is k
   assert.match(problems[2].problem, /already used by another summary model/);
 });
 
+test('an openvino companion must serve ggml whisper models of the same catalog', () => {
+  const turbo = { ...bases.whisper, id: 'large-v3-turbo', files: [{ name: 'ggml-large-v3-turbo.bin', path: 'ggml-large-v3-turbo.bin' }] };
+  assert.deepEqual(catalogProblems({ schema: 1, models: [turbo, bases.openvino] }).problems, []);
+  const { problems } = catalogProblems({ schema: 1, models: [bases.whisper, bases.openvino] });
+  assert.deepEqual(problems.map(({ index }) => index), [1]);
+  assert.match(problems[0].problem, /companion_of names large-v3-turbo, which is not a ggml whisper model here/);
+});
+
 test('the command fails on a broken entry and passes the repository catalog', () => {
   assert.match(execFileSync(process.execPath, [script, catalogPath], { encoding: 'utf8' }), /all valid/);
   const dir = mkdtempSync(join(tmpdir(), 'catalog-'));

@@ -349,8 +349,9 @@ mod tests {
             let expected = legacy(entry).unwrap_or_else(|| panic!("{} lists other files than 0.3.0", model.id));
             assert_eq!(expected.files.len(), model.files.len());
         }
-        // Every entry of the built-in catalog was in 0.3.0: nothing is lost.
-        assert_eq!(catalog.entries.len(), LEGACY.len());
+        // Every model of the built-in catalog was in 0.3.0: nothing is lost.
+        // OpenVINO companions came later (#79) and are always recorded.
+        assert_eq!(catalog.entries.iter().filter(|entry| !entry.is_companion()).count(), LEGACY.len());
     }
 
     #[test]
