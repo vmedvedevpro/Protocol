@@ -113,36 +113,54 @@ pub fn whisper_gpu_device(compiled_backend: WhisperCompiledBackend) -> i32 {
     }
 }
 
-/// The PCI bus id (`0000:00:02.0`) of the GPU a context of `compiled_backend`
-/// runs on, as ggml reports it: the device [`whisper_gpu_device`] picks. `None`
-/// without a GPU backend, or when the driver does not report the address
-/// (ggml-vulkan reads it from `VK_EXT_pci_bus_info`). The OpenVINO device rule
-/// (#79) matches it against OpenVINO's GPUs.
-pub fn whisper_gpu_pci_bus_id(compiled_backend: WhisperCompiledBackend) -> Option<String> {
+/// The GPU a context of `compiled_backend` runs on, as ggml reports it: the
+/// device [`whisper_gpu_device`] picks. The OpenVINO device rule (#79) matches
+/// it against OpenVINO's GPUs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WhisperGpu {
+    /// The PCI bus id, `0000:00:02.0`. ggml-vulkan reads it from
+    /// `VK_EXT_pci_bus_info`, which not every driver offers (the Arc B390's
+    /// Windows driver does not), so it is often `None`.
+    pub pci_bus_id: Option<String>,
+    /// The Vulkan device name, `Intel(R) Arc(TM) B390 GPU`.
+    pub name: String,
+    pub integrated: bool,
+}
+
+/// [`WhisperGpu`] for `compiled_backend`; `None` without a GPU backend.
+pub fn whisper_gpu(compiled_backend: WhisperCompiledBackend) -> Option<WhisperGpu> {
     match compiled_backend {
         #[cfg(feature = "vulkan")]
-        WhisperCompiledBackend::Vulkan => ggml_gpu_pci_bus_id(whisper_gpu_device(compiled_backend)),
+        WhisperCompiledBackend::Vulkan => ggml_gpu(whisper_gpu_device(compiled_backend)),
         _ => None,
     }
 }
 
 #[cfg(feature = "vulkan")]
-fn ggml_gpu_pci_bus_id(gpu_device: i32) -> Option<String> {
+fn ggml_gpu(gpu_device: i32) -> Option<WhisperGpu> {
     use whisper_rs::whisper_rs_sys as sys;
-    // SAFETY: as in `ggml_device_kinds`; the props' strings belong to the
-    // registry's device and are copied before returning.
+    let text = |pointer: *const std::os::raw::c_char| {
+        // SAFETY: the registry's strings live as long as its devices; copied here.
+        (!pointer.is_null()).then(|| unsafe { std::ffi::CStr::from_ptr(pointer) }.to_string_lossy().into_owned())
+    };
+    // SAFETY: as in `ggml_device_kinds`; `props` is filled by the registry.
     unsafe {
-        let gpus = (0..sys::ggml_backend_dev_count()).map(|index| sys::ggml_backend_dev_get(index)).filter(|device| {
-            matches!(
-                sys::ggml_backend_dev_type(*device),
-                sys::ggml_backend_dev_type_GGML_BACKEND_DEVICE_TYPE_GPU | sys::ggml_backend_dev_type_GGML_BACKEND_DEVICE_TYPE_IGPU
-            )
-        });
-        let device = gpus.into_iter().nth(usize::try_from(gpu_device).ok()?)?;
+        let device = (0..sys::ggml_backend_dev_count())
+            .map(|index| sys::ggml_backend_dev_get(index))
+            .filter(|device| {
+                matches!(
+                    sys::ggml_backend_dev_type(*device),
+                    sys::ggml_backend_dev_type_GGML_BACKEND_DEVICE_TYPE_GPU | sys::ggml_backend_dev_type_GGML_BACKEND_DEVICE_TYPE_IGPU
+                )
+            })
+            .nth(usize::try_from(gpu_device).ok()?)?;
         let mut props: sys::ggml_backend_dev_props = std::mem::zeroed();
         sys::ggml_backend_dev_get_props(device, &mut props);
-        (!props.device_id.is_null())
-            .then(|| std::ffi::CStr::from_ptr(props.device_id).to_string_lossy().into_owned())
+        Some(WhisperGpu {
+            pci_bus_id: text(props.device_id),
+            name: text(props.description)?,
+            integrated: props.type_ == sys::ggml_backend_dev_type_GGML_BACKEND_DEVICE_TYPE_IGPU,
+        })
     }
 }
 
