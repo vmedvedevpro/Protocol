@@ -460,6 +460,13 @@ pub async fn get_local_stack_status() -> Result<serde_json::Value, String> {
             None => None,
         }
     };
+    #[cfg(windows)]
+    let whisper_openvino = {
+        let engine = WHISPER_ENGINE.lock().unwrap().as_ref().cloned();
+        super::openvino::stack_status(engine.as_deref())
+    };
+    #[cfg(not(windows))]
+    let whisper_openvino = serde_json::Value::Null;
 
     let (parakeet_loaded, parakeet_model) = {
         use crate::parakeet_engine::commands::PARAKEET_ENGINE;
@@ -504,6 +511,7 @@ pub async fn get_local_stack_status() -> Result<serde_json::Value, String> {
         "whisper": {
             "loaded": whisper_loaded,
             "model": whisper_model,
+            "openvino": whisper_openvino,
         },
         "parakeet": {
             "loaded": parakeet_loaded,
@@ -524,6 +532,16 @@ pub async fn get_local_stack_status() -> Result<serde_json::Value, String> {
         "networkPolicy": "local-first",
         "networkNote": "No telemetry. Cloud LLM only if you add an API key and select that provider.",
     }))
+}
+
+/// Whether this app can run Whisper on OpenVINO here (#79): the Settings row
+/// that offers a model's OpenVINO companion shows only when it can.
+#[command]
+pub async fn get_openvino_availability() -> Result<serde_json::Value, String> {
+    #[cfg(windows)]
+    return Ok(serde_json::to_value(super::openvino::availability().await).map_err(|error| error.to_string())?);
+    #[cfg(not(windows))]
+    Ok(serde_json::json!({ "available": false, "device": null, "reason": "OpenVINO runs only in the Windows app" }))
 }
 
 /// Recheck whether a Windows NVIDIA driver now supports the CUDA build selected

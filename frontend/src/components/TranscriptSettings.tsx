@@ -13,6 +13,7 @@ import { Textarea } from './ui/textarea';
 import { RecordingPreferences } from './RecordingSettings';
 import { ModelManager } from './WhisperModelManager';
 import { ParakeetModelManager } from './ParakeetModelManager';
+import { OpenVinoCompanion } from './OpenVinoCompanion';
 import { LANGUAGES } from './LanguageSelection';
 import { RowNote, SettingRow, SettingsGroup } from './settings/SettingsGroup';
 import type { RawModelInfo } from '@/hooks/useTranscriptionModels';
@@ -325,6 +326,11 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
 
     const installedWhisper = installedModels.filter((model) => model.provider === 'whisper');
     const usesWhisper = liveModel?.provider === 'whisper' || afterModel?.provider === 'whisper';
+    // The Whisper models in use, after meetings first: the OpenVINO row
+    // offers the companion of the first one that has one.
+    const whisperInUse = [afterModel, liveModel]
+        .filter((model): model is InstalledModel => model?.provider === 'whisper')
+        .map((model) => model.name);
 
     const usageFor = (engine: SpeechEngine) => (name: string) => [
         ...(liveModel?.provider === engine && liveModel.name === name ? ['During meetings'] : []),
@@ -626,6 +632,7 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
                     />
                 </div>
             </SettingRow>
+            <OpenVinoCompanion whisperModels={whisperInUse} />
         </SettingsGroup>
     );
 

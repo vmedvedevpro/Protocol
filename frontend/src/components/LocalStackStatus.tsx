@@ -20,7 +20,12 @@ import {
 
 type StackStatus = TranscriptionAccelerationStatus & {
   recording: boolean;
-  whisper: { loaded: boolean; model: string | null };
+  whisper: {
+    loaded: boolean;
+    model: string | null;
+    /** Windows: the OpenVINO device the model runs on, or why the last load fell back to whisper.cpp (#79). */
+    openvino?: { device: string | null; fallbackReason: string | null } | null;
+  };
   parakeet: { loaded: boolean; model: string | null; backend: 'CPU' | 'DirectML' };
   sttIdleUnloadSecs: number;
   llmIdleUnloadSecs: number;
@@ -76,9 +81,13 @@ export function LocalStackStatus() {
   const [status, setStatus] = useState<StackStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const whisperBackend = getWhisperBackend(status);
-  const whisperBackendLabel = whisperBackend
-    ? formatWhisperBackend(whisperBackend)
-    : 'Detecting...';
+  const openvinoDevice = status?.whisper.openvino?.device ?? null;
+  const openvinoFallback = status?.whisper.openvino?.fallbackReason ?? null;
+  const whisperBackendLabel = openvinoDevice
+    ? `OpenVINO ${openvinoDevice}`
+    : whisperBackend
+      ? formatWhisperBackend(whisperBackend)
+      : 'Detecting...';
   const parakeetBackend = status?.parakeet.backend ?? 'CPU';
 
   const refresh = useCallback(async () => {
@@ -159,7 +168,14 @@ export function LocalStackStatus() {
             </span>
           }
         >
-          <p className="text-xs text-af-text-3">Whisper&apos;s acceleration was chosen for this computer when Protocol was installed.</p>
+          <p className="text-xs text-af-text-3">
+            {openvinoDevice
+              ? 'Whisper runs on your Intel GPU with OpenVINO.'
+              : "Whisper's acceleration was chosen for this computer when Protocol was installed."}
+          </p>
+          {openvinoFallback && (
+            <p className="text-xs text-af-text-3">{`OpenVINO could not run Whisper, so it runs on ${whisperBackendLabel}: ${openvinoFallback}`}</p>
+          )}
         </SettingRow>
       </SettingsGroup>
 
