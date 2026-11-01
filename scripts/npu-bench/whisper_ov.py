@@ -139,9 +139,10 @@ def main() -> None:
     samples = [audio[int(p["start_ms"] * SAMPLES_PER_MS):int(p["end_ms"] * SAMPLES_PER_MS)] for p in pieces]
     speech_s = sum(len(s) for s in samples) / 16000.0
     if args.heard:
-        heard = {(h["start_ms"], h["end_ms"]): h["heard_end_ms"]
+        # Matched by time to 1 ms: the kit writes a piece's times as floats that do not always round-trip.
+        heard = {(round(h["start_ms"]), round(h["end_ms"])): h["heard_end_ms"]
                  for h in json.loads(args.heard.read_text(encoding="utf-8"))["pieces"]}
-        samples = [s[:int((heard[(p["start_ms"], p["end_ms"])] - p["start_ms"]) * SAMPLES_PER_MS)]
+        samples = [s[:int((heard[(round(p["start_ms"]), round(p["end_ms"]))] - p["start_ms"]) * SAMPLES_PER_MS)]
                    for p, s in zip(pieces, samples)]
         print(f"heard {sum(len(s) for s in samples) / 16000.0:.1f} of {speech_s:.1f} s")
     print(f"{len(pieces)} pieces, {speech_s:.1f} s of speech; kit speech {kit['timing']['speech_ms'] / 1000:.1f} s")
