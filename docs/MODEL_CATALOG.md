@@ -20,7 +20,7 @@ checks below.
 | Field | Meaning |
 | --- | --- |
 | `id` | The value saved in settings and the database. Permanent: never renamed or reused. 1–64 of `a-z 0-9 . _ : -`. |
-| `engine`, `format` | `whisper`/`ggml`, `parakeet`/`onnx-tdt-int8` or `llama`/`gguf`. A build hides an engine or format it does not know. |
+| `engine`, `format` | `whisper`/`ggml`, `whisper`/`openvino-ir` (a companion, below), `parakeet`/`onnx-tdt-int8` or `llama`/`gguf`. A build hides an engine or format it does not know. |
 | `name`, `description` | Display text (≤ 80 and ≤ 300 characters). |
 | `languages` | `["*"]` or language codes. |
 | `accuracy`, `speed` | Short display labels (Whisper, Parakeet). |
@@ -30,7 +30,8 @@ checks below.
 | `license` | `{ name, url }` (https). |
 | `repo` | The Hugging Face repository, `owner/name`. |
 | `revision` | Optional 40-character commit: the entry stays on it instead of following the default branch. |
-| `files` | `[{ name, path }]`: the name on disk and the path in the repository. Whisper: one `ggml-<id>.bin`; Parakeet: exactly `encoder-model.int8.onnx`, `decoder_joint-model.int8.onnx`, `nemo128.onnx`, `vocab.txt`; summary: one `.gguf`. |
+| `files` | `[{ name, path }]`: the name on disk and the path in the repository. Whisper: one `ggml-<id>.bin`; an `openvino-ir` companion: exactly the 11 files `WhisperPipeline` reads (`model_catalog::schema::OPENVINO_WHISPER_FILES`); Parakeet: exactly `encoder-model.int8.onnx`, `decoder_joint-model.int8.onnx`, `nemo128.onnx`, `vocab.txt`; summary: one `.gguf`. |
+| `companion_of` | `openvino-ir` entries only, and required there: the ggml Whisper ids the companion runs instead of on an Intel GPU (`docs/OPENVINO_WHISPER.md`). A companion needs a pinned `revision`. It is never a Whisper model of its own: it is left out of the model lists, downloads and update checks, and Settings offers it under the Whisper model it serves (`OpenVinoCompanion.tsx`) only where `get_openvino_availability` says OpenVINO can run. It installs into `models/openvino/<id>/` with an install record and a `.verified` marker per file (`model_catalog/openvino.rs`). |
 | `min_app_version` | Optional `X.Y.Z`: older apps leave the entry out. |
 | `params` | Summary models only: `chat_format` (`gemma3` or `qwen3.5_nonthinking`, the templates in `summary_engine/models.rs`), `context_size` (512–1048576), `sampling` (`temperature`, `top_k`, `top_p`, `presence_penalty`, `frequency_penalty`, `repeat_penalty`, `penalty_last_n`) and `stop_tokens`. |
 
