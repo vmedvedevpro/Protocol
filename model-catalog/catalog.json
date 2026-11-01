@@ -169,7 +169,7 @@
       "engine": "whisper",
       "format": "openvino-ir",
       "name": "Large V3 Turbo for Intel GPUs",
-      "description": "Large V3 Turbo for OpenVINO, int8. Runs on an Intel GPU instead of the Large V3 Turbo models: about four times faster for a third of the energy",
+      "description": "Large V3 Turbo for OpenVINO, int8. Runs on an Intel GPU instead of the Large V3 Turbo models: about four times faster for a quarter of the energy",
       "languages": ["*"],
       "companion_of": ["large-v3-turbo", "large-v3-turbo-q5_0"],
       "license": { "name": "MIT", "url": "https://github.com/openai/whisper/blob/main/LICENSE" },

@@ -1,7 +1,8 @@
 //! Whisper on OpenVINO GenAI, for the Intel GPU whisper.cpp would otherwise run
-//! on through Vulkan (#79). On the Arc B390 of the #66 measurements GenAI's
+//! on through Vulkan (#79). On an Arc B390, with the kit on `fleurs-ru`, GenAI's
 //! `WhisperPipeline` ran Large V3 Turbo about four times faster than
-//! whisper.cpp 1.8.3 on Vulkan, for a third to a quarter of the energy.
+//! whisper.cpp 1.8.3 on Vulkan, live and after meetings, for about a quarter
+//! of the package energy, at the same word error rate.
 //!
 //! - The runtime ([`genai`]) is loaded on first use from `binaries/openvino/`
 //!   and stays loaded for the process, like ONNX Runtime; the app starts, and

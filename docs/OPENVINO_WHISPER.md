@@ -2,10 +2,17 @@
 
 Issue #79. On Windows, the Vulkan build can run Whisper Large V3 Turbo on an
 Intel GPU through OpenVINO GenAI's `WhisperPipeline` instead of whisper.cpp.
-#66 measured the reason on an Arc B390 (Core Ultra X7 358H): GenAI on the GPU
-transcribed the `fleurs-ru` kit pieces several times faster than whisper.cpp
-1.8.3 on Vulkan, for a fraction of the package energy. This note says when it
-runs, who owns what, and what is still open.
+On an Arc B390 (Core Ultra X7 358H) the measurement kit on `fleurs-ru`, three
+interleaved pairs against `main` under the #66 energy harness, gave:
+
+| | post-meeting × real time | J per audio minute | WER | live × real time | J per audio minute | WER |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| whisper.cpp 1.8.3, Vulkan, q5_0 (`main`) | 9.1 | 111 | 6.4 % | 7.3 | 198 | 10.8 % |
+| OpenVINO GenAI 2026.4.1, GPU, int8 | 36.6 | 29 | 6.0 % | 30.3 | 50 | 10.1 % |
+
+(medians; energy is the package's above idle; post-meeting is beam 5 on
+whisper.cpp and greedy on OpenVINO). This note says when it runs, who owns
+what, and what is still open.
 
 ## When it runs
 
