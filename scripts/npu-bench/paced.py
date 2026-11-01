@@ -41,7 +41,8 @@ def run(transcribe, pieces: list[np.ndarray], period_s: float) -> dict:
         if time.perf_counter() < end:
             time.sleep(end - time.perf_counter())
         mark.update(late_calls=late, latency_ms_median=round(float(np.median(latencies)), 1),
-                    latency_ms_max=round(max(latencies), 1))
+                    latency_ms_p95=round(float(np.percentile(latencies, 95)), 1),
+                    latency_ms_max=round(max(latencies), 1), latency_ms=[round(x, 1) for x in latencies])
     return {"latency_ms": [round(x, 1) for x in latencies], "texts": texts, "late_calls": late,
             "latency_ms_median": round(float(np.median(latencies)), 1), "latency_ms_p95":
             round(float(np.percentile(latencies, 95)), 1), "busy_share": round(sum(latencies) / 1000 /

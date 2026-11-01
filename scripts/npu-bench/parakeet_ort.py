@@ -4,6 +4,11 @@
                            --audio WAV --out RUN.json [--frames N] [--cache DIR] [--reps 3] [--profile]
     python parakeet_ort.py ... --paced 300 --period 6        (the live-like scenario instead of the pieces)
     python parakeet_ort.py ... --resident 120                (loaded and warm, no calls: the cost of staying open)
+    python parakeet_ort.py ... --load-only                   (load and one call: a start, cold or warm)
+
+`--passes N` (#80 round 2) makes each timed repeat N passes over the calls, so that a repeat lasts long enough for
+its energy to stand out of the idle around it; every pass starts from the same planned windows (a retried window
+does not carry over), its `audio_s` is N times the pieces' audio, and the texts are the last pass's.
 
 The same steps as `parakeet_engine/model.rs`: the `nemo128` preprocessor and the decoder/joint on the CPU, the
 encoder on `--encoder`, greedy TDT decoding (durations 0-4, at most 3 tokens per frame) and the same detokenising
@@ -244,16 +249,20 @@ def main() -> None:
                         help="overlap: start each window at the quietest 20 ms within this many seconds")
     parser.add_argument("--merge", choices=("anchor", "midpoint"), default="anchor",
                         help="overlap: where two calls' words are joined (chunking.py)")
+    parser.add_argument("--passes", type=int, default=1, help="passes over the calls in each timed repeat")
+    parser.add_argument("--load-only", action="store_true", help="load and one call (warm-up), nothing timed after")
     parser.add_argument("--ov-properties", type=json.loads, help='OpenVINO properties, e.g. {"INFERENCE_PRECISION_HINT": "f32"}')
     args = parser.parse_args()
 
     audio = read_wav(args.audio)
     cache_before = dir_bytes(args.cache)
-    with phase("load", cache_bytes_before=cache_before):
+    with phase("load", cache_bytes_before=cache_before) as mark:
         started = time.perf_counter()
         model = Parakeet(args.model, args.encoder, args.frames, args.cache, args.profile, args.ov_properties, args.pad)
         load_s = time.perf_counter() - started
-    cache_after = dir_bytes(args.cache)
+        cache_after = dir_bytes(args.cache)
+        mark.update(cache_bytes_after=cache_after, load_s=round(load_s, 2),
+                    encoder_load_s=round(model.encoder_load_s, 2))
     info = {"encoder": args.encoder, "frames": args.frames, "pad": args.pad, "ov_properties": args.ov_properties, "ort": ort.__version__, "load_s": round(load_s, 2),
             "encoder_load_s": round(model.encoder_load_s, 2), "cache_dir": str(args.cache) if args.cache else None,
             "cache_bytes_before": cache_before, "cache_bytes_after": cache_after,
@@ -293,60 +302,69 @@ def main() -> None:
     window_s = ((args.frames or 608) - 1) * HOP / 16000.0
     frame = 20 * SAMPLES_PER_MS
     rms = np.sqrt(np.mean(audio[:len(audio) // frame * frame].reshape(-1, frame) ** 2, axis=1))
-    windows = chunking.plan(pieces, args.chunking, window_s, args.span_s, args.hop_s,
+    planned = chunking.plan(pieces, args.chunking, window_s, args.span_s, args.hop_s,
                             lambda ms: float(rms[min(int(ms // 20), len(rms) - 1)]), args.snap_s)
+    windows = list(planned)
     samples = [audio[int(w.start_ms * SAMPLES_PER_MS):int(w.end_ms * SAMPLES_PER_MS)] for w in windows]
     stretch_ends = [end for _, end in chunking.stretches(pieces)]
     print(f"{len(pieces)} pieces, {speech_s:.1f} s; {len(windows)} calls ({args.chunking}); longest "
           f"{max(len(s) for s in samples) / 16000:.2f} s")
 
-    with phase("warmup"):
+    with phase("warmup") as mark:
         started = time.perf_counter()
         model.transcribe(samples[0])
         warmup_s = time.perf_counter() - started
+        mark.update(warmup_s=round(warmup_s, 2))
+    if args.load_only:
+        print(f"load {load_s:.2f} s, first call {warmup_s:.2f} s")
+        return
     reps = []
     for rep in range(1, args.reps + 1):
-        walls, texts = [], []
         model.encoder_ms = 0.0
-        with phase(f"rep{rep}", audio_s=speech_s):
-            decoded, retried = [], []
-            for index, (window, piece_samples) in enumerate(zip(windows, samples)):
-                started = time.perf_counter()
-                tokens, frames = model.transcribe_tokens(piece_samples)
-                found = chunking.words(model.vocab, tokens, frames, window.start_ms, ENCODER_FRAME_MS)
-                # TDT now and then emits nothing for a whole window of continuous speech (#80): a window of a
-                # stretch with fewer words per second than --retry-words-per-s runs again 0.5 s later (earlier
-                # at the stretch's end), and the call with more words stays.
-                seconds = (window.end_ms - window.start_ms) / 1000.0
-                if args.chunking == "overlap" and args.retry_words_per_s and seconds >= 4.0                         and len(found) < args.retry_words_per_s * seconds:
-                    end = stretch_ends[window.stretch]
-                    shift = 500.0 if window.end_ms + 500.0 <= end else -500.0
-                    moved = dataclasses.replace(window, start_ms=window.start_ms + shift, end_ms=window.end_ms + shift)
-                    tokens, frames = model.transcribe_tokens(
-                        audio[int(moved.start_ms * SAMPLES_PER_MS):int(moved.end_ms * SAMPLES_PER_MS)])
-                    again = chunking.words(model.vocab, tokens, frames, moved.start_ms, ENCODER_FRAME_MS)
-                    retried.append({"start_ms": round(window.start_ms), "words": len(found), "shift_ms": shift,
-                                    "words_after": len(again)})
-                    if len(again) > len(found):
-                        found, windows[index] = again, moved
-                walls.append((time.perf_counter() - started) * 1000.0)
-                decoded.append(found)
-                if args.chunking == "pieces":
-                    text = "".join(model.vocab[i] for i in tokens)
-                    texts.append(SPACES.sub(lambda m: " " if m.group(1) else "", text))
-            if args.chunking != "pieces":
-                kept, junctions = chunking.merge(windows, decoded, "keep" if args.chunking == "span" else args.merge)
-                texts = chunking.assign(pieces, kept)
-                # A piece's share of the calls' time, by the length of audio it kept.
-                share = [(p["end_ms"] - p["start_ms"]) / (speech_s * 1000.0) for p in pieces]
-                walls = [sum(walls) * f for f in share]
-        reps.append({"walls": walls, "texts": texts, "total_ms": sum(walls), "encoder_ms": model.encoder_ms,
+        total_ms = 0.0
+        with phase(f"rep{rep}", audio_s=speech_s * args.passes, passes=args.passes):
+            for _ in range(args.passes):
+                walls, texts = [], []
+                windows = list(planned)
+                decoded, retried = [], []
+                for index, (window, piece_samples) in enumerate(zip(windows, samples)):
+                    started = time.perf_counter()
+                    tokens, frames = model.transcribe_tokens(piece_samples)
+                    found = chunking.words(model.vocab, tokens, frames, window.start_ms, ENCODER_FRAME_MS)
+                    # TDT now and then emits nothing for a whole window of continuous speech (#80): a window of a
+                    # stretch with fewer words per second than --retry-words-per-s runs again 0.5 s later (earlier
+                    # at the stretch's end), and the call with more words stays.
+                    seconds = (window.end_ms - window.start_ms) / 1000.0
+                    if args.chunking == "overlap" and args.retry_words_per_s and seconds >= 4.0                         and len(found) < args.retry_words_per_s * seconds:
+                        end = stretch_ends[window.stretch]
+                        shift = 500.0 if window.end_ms + 500.0 <= end else -500.0
+                        moved = dataclasses.replace(window, start_ms=window.start_ms + shift, end_ms=window.end_ms + shift)
+                        tokens, frames = model.transcribe_tokens(
+                            audio[int(moved.start_ms * SAMPLES_PER_MS):int(moved.end_ms * SAMPLES_PER_MS)])
+                        again = chunking.words(model.vocab, tokens, frames, moved.start_ms, ENCODER_FRAME_MS)
+                        retried.append({"start_ms": round(window.start_ms), "words": len(found), "shift_ms": shift,
+                                        "words_after": len(again)})
+                        if len(again) > len(found):
+                            found, windows[index] = again, moved
+                    walls.append((time.perf_counter() - started) * 1000.0)
+                    decoded.append(found)
+                    if args.chunking == "pieces":
+                        text = "".join(model.vocab[i] for i in tokens)
+                        texts.append(SPACES.sub(lambda m: " " if m.group(1) else "", text))
+                total_ms += sum(walls)
+                if args.chunking != "pieces":
+                    kept, junctions = chunking.merge(windows, decoded, "keep" if args.chunking == "span" else args.merge)
+                    texts = chunking.assign(pieces, kept)
+                    # A piece's share of the calls' time, by the length of audio it kept.
+                    share = [(p["end_ms"] - p["start_ms"]) / (speech_s * 1000.0) for p in pieces]
+                    walls = [sum(walls) * f for f in share]
+        reps.append({"walls": walls, "texts": texts, "total_ms": total_ms, "encoder_ms": model.encoder_ms,
                      "calls": len(windows), "junctions": junctions if args.chunking != "pieces" else None,
                      "retried": retried,
                      "windows": [{"start_ms": round(w.start_ms), "end_ms": round(w.end_ms), "stretch": w.stretch,
                                   "words": [(round(at), text) for at, text in words]}
                                  for w, words in zip(windows, decoded)] if args.chunking != "pieces" else None})
-        print(f"rep{rep}: {sum(walls) / 1000:.2f} s ({speech_s / (sum(walls) / 1000):.1f}x), "
+        print(f"rep{rep}: {total_ms / 1000:.2f} s ({speech_s * args.passes / (total_ms / 1000):.1f}x), "
               f"encoder {model.encoder_ms / 1000:.2f} s")
     median = sorted(reps, key=lambda r: r["total_ms"])[len(reps) // 2]
     if args.profile:
@@ -366,7 +384,8 @@ def main() -> None:
         piece["dropped"] = False
         piece["rows"] = [{"start_ms": piece["start_ms"], "end_ms": piece["end_ms"], "text": text, "speakers": None}] \
             if text else []
-    run["timing"] = dict(kit["timing"], transcription_ms=round(median["total_ms"], 1), warmup_ms=round(warmup_s * 1000, 1),
+    run["timing"] = dict(kit["timing"], transcription_ms=round(median["total_ms"] / args.passes, 1),
+                         warmup_ms=round(warmup_s * 1000, 1),
                          speech_ms=round(speech_s * 1000, 1))
     info.update(chunking=args.chunking, calls=len(windows), span_s=args.span_s if args.chunking == "span" else None,
                 hop_s=args.hop_s if args.chunking == "overlap" else None,
@@ -377,7 +396,7 @@ def main() -> None:
                 rep_totals_ms=[round(r["total_ms"], 1) for r in reps],
                 encoder_ms=[round(r["encoder_ms"], 1) for r in reps],
                 repeats_identical=all(r["texts"] == reps[0]["texts"] for r in reps),
-                x_realtime_median=round(speech_s / (median["total_ms"] / 1000), 2))
+                passes=args.passes, x_realtime_median=round(speech_s * args.passes / (median["total_ms"] / 1000), 2))
     run["ort"] = info
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(run, indent=1, ensure_ascii=False), encoding="utf-8")
