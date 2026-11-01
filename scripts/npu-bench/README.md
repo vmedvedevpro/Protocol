@@ -23,6 +23,8 @@ samples and `measure.py score` compares them side by side.
 | `make_cells.py` | (#80) Writes the cell specs of the #80 scenarios: the resident floor (idle and each device resident in a random A/B/C C/B/A order), the paced meeting per device, the meeting on a busy GPU (a hardware video pipeline in ffmpeg) and the batch repeats with cold starts. |
 | `summarise.py` | (#80) Pools cells into the report's numbers: each block against the mean of its neighbouring idle blocks, with a t-based 95 % interval. |
 | `chunking.py` | (#80) Static-shape windows over a stretch of speech (right context from the next piece, or overlapping windows started in a pause) and the merge of their words; `parakeet_ort.py --chunking` uses it. |
+| `whisper_meeting.py` | (#80 round 2) The Whisper meeting: OpenVINO GenAI transcribes the fixture's live pieces at their pace while `paced_meeting` in labels mode runs live Nemotron on the same clock. |
+| `fixtures_r2.py` | (#80 round 2) Accuracy fixtures in the kit's format: a whole AMI meeting (headset mix or distant microphone) and Golos farfield read commands, with their sources and hashes. |
 
 ## Setup
 
@@ -113,3 +115,34 @@ $ORT scripts/npu-bench/parakeet_ort.py --model $PK --encoder cpu --audio .measur
   --pieces .measure/runs/66/kit-parakeet-cpu/rep1/parakeet.json --reps 1 --frames 608 \
   --chunking overlap --hop-s 4 --snap-s 0.5 --out .measure/runs/80/accuracy/cpu-608-overlap4-snap/parakeet.json
 ```
+
+## #80 round 2: GPU against NPU
+
+Every comparison is one cell with both devices and a no-model idle block around every workload block. Whisper is
+OpenVINO GenAI on the product's IR (`OpenVINO/whisper-large-v3-turbo-int8-ov` at `b568445d`, #79's pin) on both
+devices; Parakeet's encoder runs on DirectML or the NPU with the same 608-frame input (feed A: each VAD piece
+zero-padded; feed B: round 1's overlapping windows). Build the probe as above (it gains `paced_meeting`'s labels
+mode and `whisper_heard`), fill the warm caches with one run per device, then:
+
+```sh
+MEASURE_AUDIO=$W/.measure/fixtures/fleurs-ru/audio.wav PACED_PIECES=$W/.measure/runs/66/vulkan-q5_0/rep1/post-meeting.json   HEARD_OUT=$W/.measure/runs/80/r2-heard/heard.json $EXE measure::npu::whisper_heard --ignored --exact --nocapture
+Q() { py -3.12 C:/Users/User/npu-bench/quiet.py measure --who 80 --why "$1" -- $ORT scripts/npu-bench/cells.py   --out .measure/runs/80/$2 --spec .measure/runs/80/$2/cell-spec.json; }
+$ORT scripts/npu-bench/make_cells.py r2-meeting --model wh --order gpu,npu --exe $EXE --out .measure/runs/80/r2-wm1/cell-spec.json
+Q "Whisper meeting GPU NPU" r2-wm1          # then --order npu,gpu, and --model pk for Parakeet
+$ORT scripts/npu-bench/make_cells.py r2-batch --model wh --feeds live --seed 1 --out .measure/runs/80/r2-wbl/cell-spec.json
+$ORT scripts/npu-bench/make_cells.py r2-paced --model pk --out .measure/runs/80/r2-pp/cell-spec.json
+$ORT scripts/npu-bench/make_cells.py r2-floor --out .measure/runs/80/r2-wf/cell-spec.json
+$ORT scripts/npu-bench/make_cells.py r2-starts --seed 1 --out .measure/runs/80/r2-st/cell-spec.json
+$ORT scripts/npu-bench/summarise.py r2-meeting .measure/runs/80/r2-wm1 .measure/runs/80/r2-wm2
+```
+
+`summarise.py r2-paced`, `r2-floor`, `r2-batch` and `r2-starts` read the other cells. Accuracy beyond FLEURS:
+
+```sh
+py -3.12 scripts/npu-bench/fixtures_r2.py ami --meeting ES2004a --mic Mix-Headset --into .measure/fixtures/ami-es2004a-mix
+py -3.12 scripts/npu-bench/fixtures_r2.py ami --meeting ES2004a --mic Array1-01 --into .measure/fixtures/ami-es2004a-sdm
+py -3.12 scripts/npu-bench/fixtures_r2.py golos --minutes 15 --into .measure/fixtures/golos-farfield
+```
+
+then the kit on each file for the product's pieces, `whisper_heard` on its `post-meeting.json`, and one pass of
+each engine (`whisper_ov.py --reps 1`, `parakeet_ort.py --reps 1`) scored with `measure.py score`.
