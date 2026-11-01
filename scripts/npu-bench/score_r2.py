@@ -23,7 +23,8 @@ from kit import accuracy, report  # noqa: E402
 from kit.runs import by_track, clip, load_reference, load_run  # noqa: E402
 from kit.text import normalize  # noqa: E402
 
-FILES = {"fleurs-ru": "ru", "fleurs-en": "en", "ami-es2004a-mix": "en", "ami-es2004a-sdm": "en", "golos-farfield": "ru"}
+FILES = {"fleurs-ru": "ru", "fleurs-en": "en", "ami-es2004a-mix": "en", "ami-es2004a-sdm": "en", "golos-farfield": "ru",
+         "cv-sps-ru": "ru"}
 FILLERS = {"um", "uh", "uhm", "umm", "mm", "mmm", "hmm", "hm", "mhm", "ah", "eh", "er", "erm", "huh"}
 FLEURS_RU = {"kit-live": ".measure/runs/66/vulkan-q5_0/rep1/live.json",
              "kit-post-meeting": ".measure/runs/66/vulkan-q5_0/rep1/post-meeting.json",
