@@ -4,6 +4,7 @@
     python fixtures_r2.py ami --meeting ES2004a --mic Mix-Headset --into .measure/fixtures/ami-es2004a-mix
     python fixtures_r2.py ami --meeting ES2004a --mic Array1-01 --into .measure/fixtures/ami-es2004a-sdm
     python fixtures_r2.py golos --minutes 15 --into .measure/fixtures/golos-farfield
+    python fixtures_r2.py cv --corpus DIR/sps-corpus-5.0-2026-09-11-ru --minutes 17 --into .measure/fixtures/cv-sps-ru
 
 - AMI (Carletta et al., 2005; CC BY 4.0): a whole meeting from the corpus mirror at the University of Edinburgh,
   the headset mix or the first microphone of array 1 (the distant microphone, SDM). The official annotation
@@ -16,6 +17,8 @@
   split's first utterances in order up to `--minutes`, from the `bond005/sberdevices_golos_100h_farfield` mirror.
   They are laid out as the FLEURS fixtures are (`kit.fixture`: each scaled to the same peak and cut to its speech,
   groups of three with short gaps inside and long ones between), so the VAD cuts pieces of several utterances.
+- Common Voice Spontaneous Speech (Mozilla Data Collective, CC0-1.0, its terms forbid re-sharing and identifying
+  the speakers): spontaneous answers to prompts, the owner's download; the test split's clips laid out the same way.
 
 Downloads are cached in `.measure/cache/`; `source.json` next to the fixture records the URLs, dataset revisions and
 the SHA-256 of every file. Nothing here is committed: `.measure/` is git-ignored.
@@ -23,9 +26,11 @@ the SHA-256 of every file. Nothing here is committed: `.measure/` is git-ignored
 
 import argparse
 import array
+import csv
 import hashlib
 import io
 import json
+import subprocess
 import sys
 import time
 import urllib.parse
@@ -42,6 +47,7 @@ CACHE = ROOT / ".measure/cache"
 ROWS_API = "https://datasets-server.huggingface.co"
 AMI_AUDIO = "https://groups.inf.ed.ac.uk/ami/AMICorpusMirror/amicorpus/{meeting}/audio/{meeting}.{mic}.wav"
 GOLOS = "bond005/sberdevices_golos_100h_farfield"
+FFMPEG = ROOT / "frontend/src-tauri/binaries/ffmpeg-x86_64-pc-windows-msvc.exe"
 
 
 def sha256(data: bytes) -> str:
@@ -167,16 +173,64 @@ def golos(args: argparse.Namespace) -> None:
     write(Path(args.into), fixture.pcm16_wav(out), reference, source)
 
 
+def common_voice(args: argparse.Namespace) -> None:
+    """Common Voice Spontaneous Speech (Mozilla Data Collective, CC0-1.0; not to be re-shared, speakers not to be
+    identified): the owner's download, unpacked. The `--split` clips in the corpus TSV's order up to `--minutes`,
+    decoded from MP3 to 16 kHz mono by the bundled ffmpeg and laid out as the Golos fixture."""
+    corpus = Path(args.corpus)
+    tsv = next(corpus.glob("ss-corpus-*.tsv"))
+    with tsv.open(encoding="utf-8") as file:
+        transcribed = [r for r in csv.DictReader(file, delimiter="\t")
+                       if r["split"] == args.split and r["transcription"].strip()]
+    # The TSV lists a speaker's clips together and two speakers hold most of the test split: take the clips round
+    # robin over the speakers, so the fixture is not one voice. Who they are is neither kept nor looked at.
+    by_speaker: dict[str, list[dict]] = {}
+    for row in transcribed:
+        by_speaker.setdefault(row["client_id"], []).append(row)
+    queues = list(by_speaker.values())
+    clips_meta = [queue[i] for i in range(max(map(len, queues))) for queue in queues if i < len(queue)]
+    wanted, total = args.minutes * 60.0, 0.0
+    picked, clips = [], []
+    for row in clips_meta:
+        mp3 = corpus / "audios" / row["audio_file"]
+        pcm = subprocess.run([str(FFMPEG), "-hide_banner", "-loglevel", "error", "-i", str(mp3), "-ac", "1", "-ar",
+                              str(fixture.SAMPLE_RATE), "-f", "s16le", "-"], capture_output=True, check=True).stdout
+        samples = array.array("h", pcm)
+        clip = fixture.trimmed(fixture.leveled(array.array("f", (x / 32768.0 for x in samples))))
+        picked.append({"audio_id": row["audio_id"], "text": row["transcription"], "sha256": sha256(mp3.read_bytes())})
+        clips.append(clip)
+        total += len(clip) / fixture.SAMPLE_RATE + fixture.GAP_IN_GROUP_S
+        if total >= wanted:
+            break
+    durations = [len(c) / fixture.SAMPLE_RATE for c in clips]
+    starts = fixture.layout(durations)
+    out = [0.0] * round((starts[-1] + durations[-1]) * fixture.SAMPLE_RATE)
+    for clip, start in zip(clips, starts):
+        at = round(start * fixture.SAMPLE_RATE)
+        out[at:at + len(clip)] = clip
+    reference = {"format": FORMAT, "language": args.language,
+                 "source": f"Common Voice Spontaneous Speech, {tsv.name}, {args.split} split, first {len(picked)} clips",
+                 "rows": [{"start_ms": round(s * 1000), "end_ms": round((s + d) * 1000), "text": p["text"],
+                           "audio_id": p["audio_id"]} for p, s, d in zip(picked, starts, durations)]}
+    source = {"corpus": str(corpus), "tsv": tsv.name, "tsv_sha256": sha256(tsv.read_bytes()), "split": args.split,
+              "clips": picked, "licence": "CC0-1.0 (Mozilla Data Collective terms: no re-sharing, no speaker "
+                                          "identification)"}
+    write(Path(args.into), fixture.pcm16_wav(out), reference, source)
+
+
 def main() -> None:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser()
-    parser.add_argument("kind", choices=("ami", "golos"))
+    parser.add_argument("kind", choices=("ami", "golos", "cv"))
+    parser.add_argument("--corpus", help="cv: the unpacked corpus folder")
+    parser.add_argument("--split", default="test")
+    parser.add_argument("--language", default="ru")
     parser.add_argument("--meeting", default="ES2004a")
     parser.add_argument("--mic", default="Mix-Headset")
     parser.add_argument("--minutes", type=float, default=15.0)
     parser.add_argument("--into", required=True)
     args = parser.parse_args()
-    {"ami": ami, "golos": golos}[args.kind](args)
+    {"ami": ami, "golos": golos, "cv": common_voice}[args.kind](args)
 
 
 if __name__ == "__main__":

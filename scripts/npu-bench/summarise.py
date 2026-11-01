@@ -230,8 +230,9 @@ def npu_minus_gpu(per: dict[str, dict[str, list[float]]], keys) -> dict:
 
 def r2_meeting(cells: list[Path]) -> dict:
     """Each meeting block cut into whole passes over the looped audio; per model the passes of each device pooled
-    over the cells (GPU NPU, NPU GPU) and NPU - GPU per rail. Above idle: the block minus the mean of its two idle
-    neighbours, for reference."""
+    over its blocks (GPU NPU NPU GPU) and NPU - GPU per rail. Above idle: the block minus the mean of its two idle
+    neighbours, for reference; times the block's length over its calls, the joules per call it implies (the
+    owner's shorter schedule has no paced cells, so this stands in for their energy per call)."""
     rows, per = [], {}
     for cell in cells:
         seq = blocks(cell)
@@ -243,11 +244,17 @@ def r2_meeting(cells: list[Path]) -> dict:
             values = passes(cell, b)
             for rail in RAILS:
                 per.setdefault(model, {}).setdefault(device, {}).setdefault(rail, []).extend(v[rail] for v in values)
+            above = ({r: b["watts"][r] - statistics.mean(x["watts"][r] for x in ref) for r in RAILS} if ref else None)
+            if above and b.get("calls"):
+                per[model][device].setdefault("j_per_call_above_idle", []).append(
+                    above["PKG"] * b["seconds"] / b["calls"])
+                per[model][device].setdefault("w_above_idle", []).append(above["PKG"])
             rows.append({"cell": cell.name, "step": b["step"], "name": b["step_name"], "seconds": b["seconds"],
                          "watts": b["watts"], "passes": len(values),
                          "pass_pkg": [v["PKG"] for v in values],
-                         "above_idle_w": {r: round(b["watts"][r] - statistics.mean(x["watts"][r] for x in ref), 3)
-                                          for r in RAILS} if ref else None,
+                         "above_idle_w": {r: round(v, 3) for r, v in above.items()} if above else None,
+                         "j_per_call_above_idle": round(above["PKG"] * b["seconds"] / b["calls"], 3)
+                         if above and b.get("calls") else None,
                          "idle_pkg": [x["watts"]["PKG"] for x in ref],
                          "calls": b.get("calls"), "late_calls": b.get("late_calls"), "max_lag_s": b.get("max_lag_s"),
                          "latency_ms": [b.get("latency_ms_median"), b.get("latency_ms_p95"), b.get("latency_ms_max")],
@@ -261,7 +268,7 @@ def r2_meeting(cells: list[Path]) -> dict:
     models = {}
     for model, devices in per.items():
         models[model] = {d: {r: stats(v) for r, v in rails.items()} for d, rails in devices.items()}
-        models[model]["npu - gpu"] = npu_minus_gpu(devices, RAILS)
+        models[model]["npu - gpu"] = npu_minus_gpu(devices, RAILS + ("j_per_call_above_idle", "w_above_idle"))
     return {"meetings": rows, "models": models}
 
 

@@ -12,10 +12,10 @@ resident block has an idle block on both sides.
 Round 2 (GPU against NPU for Whisper and Parakeet, each comparison inside one cell, a no-model idle block around
 every workload block):
 
-    python make_cells.py r2-meeting --model wh --order gpu,npu --exe TEST_EXE --out CELL.json
+    python make_cells.py r2-meeting --model wh --exe TEST_EXE --out CELL.json   (9 min blocks, GPU NPU NPU GPU)
     python make_cells.py r2-paced --model pk --out CELL.json              (6 s every 6 s, 5 min, GPU NPU NPU GPU)
     python make_cells.py r2-floor --out CELL.json                         (Whisper resident, GPU NPU NPU GPU)
-    python make_cells.py r2-batch --model wh --seed 1 --out CELL.json     (5 fresh processes per device and feed)
+    python make_cells.py r2-batch --model wh --seed 1 --out CELL.json     (4 fresh processes per device and feed)
     python make_cells.py r2-starts --seed 1 --out CELL.json               (first start into empty caches)
 
 Whisper is OpenVINO GenAI's WhisperPipeline on one IR for both devices; Parakeet's encoder runs on DirectML
@@ -81,9 +81,9 @@ WH_CACHE = {d: str(NB / f"80/cache/wh-{d}") for d in OV_DEVICE}
 PK_ENCODER = {"gpu": ["--encoder", "dml", "--frames", "608"],
               "npu": ["--encoder", "ov-npu", "--frames", "608", "--cache", NPU_CACHE]}
 PK_FEED = {"a": [], "b": CHUNKED}
-# Passes per batch repeat: at least 60 s of work per repeat at the smoke's speeds (round 2's rule), the same
-# count on both devices, so both transcribe the same audio and the faster device still works over 60 s.
-BATCH_PASSES = {("wh", "live"): 10, ("wh", "post"): 12, ("pk", "a"): 14, ("pk", "b"): 11}
+# Passes per batch repeat: about 40 s of work or more on the faster device at the smoke's speeds (the owner's
+# shorter schedule), the same count on both devices, so both transcribe the same audio.
+BATCH_PASSES = {("wh", "live"): 6, ("wh", "post"): 8, ("pk", "a"): 8, ("pk", "b"): 5}
 
 
 def idle(seconds: float, settle: float, phase: str = "idle") -> dict:
@@ -176,22 +176,23 @@ def pk_cmd(device: str, feed: str, *args: str, cache: str | None = None) -> list
 
 
 def r2_meeting(model: str, order: list[str], exe: str, seconds: float, idle_s: float, out: Path) -> dict:
-    """Idle, the first device's meeting, idle, the second's, idle. Two such cells, GPU NPU then NPU GPU, make
-    the ABBA order; each cell compares the devices inside itself, pass by pass."""
+    """The meeting on each device twice in ABBA order (GPU NPU NPU GPU), each block a fresh process between
+    no-model idle blocks; the cell compares the devices pass by pass."""
     steps = [idle(idle_s, 20)]
-    for device in order:
+    for n, device in enumerate(order + order[::-1]):
         name = f"{model}-{device}"
+        result = str(out / f"meeting-{name}-{n + 1}.json")
         if model == "pk":
-            step = meeting_step(exe, "dml" if device == "gpu" else "npu", seconds, str(out / f"meeting-{name}.json"),
+            step = meeting_step(exe, "dml" if device == "gpu" else "npu", seconds, result,
                                 608 if device == "gpu" else None)
             step["name"] = name
         else:
             step = {"name": name, "kind": "cmd", "env": {"MEASURE_AUDIO": AUDIO},
                     "cmd": [OV, WH_MEETING, "--model", WH, "--device", OV_DEVICE[device], "--cache", WH_CACHE[device],
                             "--pieces", WH_LIVE, "--audio", AUDIO, "--language", "ru", "--seconds", str(seconds),
-                            "--exe", exe, "--nemotron", NEMOTRON, "--out", str(out / f"meeting-{name}.json")]}
-        steps += [step, idle(idle_s, 30)]
-    return {"kind": "r2-meeting", "model": model, "order": order, "steps": steps}
+                            "--exe", exe, "--nemotron", NEMOTRON, "--out", result]}
+        steps += [step, idle(idle_s, 20)]
+    return {"kind": "r2-meeting", "model": model, "order": order + order[::-1], "steps": steps}
 
 
 def r2_paced(model: str, order: list[str], seconds: float, idle_s: float, out: Path) -> dict:
@@ -282,7 +283,7 @@ def main() -> None:
     parser.add_argument("--frames", type=int, help="meeting: pad to this static shape (DirectML 608)")
     parser.add_argument("--devices", help="busy: cpu, dml, dml-608, npu (dml,npu); batch: npu, dml, cpu, "
                         "npu-overlap (npu,dml,cpu)")
-    parser.add_argument("--reps", type=int, default=5)
+    parser.add_argument("--reps", type=int, help="batch: 5; r2-batch: 4")
     parser.add_argument("--feeds", help="r2-batch: live,post (wh) or a,b (pk)")
     parser.add_argument("--passes", type=int, help="r2-batch: passes per repeat instead of BATCH_PASSES (smoke)")
     parser.add_argument("--warm", action="store_true", help="r2-starts: the warm caches (smoke)")
@@ -298,16 +299,17 @@ def main() -> None:
         spec = busy(args.exe, (args.devices or "dml,npu").split(","), args.seconds or 900.0, args.idle or 240.0,
                     cell_dir)
     elif args.kind == "batch":
-        spec = batch(args.seed, args.reps, args.cold_idle, cell_dir, (args.devices or "npu,dml,cpu").split(","))
+        spec = batch(args.seed, args.reps or 5, args.cold_idle, cell_dir, (args.devices or "npu,dml,cpu").split(","))
     elif args.kind == "r2-meeting":
-        spec = r2_meeting(args.model, args.order.split(","), args.exe, args.seconds or 900.0, args.idle or 180.0,
+        spec = r2_meeting(args.model, args.order.split(","), args.exe, args.seconds or 540.0, args.idle or 120.0,
                           cell_dir)
     elif args.kind == "r2-paced":
         spec = r2_paced(args.model, args.order.split(","), args.seconds or 300.0, args.idle or 120.0, cell_dir)
     elif args.kind == "r2-floor":
         spec = r2_floor(args.order.split(","), args.seconds or 180.0, args.settle)
     elif args.kind == "r2-batch":
-        spec = r2_batch(args.model, args.seed, args.reps, cell_dir, args.feeds and args.feeds.split(","), args.passes)
+        spec = r2_batch(args.model, args.seed, args.reps or 4, cell_dir,
+                        args.feeds and args.feeds.split(","), args.passes)
     else:
         spec = r2_starts(args.seed, args.warm)
     args.out.parent.mkdir(parents=True, exist_ok=True)
