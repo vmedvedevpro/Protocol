@@ -26,12 +26,15 @@ which.
 """
 
 import argparse
+import ctypes
 import json
 import os
 import statistics
 import subprocess
 import sys
+import threading
 import time
+from ctypes import wintypes
 from pathlib import Path
 
 import bench
@@ -50,6 +53,43 @@ OTHER_GPU_PCT = 3.0
 BIN_S = 10.0
 
 
+class PROCESSENTRY32(ctypes.Structure):
+    _fields_ = [("dwSize", wintypes.DWORD), ("cntUsage", wintypes.DWORD), ("th32ProcessID", wintypes.DWORD),
+                ("th32DefaultHeapID", ctypes.c_size_t), ("th32ModuleID", wintypes.DWORD),
+                ("cntThreads", wintypes.DWORD), ("th32ParentProcessID", wintypes.DWORD),
+                ("pcPriClassBase", ctypes.c_long), ("dwFlags", wintypes.DWORD), ("szExeFile", ctypes.c_char * 260)]
+
+
+def descendants(root: int) -> set[int]:
+    """The processes below `root` now. A venv's python.exe is a launcher that runs the base interpreter as its
+    child, so a step's real work (and the Whisper meeting's probe) runs in descendants of the step's process."""
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+    snapshot = kernel32.CreateToolhelp32Snapshot(0x2, 0)  # TH32CS_SNAPPROCESS
+    parents: dict[int, int] = {}
+    entry = PROCESSENTRY32()
+    entry.dwSize = ctypes.sizeof(PROCESSENTRY32)
+    try:
+        ok = kernel32.Process32First(snapshot, ctypes.byref(entry))
+        while ok:
+            parents[entry.th32ProcessID] = entry.th32ParentProcessID
+            ok = kernel32.Process32Next(snapshot, ctypes.byref(entry))
+    finally:
+        kernel32.CloseHandle(snapshot)
+    found, frontier = set(), {root}
+    while frontier:
+        frontier = {pid for pid, parent in parents.items() if parent in frontier and pid not in found} - {root}
+        found |= frontier
+    return found
+
+
+def watch_descendants(process: subprocess.Popen, found: set[int]) -> None:
+    """Adds the process's descendants to `found` once a second until it exits."""
+    while process.poll() is None:
+        found |= descendants(process.pid)
+        time.sleep(1.0)
+
+
 def run_cell(out: Path, spec: dict) -> None:
     out.mkdir(parents=True, exist_ok=True)
     stop = out / "stop"
@@ -61,6 +101,8 @@ def run_cell(out: Path, spec: dict) -> None:
     cell = {"spec": spec, "driver_pid": os.getpid(), "sampler_pid": sampler.pid, "state_start": state.read(),
             "steps": [], "load": None}
     time.sleep(2.0)
+    # The sampler started through a venv launcher samples in the launcher's child.
+    cell["sampler_child_pids"] = sorted(descendants(sampler.pid))
     env = dict(os.environ, BENCH_MARKS=str(marks), PYTHONUNBUFFERED="1", **spec.get("env", {}))
     load = None
 
@@ -100,8 +142,12 @@ def run_cell(out: Path, spec: dict) -> None:
                     process = subprocess.Popen(step["cmd"], stdout=log, stderr=subprocess.STDOUT, env=step_env,
                                                cwd=step.get("cwd"))
                     record["pid"] = process.pid
+                    children: set[int] = set()
+                    watcher = threading.Thread(target=watch_descendants, args=(process, children), daemon=True)
+                    watcher.start()
                     code = process.wait()
-                record.update(t0=started, t1=time.time(), exit_code=code)
+                    watcher.join(timeout=5)
+                record.update(t0=started, t1=time.time(), exit_code=code, child_pids=sorted(children))
                 if code != 0:
                     print(f"cells: step {i} exited {code}", file=sys.stderr, flush=True)
             cell["steps"].append(record)
@@ -163,10 +209,14 @@ def analyse(out: Path) -> dict:
     cell = json.loads((out / "cell.json").read_text(encoding="utf-8"))
     own = {str(cell["driver_pid"]), str(cell["sampler_pid"])}
     own |= {str(s["pid"]) for s in cell["steps"] if "pid" in s}
+    own |= {str(pid) for s in cell["steps"] for pid in s.get("child_pids", [])}
+    own |= {str(pid) for pid in cell.get("sampler_child_pids", [])}
     if cell.get("load"):
         own.add(str(cell["load"]["pid"]))
     marks = [json.loads(line) for line in (out / "marks.jsonl").read_text(encoding="utf-8").splitlines()
              if line.strip()]
+    # A workload's helper processes (the Whisper meeting's Nemotron probe) are the cell's own too.
+    own |= {str(pid) for mark in marks for pid in mark.get("child_pids", [])}
     rows_all = samples.usage
     blocks = []
     for mark in marks:
@@ -185,7 +235,7 @@ def analyse(out: Path) -> dict:
         if step is not None:
             entry["display"] = cell["steps"][step]["state"]["display"]
         blocks.append(entry)
-    measured = [b for b in blocks if b["phase"] in ("idle", "resident", "meeting", "load-alone")]
+    measured = [b for b in blocks if b["phase"] in ("idle", "resident", "meeting", "load-alone", "paced")]
     others = [b["background"]["other_cpu_pct"] for b in measured if b["background"].get("other_cpu_pct") is not None]
     median_other = statistics.median(others) if others else 0.0
     for b in measured:
