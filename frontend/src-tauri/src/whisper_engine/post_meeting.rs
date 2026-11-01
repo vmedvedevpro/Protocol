@@ -106,6 +106,11 @@ impl<'a> PostMeetingWhisper<'a> {
     /// The decoding of the next piece.
     #[cfg(test)]
     pub(crate) fn decoding(&self) -> WhisperDecoding {
+        // OpenVINO decodes every piece greedily (`openvino::piece_segments`).
+        #[cfg(windows)]
+        if self.engine.loaded_openvino().is_some() {
+            return WhisperDecoding::Greedy;
+        }
         self.decoding
     }
 
