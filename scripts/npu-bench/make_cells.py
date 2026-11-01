@@ -33,17 +33,20 @@ NPU_OPTIONS = ("OpenVINOExecutionProvider.reshape_input=audio_signal[1,128,608],
 CLIP = str(NB / "80/clip-1080p30.mp4")
 FFMPEG = str(ROOT / "frontend/src-tauri/binaries/ffmpeg-x86_64-pc-windows-msvc.exe")
 # A video call's GPU side at real-time pace: decode the 1080p30 H.264 clip, scale it to 720p and encode that
-# at 2 Mbit/s, all in Quick Sync (the bundled ffmpeg's scale_d3d11 fails to negotiate a null output).
+# at 2 Mbit/s, all in Quick Sync (the bundled ffmpeg's scale_d3d11 fails to negotiate a null output). The clip
+# (120 s) repeats through a concat list of 40 entries (80 min): -stream_loop makes vpp_qsv reinitialize at the
+# loop point, which fails (-40) and ends the load, with or without -reinit_filter 0.
+CLIP_LIST = str(NB / "80/clip-loop.txt")
 VIDEO_LOAD = [FFMPEG, "-hide_banner", "-loglevel", "error", "-hwaccel", "qsv", "-hwaccel_output_format", "qsv",
-              "-c:v", "h264_qsv", "-re", "-stream_loop", "-1", "-i", CLIP, "-vf", "vpp_qsv=w=1280:h=720",
+              "-c:v", "h264_qsv", "-re", "-f", "concat", "-safe", "0", "-i", CLIP_LIST, "-vf", "vpp_qsv=w=1280:h=720",
               "-c:v", "h264_qsv", "-b:v", "2M", "-f", "null", "-"]
 # The encoder of each device as `parakeet_ort.py` builds it. 608 frames is the NPU's static shape (6.07 s, the
 # VAD's 6 s cap plus the preprocessor's frame); DirectML gets it too, since one shape is what makes it fast.
 ENCODERS = {"npu": ["--encoder", "ov-npu", "--frames", "608", "--cache", NPU_CACHE],
             "dml": ["--encoder", "dml", "--frames", "608"],
             "cpu": ["--encoder", "cpu"]}
-# The fixed-shape variant item 6 chose: overlapping 608-frame windows over each stretch, started in a pause.
-CHUNKED = ["--chunking", "overlap", "--hop-s", "4", "--snap-s", "0.5"]
+# The fixed-shape variant item 6 chose: overlapping 608-frame windows over each stretch, 4 s apart.
+CHUNKED = ["--chunking", "overlap", "--hop-s", "4"]
 ENCODERS["npu-overlap"] = ENCODERS["npu"] + CHUNKED
 
 
@@ -89,6 +92,7 @@ def meeting(exe: str, device: str, seconds: float, idle_s: float, out: Path, fra
 def busy(exe: str, devices: list[str], seconds: float, idle_s: float, out: Path) -> dict:
     """Idle, the video load alone, then each device's meeting under the load with the load alone between them,
     then idle again: the load's own power is the load-alone blocks minus the idle ones."""
+    Path(CLIP_LIST).write_text("".join(f"file '{Path(CLIP).as_posix()}'\n" for _ in range(40)), encoding="utf-8")
     steps = [idle(idle_s, 20), {"kind": "load-start"}, idle(idle_s, 20, "load-alone")]
     for device in devices:
         base, _, frames = device.partition("-")
