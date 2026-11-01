@@ -3,7 +3,8 @@
     python summarise.py floor DIR...      (resident floor: each device's block against its idle neighbours)
     python summarise.py meeting DIR...    (simulated meetings: power above the idle blocks around them)
     python summarise.py batch DIR...      (batch repeats: J above idle per audio minute, x real time)
-    python summarise.py r2-meeting DIR... (round 2: NPU - GPU per model, pass by pass, pooled over the ABBA cells)
+    python summarise.py r2-meeting DIR[@HH:MM:SS]... (round 2: NPU - GPU per model, pass by pass, pooled
+                                          over the blocks; @time: the background changed then, see r2_meeting)
     python summarise.py r2-paced DIR...   (round 2: J per call against the pauses and W above idle, per device)
     python summarise.py r2-floor DIR...   (round 2: Whisper resident on GPU and NPU against idle)
     python summarise.py r2-batch DIR...   (round 2: batch runs per model, feed and device, NPU - GPU)
@@ -28,6 +29,7 @@ gives one value per call, and against the mean of the idle blocks on both sides.
 """
 
 import json
+import time
 import math
 import statistics
 import sys
@@ -78,7 +80,7 @@ def passes(cell: Path, block: dict) -> list[dict]:
         joules = samples.joules(start, start + length)
         watts = {rail: joules[rail] / length for rail in ("PKG", "PP0", "PP1", "DRAM")}
         watts["rest"] = watts["PKG"] - watts["PP0"] - watts["PP1"]
-        out.append({rail: round(v, 3) for rail, v in watts.items()})
+        out.append({**{rail: round(v, 3) for rail, v in watts.items()}, "t0": start, "t1": start + length})
         start += length
     return out
 
@@ -228,33 +230,45 @@ def npu_minus_gpu(per: dict[str, dict[str, list[float]]], keys) -> dict:
     return out
 
 
-def r2_meeting(cells: list[Path]) -> dict:
+def r2_meeting(cells: list[tuple[Path, float | None]]) -> dict:
     """Each meeting block cut into whole passes over the looped audio; per model the passes of each device pooled
     over its blocks (GPU NPU NPU GPU) and NPU - GPU per rail. Above idle: the block minus the mean of its two idle
     neighbours, for reference; times the block's length over its calls, the joules per call it implies (the
-    owner's shorter schedule has no paced cells, so this stands in for their energy per call)."""
+    owner's shorter schedule has no paced cells, so this stands in for their energy per call).
+
+    A cell given as DIR@HH:MM:SS had its background change at that time (the owner started a game): passes and
+    idle blocks that end after it are left out and listed. A block cut that way is read above idle from its clean
+    passes; every pass is the same audio, so it holds the block's calls times pass length over block length."""
     rows, per = [], {}
-    for cell in cells:
+    for cell, cutoff in cells:
         seq = blocks(cell)
         for i, b in enumerate(seq):
-            if b["phase"] != "meeting":
+            if b["phase"] != "meeting" or (cutoff is not None and b["t0"] >= cutoff):
                 continue
             model, device = split_name(b["step_name"])
-            ref = neighbours(seq, i)
+            ref = [x for x in neighbours(seq, i) if cutoff is None or x["t0"] + x["seconds"] <= cutoff]
             values = passes(cell, b)
+            dropped = [v for v in values if cutoff is not None and v["t1"] > cutoff]
+            values = [v for v in values if v not in dropped]
             for rail in RAILS:
                 per.setdefault(model, {}).setdefault(device, {}).setdefault(rail, []).extend(v[rail] for v in values)
-            above = ({r: b["watts"][r] - statistics.mean(x["watts"][r] for x in ref) for r in RAILS} if ref else None)
-            if above and b.get("calls"):
-                per[model][device].setdefault("j_per_call_above_idle", []).append(
-                    above["PKG"] * b["seconds"] / b["calls"])
+            if dropped:
+                watts = {r: statistics.mean(v[r] for v in values) for r in RAILS}
+                seconds = values[-1]["t1"] - values[0]["t0"]
+                calls = b["calls"] * seconds / b["seconds"] if b.get("calls") else None
+            else:
+                watts, seconds, calls = b["watts"], b["seconds"], b.get("calls")
+            above = ({r: watts[r] - statistics.mean(x["watts"][r] for x in ref) for r in RAILS} if ref else None)
+            if above and calls:
+                per[model][device].setdefault("j_per_call_above_idle", []).append(above["PKG"] * seconds / calls)
                 per[model][device].setdefault("w_above_idle", []).append(above["PKG"])
             rows.append({"cell": cell.name, "step": b["step"], "name": b["step_name"], "seconds": b["seconds"],
                          "watts": b["watts"], "passes": len(values),
+                         "dropped_passes": [{"t0": v["t0"], "t1": v["t1"], "PKG": v["PKG"]} for v in dropped],
                          "pass_pkg": [v["PKG"] for v in values],
                          "above_idle_w": {r: round(v, 3) for r, v in above.items()} if above else None,
-                         "j_per_call_above_idle": round(above["PKG"] * b["seconds"] / b["calls"], 3)
-                         if above and b.get("calls") else None,
+                         "j_per_call_above_idle": round(above["PKG"] * seconds / calls, 3)
+                         if above and calls else None,
                          "idle_pkg": [x["watts"]["PKG"] for x in ref],
                          "calls": b.get("calls"), "late_calls": b.get("late_calls"), "max_lag_s": b.get("max_lag_s"),
                          "latency_ms": [b.get("latency_ms_median"), b.get("latency_ms_p95"), b.get("latency_ms_max")],
@@ -366,11 +380,24 @@ def r2_starts(cells: list[Path]) -> dict:
     return {"starts": out}
 
 
+def cutoff_of(arg: str) -> float | None:
+    """DIR@HH:MM:SS -> that local time on the day the cell started, as epoch seconds."""
+    if "@" not in arg:
+        return None
+    folder, clock = arg.split("@")
+    started = json.loads((Path(folder) / "cell.json").read_text(encoding="utf-8"))["state_start"]["t"]
+    day = time.strftime("%Y-%m-%d", time.localtime(started))
+    return time.mktime(time.strptime(f"{day} {clock}", "%Y-%m-%d %H:%M:%S"))
+
+
 def main() -> None:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     kind, cells = sys.argv[1], [Path(p) for p in sys.argv[2:]]
-    result = {"floor": floor, "meeting": meeting, "batch": batch, "r2-meeting": r2_meeting, "r2-paced": r2_paced,
-              "r2-floor": r2_floor, "r2-batch": r2_batch, "r2-starts": r2_starts}[kind](cells)
+    if kind == "r2-meeting":
+        result = r2_meeting([(Path(str(c).split("@")[0]), cutoff_of(str(c))) for c in cells])
+    else:
+        result = {"floor": floor, "meeting": meeting, "batch": batch, "r2-paced": r2_paced, "r2-floor": r2_floor,
+                  "r2-batch": r2_batch, "r2-starts": r2_starts}[kind](cells)
     print(json.dumps(result if kind == "meeting" else {k: v for k, v in result.items() if k != "noise"},
                      indent=1, ensure_ascii=False))
 
