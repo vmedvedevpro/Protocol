@@ -14,4 +14,6 @@ installer-variants/*
 
 # Pinned Windows ONNX runtime staged and verified by build/onnxruntime.rs
 /binaries/onnxruntime/
+# OpenVINO GenAI runtime staged and verified by build/openvino.rs
+/binaries/openvino/
 

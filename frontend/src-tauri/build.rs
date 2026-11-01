@@ -20,6 +20,7 @@ fn main() {
     // Download and bundle FFmpeg binary at build-time
     ffmpeg::ensure_ffmpeg_binary();
     onnxruntime::ensure_onnxruntime_runtime();
+    onnxruntime::openvino::ensure_openvino_runtime();
 
     tauri_build::build()
 }
