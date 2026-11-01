@@ -113,6 +113,39 @@ pub fn whisper_gpu_device(compiled_backend: WhisperCompiledBackend) -> i32 {
     }
 }
 
+/// The PCI bus id (`0000:00:02.0`) of the GPU a context of `compiled_backend`
+/// runs on, as ggml reports it: the device [`whisper_gpu_device`] picks. `None`
+/// without a GPU backend, or when the driver does not report the address
+/// (ggml-vulkan reads it from `VK_EXT_pci_bus_info`). The OpenVINO device rule
+/// (#79) matches it against OpenVINO's GPUs.
+pub fn whisper_gpu_pci_bus_id(compiled_backend: WhisperCompiledBackend) -> Option<String> {
+    match compiled_backend {
+        #[cfg(feature = "vulkan")]
+        WhisperCompiledBackend::Vulkan => ggml_gpu_pci_bus_id(whisper_gpu_device(compiled_backend)),
+        _ => None,
+    }
+}
+
+#[cfg(feature = "vulkan")]
+fn ggml_gpu_pci_bus_id(gpu_device: i32) -> Option<String> {
+    use whisper_rs::whisper_rs_sys as sys;
+    // SAFETY: as in `ggml_device_kinds`; the props' strings belong to the
+    // registry's device and are copied before returning.
+    unsafe {
+        let gpus = (0..sys::ggml_backend_dev_count()).map(|index| sys::ggml_backend_dev_get(index)).filter(|device| {
+            matches!(
+                sys::ggml_backend_dev_type(*device),
+                sys::ggml_backend_dev_type_GGML_BACKEND_DEVICE_TYPE_GPU | sys::ggml_backend_dev_type_GGML_BACKEND_DEVICE_TYPE_IGPU
+            )
+        });
+        let device = gpus.into_iter().nth(usize::try_from(gpu_device).ok()?)?;
+        let mut props: sys::ggml_backend_dev_props = std::mem::zeroed();
+        sys::ggml_backend_dev_get_props(device, &mut props);
+        (!props.device_id.is_null())
+            .then(|| std::ffi::CStr::from_ptr(props.device_id).to_string_lossy().into_owned())
+    }
+}
+
 #[cfg(feature = "vulkan")]
 fn ggml_device_kinds() -> Vec<GgmlDeviceKind> {
     use whisper_rs::whisper_rs_sys as sys;
