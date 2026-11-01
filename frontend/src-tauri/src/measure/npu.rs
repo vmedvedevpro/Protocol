@@ -15,7 +15,11 @@
 //!   live worker gets them, on the CPU, its DirectML encoder or an NPU
 //!   encoder session swapped into the product's model, while live Nemotron
 //!   diarizes the same audio as the remote track, as the app does during a
-//!   meeting with Nemotron selected.
+//!   meeting with Nemotron selected. Round 2 runs it without Parakeet too:
+//!   live Nemotron and the label reads alone, on a clock shared with
+//!   `whisper_meeting.py`, whose OpenVINO GenAI calls transcribe the turns.
+//! - [`whisper_heard`] (#80 round 2): where #79's OpenVINO post-meeting call
+//!   stops listening to each pause-to-pause piece, for `whisper_ov.py`.
 
 use std::io::Write;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
@@ -320,11 +324,17 @@ fn turns(pieces: &std::path::Path, audio_len: usize, seconds: f64) -> Result<Vec
 /// kit's `parakeet.json` for that audio), `PACED_DEVICE` (`cpu`, `dml` or
 /// `npu`), and optionally `PACED_SECONDS` (1800), `PACED_OUT` (a JSON file
 /// with every call), `PACED_STATIC_FRAMES` (pad the features to this length;
-/// `npu` takes `NPU_FRAMES`), `PACED_ENGINE=none` (diarization alone, no
-/// Parakeet calls), and `MEASURE_DIARIZATION_MODEL` (the Nemotron `.onnx`;
-/// without it no diarization runs) with `PACED_NEMOTRON_THRESHOLD` (0.5, the
-/// app's default). `npu` also reads `NPU_EP_PLUGIN` and `NPU_EP_OPTIONS` as
-/// [`ort_plugin_smoke`] does.
+/// `npu` takes `NPU_FRAMES`), `PACED_ENGINE` (`parakeet` by default; `none`:
+/// diarization alone, no turns; `labels`: no Parakeet, each turn's label read
+/// when the turn is due, as the worker reads it after a transcription that
+/// runs in another process), `PACED_START_AT` (unix seconds: the meeting's
+/// clock starts then instead of right after the warm-up, so that another
+/// process can run its calls on the same schedule), and
+/// `MEASURE_DIARIZATION_MODEL` (the Nemotron `.onnx`; without it no
+/// diarization runs) with `PACED_NEMOTRON_THRESHOLD` (0.5, the app's
+/// default). `npu` also reads `NPU_EP_PLUGIN` and `NPU_EP_OPTIONS` as
+/// [`ort_plugin_smoke`] does. Without Parakeet calls, `PACED_DEVICE` and
+/// `MEASURE_PARAKEET_MODEL` are not read and no Parakeet model loads.
 ///
 /// What runs is the app's live path without capture and VAD: the remote
 /// track's audio goes to `live_nemotron` in 50 ms windows at real-time pace
@@ -347,8 +357,18 @@ fn turns(pieces: &std::path::Path, audio_len: usize, seconds: f64) -> Result<Vec
 async fn paced_meeting() -> Result<()> {
     let _ = env_logger::builder().is_test(true).try_init();
     let seconds: f64 = optional("PACED_SECONDS").map_or(Ok(1800.0), |v| v.parse())?;
-    let device = optional("PACED_DEVICE").context("PACED_DEVICE is cpu, dml or npu")?;
-    let calls_on = optional("PACED_ENGINE").as_deref() != Some("none");
+    let (calls_on, labels_only) = match optional("PACED_ENGINE").as_deref().unwrap_or("parakeet") {
+        "parakeet" => (true, false),
+        "none" => (false, false),
+        "labels" => (false, true),
+        other => bail!("PACED_ENGINE {other} is not parakeet, none or labels"),
+    };
+    let device = if calls_on {
+        optional("PACED_DEVICE").context("PACED_DEVICE is cpu, dml or npu")?
+    } else {
+        "none".to_string()
+    };
+    let start_at: Option<f64> = optional("PACED_START_AT").map(|v| v.parse()).transpose()?;
     let audio = existing_path("MEASURE_AUDIO", "a 16 kHz speech file")?;
     let samples = tracks::load(&audio)?.into_iter().next().context("the audio has no track")?.samples;
     let pieces = existing_path("PACED_PIECES", "the kit's parakeet.json for MEASURE_AUDIO")?;
@@ -359,13 +379,23 @@ async fn paced_meeting() -> Result<()> {
     let started = (unix_now(), Instant::now());
     let gpu = match device.as_str() {
         "dml" => true,
-        "cpu" | "npu" => false,
+        "cpu" | "npu" | "none" => false,
         other => bail!("PACED_DEVICE {other} is not cpu, dml or npu"),
     };
-    crate::parakeet_engine::labs::set_parakeet_gpu_enabled(gpu).await.map_err(anyhow::Error::msg)?;
-    let model = existing_path("MEASURE_PARAKEET_MODEL", "the Parakeet model folder")?;
-    let engines = Engines::open(None, Some(&model)).await?;
-    let parakeet = &engines.parakeet.as_ref().context("no Parakeet engine")?.engine;
+    let model = if calls_on {
+        crate::parakeet_engine::labs::set_parakeet_gpu_enabled(gpu).await.map_err(anyhow::Error::msg)?;
+        Some(existing_path("MEASURE_PARAKEET_MODEL", "the Parakeet model folder")?)
+    } else {
+        None
+    };
+    let engines = match &model {
+        Some(model) => Some(Engines::open(None, Some(model)).await?),
+        None => None,
+    };
+    let parakeet = match &engines {
+        Some(engines) => Some(&engines.parakeet.as_ref().context("no Parakeet engine")?.engine),
+        None => None,
+    };
     let failures = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
     let diarization = match optional("MEASURE_DIARIZATION_MODEL") {
         Some(_) => {
@@ -382,7 +412,7 @@ async fn paced_meeting() -> Result<()> {
         None => false,
     };
     let mut frames: Option<usize> = optional("PACED_STATIC_FRAMES").map(|v| v.parse()).transpose()?;
-    if device == "npu" {
+    if let (Some(parakeet), Some(model), "npu") = (parakeet, &model, device.as_str()) {
         let plugin = existing_path("NPU_EP_PLUGIN", "onnxruntime_providers_openvino_plugin.dll")?;
         let environment = crate::onnx_runtime::environment()?;
         environment
@@ -397,13 +427,13 @@ async fn paced_meeting() -> Result<()> {
         println!("NPU encoder session built in {:.0} ms", ms_since(compile));
         frames = Some(optional("NPU_FRAMES").context("NPU_FRAMES: the static shape the NPU compiles")?.parse()?);
         parakeet.replace_encoder(Some(session), frames).await?;
-    } else if frames.is_some() {
+    } else if let (Some(parakeet), Some(_)) = (parakeet, frames) {
         parakeet.replace_encoder(None, frames).await?;
     }
-    let acceleration = if device == "npu" {
-        "NPU encoder (OpenVINO plugin EP)"
-    } else {
-        engines.parakeet.as_ref().map_or("?", |l| l.acceleration)
+    let acceleration = match (&engines, device.as_str()) {
+        (None, _) => "none",
+        (Some(_), "npu") => "NPU encoder (OpenVINO plugin EP)",
+        (Some(engines), _) => engines.parakeet.as_ref().map_or("?", |l| l.acceleration),
     };
     mark("load", started.0, unix_now(), serde_json::json!({ "device": device, "acceleration": acceleration }))?;
     println!(
@@ -411,9 +441,18 @@ async fn paced_meeting() -> Result<()> {
         turns.len()
     );
 
-    let t0 = unix_now();
-    parakeet.transcribe_audio(looped[..6 * 16_000].to_vec(), None).await?;
-    mark("warmup", t0, unix_now(), serde_json::json!({}))?;
+    if let Some(parakeet) = parakeet {
+        let t0 = unix_now();
+        parakeet.transcribe_audio(looped[..6 * 16_000].to_vec(), None).await?;
+        mark("warmup", t0, unix_now(), serde_json::json!({}))?;
+    }
+    if let Some(at) = start_at {
+        let wait = at - unix_now();
+        if wait < 0.0 {
+            bail!("PACED_START_AT was {:.1} s ago when the probe was ready", -wait);
+        }
+        tokio::time::sleep(std::time::Duration::from_secs_f64(wait)).await;
+    }
 
     // The remote track, 50 ms at a time on the meeting's clock, from its own
     // thread as the capture pipeline feeds it.
@@ -435,14 +474,17 @@ async fn paced_meeting() -> Result<()> {
 
     let mut calls = Vec::with_capacity(turns.len());
     let mut late = 0;
-    for turn in turns.iter().filter(|_| calls_on) {
+    for turn in turns.iter().filter(|_| calls_on || labels_only) {
         let due = std::time::Duration::from_secs_f64(turn.due_s);
         match due.checked_sub(start.elapsed()) {
             Some(wait) => tokio::time::sleep(wait).await,
             None => late += 1,
         }
         let began = start.elapsed().as_secs_f64();
-        let text = parakeet.transcribe_audio(looped[turn.start..turn.end].to_vec(), None).await?;
+        let text = match parakeet {
+            Some(parakeet) => parakeet.transcribe_audio(looped[turn.start..turn.end].to_vec(), None).await?,
+            None => String::new(),
+        };
         let transcribed = start.elapsed().as_secs_f64();
         let label = if diarization {
             let (from, length) = (turn.start as f64 / 16_000.0, (turn.end - turn.start) as f64 / 16_000.0);
@@ -492,5 +534,62 @@ async fn paced_meeting() -> Result<()> {
     if !failures.is_empty() {
         bail!("live Nemotron failed: {failures:?}");
     }
+    Ok(())
+}
+
+/// #79's `whisper_engine::openvino::speech_end`, which this branch does not
+/// have: a pause-to-pause piece of the post-meeting pass ends with the batch
+/// VAD's redemption pause (2 s), and Whisper with timestamps tends to repeat
+/// the last sentence into it. When Silero finds no speech in that pause, the
+/// call hears the piece up to it plus the VAD's 250 ms end pad. The
+/// thresholds are #79's (0.20 / 0.10).
+fn openvino_speech_end(samples: &[f32]) -> Result<usize> {
+    use crate::audio::post_meeting::VAD_REDEMPTION_TIME_MS;
+    use crate::audio::vad::{get_speech_chunks_with_cap_and_progress, ContinuousSpeechCap};
+    const SPEECH_END_PAD_MS: usize = 250;
+    let pause = VAD_REDEMPTION_TIME_MS as usize * 16;
+    if samples.len() <= pause + 16_000 {
+        return Ok(samples.len());
+    }
+    let tail = &samples[samples.len() - pause..];
+    let speech = get_speech_chunks_with_cap_and_progress(
+        tail,
+        VAD_REDEMPTION_TIME_MS,
+        0.20,
+        0.10,
+        ContinuousSpeechCap::PauseToPause,
+        |_, _| true,
+    )?;
+    Ok(if speech.is_empty() { samples.len() - pause + SPEECH_END_PAD_MS * 16 } else { samples.len() })
+}
+
+/// Inputs: `MEASURE_AUDIO`, `PACED_PIECES` (the kit's `post-meeting.json`
+/// for that audio) and `HEARD_OUT`. Writes, for each transcribed piece, the
+/// end of what #79's OpenVINO post-meeting call hears ([`openvino_speech_end`]):
+/// `whisper_ov.py --heard` cuts the pieces there, so the post-meeting cells
+/// decode as the product will (#80 round 2).
+#[test]
+#[ignore = "NPU probe (#80); inputs from MEASURE_AUDIO, PACED_PIECES and HEARD_OUT (scripts/npu-bench/README.md)"]
+fn whisper_heard() -> Result<()> {
+    let audio = existing_path("MEASURE_AUDIO", "a 16 kHz speech file")?;
+    let samples = tracks::load(&audio)?.into_iter().next().context("the audio has no track")?.samples;
+    let pieces = existing_path("PACED_PIECES", "the kit's post-meeting.json for MEASURE_AUDIO")?;
+    let out = optional("HEARD_OUT").context("HEARD_OUT: the JSON file to write")?;
+    let kit: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(pieces)?)?;
+    let mut heard = Vec::new();
+    for piece in kit["pieces"].as_array().context("no pieces")? {
+        if !piece["skipped"].is_null() {
+            continue;
+        }
+        let ms = |key: &str| piece[key].as_f64().context("piece without times");
+        let (start_ms, end_ms) = (ms("start_ms")?, ms("end_ms")?);
+        let from = (start_ms * SAMPLES_PER_MS) as usize;
+        let to = ((end_ms * SAMPLES_PER_MS) as usize).min(samples.len());
+        let end = openvino_speech_end(&samples[from..to])?;
+        let heard_end_ms = start_ms + end as f64 / SAMPLES_PER_MS;
+        println!("{start_ms:.0}-{end_ms:.0} ms: hears to {heard_end_ms:.0} ms");
+        heard.push(serde_json::json!({ "start_ms": start_ms, "end_ms": end_ms, "heard_end_ms": heard_end_ms }));
+    }
+    std::fs::write(out, serde_json::to_string_pretty(&serde_json::json!({ "pieces": heard }))?)?;
     Ok(())
 }
