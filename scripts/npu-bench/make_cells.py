@@ -45,8 +45,9 @@ VIDEO_LOAD = [FFMPEG, "-hide_banner", "-loglevel", "error", "-hwaccel", "qsv", "
 ENCODERS = {"npu": ["--encoder", "ov-npu", "--frames", "608", "--cache", NPU_CACHE],
             "dml": ["--encoder", "dml", "--frames", "608"],
             "cpu": ["--encoder", "cpu"]}
-# The fixed-shape variant item 6 chose: overlapping 608-frame windows over each stretch, 4 s apart.
-CHUNKED = ["--chunking", "overlap", "--hop-s", "4"]
+# The fixed-shape variant item 6 chose (best or near best on fleurs-ru and fleurs-en): overlapping 608-frame
+# windows over each stretch, 3.5 s apart, started in a pause, a window TDT skips run again 0.5 s later.
+CHUNKED = ["--chunking", "overlap", "--hop-s", "3.5", "--snap-s", "0.5", "--retry-words-per-s", "0.5"]
 ENCODERS["npu-overlap"] = ENCODERS["npu"] + CHUNKED
 
 
