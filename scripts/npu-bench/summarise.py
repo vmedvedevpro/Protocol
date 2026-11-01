@@ -10,14 +10,20 @@ deviation and a 95 % confidence interval from Student's t. Flagged blocks (a noi
 left out, and so is any difference whose idle neighbour is flagged; the summary lists them.
 
 Meeting. The meeting's power minus the mean of the idle blocks before and after it, per rail, and the joules
-above idle per minute of audio; the calls' latency and lag come from the probe's own JSON (`PACED_OUT`).
+above idle per minute of audio; the calls' latency and lag come from the probe's own JSON (`PACED_OUT`). The
+meeting loops its audio, so each pass over it is the same work (the same turns, the same diarization): the
+meeting is also cut into whole passes, and the power of each pass is a repeat for a confidence interval and for
+comparing devices (Welch), free of the idle blocks, which a single background process can move by a watt.
 """
 
 import json
 import math
 import statistics
 import sys
+import wave
 from pathlib import Path
+
+import bench
 
 # Two-sided 95 % Student's t by degrees of freedom.
 T95 = {1: 12.71, 2: 4.30, 3: 3.18, 4: 2.78, 5: 2.57, 6: 2.45, 7: 2.36, 8: 2.31, 9: 2.26, 10: 2.23, 11: 2.20,
@@ -38,6 +44,32 @@ def stats(values: list[float]) -> dict:
     half = t95(n - 1) * sd / math.sqrt(n) if n > 1 else float("nan")
     return {"n": n, "mean": round(mean, 3), "sd": round(sd, 3), "ci95": [round(mean - half, 3), round(mean + half, 3)],
             "values": [round(v, 3) for v in values]}
+
+
+def welch(a: list[float], b: list[float]) -> dict:
+    """mean(a) - mean(b) with a 95 % interval from Welch's t (Welch-Satterthwaite degrees of freedom)."""
+    va, vb = statistics.variance(a) / len(a), statistics.variance(b) / len(b)
+    df = (va + vb) ** 2 / (va ** 2 / (len(a) - 1) + vb ** 2 / (len(b) - 1)) if va + vb else 1
+    diff = statistics.mean(a) - statistics.mean(b)
+    half = t95(int(df)) * math.sqrt(va + vb)
+    return {"diff": round(diff, 3), "ci95": [round(diff - half, 3), round(diff + half, 3)], "df": round(df, 1)}
+
+
+def passes(cell: Path, block: dict) -> list[dict]:
+    """Power per rail over each whole pass of the looped audio within the meeting block."""
+    spec = json.loads((cell / "cell-spec.json").read_text(encoding="utf-8"))
+    step = spec["steps"][block["step"]]
+    with wave.open(step["env"]["MEASURE_AUDIO"]) as w:
+        length = w.getnframes() / w.getframerate()
+    samples = bench.Samples(cell / "samples.jsonl")
+    out, start = [], block["t0"]
+    while start + length <= block["t1"] + 1.0:
+        joules = samples.joules(start, start + length)
+        watts = {rail: joules[rail] / length for rail in ("PKG", "PP0", "PP1", "DRAM")}
+        watts["rest"] = watts["PKG"] - watts["PP0"] - watts["PP1"]
+        out.append({rail: round(v, 3) for rail, v in watts.items()})
+        start += length
+    return out
 
 
 def blocks(cell: Path) -> list[dict]:
@@ -112,8 +144,19 @@ def meeting(cells: list[Path]) -> dict:
                         "busy_share": b.get("busy_share"), "labelled": b.get("labelled"),
                         "utilization": b["utilization"].get("mean_pct"),
                         "flagged": b["flagged"] + [f"neighbour {x['step']}: {x['flagged']}" for x in ref if x["flagged"]],
-                        "background": {k: b["background"].get(k) for k in ("other_cpu_pct", "other_gpu_pct", "top_other")}})
-    return {"meetings": out}
+                        "background": {k: b["background"].get(k) for k in ("other_cpu_pct", "other_gpu_pct", "top_other")},
+                        "passes": {rail: stats([x[rail] for x in passes(cell, b)]) for rail in RAILS}})
+    by_device: dict[str, list[dict]] = {}
+    for m in out:
+        by_device.setdefault(m["step_name"], []).append(m)
+    compare = {}
+    if "npu" in by_device:
+        base = {rail: [v for m in by_device["npu"] for v in m["passes"][rail]["values"]] for rail in RAILS}
+        for device, ms in by_device.items():
+            if device != "npu":
+                compare[f"{device} - npu"] = {rail: welch([v for m in ms for v in m["passes"][rail]["values"]],
+                                                          base[rail]) for rail in RAILS}
+    return {"meetings": out, "per_pass_vs_npu": compare}
 
 
 def batch(cells: list[Path]) -> dict:
@@ -141,7 +184,7 @@ def batch(cells: list[Path]) -> dict:
                          "flagged": [f"neighbour {x['step']}: {x['flagged']}" for x in ref if x.get("flagged")]})
     by_device: dict[str, dict[str, list[float]]] = {}
     for run in runs:
-        device = run["run"].split("-")[0]
+        device = run["run"].rsplit("-", 1)[0]
         if run["run"].startswith(("cold", "compile")):
             continue
         for key in ("x_realtime", "j_per_audio_min", "load_s"):
