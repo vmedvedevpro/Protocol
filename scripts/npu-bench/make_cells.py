@@ -115,7 +115,8 @@ def batch_run(device: str, name: str, out: Path, cache: str | None = None) -> di
 def batch(seed: int, reps: int, cold_idle_s: float, out: Path, devices: list[str]) -> dict:
     """A cold start after a long idle (the NPU, warm cache), then `reps` warm runs per device in a random order,
     each a new process (a warm load from the caches) with idle gaps, then one cold compile into an empty cache."""
-    runs = [d for d in devices for _ in range(reps)]
+    # A device may carry its own count, `npu-overlap:3`.
+    runs = [d.split(":")[0] for d in devices for _ in range(int(d.split(":")[1]) if ":" in d else reps)]
     random.Random(seed).shuffle(runs)
     steps = [idle(cold_idle_s, 0), batch_run("npu", "cold-npu", out)]
     count: dict[str, int] = {}
