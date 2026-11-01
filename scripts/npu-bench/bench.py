@@ -99,7 +99,7 @@ class Samples:
 
         mean = {key: round(statistics.mean(v for row in rows if (v := value(row, key)) is not None), 1)
                 for key in keys
-                if key.split(".")[-1] in ("3D", "Compute", "Neural")}
+                if key.split(".")[-1] in ("3D", "Compute", "Neural", "VideoDecode", "VideoEncode", "VideoProcessing")}
         # PDH returns NaN for a CPU sample now and then; such a sample counts as missing.
         cpu = [row["cpu"] for row in rows if row["cpu"] == row["cpu"]]
         mean["cpu"] = round(statistics.mean(cpu), 1) if cpu else None

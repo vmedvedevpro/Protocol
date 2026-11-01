@@ -32,13 +32,19 @@ NPU_OPTIONS = ("OpenVINOExecutionProvider.reshape_input=audio_signal[1,128,608],
 # the steady GPU work of a video call's incoming stream. `-re` paces the decode at the clip's frame rate.
 CLIP = str(NB / "80/clip-1080p30.mp4")
 FFMPEG = str(ROOT / "frontend/src-tauri/binaries/ffmpeg-x86_64-pc-windows-msvc.exe")
-VIDEO_LOAD = [FFMPEG, "-hide_banner", "-loglevel", "error", "-hwaccel", "d3d11va", "-hwaccel_output_format", "d3d11",
-              "-re", "-stream_loop", "-1", "-i", CLIP, "-vf", "scale_d3d11=1280:720", "-f", "null", "-"]
+# A video call's GPU side at real-time pace: decode the 1080p30 H.264 clip, scale it to 720p and encode that
+# at 2 Mbit/s, all in Quick Sync (the bundled ffmpeg's scale_d3d11 fails to negotiate a null output).
+VIDEO_LOAD = [FFMPEG, "-hide_banner", "-loglevel", "error", "-hwaccel", "qsv", "-hwaccel_output_format", "qsv",
+              "-c:v", "h264_qsv", "-re", "-stream_loop", "-1", "-i", CLIP, "-vf", "vpp_qsv=w=1280:h=720",
+              "-c:v", "h264_qsv", "-b:v", "2M", "-f", "null", "-"]
 # The encoder of each device as `parakeet_ort.py` builds it. 608 frames is the NPU's static shape (6.07 s, the
 # VAD's 6 s cap plus the preprocessor's frame); DirectML gets it too, since one shape is what makes it fast.
 ENCODERS = {"npu": ["--encoder", "ov-npu", "--frames", "608", "--cache", NPU_CACHE],
             "dml": ["--encoder", "dml", "--frames", "608"],
             "cpu": ["--encoder", "cpu"]}
+# The fixed-shape variant item 6 chose: overlapping 608-frame windows over each stretch, started in a pause.
+CHUNKED = ["--chunking", "overlap", "--hop-s", "4", "--snap-s", "0.5"]
+ENCODERS["npu-overlap"] = ENCODERS["npu"] + CHUNKED
 
 
 def idle(seconds: float, settle: float, phase: str = "idle") -> dict:
@@ -101,10 +107,10 @@ def batch_run(device: str, name: str, out: Path, cache: str | None = None) -> di
                     "--out", str(out / name / "parakeet.json")]}
 
 
-def batch(seed: int, reps: int, cold_idle_s: float, out: Path) -> dict:
+def batch(seed: int, reps: int, cold_idle_s: float, out: Path, devices: list[str]) -> dict:
     """A cold start after a long idle (the NPU, warm cache), then `reps` warm runs per device in a random order,
     each a new process (a warm load from the caches) with idle gaps, then one cold compile into an empty cache."""
-    runs = [d for d in ("npu", "dml", "cpu") for _ in range(reps)]
+    runs = [d for d in devices for _ in range(reps)]
     random.Random(seed).shuffle(runs)
     steps = [idle(cold_idle_s, 0), batch_run("npu", "cold-npu", out)]
     count: dict[str, int] = {}
@@ -126,7 +132,8 @@ def main() -> None:
     parser.add_argument("--exe", help="the kit's test binary with measure::npu::paced_meeting")
     parser.add_argument("--device", choices=("cpu", "dml", "npu"))
     parser.add_argument("--frames", type=int, help="meeting: pad to this static shape (DirectML 608)")
-    parser.add_argument("--devices", default="dml,npu", help="busy: cpu, dml, dml-608, npu")
+    parser.add_argument("--devices", help="busy: cpu, dml, dml-608, npu (dml,npu); batch: npu, dml, cpu, "
+                        "npu-overlap (npu,dml,cpu)")
     parser.add_argument("--reps", type=int, default=5)
     parser.add_argument("--cold-idle", type=float, default=600.0)
     parser.add_argument("--out", type=Path, required=True)
@@ -137,9 +144,9 @@ def main() -> None:
     elif args.kind == "meeting":
         spec = meeting(args.exe, args.device, args.seconds or 1800.0, args.idle, cell_dir, args.frames)
     elif args.kind == "busy":
-        spec = busy(args.exe, args.devices.split(","), args.seconds or 900.0, args.idle, cell_dir)
+        spec = busy(args.exe, (args.devices or "dml,npu").split(","), args.seconds or 900.0, args.idle, cell_dir)
     else:
-        spec = batch(args.seed, args.reps, args.cold_idle, cell_dir)
+        spec = batch(args.seed, args.reps, args.cold_idle, cell_dir, (args.devices or "npu,dml,cpu").split(","))
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(spec, indent=1), encoding="utf-8")
     print(f"{args.out}: {[s.get('name', s['kind']) for s in spec['steps']]}")
