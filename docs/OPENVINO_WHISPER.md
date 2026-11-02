@@ -86,11 +86,12 @@ from Hugging Face, and a new version reaches installs through the catalog,
 without a Protocol release.
 
 - Source today: Intel's GenAI 2026.4.1 Windows archive
-  (`storage.openvinotoolkit.org`, 254 MB). 11 libraries
-  (`openvino_genai_c`, `openvino_genai`, `openvino_c`, `openvino`, the GPU and
-  CPU plugins, the IR frontend, `openvino_tokenizers`, oneTBB's three), 110 MB
-  on disk, plus Intel's licence files (`openvino-EULA.txt` and the
-  third-party notices), which stay beside the libraries. The CPU plugin is
+  (`storage.openvinotoolkit.org`, 254 MB; Settings counts binary megabytes
+  and shows 242 MB). 11 libraries (`openvino_genai_c`, `openvino_genai`,
+  `openvino_c`, `openvino`, the GPU and CPU plugins, the IR frontend,
+  `openvino_tokenizers`, oneTBB's three), 110 MB (105 in Settings) on disk,
+  plus Intel's licence files (`openvino-EULA.txt` and the third-party
+  notices), which stay beside the libraries. The CPU plugin is
   needed even on the GPU: GenAI compiles the tokenizer and detokenizer models
   on the CPU. The NPU plugin (108 MB) and the other frontends stay in the
   archive.
@@ -272,7 +273,7 @@ files the engine requires.
   effect at the next model load (idle unload or restart); a runtime version
   installed after another was loaded, at the next start.
 - A runtime download does not resume: after a failure, Cancel or a restart it
-  starts over (254 MB). The companion's download resumes.
+  starts over (242 MB). The companion's download resumes.
 - Trust is HTTPS to Intel's server and to GitHub for the catalog, as for the
   models: the catalog's hashes catch a changed or damaged archive, not a
   malicious catalog.
