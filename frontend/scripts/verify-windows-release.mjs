@@ -83,7 +83,7 @@ run(sevenZip, ['t', join(dist, setup)]);
 const extracted = await mkdtemp(join(dist, 'verify-'));
 try {
   run(sevenZip, ['x', join(dist, setup), `-o${extracted}`, '-y', 'protocol.exe', 'installer-variants/*', 'ffmpeg.exe',
-    'llama-helper.exe', 'resources/*', 'runtime-deps/*', 'binaries/onnxruntime/*', 'binaries/openvino/*']);
+    'llama-helper.exe', 'resources/*', 'runtime-deps/*', 'binaries/onnxruntime/*']);
   const sameAs = async (packaged, staged, message) =>
     assert.deepEqual(await hash(join(extracted, packaged)), await hash(join(tauri, staged)), message);
 
@@ -121,14 +121,6 @@ try {
   }
   for (const name of ['onnxruntime.dll', 'onnxruntime_providers_shared.dll', 'onnxruntime-LICENSE.txt', 'DirectML.dll', 'DirectML-LICENSE.txt']) {
     await sameAs(`binaries/onnxruntime/${name}`, `binaries/onnxruntime/${name}`, `Unexpected ONNX Runtime: ${name}`);
-  }
-  // The OpenVINO GenAI runtime (#79): exactly the files build/openvino.rs
-  // pinned and staged, so its pin table stays the one list of them.
-  const staged = (await readdir(join(tauri, 'binaries/openvino'))).sort();
-  assert.ok(staged.includes('openvino_genai_c.dll'), 'The build staged no OpenVINO runtime');
-  assert.deepEqual(await listed('binaries/openvino'), staged, 'Unexpected OpenVINO runtime files');
-  for (const name of staged) {
-    await sameAs(`binaries/openvino/${name}`, `binaries/openvino/${name}`, `Stale OpenVINO runtime: ${name}`);
   }
 } finally {
   await rm(extracted, { recursive: true, force: true });

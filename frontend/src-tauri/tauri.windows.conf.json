@@ -5,8 +5,7 @@
       "resources/diarization/*",
       "runtime-deps/*",
       "installer-variants/*",
-      "binaries/onnxruntime/*",
-      "binaries/openvino/*"
+      "binaries/onnxruntime/*"
     ]
   },
   "app": {

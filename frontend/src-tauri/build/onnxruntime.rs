@@ -10,22 +10,19 @@ use std::{
 #[cfg(windows)]
 use std::os::windows::fs::MetadataExt;
 
-#[path = "openvino.rs"]
-pub mod openvino;
-
-pub enum ArchiveKind {
+enum ArchiveKind {
     Zip,
     TarGz,
 }
 
-pub struct Archive {
+struct Archive {
     url: &'static str,
     size: u64,
     sha256: &'static str,
     kind: ArchiveKind,
 }
 
-pub struct Artifact {
+struct Artifact {
     /// Index into the runtime's `archives`.
     archive: usize,
     archive_path: &'static str,
@@ -34,22 +31,15 @@ pub struct Artifact {
     sha256: &'static str,
 }
 
-/// A runtime the app loads by absolute path from `binaries/<folder>`, with
-/// every staged file pinned: ONNX Runtime (`onnx_runtime.rs`; macOS links the
-/// runtime ort downloads instead) and OpenVINO GenAI ([`openvino`]).
-pub struct Runtime {
-    /// The runtime's name in build messages.
-    name: &'static str,
-    /// Its folder under `binaries/`.
-    folder: &'static str,
+/// The ONNX Runtime the app loads by absolute path (`onnx_runtime.rs`), with
+/// every staged file pinned. macOS links the runtime ort downloads instead.
+struct Runtime {
     target: &'static str,
     archives: &'static [Archive],
     artifacts: &'static [Artifact],
 }
 
 const WINDOWS_X64: Runtime = Runtime {
-    name: "ONNX Runtime",
-    folder: "onnxruntime",
     target: "x86_64-pc-windows-msvc",
     archives: &[
         Archive {
@@ -108,8 +98,6 @@ const WINDOWS_X64: Runtime = Runtime {
 // binaries need glibc 2.38 and AVX2). The shared-provider library only serves
 // GPU execution providers, so it is not staged.
 const LINUX_X64: Runtime = Runtime {
-    name: "ONNX Runtime",
-    folder: "onnxruntime",
     target: "x86_64-unknown-linux-gnu",
     archives: &[Archive {
         url: "https://github.com/microsoft/onnxruntime/releases/download/v1.24.4/onnxruntime-linux-x64-1.24.4.tgz",
@@ -148,6 +136,8 @@ pub fn ensure_onnxruntime_runtime() {
     let Some(runtime) = runtime_for(&target_os) else {
         return;
     };
+    println!("cargo:rerun-if-changed=binaries/onnxruntime");
+
     let target = env::var("TARGET").expect("TARGET environment variable not set");
     if target != runtime.target {
         let pinned = [WINDOWS_X64.target, LINUX_X64.target].join(" and ");
@@ -156,27 +146,17 @@ pub fn ensure_onnxruntime_runtime() {
              Add a pinned runtime for {target} to build it."
         );
     }
-    ensure_runtime(runtime);
-}
-
-/// Stages `runtime` in `binaries/<folder>` beside the manifest, for the
-/// bundle, and beside the build's executables, for plain cargo runs; every
-/// file is checked against its pin, and a stage that checks out is kept.
-pub fn ensure_runtime(runtime: &Runtime) {
-    let name = runtime.name;
-    println!("cargo:rerun-if-changed=binaries/{}", runtime.folder);
-    let target = env::var("TARGET").expect("TARGET environment variable not set");
 
     let manifest_dir =
         env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR environment variable not set");
     let destination = Path::new(&manifest_dir)
         .join("binaries")
-        .join(runtime.folder);
+        .join("onnxruntime");
 
     match verify_staged_runtime(runtime, &destination) {
         Ok(()) => {
             println!(
-                "cargo:warning=Using verified bundled {name} from {}",
+                "cargo:warning=Using verified bundled ONNX Runtime from {}",
                 destination.display()
             );
             stage_development_runtime(runtime, &destination);
@@ -185,42 +165,42 @@ pub fn ensure_runtime(runtime: &Runtime) {
         Err(verification_error) => match fs::symlink_metadata(&destination) {
             Ok(metadata) if is_link_or_reparse_point(&metadata) => {
                 panic!(
-                    "Refusing to replace linked or reparse-point {name} stage at {}: {verification_error}",
+                    "Refusing to replace linked or reparse-point ONNX Runtime stage at {}: {verification_error}",
                     destination.display()
                 );
             }
             Ok(metadata) if metadata.is_dir() => {
                 println!(
-                    "cargo:warning=Replacing invalid bundled {name}: {verification_error}"
+                    "cargo:warning=Replacing invalid bundled ONNX Runtime: {verification_error}"
                 );
                 fs::remove_dir_all(&destination).unwrap_or_else(|remove_error| {
                     panic!(
-                        "Failed to remove invalid {name} directory at {}: {remove_error}",
+                        "Failed to remove invalid ONNX Runtime directory at {}: {remove_error}",
                         destination.display()
                     )
                 });
             }
             Ok(metadata) if metadata.is_file() => {
                 println!(
-                    "cargo:warning=Replacing invalid bundled {name}: {verification_error}"
+                    "cargo:warning=Replacing invalid bundled ONNX Runtime: {verification_error}"
                 );
                 fs::remove_file(&destination).unwrap_or_else(|remove_error| {
                     panic!(
-                        "Failed to remove invalid {name} file at {}: {remove_error}",
+                        "Failed to remove invalid ONNX Runtime file at {}: {remove_error}",
                         destination.display()
                     )
                 });
             }
             Ok(_) => {
                 panic!(
-                    "Refusing to replace special {name} stage at {}: {verification_error}",
+                    "Refusing to replace special ONNX Runtime stage at {}: {verification_error}",
                     destination.display()
                 );
             }
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
             Err(error) => {
                 panic!(
-                    "Failed to inspect invalid {name} stage at {}: {error}",
+                    "Failed to inspect invalid ONNX Runtime stage at {}: {error}",
                     destination.display()
                 );
             }
@@ -230,18 +210,17 @@ pub fn ensure_runtime(runtime: &Runtime) {
     fs::create_dir_all(
         destination
             .parent()
-            .unwrap_or_else(|| panic!("{name} destination has no parent")),
+            .expect("ONNX Runtime destination has no parent"),
     )
-    .unwrap_or_else(|error| panic!("Failed to create {name} binaries directory: {error}"));
+    .expect("Failed to create ONNX Runtime binaries directory");
 
     let temporary_archive = env::temp_dir().join(format!(
-        "meetily-{}-{}-{}.archive",
-        runtime.folder,
+        "meetily-onnxruntime-{}-{}.archive",
         process::id(),
         target
     ));
     let temporary_destination =
-        destination.with_file_name(format!(".{}-{}-{}", runtime.folder, process::id(), target));
+        destination.with_file_name(format!(".onnxruntime-{}-{}", process::id(), target));
     let _ = fs::remove_file(&temporary_archive);
     let _ = fs::remove_dir_all(&temporary_destination);
 
@@ -250,22 +229,22 @@ pub fn ensure_runtime(runtime: &Runtime) {
 
     if let Err(error) = result {
         let _ = fs::remove_dir_all(&temporary_destination);
-        panic!("Failed to stage bundled {name}: {error}");
+        panic!("Failed to stage bundled ONNX Runtime: {error}");
     }
 
     fs::rename(&temporary_destination, &destination).unwrap_or_else(|error| {
         let _ = fs::remove_dir_all(&temporary_destination);
         panic!(
-            "Failed to finalize bundled {name} at {}: {error}",
+            "Failed to finalize bundled ONNX Runtime at {}: {error}",
             destination.display()
         );
     });
 
     verify_staged_runtime(runtime, &destination).unwrap_or_else(|error| {
-        panic!("Bundled {name} verification failed after staging: {error}")
+        panic!("Bundled ONNX Runtime verification failed after staging: {error}")
     });
     println!(
-        "cargo:warning=Bundled verified {name} at {}",
+        "cargo:warning=Bundled verified ONNX Runtime at {}",
         destination.display()
     );
     stage_development_runtime(runtime, &destination);
@@ -276,7 +255,7 @@ pub fn ensure_runtime(runtime: &Runtime) {
 fn stage_development_runtime(runtime: &Runtime, source: &Path) {
     let out_dir = std::path::PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR"));
     let profile = out_dir.ancestors().nth(3).expect("Cargo profile directory");
-    let target = profile.join("binaries").join(runtime.folder);
+    let target = profile.join("binaries/onnxruntime");
     if verify_staged_runtime(runtime, &target).is_ok() { return; }
     if fs::symlink_metadata(&target).is_ok_and(|metadata| is_link_or_reparse_point(&metadata)) {
         panic!("Refusing linked development runtime directory");
@@ -287,11 +266,9 @@ fn stage_development_runtime(runtime: &Runtime, source: &Path) {
         if fs::symlink_metadata(&file).is_ok_and(|metadata| is_link_or_reparse_point(&metadata)) {
             panic!("Refusing linked development runtime file");
         }
-        fs::copy(source.join(artifact.output_name), file)
-            .unwrap_or_else(|error| panic!("stage development {}: {error}", runtime.name));
+        fs::copy(source.join(artifact.output_name), file).expect("stage development ONNX Runtime");
     }
-    verify_staged_runtime(runtime, &target)
-        .unwrap_or_else(|error| panic!("verify development {}: {error}", runtime.name));
+    verify_staged_runtime(runtime, &target).expect("verify development ONNX Runtime");
 }
 
 #[cfg(test)]
@@ -350,11 +327,11 @@ fn extract_zip(archive_path: &Path, artifacts: &[&Artifact], destination: &Path)
     let archive_file = File::open(archive_path)
         .map_err(|error| format!("failed to open {}: {error}", archive_path.display()))?;
     let mut archive = zip::ZipArchive::new(archive_file)
-        .map_err(|error| format!("failed to read runtime archive: {error}"))?;
+        .map_err(|error| format!("failed to read ONNX Runtime archive: {error}"))?;
     for artifact in artifacts {
         let mut source = archive.by_name(artifact.archive_path).map_err(|error| {
             format!(
-                "missing {} in runtime archive: {error}",
+                "missing {} in ONNX Runtime archive: {error}",
                 artifact.archive_path
             )
         })?;
@@ -372,15 +349,15 @@ fn extract_tar_gz(archive_path: &Path, artifacts: &[&Artifact], destination: &Pa
     let mut extracted = Vec::new();
     let entries = archive
         .entries()
-        .map_err(|error| format!("failed to read runtime archive: {error}"))?;
+        .map_err(|error| format!("failed to read ONNX Runtime archive: {error}"))?;
     for entry in entries {
-        let mut entry = entry.map_err(|error| format!("failed to read runtime archive: {error}"))?;
+        let mut entry = entry.map_err(|error| format!("failed to read ONNX Runtime archive: {error}"))?;
         if !entry.header().entry_type().is_file() {
             continue;
         }
         let path = entry
             .path()
-            .map_err(|error| format!("invalid path in runtime archive: {error}"))?
+            .map_err(|error| format!("invalid path in ONNX Runtime archive: {error}"))?
             .to_string_lossy()
             .into_owned();
         if let Some(artifact) = artifacts.iter().find(|artifact| artifact.archive_path == path) {
@@ -392,7 +369,7 @@ fn extract_tar_gz(archive_path: &Path, artifacts: &[&Artifact], destination: &Pa
         .iter()
         .find(|artifact| !extracted.contains(&artifact.archive_path))
     {
-        return Err(format!("missing {} in runtime archive", missing.archive_path));
+        return Err(format!("missing {} in ONNX Runtime archive", missing.archive_path));
     }
     Ok(())
 }
@@ -414,9 +391,9 @@ fn download_archive(destination: &Path, url: &str, size: u64) -> Result<(), Stri
     let mut response = client
         .get(url)
         .send()
-        .map_err(|error| format!("failed to download runtime: {error}"))?
+        .map_err(|error| format!("failed to download ONNX Runtime: {error}"))?
         .error_for_status()
-        .map_err(|error| format!("runtime download failed: {error}"))?;
+        .map_err(|error| format!("ONNX Runtime download failed: {error}"))?;
     let mut file = File::create(destination)
         .map_err(|error| format!("failed to create {}: {error}", destination.display()))?;
     copy_exact(&mut response, &mut file, size)
@@ -431,21 +408,21 @@ fn copy_exact<R: Read, W: Write>(
         &mut source.by_ref().take(expected_size),
         destination,
     )
-    .map_err(|error| format!("failed to copy runtime download: {error}"))?;
+    .map_err(|error| format!("failed to copy ONNX Runtime download: {error}"))?;
     if copied != expected_size {
         return Err(format!(
-            "downloaded runtime archive has size {copied}, expected {expected_size}"
+            "downloaded ONNX Runtime archive has size {copied}, expected {expected_size}"
         ));
     }
 
     let mut probe = [0_u8; 1];
     if source
         .read(&mut probe)
-        .map_err(|error| format!("failed to copy runtime download: {error}"))?
+        .map_err(|error| format!("failed to copy ONNX Runtime download: {error}"))?
         != 0
     {
         return Err(format!(
-            "downloaded runtime archive exceeds expected size {expected_size}"
+            "downloaded ONNX Runtime archive exceeds expected size {expected_size}"
         ));
     }
 
