@@ -85,63 +85,93 @@ unsafe fn read_string(
 
 /// `path` as GenAI's C API takes a path. GenAI 2026.4.1 builds a
 /// `std::filesystem::path` from the `const char*` (`whisper_pipeline.cpp`,
-/// `whisper_generation_config.cpp`), which MSVC reads in the process's ANSI
-/// code page (the OEM one if file APIs were switched to it), not as UTF-8:
-/// a data folder under a Cyrillic user name would not be found. So the path
-/// goes in that code page, or by its 8.3 short name when the code page
-/// cannot hold it. OpenVINO's own string options are UTF-8 instead
-/// (`ov::util::make_path`), so `CACHE_DIR` is not passed through this.
+/// `whisper_generation_config.cpp`), which MSVC does not read as UTF-8 but in
+/// the code page `__std_fs_code_page` picks: a data folder under a Cyrillic
+/// user name would not be found. An ASCII path reads the same in every code
+/// page, so the path goes as it is when it is ASCII, else by its 8.3 short
+/// name when that is ASCII, and only then in that code page
+/// ([`narrow_as_msvc_reads`]). OpenVINO's own string options are UTF-8
+/// instead (`ov::util::make_path`), so `CACHE_DIR` is not passed through this.
 #[cfg(windows)]
 fn genai_path(path: &Path) -> Result<CString, GenAiError> {
     use std::os::windows::ffi::OsStrExt;
-    use windows_sys::Win32::Storage::FileSystem::GetShortPathNameW;
-    let wide = |text: &std::ffi::OsStr| -> Vec<u16> { text.encode_wide().collect() };
-    let mut candidates = vec![wide(path.as_os_str())];
-    let mut long: Vec<u16> = candidates[0].clone();
-    long.push(0);
-    // SAFETY: the buffer is sized by the first call; both calls read `long`.
-    unsafe {
-        let size = GetShortPathNameW(long.as_ptr(), std::ptr::null_mut(), 0);
-        if size > 0 {
-            let mut short = vec![0u16; size as usize];
-            let written = GetShortPathNameW(long.as_ptr(), short.as_mut_ptr(), size);
-            if written > 0 && written < size {
-                short.truncate(written as usize);
-                candidates.push(short);
-            }
-        }
-    }
-    candidates
-        .iter()
-        .find_map(|candidate| narrow_for_file_apis(candidate))
+    let long: Vec<u16> = path.as_os_str().encode_wide().collect();
+    ascii(&long)
+        .or_else(|| short_name(&long).as_deref().and_then(ascii))
+        .or_else(|| narrow_as_msvc_reads(&long))
         .and_then(|bytes| CString::new(bytes).ok())
         .ok_or_else(|| {
             GenAiError::Invalid(format!(
-                "{} cannot be handed to OpenVINO: its name has characters the system's code page lacks, and it has no short name",
+                "{} cannot be handed to OpenVINO: it has no ASCII short name, and the code page OpenVINO reads it in lacks some of its characters",
                 path.display()
             ))
         })
 }
 
-/// `wide` in the code page MSVC's `std::filesystem` reads narrow paths in,
-/// or `None` when a character does not convert exactly.
 #[cfg(windows)]
-fn narrow_for_file_apis(wide: &[u16]) -> Option<Vec<u8>> {
-    use windows_sys::Win32::Globalization::{GetACP, WideCharToMultiByte, CP_ACP, CP_OEMCP, CP_UTF8, WC_NO_BEST_FIT_CHARS};
+fn ascii(wide: &[u16]) -> Option<Vec<u8>> {
+    wide.iter().all(|&unit| unit != 0 && unit < 0x80).then(|| wide.iter().map(|&unit| unit as u8).collect())
+}
+
+/// The 8.3 short form of an existing path, if its volume keeps short names.
+#[cfg(windows)]
+fn short_name(long: &[u16]) -> Option<Vec<u16>> {
+    use windows_sys::Win32::Storage::FileSystem::GetShortPathNameW;
+    let mut long = long.to_vec();
+    long.push(0);
+    // SAFETY: the buffer is sized by the first call; both calls read `long`.
+    unsafe {
+        let size = GetShortPathNameW(long.as_ptr(), std::ptr::null_mut(), 0);
+        if size == 0 {
+            return None;
+        }
+        let mut short = vec![0u16; size as usize];
+        let written = GetShortPathNameW(long.as_ptr(), short.as_mut_ptr(), size);
+        (written > 0 && written < size).then(|| {
+            short.truncate(written as usize);
+            short
+        })
+    }
+}
+
+/// The code page MSVC's `std::filesystem` reads a narrow path in on this
+/// thread (`__std_fs_code_page`, microsoft/STL `filesystem.cpp`): UTF-8 under
+/// a UTF-8 CRT locale, else the ANSI code page, or the OEM one if file APIs
+/// were switched to it.
+#[cfg(windows)]
+fn msvc_path_code_page() -> u32 {
+    use windows_sys::Win32::Globalization::{GetACP, GetOEMCP, CP_UTF8};
     use windows_sys::Win32::Storage::FileSystem::AreFileApisANSI;
+    // SAFETY: argument-less queries of the CRT's and the system's state.
+    unsafe {
+        if ucrt().is_some_and(|crt| (crt.lc_codepage)() == CP_UTF8) {
+            CP_UTF8
+        } else if AreFileApisANSI() != 0 {
+            GetACP()
+        } else {
+            GetOEMCP()
+        }
+    }
+}
+
+/// `wide` in the code page MSVC reads a narrow path in, or `None` when a
+/// character does not convert exactly.
+#[cfg(windows)]
+fn narrow_as_msvc_reads(wide: &[u16]) -> Option<Vec<u8>> {
+    use windows_sys::Win32::Globalization::{WideCharToMultiByte, CP_UTF8, WC_ERR_INVALID_CHARS, WC_NO_BEST_FIT_CHARS};
     if wide.is_empty() {
         return Some(Vec::new());
     }
+    let code_page = msvc_path_code_page();
+    // UTF-8 holds every character, and takes neither a best-fit flag nor a
+    // default character.
+    let utf8 = code_page == CP_UTF8;
+    let flags = if utf8 { WC_ERR_INVALID_CHARS } else { WC_NO_BEST_FIT_CHARS };
+    let mut defaulted = 0;
+    let defaulted_ptr = if utf8 { std::ptr::null_mut() } else { &mut defaulted as *mut _ };
+    let length = wide.len() as i32;
     // SAFETY: plain conversions of `wide` into a buffer the first call sizes.
     unsafe {
-        let code_page = if AreFileApisANSI() != 0 { CP_ACP } else { CP_OEMCP };
-        // With UTF-8 as the system code page (a Windows option) every path
-        // converts, and the call takes neither flag nor default character.
-        let utf8 = code_page == CP_ACP && GetACP() == CP_UTF8;
-        let flags = if utf8 { 0 } else { WC_NO_BEST_FIT_CHARS };
-        let mut defaulted = 0;
-        let defaulted_ptr = if utf8 { std::ptr::null_mut() } else { &mut defaulted as *mut _ };
-        let length = wide.len() as i32;
         let size = WideCharToMultiByte(code_page, flags, wide.as_ptr(), length, std::ptr::null_mut(), 0, std::ptr::null(), defaulted_ptr);
         if size <= 0 {
             return None;
@@ -149,6 +179,62 @@ fn narrow_for_file_apis(wide: &[u16]) -> Option<Vec<u8>> {
         let mut narrow = vec![0u8; size as usize];
         let written = WideCharToMultiByte(code_page, flags, wide.as_ptr(), length, narrow.as_mut_ptr(), size, std::ptr::null(), defaulted_ptr);
         (written == size && defaulted == 0).then_some(narrow)
+    }
+}
+
+/// The Universal CRT GenAI and OpenVINO import (`api-ms-win-crt-*`, served
+/// by `ucrtbase.dll`). Its environment and locale are its own: a variable set
+/// through Win32 once the CRT has started is not in its `_wgetenv`, so what
+/// GenAI reads through the CRT is set and read here through the same one.
+#[cfg(windows)]
+struct Ucrt {
+    wputenv_s: unsafe extern "C" fn(*const u16, *const u16) -> i32,
+    lc_codepage: unsafe extern "C" fn() -> u32,
+    _library: libloading::Library,
+}
+
+#[cfg(windows)]
+fn ucrt() -> Option<&'static Ucrt> {
+    static UCRT: std::sync::OnceLock<Option<Ucrt>> = std::sync::OnceLock::new();
+    UCRT.get_or_init(|| {
+        // SAFETY: the system's CRT, already loaded in this process; the
+        // signatures are those of `<stdlib.h>` and `<locale.h>`.
+        unsafe {
+            let library = libloading::os::windows::Library::load_with_flags("ucrtbase.dll", libloading::os::windows::LOAD_LIBRARY_SEARCH_SYSTEM32)
+                .map(libloading::Library::from)
+                .ok()?;
+            Some(Ucrt {
+                wputenv_s: *library.get(b"_wputenv_s\0").ok()?,
+                lc_codepage: *library.get(b"___lc_codepage_func\0").ok()?,
+                _library: library,
+            })
+        }
+    })
+    .as_ref()
+}
+
+/// The variable GenAI loads its tokenizer extension from (`ScopedVar`,
+/// `tokenizers_path.hpp`).
+const TOKENIZERS_VARIABLE: &str = "OPENVINO_TOKENIZERS_PATH_GENAI";
+const TOKENIZERS_LIBRARY: &str = "openvino_tokenizers.dll";
+
+/// Points GenAI at this runtime's tokenizer library. GenAI reads the path
+/// from [`TOKENIZERS_VARIABLE`] through the CRT and keeps a value that is
+/// already set (`tokenizer_impl.cpp`), loading that library unchecked: one
+/// inherited from the environment would bring in another copy. So the
+/// variable is set to the verified copy in `folder` before GenAI can read it.
+#[cfg(windows)]
+fn use_tokenizers_in(folder: &Path) -> Result<(), GenAiError> {
+    use std::os::windows::ffi::OsStrExt;
+    let crt = ucrt().ok_or_else(|| GenAiError::Invalid("the C runtime's _wputenv_s could not be found".to_string()))?;
+    let name: Vec<u16> = TOKENIZERS_VARIABLE.encode_utf16().chain(std::iter::once(0)).collect();
+    let value: Vec<u16> = folder.join(TOKENIZERS_LIBRARY).as_os_str().encode_wide().chain(std::iter::once(0)).collect();
+    // SAFETY: two NUL-terminated wide strings the call copies.
+    let status = unsafe { (crt.wputenv_s)(name.as_ptr(), value.as_ptr()) };
+    if status == 0 {
+        Ok(())
+    } else {
+        Err(GenAiError::Invalid(format!("{TOKENIZERS_VARIABLE} could not be set (errno {status})")))
     }
 }
 
@@ -252,6 +338,8 @@ impl GenAi {
         if !folder.is_absolute() {
             return Err(GenAiError::Invalid(format!("{} is not an absolute path", folder.display())));
         }
+        #[cfg(windows)]
+        use_tokenizers_in(folder)?;
         let genai_c = open(GENAI_C_LIBRARY)?;
         let openvino_c = open(OPENVINO_C_LIBRARY)?;
         let load_error = |source| GenAiError::Load { path: folder.to_path_buf(), source };
@@ -276,13 +364,13 @@ impl GenAi {
     /// The GPUs of OpenVINO's GPU plugin, with the properties the device rule
     /// reads, named as OpenVINO lists them. Only that plugin is asked, and it
     /// is one of the runtime's files: listing every device makes OpenVINO
-    /// load each plugin it knows, and those the runtime does not install (NPU,
-    /// AUTO, HETERO, BATCH) it then looks up by bare name, which reaches
-    /// PATH, where another OpenVINO could answer. A pipeline is created on
-    /// one of these names, so it loads the GPU plugin and, for GenAI's
-    /// tokenizer, the CPU one, both by absolute path from this folder.
-    /// Loading the GPU plugin is costly, so this is called once per engine
-    /// selection.
+    /// load each plugin it registered, and it registers a plugin the runtime
+    /// lacks (NPU, AUTO, HETERO) when the process's current directory holds
+    /// a file of that name. A pipeline is created on one of these names, so
+    /// it loads the GPU plugin, the CPU one for GenAI's tokenizer, and the
+    /// auto-batching one each compile asks for, all from this folder (see
+    /// `schema::RUNTIMES`). Loading the GPU plugin is costly, so this is
+    /// called once per engine selection.
     pub fn gpus(&self) -> Result<Vec<DeviceInfo>, GenAiError> {
         let mut core = std::ptr::null_mut();
         // SAFETY: plain C calls on a core this function creates and frees.
@@ -544,48 +632,111 @@ mod tests {
     /// `bytes` read back as MSVC's `std::filesystem::path` reads a narrow path.
     fn as_msvc_reads(bytes: &[u8]) -> PathBuf {
         use std::os::windows::ffi::OsStringExt;
-        use windows_sys::Win32::Globalization::{MultiByteToWideChar, CP_ACP};
+        use windows_sys::Win32::Globalization::MultiByteToWideChar;
         let mut wide = vec![0u16; bytes.len() + 1];
         let written = unsafe {
-            MultiByteToWideChar(CP_ACP, 0, bytes.as_ptr(), bytes.len() as i32, wide.as_mut_ptr(), wide.len() as i32)
+            MultiByteToWideChar(msvc_path_code_page(), 0, bytes.as_ptr(), bytes.len() as i32, wide.as_mut_ptr(), wide.len() as i32)
         };
         PathBuf::from(std::ffi::OsString::from_wide(&wide[..written as usize]))
     }
 
-    /// The narrow path GenAI gets names the same folder: an ASCII one as it
-    /// is, a Cyrillic one (outside code page 1252, as on this PC) by a form
-    /// the code page holds, or a clear error when the volume has no short names.
-    #[test]
-    fn a_path_reaches_genai_in_the_code_page_msvc_reads_it_in() {
-        let root = tempfile::tempdir().unwrap();
-        let ascii = root.path().join("models");
-        std::fs::create_dir_all(&ascii).unwrap();
-        assert_eq!(genai_path(&ascii).unwrap().as_bytes(), ascii.to_str().unwrap().as_bytes());
+    fn wide(path: &Path) -> Vec<u16> {
+        use std::os::windows::ffi::OsStrExt;
+        path.as_os_str().encode_wide().collect()
+    }
 
+    /// The narrow path GenAI gets names the same folder: an ASCII one as it
+    /// is, a Cyrillic or Latin-1 one by its ASCII short name where the volume
+    /// keeps short names, else in the code page MSVC reads it in, or a clear
+    /// error when neither holds it.
+    #[test]
+    fn a_path_reaches_genai_as_ascii_where_it_can_else_in_the_code_page_msvc_reads_it_in() {
+        use windows_sys::Win32::Globalization::CP_UTF8;
+        let root = tempfile::tempdir().unwrap();
+        let ascii_folder = root.path().join("models");
+        std::fs::create_dir_all(&ascii_folder).unwrap();
+        assert_eq!(genai_path(&ascii_folder).unwrap().as_bytes(), ascii_folder.to_str().unwrap().as_bytes());
+
+        let code_page = msvc_path_code_page();
         for name in ["модель Протокол", "Ünïcödé"] {
             let folder = root.path().join(name);
             std::fs::create_dir_all(&folder).unwrap();
             std::fs::write(folder.join("generation_config.json"), name.as_bytes()).unwrap();
+            let names_the_folder = |narrow: &[u8]| {
+                let read = as_msvc_reads(narrow);
+                assert_eq!(std::fs::read(read.join("generation_config.json")).unwrap(), name.as_bytes(), "{}", read.display());
+            };
+            let short = short_name(&wide(&folder)).and_then(|short| ascii(&short));
             match genai_path(&folder) {
                 Ok(narrow) => {
-                    let read = as_msvc_reads(narrow.as_bytes());
-                    assert_eq!(std::fs::read(read.join("generation_config.json")).unwrap(), name.as_bytes(), "{}", read.display());
+                    // The ASCII short name wins over the code page.
+                    assert_eq!(short.is_some(), narrow.as_bytes().is_ascii(), "{:?}", narrow);
+                    names_the_folder(narrow.as_bytes());
                 }
-                Err(error) => assert!(error.to_string().contains("no short name"), "{error}"),
+                Err(error) => assert!(short.is_none() && error.to_string().contains("no ASCII short name"), "{error}"),
             }
+            // The fallback alone: exact in the code page, or nothing.
+            match narrow_as_msvc_reads(&wide(&folder)) {
+                Some(narrow) => names_the_folder(&narrow),
+                None => assert_ne!(code_page, CP_UTF8),
+            }
+        }
+        // Code page 1252, this PC's: Latin-1 converts, Cyrillic does not.
+        if code_page == 1252 {
+            assert!(narrow_as_msvc_reads(&wide(&root.path().join("Ünïcödé"))).is_some());
+            assert!(narrow_as_msvc_reads(&wide(&root.path().join("модель Протокол"))).is_none());
         }
         // The UTF-8 bytes round 1 passed name no folder when the code page
         // is not UTF-8.
         let cyrillic = root.path().join("модель Протокол");
         let utf8 = as_msvc_reads(cyrillic.to_str().unwrap().as_bytes());
-        if unsafe { windows_sys::Win32::Globalization::GetACP() } != windows_sys::Win32::Globalization::CP_UTF8 {
+        if code_page != CP_UTF8 {
             assert!(!utf8.exists(), "{}", utf8.display());
         }
     }
 
+    /// GenAI reads its tokenizer library from a variable it keeps when it is
+    /// already set: loading a runtime replaces an inherited value with the
+    /// runtime's own copy, in the CRT GenAI reads it from.
+    #[test]
+    fn loading_a_runtime_points_genai_at_its_own_tokenizer_library() {
+        type GetEnv = unsafe extern "C" fn(*const u16) -> *const u16;
+        let crt = unsafe { libloading::Library::new("ucrtbase.dll") }.unwrap();
+        let wgetenv: libloading::Symbol<GetEnv> = unsafe { crt.get(b"_wgetenv\0") }.unwrap();
+        let name: Vec<u16> = TOKENIZERS_VARIABLE.encode_utf16().chain(std::iter::once(0)).collect();
+        let read = || unsafe {
+            let value = wgetenv(name.as_ptr());
+            assert!(!value.is_null());
+            let length = (0..).take_while(|&index| *value.add(index) != 0).count();
+            String::from_utf16(std::slice::from_raw_parts(value, length)).unwrap()
+        };
+        let inherited = tempfile::tempdir().unwrap();
+        use_tokenizers_in(inherited.path()).unwrap();
+        assert_eq!(read(), inherited.path().join(TOKENIZERS_LIBRARY).to_str().unwrap());
+
+        // The load fails (no library there), but GenAI would now read this folder's copy.
+        let runtime = tempfile::tempdir().unwrap();
+        let folder = runtime.path().join("Протокол");
+        std::fs::create_dir_all(&folder).unwrap();
+        assert!(GenAi::load(&folder).is_err());
+        assert_eq!(read(), folder.join(TOKENIZERS_LIBRARY).to_str().unwrap());
+    }
+
+    fn read_config(api: &GenAi, narrow: &[u8]) -> Status {
+        let narrow = CString::new(narrow).unwrap();
+        let mut raw = std::ptr::null_mut();
+        let status = unsafe { (api.fns.config_from_json)(narrow.as_ptr(), &mut raw) };
+        if status == 0 {
+            unsafe { (api.fns.config_free)(raw) };
+        }
+        status
+    }
+
     /// GenAI itself finds a file under a non-ASCII folder: the config read
     /// (`GenerationConfig::from_json`) takes the same path conversion as the
-    /// pipeline and needs no device. Needs an installed runtime and a model's
+    /// pipeline and needs no device. Each folder goes through `genai_path`
+    /// and, where the code page holds its name (Latin-1 under 1252), through
+    /// the code-page fallback too. Needs an installed runtime and a model's
     /// `generation_config.json`.
     #[test]
     #[ignore = "needs OPENVINO_TEST_RUNTIME (an installed runtime) and OPENVINO_TEST_MODEL (an OpenVINO Whisper folder)"]
@@ -594,21 +745,22 @@ mod tests {
         let model = PathBuf::from(std::env::var_os("OPENVINO_TEST_MODEL").expect("OPENVINO_TEST_MODEL"));
         let api = GenAi::load(&runtime).unwrap();
         let root = tempfile::tempdir().unwrap();
-        let folder = root.path().join("Протокол модель");
-        std::fs::create_dir_all(&folder).unwrap();
-        let config = folder.join("generation_config.json");
-        std::fs::copy(model.join("generation_config.json"), &config).unwrap();
-        GenerationConfig::from_json(&api, &config).expect("GenAI reads the config through the converted path");
-
-        // As round 1 passed it: GenAI does not find the file.
-        let utf8 = c_string(config.to_str().unwrap()).unwrap();
-        let mut raw = std::ptr::null_mut();
-        let status = unsafe { (api.fns.config_from_json)(utf8.as_ptr(), &mut raw) };
-        if status == 0 {
-            unsafe { (api.fns.config_free)(raw) };
+        let mut fallbacks = 0;
+        for name in ["Протокол модель", "Ünïcödé"] {
+            let folder = root.path().join(name);
+            std::fs::create_dir_all(&folder).unwrap();
+            let config = folder.join("generation_config.json");
+            std::fs::copy(model.join("generation_config.json"), &config).unwrap();
+            GenerationConfig::from_json(&api, &config).expect("GenAI reads the config through the converted path");
+            if let Some(narrow) = narrow_as_msvc_reads(&wide(&config)) {
+                assert_eq!(read_config(&api, &narrow), 0, "GenAI did not read {name} in code page {}", msvc_path_code_page());
+                fallbacks += 1;
+            }
+            // As round 1 passed it: GenAI does not find the file.
+            if msvc_path_code_page() != windows_sys::Win32::Globalization::CP_UTF8 {
+                assert_ne!(read_config(&api, config.to_str().unwrap().as_bytes()), 0, "GenAI read a UTF-8 path in a non-UTF-8 code page");
+            }
         }
-        if unsafe { windows_sys::Win32::Globalization::GetACP() } != windows_sys::Win32::Globalization::CP_UTF8 {
-            assert_ne!(status, 0, "GenAI read a UTF-8 path in a non-UTF-8 code page");
-        }
+        println!("{fallbacks} of 2 folders also read through code page {}", msvc_path_code_page());
     }
 }
