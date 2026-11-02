@@ -125,9 +125,83 @@ pub fn openvino_device_for(chosen: Option<ChosenGpu<'_>>, gpus: &[OpenVinoGpu]) 
     }
 }
 
+/// A display adapter as Windows lists it: the driver's device name (the name
+/// Vulkan reports too) and the PCI vendor of its hardware id.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DisplayAdapter {
+    pub name: String,
+    pub vendor: Option<u32>,
+}
+
+/// The vendor in a hardware id, `PCI\VEN_8086&DEV_B080&SUBSYS_…`.
+pub fn vendor_from_hardware_id(id: &str) -> Option<u32> {
+    let upper = id.to_ascii_uppercase();
+    let start = upper.find("VEN_")? + 4;
+    u32::from_str_radix(upper.get(start..start + 4)?, 16).ok()
+}
+
+/// Whether to offer OpenVINO for the GPU whisper.cpp would use before the
+/// runtime is installed, when OpenVINO cannot be asked yet (#79): that GPU is
+/// an Intel GPU by the vendor of the display adapters Windows lists under its
+/// name. A name no adapter has, or adapters of that name of another or an
+/// unknown vendor, offer nothing. Once the runtime is installed,
+/// [`openvino_device_for`] decides.
+pub fn offer_for(chosen: Option<ChosenGpu<'_>>, adapters: &[DisplayAdapter]) -> bool {
+    let Some(chosen) = chosen else { return false };
+    let mut same = adapters.iter().filter(|adapter| adapter.name.trim() == chosen.name.trim()).peekable();
+    same.peek().is_some() && same.all(|adapter| adapter.vendor == Some(INTEL_VENDOR))
+}
+
+/// The display adapters in Windows' display class
+/// (`{4d36e968-e325-11ce-bfc1-08002be10318}`): `DriverDesc` and the vendor in
+/// `MatchingDeviceId`. Entries of adapters no longer present stay listed
+/// there; [`offer_for`] matches by name, so they only matter if they share
+/// the GPU's name.
+#[cfg(windows)]
+pub fn display_adapters() -> Vec<DisplayAdapter> {
+    use winreg::enums::{HKEY_LOCAL_MACHINE, KEY_READ, KEY_WOW64_64KEY};
+    use winreg::RegKey;
+    const DISPLAY_CLASS: &str = r"SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}";
+    let Ok(class) = RegKey::predef(HKEY_LOCAL_MACHINE).open_subkey_with_flags(DISPLAY_CLASS, KEY_READ | KEY_WOW64_64KEY) else {
+        return Vec::new();
+    };
+    class
+        .enum_keys()
+        .flatten()
+        .filter_map(|key| class.open_subkey_with_flags(key, KEY_READ | KEY_WOW64_64KEY).ok())
+        .filter_map(|adapter| {
+            let name: String = adapter.get_value("DriverDesc").ok()?;
+            let id: Option<String> = adapter.get_value("MatchingDeviceId").ok();
+            Some(DisplayAdapter { name, vendor: id.as_deref().and_then(vendor_from_hardware_id) })
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_offer_needs_an_intel_adapter_of_the_gpus_name() {
+        let adapter = |name: &str, vendor| DisplayAdapter { name: name.to_string(), vendor };
+        let arc = ChosenGpu { pci_bus_id: None, name: "Intel(R) Arc(TM) B390 GPU", integrated: true };
+        let adapters = [
+            // A stale entry of a GPU no longer there, as Windows keeps them.
+            adapter("Intel(R) Arc(TM) B370 GPU", vendor_from_hardware_id(r"PCI\VEN_8086&DEV_B081")),
+            adapter("Honor Virtual Display Device", vendor_from_hardware_id(r"IndirectDSP\VirtualDisplayDriver")),
+            adapter("Intel(R) Arc(TM) B390 GPU", vendor_from_hardware_id(r"PCI\VEN_8086&DEV_B080&SUBSYS_209C1EE7")),
+        ];
+        assert!(offer_for(Some(arc), &adapters));
+        assert!(!offer_for(None, &adapters));
+        // A hybrid laptop: whisper.cpp uses the NVIDIA GPU.
+        let nvidia = ChosenGpu { pci_bus_id: None, name: "NVIDIA GeForce RTX 4060 Laptop GPU", integrated: false };
+        let hybrid = [adapter("Intel(R) Graphics", Some(INTEL_VENDOR)), adapter("NVIDIA GeForce RTX 4060 Laptop GPU", Some(0x10de))];
+        assert!(!offer_for(Some(nvidia), &hybrid));
+        // A name Windows does not list, or lists without a vendor.
+        assert!(!offer_for(Some(arc), &hybrid));
+        assert!(!offer_for(Some(arc), &[adapter("Intel(R) Arc(TM) B390 GPU", None)]));
+        assert_eq!(vendor_from_hardware_id("pci\\ven_10de&dev_28e0"), Some(0x10de));
+    }
 
     const B390: &str = "Intel(R) Arc(TM) B390 GPU";
 

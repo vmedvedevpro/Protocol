@@ -1,12 +1,13 @@
-//! OpenVINO companions of Whisper models (#79): an OpenVINO IR export of a
-//! Whisper model, which the engine runs on an Intel GPU in place of the ggml
-//! file (`whisper_engine::openvino`).
+//! Whisper on an Intel GPU (#79): the OpenVINO companion of a Whisper model
+//! and the OpenVINO GenAI runtime that runs it, which Settings installs
+//! together with one click.
 //!
 //! A companion is an `openvino-ir` catalog entry naming the ggml models it
-//! serves (`companion_of`). It is never a model of its own: the Whisper list
-//! leaves it out (`super::usable`), and Settings offers it beside the model it
-//! serves, with what it is, its size and why, so nothing is downloaded
-//! without the person asking.
+//! serves (`companion_of`) and its runtime (`runtime`, an entry of the
+//! catalog's `runtimes`, installed by `super::runtime`). It is never a model
+//! of its own: the Whisper list leaves it out (`super::usable`), and Settings
+//! offers it beside the model it serves, saying what is downloaded, from
+//! where and how big, so nothing is downloaded without the person asking.
 //!
 //! On disk a companion is `<models>/openvino/<id>/` with its `install.json`
 //! and a `.verified` marker beside each file. The download takes the same
@@ -15,6 +16,14 @@
 //! interrupted download resumes from that commit), every file is hashed as it
 //! streams in against its pin and marked, and the record says complete only
 //! once all of them matched. [`installed_companion`] trusts exactly that state.
+//!
+//! The runtime is `<data>/runtimes/openvino-genai/<version>/`. A process
+//! loads at most one version, once (`whisper_engine::openvino::runtime`), and
+//! a loaded library cannot be deleted on Windows. So a version installed
+//! after another was loaded is used from the next start, and a version is
+//! removed only when this process has not loaded it: right after an install
+//! or a removal, and at the next start ([`prune_at_startup`]). The runtime
+//! goes with the last companion that needs it.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -29,17 +38,19 @@ use tokio::io::AsyncWriteExt;
 use tokio_util::sync::CancellationToken;
 
 use super::installed::{self, InstallRecord};
-use super::schema::Entry;
+use super::runtime::{self as runtimes, Installed};
+use super::schema::{Entry, License, RuntimeEntry, OPENVINO_GENAI};
 use super::{huggingface, sizes};
 use crate::model_integrity::{self, Pinned};
 use crate::updater::busy::{self, BusyReason};
+use crate::whisper_engine::openvino::genai::API_LEVEL;
 
-/// Sent when a companion's state changes (a download's progress, its end, a
-/// deletion, a size read from Hugging Face); Settings asks for the status
-/// again.
+/// Sent when the state changes (a download's progress, its end, a removal, a
+/// size read from Hugging Face); Settings asks for the status again. It also
+/// listens to `model-catalog-changed`, which can bring another runtime.
 pub const CHANGED_EVENT: &str = "openvino-companion-changed";
 
-pub const CANCELLED: &str = "The download was cancelled";
+pub use super::runtime::CANCELLED;
 
 /// How often a running download reports its progress.
 const PROGRESS_INTERVAL: Duration = Duration::from_millis(500);
@@ -80,26 +91,166 @@ fn verified_in(models_dir: &Path, entry: &Entry) -> Option<PathBuf> {
         .then_some(dir)
 }
 
-/// The installed and verified companion folder of the Whisper model
-/// `whisper_model_id`, or `None`. Cheap and offline (see [`verified_in`]), so
-/// the engine can ask on every model load.
-pub fn installed_companion(whisper_model_id: &str) -> Option<PathBuf> {
-    let entry = companion_for(whisper_model_id)?;
-    verified_in(&crate::paths::models_dir(), &entry)
+/// An installed companion: its folder and the commit it was downloaded at,
+/// which keys OpenVINO's model cache with the runtime version.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InstalledCompanion {
+    pub dir: PathBuf,
+    pub commit: String,
 }
 
-/// What Settings shows for a companion.
+fn installed_in(models_dir: &Path, entry: &Entry) -> Option<InstalledCompanion> {
+    let dir = verified_in(models_dir, entry)?;
+    let commit = installed::read_record(&installed::record_path_for_dir(&dir))?.commit;
+    Some(InstalledCompanion { dir, commit })
+}
+
+/// The installed and verified companion of the Whisper model
+/// `whisper_model_id`, or `None`. Cheap and offline (see [`verified_in`]), so
+/// the engine can ask on every model load.
+pub fn installed_companion(whisper_model_id: &str) -> Option<InstalledCompanion> {
+    installed_in(&crate::paths::models_dir(), &companion_for(whisper_model_id)?)
+}
+
+/// The commits of every installed companion: the model half of the cache
+/// keys still in use.
+pub fn installed_commits() -> Vec<String> {
+    let models = crate::paths::models_dir();
+    super::companions().iter().filter_map(|entry| installed_in(&models, entry)).map(|installed| installed.commit).collect()
+}
+
+/// Whether a companion is installed or its download has begun (it has a
+/// record): what keeps the runtime on disk.
+fn any_companion_in(models_dir: &Path) -> bool {
+    super::companions()
+        .iter()
+        .any(|entry| installed::read_record(&installed::record_path_for_dir(&dir_in(models_dir, entry))).is_some())
+}
+
+// --- The runtime ------------------------------------------------------------
+
+fn runtime_root() -> PathBuf {
+    runtimes::root_in(&crate::paths::install_data_root(), OPENVINO_GENAI)
+}
+
+/// The runtime entry this build would install now (`super::runtime`).
+pub fn runtime_entry() -> Option<RuntimeEntry> {
+    super::runtime(OPENVINO_GENAI, API_LEVEL)
+}
+
+/// Why this build cannot install the runtime the catalog lists, if it cannot.
+fn refusal() -> String {
+    let versions: Vec<String> = super::runtimes_out_of_reach(OPENVINO_GENAI, API_LEVEL)
+        .into_iter()
+        .map(|runtime| runtime.version)
+        .collect();
+    if versions.is_empty() {
+        "The model list has no OpenVINO runtime for this computer.".to_string()
+    } else {
+        format!(
+            "The model list offers OpenVINO GenAI {}, which this version of Protocol cannot run. Update Protocol to use it.",
+            versions.join(", ")
+        )
+    }
+}
+
+/// The installed version to load from `root`: the one `offered` names when
+/// it is installed, else the newest of this binding's API level. An error
+/// says why none can load, and is what Settings shows.
+fn selected_in(root: &Path, offered: Option<&RuntimeEntry>) -> std::result::Result<Installed, String> {
+    let installed = runtimes::installed_in(root);
+    let usable: Vec<&Installed> = installed.iter().filter(|version| version.record.api == API_LEVEL).collect();
+    if let Some(version) = offered.and_then(|offered| usable.iter().find(|version| version.record.version == offered.version)) {
+        return Ok((*version).clone());
+    }
+    if let Some(version) = usable.first() {
+        return Ok((*version).clone());
+    }
+    match installed.first() {
+        Some(other) => Err(format!(
+            "OpenVINO GenAI {} is installed, but this version of Protocol cannot run it (API level {}, this version runs level {API_LEVEL})",
+            other.record.version, other.record.api
+        )),
+        None => Err("the OpenVINO runtime is not installed".to_string()),
+    }
+}
+
+/// The installed runtime version this process should load, or why there is
+/// none. Cheap and offline: the engine asks on its first OpenVINO load.
+pub fn runtime_to_load() -> std::result::Result<Installed, String> {
+    selected_in(&runtime_root(), runtime_entry().as_ref())
+}
+
+/// Removes the runtime versions nothing will load: all but the selected one
+/// and the one this process loaded, or all but the loaded one when no
+/// companion needs the runtime any more.
+fn prune_runtimes(root: &Path, wanted: bool, offered: Option<&RuntimeEntry>) {
+    let loaded = crate::whisper_engine::openvino::loaded_runtime_dir();
+    let mut keep: Vec<PathBuf> = loaded.into_iter().collect();
+    if wanted {
+        keep.extend(selected_in(root, offered).ok().map(|version| version.dir));
+    }
+    runtimes::prune_in(root, &keep);
+}
+
+/// At startup, before anything loads the runtime: removes runtime versions
+/// an update replaced, an install a crash cut short, and the runtime and the
+/// model cache when no companion needs them. Call once the catalog in use is
+/// set (`service::init`).
+pub fn prune_at_startup() {
+    let wanted = any_companion_in(&crate::paths::models_dir());
+    prune_runtimes(&runtime_root(), wanted, runtime_entry().as_ref());
+    if !wanted {
+        crate::whisper_engine::openvino::remove_cache();
+    }
+}
+
+// --- Status -----------------------------------------------------------------
+
+/// The runtime as Settings describes it.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeStatus {
+    pub name: String,
+    /// The version a download installs: the catalog's.
+    pub version: String,
+    pub license: License,
+    /// The host the archive comes from.
+    pub source: String,
+    /// The archive's size.
+    pub download_size: u64,
+    /// What its files take once installed.
+    pub installed_size: u64,
+    /// The installed version that loads, if any.
+    pub installed: Option<String>,
+    /// The version used after a restart, when this process loaded another.
+    pub after_restart: Option<String>,
+}
+
+/// What Settings shows for a companion and its runtime.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CompanionStatus {
     pub id: String,
     pub name: String,
     pub description: String,
+    /// The Hugging Face repository it comes from.
+    pub repo: String,
     pub companion_of: Vec<String>,
     /// Installed: its files; otherwise what a download fetches. `None` while
     /// unknown.
     pub size: Option<u64>,
+    /// The companion's files are installed and verified.
+    pub companion_installed: bool,
+    /// The catalog's runtime (from the built-in list when the one in use has
+    /// none this build can run).
+    pub runtime: Option<RuntimeStatus>,
+    /// Both are there: Whisper can run on OpenVINO from the next model load.
     pub installed: bool,
+    /// What a click on Download fetches now, when every part's size is known.
+    pub download_size: Option<u64>,
+    /// Why the runtime cannot be installed or loaded here.
+    pub refused: Option<String>,
     /// The percentage of a running download.
     pub downloading: Option<u8>,
 }
@@ -111,19 +262,61 @@ fn downloads() -> std::sync::MutexGuard<'static, HashMap<String, (CancellationTo
     DOWNLOADS.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-fn status_in(models_dir: &Path, entry: &Entry) -> CompanionStatus {
+/// The archive's host, for "from storage.openvinotoolkit.org".
+fn host(url: &str) -> String {
+    url.split("://").nth(1).and_then(|rest| rest.split('/').next()).unwrap_or_default().to_string()
+}
+
+fn status_in(
+    models_dir: &Path,
+    runtime_root: &Path,
+    entry: &Entry,
+    offered: Option<&RuntimeEntry>,
+    loaded: Option<&Path>,
+) -> CompanionStatus {
     let dir = dir_in(models_dir, entry);
-    let installed = verified_in(models_dir, entry).is_some();
+    let companion_installed = verified_in(models_dir, entry).is_some();
     let size = installed::expected(entry, &installed::record_path_for_dir(&dir))
         .map(|expected| expected.total_size())
         .or_else(|| sizes::download_size(entry));
+    let selected = selected_in(runtime_root, offered);
+    let runtime = offered.map(|offered| {
+        let installed = selected.as_ref().ok().map(|version| version.record.version.clone());
+        let after_restart = selected
+            .as_ref()
+            .ok()
+            .filter(|version| loaded.is_some_and(|loaded| loaded != version.dir.as_path()))
+            .map(|version| version.record.version.clone());
+        RuntimeStatus {
+            name: offered.name.clone(),
+            version: offered.version.clone(),
+            license: offered.license.clone(),
+            source: host(&offered.archive.url),
+            download_size: offered.archive.size,
+            installed_size: offered.installed_size(),
+            installed,
+            after_restart,
+        }
+    });
+    let runtime_current = matches!((&selected, offered), (Ok(version), Some(offered)) if version.record.version == offered.version)
+        || (offered.is_none() && selected.is_ok());
+    let runtime_fetch = if runtime_current { Some(0) } else { offered.map(|offered| offered.archive.size) };
+    let companion_fetch = if companion_installed { Some(0) } else { size };
+    // Without an entry this build can install, only an installed version can
+    // run; a download is not offered.
+    let refused = (offered.is_none() && selected.is_err()).then(refusal);
     CompanionStatus {
         id: entry.id.clone(),
         name: entry.name.clone(),
         description: entry.description.clone(),
+        repo: entry.repo.clone(),
         companion_of: entry.companion_of.clone(),
         size,
-        installed,
+        companion_installed,
+        runtime,
+        installed: companion_installed && selected.is_ok(),
+        download_size: runtime_fetch.zip(companion_fetch).map(|(runtime, model)| runtime + model),
+        refused,
         downloading: downloads().get(&entry.id).map(|(_, percent)| *percent),
     }
 }
@@ -153,16 +346,14 @@ async fn unload_engines_if_idle() {
     }
 }
 
-/// The companion of the Whisper model `whisper_model` and its state; `None`
-/// when the model has none. An unknown size is read from Hugging Face in the
-/// background, and [`CHANGED_EVENT`] follows.
+/// The companion of the Whisper model `whisper_model`, its runtime and their
+/// state; `None` when the model has none. An unknown size is read from
+/// Hugging Face in the background, and [`CHANGED_EVENT`] follows.
 #[tauri::command]
-pub async fn openvino_companion_status<R: Runtime>(
-    app: AppHandle<R>,
-    whisper_model: String,
-) -> Result<Option<CompanionStatus>, String> {
+pub async fn openvino_status<R: Runtime>(app: AppHandle<R>, whisper_model: String) -> Result<Option<CompanionStatus>, String> {
     let Some(entry) = companion_for(&whisper_model) else { return Ok(None) };
-    let status = status_in(&crate::paths::models_dir(), &entry);
+    let loaded = crate::whisper_engine::openvino::loaded_runtime_dir();
+    let status = status_in(&crate::paths::models_dir(), &runtime_root(), &entry, runtime_entry().as_ref(), loaded.as_deref());
     if status.size.is_none() {
         tauri::async_runtime::spawn(async move {
             if sizes::fill(&huggingface::client(), huggingface::HUB, &[entry]).await {
@@ -173,11 +364,13 @@ pub async fn openvino_companion_status<R: Runtime>(
     Ok(Some(status))
 }
 
-/// Downloads the companion `id`; resolves when it is installed, fails or is
-/// cancelled. Progress follows as [`CHANGED_EVENT`]. Registers with the busy
+/// Installs what the companion `id` still lacks: the catalog's runtime
+/// version, then the companion. Resolves when both are installed, one fails
+/// or the download is cancelled; progress follows as [`CHANGED_EVENT`]. Also
+/// installs a newer runtime the catalog pins (an update). Holds the busy
 /// registry for its lifetime, like every model download.
 #[tauri::command]
-pub async fn openvino_companion_download<R: Runtime>(app: AppHandle<R>, id: String) -> Result<(), String> {
+pub async fn openvino_download<R: Runtime>(app: AppHandle<R>, id: String) -> Result<(), String> {
     let entry = companion(&id).ok_or_else(|| format!("{id} is not in the model list"))?;
     let cancel = CancellationToken::new();
     {
@@ -188,48 +381,97 @@ pub async fn openvino_companion_download<R: Runtime>(app: AppHandle<R>, id: Stri
         downloads.insert(id.clone(), (cancel.clone(), 0));
     }
     emit(&app);
-    let _busy = busy::hold(BusyReason::ModelDownload);
-    let files = huggingface::builder()
-        .connect_timeout(Duration::from_secs(30))
-        .build()
-        .unwrap_or_default();
     let mut last = Instant::now() - PROGRESS_INTERVAL;
-    let result = download_into(
-        &huggingface::client(),
-        &files,
-        huggingface::HUB,
-        &crate::paths::models_dir(),
-        &entry,
-        &cancel,
-        |done, total| {
-            if last.elapsed() < PROGRESS_INTERVAL {
-                return;
-            }
-            last = Instant::now();
-            // At most 99 until the record says complete.
-            let percent = (done.saturating_mul(100) / total.max(1)).min(99) as u8;
-            if let Some(download) = downloads().get_mut(&id) {
-                download.1 = percent;
-            }
-            emit(&app);
-        },
-    )
+    let place = Place { models: crate::paths::models_dir(), runtime_root: runtime_root(), hub: huggingface::HUB.to_string() };
+    let offered = runtime_entry().ok_or_else(refusal);
+    let result = install_both(&place, offered.as_ref().map_err(|reason| reason.clone()), &entry, &cancel, |done, total| {
+        if last.elapsed() < PROGRESS_INTERVAL {
+            return;
+        }
+        last = Instant::now();
+        // At most 99 until both are installed.
+        let percent = (done.saturating_mul(100) / total.max(1)).min(99) as u8;
+        if let Some(download) = downloads().get_mut(&id) {
+            download.1 = percent;
+        }
+        emit(&app);
+    })
     .await;
     downloads().remove(&id);
     match &result {
-        Ok(dir) => {
-            log::info!("[openvino] {} installed in {}", entry.id, dir.display());
+        Ok(()) => {
+            log::info!("[openvino] {} and its runtime are installed", entry.id);
+            prune_runtimes(&runtime_root(), true, runtime_entry().as_ref());
             unload_engines_if_idle().await;
         }
         Err(error) if error.to_string() == CANCELLED => log::info!("[openvino] the download of {} was cancelled", entry.id),
         Err(error) => log::error!("[openvino] the download of {} failed: {error:#}", entry.id),
     }
     emit(&app);
-    result.map(drop).map_err(|error| error.to_string())
+    result.map_err(|error| error.to_string())
+}
+
+/// Where an install puts things: the app's folders, or a test's.
+struct Place {
+    models: PathBuf,
+    runtime_root: PathBuf,
+    /// Hugging Face, for the companion.
+    hub: String,
+}
+
+/// The runtime `offered` and then the companion, each only when it is not
+/// installed, holding the busy registry throughout; `progress` gets the
+/// bytes done and the total of both.
+async fn install_both(
+    place: &Place,
+    offered: std::result::Result<&RuntimeEntry, String>,
+    entry: &Entry,
+    cancel: &CancellationToken,
+    mut progress: impl FnMut(u64, u64),
+) -> Result<()> {
+    let _busy = busy::hold(BusyReason::ModelDownload);
+    let offered = offered.map_err(|reason| anyhow!(reason))?;
+    let runtime_needed = !runtimes::installed_in(&place.runtime_root)
+        .iter()
+        .any(|version| version.record.version == offered.version && version.record.api == API_LEVEL);
+    let companion_needed = verified_in(&place.models, entry).is_none();
+    let runtime_total = if runtime_needed { offered.archive.size } else { 0 };
+    let companion_estimate = if companion_needed { sizes::download_size(entry).unwrap_or(0) } else { 0 };
+    if runtime_needed {
+        ensure_room(&place.runtime_root, offered.archive.size + offered.installed_size(), &offered.name).await?;
+        log::info!("[openvino] installing {} {} from {}", offered.name, offered.version, host(&offered.archive.url));
+        let client = huggingface::builder().connect_timeout(STALL).build().unwrap_or_default();
+        runtimes::install_into(&client, &place.runtime_root, offered, cancel, |done, _| {
+            progress(done, runtime_total + companion_estimate)
+        })
+        .await?;
+    }
+    if companion_needed {
+        let files = huggingface::builder().connect_timeout(STALL).build().unwrap_or_default();
+        download_into(&huggingface::client(), &files, &place.hub, &place.models, entry, cancel, |done, total| {
+            progress(runtime_total + done, runtime_total + total)
+        })
+        .await?;
+    }
+    Ok(())
+}
+
+/// Refuses an install that would not fit on the volume of `dir`.
+async fn ensure_room(dir: &Path, needed: u64, name: &str) -> Result<()> {
+    let probe = dir.ancestors().find(|ancestor| ancestor.exists()).unwrap_or(dir).to_path_buf();
+    let free = tokio::task::spawn_blocking(move || crate::updater::engine::free_space(&probe)).await.ok().flatten();
+    match free {
+        Some(free) if free < needed => bail!(
+            "Not enough free space for {name}: it needs {} MB, {} MB are free",
+            needed.div_ceil(1 << 20),
+            free / (1 << 20)
+        ),
+        _ => Ok(()),
+    }
 }
 
 #[tauri::command]
-pub async fn openvino_companion_cancel(id: String) -> Result<(), String> {
+pub async fn openvino_cancel(id: String) -> Result<(), String> {
     match downloads().get(&id) {
         Some((cancel, _)) => {
             cancel.cancel();
@@ -239,16 +481,18 @@ pub async fn openvino_companion_cancel(id: String) -> Result<(), String> {
     }
 }
 
-/// Deletes the companion `id`. Refused during a download of it and while the
+/// Removes the companion `id`, and the runtime and the model cache when no
+/// other companion needs them. Refused during a download of it and while the
 /// speech engines are at work: the loaded pipeline maps these files, so they
-/// are unloaded first, under the engine lifecycle lock.
+/// are unloaded first, under the engine lifecycle lock. A runtime version
+/// this process loaded stays until the next start.
 #[tauri::command]
-pub async fn openvino_companion_delete<R: Runtime>(app: AppHandle<R>, id: String) -> Result<(), String> {
+pub async fn openvino_remove<R: Runtime>(app: AppHandle<R>, id: String) -> Result<(), String> {
     let entry = companion(&id).ok_or_else(|| format!("{id} is not in the model list"))?;
     if downloads().contains_key(&id) {
         return Err(format!("Cancel the download of {} first", entry.name));
     }
-    let busy_message = || "Protocol is transcribing right now. Delete the model when it is done.".to_string();
+    let busy_message = || "Protocol is transcribing right now. Remove it when it is done.".to_string();
     if engines_busy() {
         return Err(busy_message());
     }
@@ -258,9 +502,14 @@ pub async fn openvino_companion_delete<R: Runtime>(app: AppHandle<R>, id: String
             return Err(busy_message());
         }
         crate::audio::common::unload_both_stt_engines().await;
-        remove_in(&crate::paths::models_dir(), &entry).map_err(|error| error.to_string())?;
+        let models = crate::paths::models_dir();
+        remove_in(&models, &entry).map_err(|error| error.to_string())?;
+        if !any_companion_in(&models) {
+            prune_runtimes(&runtime_root(), false, None);
+            crate::whisper_engine::openvino::remove_cache();
+        }
     }
-    log::info!("[openvino] {} deleted", entry.id);
+    log::info!("[openvino] {} removed", entry.id);
     emit(&app);
     Ok(())
 }
@@ -428,6 +677,7 @@ async fn fetch(
 }
 
 #[cfg(test)]
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::model_catalog::schema::{CatalogFile, Engine, OPENVINO_IR, OPENVINO_WHISPER_FILES};
@@ -443,7 +693,7 @@ mod tests {
             .map(|name| CatalogFile { name: name.to_string(), path: name.to_string() })
             .collect();
         entry.companion_of = vec!["large-v3-turbo".to_string()];
-        entry.runtime = Some("openvino-genai".to_string());
+        entry.runtime = Some(OPENVINO_GENAI.to_string());
         entry.revision = Some(COMMIT.to_string());
         assert!(entry.problems().is_empty(), "{:?}", entry.problems());
         entry
@@ -571,5 +821,198 @@ mod tests {
         engine.sort_unstable();
         catalog.sort_unstable();
         assert_eq!(engine, catalog);
+    }
+
+    #[test]
+    fn the_built_in_companion_names_the_built_in_runtime_this_build_runs() {
+        let _catalog = crate::model_catalog::testing::built_in_catalog();
+        let companion = companion_for("large-v3-turbo").unwrap();
+        assert_eq!(companion.runtime.as_deref(), Some(OPENVINO_GENAI));
+        let runtime = runtime_entry().expect("the built-in catalog pins a runtime this build runs");
+        assert_eq!(runtime.api, API_LEVEL);
+        assert!(runtime.archive.url.starts_with("https://storage.openvinotoolkit.org/"));
+        // The libraries the binding opens are among the pinned files.
+        for library in [crate::whisper_engine::openvino::genai::GENAI_C_LIBRARY, "openvino_c.dll"] {
+            assert!(runtime.files.iter().any(|file| file.name == library), "{library}");
+        }
+    }
+
+    /// An archive with the two libraries the binding opens, as an entry of
+    /// `version` at API level `api`, its archive served locally.
+    async fn runtime_entry_served(version: &str, salt: u8, api: u32) -> RuntimeEntry {
+        let files = runtimes::testing::openvino_files(salt);
+        let borrowed: Vec<(&str, &str, &[u8])> = files.iter().map(|(path, name, content)| (*path, *name, content.as_slice())).collect();
+        let (bytes, mut entry) = runtimes::testing::archive_and_entry(version, &borrowed, "https://example.com/runtime.zip");
+        entry.api = api;
+        entry.archive.url = runtimes::testing::serve(bytes).await;
+        entry
+    }
+
+    async fn install_runtime(root: &Path, version: &str, salt: u8, api: u32) -> PathBuf {
+        let entry = runtime_entry_served(version, salt, api).await;
+        runtimes::install_into(&reqwest::Client::new(), root, &entry, &CancellationToken::new(), |_, _| {}).await.unwrap()
+    }
+
+    #[tokio::test]
+    async fn the_runtime_that_loads_is_the_catalogs_version_else_the_newest_of_this_api_level() {
+        let data = tempfile::tempdir().unwrap();
+        let root = runtimes::root_in(data.path(), OPENVINO_GENAI);
+        assert_eq!(selected_in(&root, None).unwrap_err(), "the OpenVINO runtime is not installed");
+
+        // A version of another API level is never loaded, and says why.
+        install_runtime(&root, "2027.0.0.0", 9, API_LEVEL + 1).await;
+        let refused = selected_in(&root, None).unwrap_err();
+        assert!(refused.contains("2027.0.0.0") && refused.contains("cannot run"), "{refused}");
+
+        let old = install_runtime(&root, "2026.4.1.0", 1, API_LEVEL).await;
+        let new = install_runtime(&root, "2026.5.0.0", 2, API_LEVEL).await;
+        assert_eq!(selected_in(&root, None).unwrap().dir, new);
+        // The catalog pins the older one (a rollback): it loads.
+        let pinned_old = runtime_entry_served("2026.4.1.0", 1, API_LEVEL).await;
+        assert_eq!(selected_in(&root, Some(&pinned_old)).unwrap().dir, old);
+
+        // Pruning keeps what loads; without a companion nothing stays.
+        prune_runtimes(&root, true, Some(&pinned_old));
+        assert_eq!(runtimes::installed_in(&root).into_iter().map(|version| version.dir).collect::<Vec<_>>(), [old]);
+        prune_runtimes(&root, false, None);
+        assert!(!root.exists());
+    }
+
+    #[tokio::test]
+    async fn the_status_says_what_a_download_fetches_and_offers_a_new_runtime() {
+        let (hub, contents) = hub_with_model();
+        let hub = hub.serve().await;
+        let data = tempfile::tempdir().unwrap();
+        let models = data.path().join("models");
+        let root = runtimes::root_in(data.path(), OPENVINO_GENAI);
+        let entry = companion_entry();
+        let current = runtime_entry_served("2026.4.1.0", 1, API_LEVEL).await;
+        let companion_size: u64 = contents.iter().map(|content| content.len() as u64).sum();
+
+        let client = huggingface::client();
+        download_into(&client, &client, &hub.url, &models, &entry, &CancellationToken::new(), |_, _| {}).await.unwrap();
+        let status = status_in(&models, &root, &entry, Some(&current), None);
+        assert!(status.companion_installed && !status.installed);
+        assert_eq!(status.size, Some(companion_size));
+        // Only the runtime is missing: a download fetches its archive.
+        assert_eq!(status.download_size, Some(current.archive.size));
+        let runtime = status.runtime.unwrap();
+        assert_eq!((runtime.installed, runtime.version.as_str()), (None, "2026.4.1.0"));
+        assert_eq!(runtime.download_size, current.archive.size);
+        assert_eq!(runtime.installed_size, current.installed_size());
+        assert!(runtime.source.starts_with("127.0.0.1:"), "{}", runtime.source);
+        assert_eq!(status.refused, None);
+
+        let old = runtimes::install_into(&reqwest::Client::new(), &root, &current, &CancellationToken::new(), |_, _| {}).await.unwrap();
+        let status = status_in(&models, &root, &entry, Some(&current), None);
+        assert!(status.installed);
+        assert_eq!(status.download_size, Some(0));
+        assert_eq!(status.runtime.unwrap().installed.as_deref(), Some("2026.4.1.0"));
+
+        // The catalog pins a newer runtime: offered as an update, while the
+        // installed one keeps running.
+        let newer = runtime_entry_served("2026.5.0.0", 2, API_LEVEL).await;
+        let status = status_in(&models, &root, &entry, Some(&newer), Some(&old));
+        assert!(status.installed);
+        assert_eq!(status.download_size, Some(newer.archive.size));
+        let runtime = status.runtime.unwrap();
+        assert_eq!((runtime.installed.as_deref(), runtime.version.as_str()), (Some("2026.4.1.0"), "2026.5.0.0"));
+        assert_eq!(runtime.after_restart, None);
+
+        // Installed while this process runs the old one: used after a restart.
+        runtimes::install_into(&reqwest::Client::new(), &root, &newer, &CancellationToken::new(), |_, _| {}).await.unwrap();
+        let runtime = status_in(&models, &root, &entry, Some(&newer), Some(&old)).runtime.unwrap();
+        assert_eq!(runtime.installed.as_deref(), Some("2026.5.0.0"));
+        assert_eq!(runtime.after_restart.as_deref(), Some("2026.5.0.0"));
+    }
+
+    #[test]
+    fn without_a_runtime_this_build_can_install_the_download_is_refused() {
+        let data = tempfile::tempdir().unwrap();
+        let entry = companion_entry();
+        let root = runtimes::root_in(data.path(), OPENVINO_GENAI);
+        let status = status_in(&data.path().join("models"), &root, &entry, None, None);
+        assert!(status.refused.is_some());
+        assert_eq!((status.runtime, status.download_size, status.installed), (None, None, false));
+    }
+
+    #[tokio::test]
+    async fn one_download_installs_the_runtime_then_the_companion_and_holds_the_busy_registry() {
+        let (hub, contents) = hub_with_model();
+        let hub = hub.serve().await;
+        let data = tempfile::tempdir().unwrap();
+        let place = Place { models: data.path().join("models"), runtime_root: data.path().join("runtimes"), hub: hub.url.clone() };
+        let entry = companion_entry();
+        let offered = runtime_entry_served("2026.4.1.0", 3, API_LEVEL).await;
+        let mut reported = Vec::new();
+        install_both(&place, Ok(&offered), &entry, &CancellationToken::new(), |done, total| {
+            assert!(busy::current().contains(&BusyReason::ModelDownload));
+            reported.push((done, total));
+        })
+        .await
+        .unwrap();
+
+        assert_eq!(selected_in(&place.runtime_root, Some(&offered)).unwrap().record.version, "2026.4.1.0");
+        assert!(verified_in(&place.models, &entry).is_some());
+        let total = offered.archive.size + contents.iter().map(|content| content.len() as u64).sum::<u64>();
+        assert_eq!(reported.last(), Some(&(total, total)));
+        assert!(reported.windows(2).all(|pair| pair[0].0 <= pair[1].0), "{reported:?}");
+
+        // A second click finds both installed and fetches nothing.
+        install_both(&place, Ok(&offered), &entry, &CancellationToken::new(), |_, _| panic!("downloaded again")).await.unwrap();
+    }
+
+    /// The real install from Intel's server (network, 254 MB): the built-in
+    /// catalog's runtime into `OPENVINO_INSTALL_DATA`, a scratch data folder,
+    /// whose `runtimes/openvino-genai/<version>` the kit's
+    /// `MEASURE_OPENVINO_RUNTIME` can then name. It loads the libraries, but
+    /// creates no OpenVINO core, so no device is touched.
+    #[tokio::test]
+    #[ignore = "network: downloads Intel's 254 MB archive into OPENVINO_INSTALL_DATA"]
+    async fn installs_the_catalogs_runtime_from_intel() {
+        let data = PathBuf::from(std::env::var_os("OPENVINO_INSTALL_DATA").expect("OPENVINO_INSTALL_DATA: a scratch data folder"));
+        let entry = {
+            let _catalog = crate::model_catalog::testing::built_in_catalog();
+            runtime_entry().expect("the built-in catalog pins a runtime for this build")
+        };
+        let root = runtimes::root_in(&data, OPENVINO_GENAI);
+        let client = huggingface::builder().connect_timeout(STALL).build().unwrap();
+        let started = Instant::now();
+        let mut shown = 0;
+        let dir = runtimes::install_into(&client, &root, &entry, &CancellationToken::new(), |done, total| {
+            if done - shown >= 32 << 20 || done == total {
+                shown = done;
+                eprintln!("{} of {} MB", done >> 20, total >> 20);
+            }
+        })
+        .await
+        .unwrap();
+        eprintln!("installed {} {} in {} in {:.0} s", entry.name, entry.version, dir.display(), started.elapsed().as_secs_f64());
+        let installed = runtimes::installed_in(&root);
+        assert_eq!(installed.first().map(|version| &version.dir), Some(&dir));
+        assert_eq!(installed[0].record.size(), entry.installed_size());
+        let leftovers: Vec<_> = std::fs::read_dir(&root).unwrap().flatten().map(|item| item.file_name()).collect();
+        assert_eq!(leftovers, [std::ffi::OsString::from(&entry.version)]);
+        crate::whisper_engine::openvino::genai::GenAi::load(&dir).expect("the installed runtime loads");
+    }
+
+    #[tokio::test]
+    async fn a_cancel_while_the_runtime_downloads_leaves_neither_installed() {
+        let (hub, _) = hub_with_model();
+        let hub = hub.serve().await;
+        let data = tempfile::tempdir().unwrap();
+        let place = Place { models: data.path().join("models"), runtime_root: data.path().join("runtimes"), hub: hub.url.clone() };
+        let entry = companion_entry();
+        let offered = runtime_entry_served("2026.4.1.0", 3, API_LEVEL).await;
+        let cancel = CancellationToken::new();
+        let error = install_both(&place, Ok(&offered), &entry, &cancel, |_, _| cancel.cancel()).await.unwrap_err();
+        assert_eq!(error.to_string(), CANCELLED);
+        assert!(runtimes::installed_in(&place.runtime_root).is_empty());
+        assert_eq!(std::fs::read_dir(&place.runtime_root).unwrap().count(), 0);
+        assert!(installed::read_record(&installed::record_path_for_dir(&dir_in(&place.models, &entry))).is_none());
+
+        // A runtime this build cannot run is refused before anything is fetched.
+        let error = install_both(&place, Err("no runtime".to_string()), &entry, &CancellationToken::new(), |_, _| {}).await.unwrap_err();
+        assert_eq!(error.to_string(), "no runtime");
     }
 }

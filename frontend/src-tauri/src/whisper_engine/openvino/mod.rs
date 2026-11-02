@@ -4,9 +4,10 @@
 //! whisper.cpp 1.8.3 on Vulkan, live and after meetings, for about a quarter
 //! of the package energy, at the same word error rate.
 //!
-//! - The runtime ([`genai`]) is loaded on first use from `binaries/openvino/`
-//!   and stays loaded for the process, like ONNX Runtime; the app starts, and
-//!   whisper.cpp runs, without it.
+//! - The runtime ([`genai`]) is downloaded on each PC from Intel's archive,
+//!   as the catalog pins it (`model_catalog::runtime`), into the app's data.
+//!   It is loaded on first use and stays loaded for the process, like ONNX
+//!   Runtime; the app starts, and whisper.cpp runs, without it.
 //! - [`device`] decides whether the GPU whisper.cpp would pick is an Intel GPU
 //!   that OpenVINO can take over.
 //! - [`OpenVinoWhisper`] owns one pipeline (an encoder and a stateful decoder
@@ -17,7 +18,7 @@ pub mod device;
 pub mod genai;
 
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, OnceLock};
+use std::sync::Mutex;
 
 use anyhow::{anyhow, Result};
 
@@ -49,49 +50,64 @@ pub fn is_model_dir(dir: &Path) -> bool {
     MODEL_FILES.iter().all(|file| dir.join(file).is_file())
 }
 
-static RUNTIME_DIR: OnceLock<PathBuf> = OnceLock::new();
-static RUNTIME: OnceLock<std::result::Result<GenAi, String>> = OnceLock::new();
+/// The runtime version this process loaded, or tried to: its folder, version
+/// and the outcome. Set once. A process never loads a second version: both
+/// versions' libraries have the same names, and Windows resolves a
+/// dependency by name to the one already loaded, so the two would mix.
+struct LoadedRuntime {
+    dir: PathBuf,
+    version: String,
+    outcome: std::result::Result<&'static GenAi, String>,
+}
 
-/// Records where the bundled runtime is; called from setup with the app's
-/// resource folder. Loading waits for the first OpenVINO model.
-pub fn initialize<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
-    use tauri::Manager;
-    match app.path().resolve("binaries/openvino", tauri::path::BaseDirectory::Resource) {
-        Ok(path) => {
-            let _ = RUNTIME_DIR.set(path);
-        }
-        Err(error) => log::warn!("Cannot resolve the bundled OpenVINO runtime in the app's resources: {error}"),
+static RUNTIME: Mutex<Option<LoadedRuntime>> = Mutex::new(None);
+
+fn loaded() -> std::sync::MutexGuard<'static, Option<LoadedRuntime>> {
+    RUNTIME.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// The installed runtime version to load (`model_catalog::openvino`). The
+/// kit's tests may name an installed version's folder in
+/// `MEASURE_OPENVINO_RUNTIME` instead.
+fn runtime_to_load() -> std::result::Result<crate::model_catalog::runtime::Installed, String> {
+    #[cfg(test)]
+    if let Some(dir) = std::env::var_os("MEASURE_OPENVINO_RUNTIME").map(PathBuf::from) {
+        let record = crate::model_catalog::runtime::verified(&dir)
+            .ok_or_else(|| format!("{} is not an installed, verified OpenVINO runtime", dir.display()))?;
+        return Ok(crate::model_catalog::runtime::Installed { dir, record });
     }
+    crate::model_catalog::openvino::runtime_to_load()
 }
 
-fn runtime_dir() -> &'static Path {
-    RUNTIME_DIR.get_or_init(|| {
-        #[cfg(test)]
-        {
-            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("binaries/openvino")
-        }
-        #[cfg(not(test))]
-        {
-            std::env::current_exe().unwrap_or_default().with_file_name("binaries").join("openvino")
-        }
-    })
-}
-
-/// The process's runtime, loaded on first use. A failed load is kept: the
-/// files do not change while the app runs.
+/// The process's runtime, loaded on first use from the version installed in
+/// the app's data. A runtime that is not installed is looked for again on the
+/// next call (it can be installed while the app runs); a load, failed or
+/// not, is kept for the process.
 pub fn runtime() -> Result<&'static GenAi> {
-    RUNTIME
-        .get_or_init(|| {
-            let dir = runtime_dir();
-            if !dir.join(genai::GENAI_C_LIBRARY).is_file() {
-                return Err(format!("the OpenVINO runtime is not installed ({} is missing)", dir.display()));
-            }
-            GenAi::load(dir).map_err(|error| error.to_string()).inspect(|_| {
-                log::info!("Loaded the OpenVINO GenAI runtime from {}", dir.display());
-            })
-        })
-        .as_ref()
-        .map_err(|error| anyhow!("{error}"))
+    let mut slot = loaded();
+    if let Some(loaded) = slot.as_ref() {
+        return loaded.outcome.clone().map_err(|error| anyhow!("{error}"));
+    }
+    let chosen = runtime_to_load().map_err(|reason| anyhow!("{reason}"))?;
+    let outcome = GenAi::load(&chosen.dir)
+        .map(|api| &*Box::leak(Box::new(api)))
+        .map_err(|error| format!("OpenVINO GenAI {} could not be loaded: {error}", chosen.record.version));
+    match &outcome {
+        Ok(_) => log::info!("Loaded OpenVINO GenAI {} from {}", chosen.record.version, chosen.dir.display()),
+        Err(error) => log::error!("{error}"),
+    }
+    *slot = Some(LoadedRuntime { dir: chosen.dir, version: chosen.record.version, outcome: outcome.clone() });
+    outcome.map_err(|error| anyhow!("{error}"))
+}
+
+/// The folder of the runtime version this process loaded or tried to load:
+/// it cannot be deleted while the process runs.
+pub fn loaded_runtime_dir() -> Option<PathBuf> {
+    loaded().as_ref().map(|loaded| loaded.dir.clone())
+}
+
+fn loaded_runtime_version() -> Option<String> {
+    loaded().as_ref().map(|loaded| loaded.version.clone())
 }
 
 /// The OpenVINO device that takes over the GPU whisper.cpp would use, if any:
@@ -131,11 +147,51 @@ pub fn device_for(chosen: Option<&super::WhisperGpu>) -> Result<Option<String>> 
     Ok(found.map(|(device, _)| device))
 }
 
-/// Where compiled models are cached: OpenVINO's `CACHE_DIR`. The first load of
-/// a model compiles its kernels for the GPU (about 3–7 s for Large V3 Turbo
-/// on an Arc B390, 835 MB of cache); later loads read them back in under 1 s.
-pub fn cache_dir() -> PathBuf {
+/// Where compiled models are cached: OpenVINO's `CACHE_DIR` is a folder of
+/// this, one per runtime version and model commit ([`cache_key`]). The first
+/// load of a model compiles its kernels for the GPU (about 3–7 s for Large
+/// V3 Turbo on an Arc B390, 835 MB of cache); later loads read them back in
+/// under 1 s.
+pub fn cache_root() -> PathBuf {
     crate::paths::install_data_root().join("cache").join("openvino")
+}
+
+/// The cache folder's name for a runtime version and a model commit. A blob
+/// compiled by one runtime is not for another (OpenVINO names blobs by a hash
+/// of the model and its compile options, not of its own build), and a model
+/// update brings new weights: both start a cache of their own, and
+/// [`prune_cache`] removes the ones nothing installed uses.
+pub fn cache_key(runtime_version: &str, model_commit: &str) -> String {
+    let commit: String = model_commit.chars().take(12).collect();
+    format!("{runtime_version}_{commit}")
+}
+
+/// Removes everything in `root` but the folders named in `keep`. Best
+/// effort: a blob a running pipeline holds open stays until the next prune.
+fn prune_cache(root: &Path, keep: &[String]) {
+    let Ok(read) = std::fs::read_dir(root) else { return };
+    for item in read.flatten() {
+        if keep.iter().any(|name| item.file_name() == name.as_str()) {
+            continue;
+        }
+        let path = item.path();
+        let removed = if item.file_type().is_ok_and(|kind| kind.is_dir()) {
+            std::fs::remove_dir_all(&path)
+        } else {
+            std::fs::remove_file(&path)
+        };
+        match removed {
+            Ok(()) => log::info!("Removed the stale OpenVINO cache {}", path.display()),
+            Err(error) => log::warn!("Cannot remove the stale OpenVINO cache {}: {error}", path.display()),
+        }
+    }
+}
+
+/// Removes the whole cache: Settings removed the last companion.
+pub fn remove_cache() {
+    let root = cache_root();
+    prune_cache(&root, &[]);
+    let _ = std::fs::remove_dir(&root);
 }
 
 /// How one call decodes. The app's language setting maps as for whisper.cpp
@@ -151,6 +207,8 @@ pub struct Call<'a> {
 /// One compiled pipeline and what it was compiled from.
 pub struct OpenVinoWhisper {
     model_dir: PathBuf,
+    /// The model's commit, the second half of its cache key.
+    model_commit: String,
     device: String,
     /// `None` after a failed `generate`: GenAI then skips resetting the decoder
     /// state and the sampler (openvino.genai `whisper.cpp` 2026.4.1), so the
@@ -163,15 +221,30 @@ impl OpenVinoWhisper {
     /// Compiles the model in `model_dir` for `device`. Blocking: seconds on the
     /// first load of a model, under a second from the cache. The busy registry
     /// keeps an update from restarting the app meanwhile.
-    pub fn load(model_dir: &Path, device: &str) -> Result<Self> {
-        let pipeline = Self::compile(model_dir, device)?;
-        Ok(Self { model_dir: model_dir.to_path_buf(), device: device.to_string(), pipeline: Mutex::new(Some(pipeline)) })
+    pub fn load(model_dir: &Path, model_commit: &str, device: &str) -> Result<Self> {
+        let pipeline = Self::compile(model_dir, model_commit, device)?;
+        Ok(Self {
+            model_dir: model_dir.to_path_buf(),
+            model_commit: model_commit.to_string(),
+            device: device.to_string(),
+            pipeline: Mutex::new(Some(pipeline)),
+        })
     }
 
-    fn compile(model_dir: &Path, device: &str) -> Result<Pipeline<'static>> {
+    fn compile(model_dir: &Path, model_commit: &str, device: &str) -> Result<Pipeline<'static>> {
         let _busy = busy::hold(BusyReason::ModelCompile);
         let api = runtime()?;
-        let cache = cache_dir();
+        let version = loaded_runtime_version().unwrap_or_default();
+        // The caches of other runtime versions and of models no longer
+        // installed go; this model's and the other installed companions' stay.
+        let root = cache_root();
+        let mut keep: Vec<String> = crate::model_catalog::openvino::installed_commits()
+            .iter()
+            .map(|commit| cache_key(&version, commit))
+            .collect();
+        keep.push(cache_key(&version, model_commit));
+        prune_cache(&root, &keep);
+        let cache = root.join(cache_key(&version, model_commit));
         if let Err(error) = std::fs::create_dir_all(&cache) {
             log::warn!("Cannot create the OpenVINO cache folder {}: {error}; compiling without a cache", cache.display());
         }
@@ -194,7 +267,7 @@ impl OpenVinoWhisper {
     pub fn transcribe(&self, samples: &[f32], call: Call<'_>) -> Result<genai::Transcript> {
         let mut slot = self.pipeline.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         if slot.is_none() {
-            *slot = Some(Self::compile(&self.model_dir, &self.device)?);
+            *slot = Some(Self::compile(&self.model_dir, &self.model_commit, &self.device)?);
         }
         let pipeline = slot.as_mut().expect("compiled above");
         let config = Self::config(pipeline, call)?;
@@ -336,44 +409,97 @@ pub fn stack_status(engine: Option<&WhisperEngine>) -> serde_json::Value {
 }
 
 /// Whether OpenVINO can take over Whisper on this machine, for Settings.
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Availability {
-    pub available: bool,
-    pub device: Option<String>,
+    /// Offer the download here: the Vulkan build, and the GPU whisper.cpp
+    /// uses is an Intel GPU ([`device::offer_for`]).
+    pub offer: bool,
+    /// That GPU, as Vulkan names it.
+    pub gpu: Option<String>,
+    /// Why the download is not offered.
     pub reason: Option<String>,
+    /// With the runtime installed: the OpenVINO device the rule picks…
+    pub device: Option<String>,
+    /// …or why OpenVINO cannot take Whisper here after all: OpenVINO lists
+    /// no GPU that is whisper.cpp's, or the runtime does not load.
+    pub mismatch: Option<String>,
 }
 
-static AVAILABILITY: tokio::sync::OnceCell<Availability> = tokio::sync::OnceCell::const_new();
+/// The offer half of [`Availability`], decided once per process: the build
+/// and the GPUs do not change while the app runs.
+static OFFER: tokio::sync::OnceCell<Availability> = tokio::sync::OnceCell::const_new();
 
-/// [`Availability`], decided once per process: the runtime, the build and
-/// the GPUs do not change while the app runs.
-pub async fn availability() -> Availability {
-    AVAILABILITY
+/// The device half, decided once a runtime is loaded: a process never loads
+/// another one.
+static DEVICE: Mutex<Option<std::result::Result<Option<String>, String>>> = Mutex::new(None);
+
+async fn offer() -> Availability {
+    OFFER
         .get_or_init(|| async {
             let backend = super::WhisperCompiledBackend::current();
             if backend != super::WhisperCompiledBackend::Vulkan {
-                return Availability {
-                    available: false,
-                    device: None,
-                    reason: Some(format!("this build runs Whisper on {}", backend.as_str())),
-                };
+                return Availability { reason: Some(format!("this build runs Whisper on {}", backend.as_str())), ..Default::default() };
             }
-            let decided = tokio::task::spawn_blocking(move || device_for(super::whisper_gpu(backend).as_ref()))
-                .await
-                .map_err(|error| anyhow!("{error}"))
-                .and_then(|decided| decided);
+            let decided = tokio::task::spawn_blocking(move || {
+                let gpu = super::whisper_gpu(backend);
+                let chosen = gpu.as_ref().map(|gpu| device::ChosenGpu {
+                    pci_bus_id: gpu.pci_bus_id.as_deref(),
+                    name: &gpu.name,
+                    integrated: gpu.integrated,
+                });
+                (device::offer_for(chosen, &device::display_adapters()), gpu.map(|gpu| gpu.name))
+            })
+            .await;
             match decided {
-                Ok(Some(device)) => Availability { available: true, device: Some(device), reason: None },
-                Ok(None) => Availability {
-                    available: false,
-                    device: None,
-                    reason: Some("the GPU Protocol uses is not an Intel GPU".to_string()),
+                Ok((true, gpu)) => Availability { offer: true, gpu, ..Default::default() },
+                Ok((false, Some(gpu))) => Availability {
+                    reason: Some(format!("Whisper runs on {gpu}, which is not an Intel GPU")),
+                    gpu: Some(gpu),
+                    ..Default::default()
                 },
-                Err(error) => Availability { available: false, device: None, reason: Some(format!("{error:#}")) },
+                Ok((false, None)) => Availability { reason: Some("Whisper runs on no GPU here".to_string()), ..Default::default() },
+                Err(error) => Availability { reason: Some(format!("the GPU check failed: {error}")), ..Default::default() },
             }
         })
         .await
         .clone()
+}
+
+/// [`Availability`]: whether to offer the download, from what the app knows
+/// without OpenVINO, and once the runtime is installed, the device the rule
+/// picks or why there is none, which Settings shows instead of staying
+/// silent.
+pub async fn availability() -> Availability {
+    let mut availability = offer().await;
+    if !availability.offer || (loaded_runtime_dir().is_none() && runtime_to_load().is_err()) {
+        return availability;
+    }
+    let cached = DEVICE.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone();
+    let decided = match cached {
+        Some(decided) => decided,
+        None => {
+            let backend = super::WhisperCompiledBackend::current();
+            let decided = tokio::task::spawn_blocking(move || device_for(super::whisper_gpu(backend).as_ref()))
+                .await
+                .map_err(|error| anyhow!("{error}"))
+                .and_then(|decided| decided)
+                .map_err(|error| format!("{error:#}"));
+            if loaded_runtime_dir().is_some() {
+                *DEVICE.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(decided.clone());
+            }
+            decided
+        }
+    };
+    let gpu = availability.gpu.clone().unwrap_or_else(|| "the GPU Whisper uses".to_string());
+    match decided {
+        Ok(Some(device)) => availability.device = Some(device),
+        Ok(None) => {
+            availability.mismatch = Some(format!("OpenVINO lists no Intel GPU that is {gpu}, so Whisper stays on Vulkan"))
+        }
+        Err(error) => availability.mismatch = Some(error),
+    }
+    availability
 }
 
 /// A live call on `openvino` off the async runtime, with the
@@ -417,16 +543,16 @@ impl WhisperEngine {
     /// shown in Settings, and the model loads on whisper.cpp.
     pub(crate) async fn load_openvino_companion(&self, model_name: &str) -> bool {
         record(BackendStatus::default());
-        let Some(dir) = crate::model_catalog::openvino::installed_companion(model_name) else {
+        let Some(companion) = crate::model_catalog::openvino::installed_companion(model_name) else {
             return false;
         };
-        if !is_model_dir(&dir) {
-            log::warn!("The OpenVINO companion of {model_name} at {} lacks model files; using whisper.cpp", dir.display());
+        if !is_model_dir(&companion.dir) {
+            log::warn!("The OpenVINO companion of {model_name} at {} lacks model files; using whisper.cpp", companion.dir.display());
             return false;
         }
-        let taken = self.try_openvino(&dir).await;
+        let taken = self.try_openvino(&companion.dir, &companion.commit).await;
         if taken {
-            log::info!("Successfully loaded model: {model_name} on OpenVINO ({})", dir.display());
+            log::info!("Successfully loaded model: {model_name} on OpenVINO ({})", companion.dir.display());
         }
         taken
     }
@@ -443,22 +569,24 @@ impl WhisperEngine {
         had
     }
 
-    /// Loads `model_dir` (an OpenVINO model) on the OpenVINO device the rule
-    /// picks for this build's GPU. `Ok(None)` when the rule picks none: a
-    /// non-Vulkan build, or a GPU that is not an Intel GPU OpenVINO lists.
-    /// An error is a runtime, device or compile failure, which the caller
-    /// reports and falls back from.
-    pub(crate) async fn load_openvino(&self, model_dir: &Path) -> Result<Option<String>> {
+    /// Loads `model_dir` (an OpenVINO model at `model_commit`) on the
+    /// OpenVINO device the rule picks for this build's GPU. `Ok(None)` when
+    /// the rule picks none: a non-Vulkan build, or a GPU that is not an Intel
+    /// GPU OpenVINO lists. An error is a runtime, device or compile failure
+    /// (a runtime that is not installed or that this build cannot run among
+    /// them), which the caller reports and falls back from.
+    pub(crate) async fn load_openvino(&self, model_dir: &Path, model_commit: &str) -> Result<Option<String>> {
         let backend = super::WhisperCompiledBackend::current();
         if backend != super::WhisperCompiledBackend::Vulkan {
             return Ok(None);
         }
         let model_dir = model_dir.to_path_buf();
+        let model_commit = model_commit.to_string();
         let loaded = tokio::task::spawn_blocking(move || -> Result<Option<OpenVinoWhisper>> {
             let Some(device) = device_for(super::whisper_gpu(backend).as_ref())? else {
                 return Ok(None);
             };
-            OpenVinoWhisper::load(&model_dir, &device).map(Some)
+            OpenVinoWhisper::load(&model_dir, &model_commit, &device).map(Some)
         })
         .await
         .map_err(|error| anyhow!("the OpenVINO load task failed: {error}"))??;
@@ -470,8 +598,8 @@ impl WhisperEngine {
     /// [`Self::load_openvino`] for a model load that can fall back to
     /// whisper.cpp: records the outcome for Settings, logs a failure as an
     /// error, and says whether OpenVINO took the model.
-    pub(crate) async fn try_openvino(&self, model_dir: &Path) -> bool {
-        match self.load_openvino(model_dir).await {
+    pub(crate) async fn try_openvino(&self, model_dir: &Path, model_commit: &str) -> bool {
+        match self.load_openvino(model_dir, model_commit).await {
             Ok(Some(device)) => {
                 record(BackendStatus { openvino_device: Some(device), fallback_reason: None });
                 true
@@ -502,6 +630,27 @@ mod tests {
     fn a_piece_too_short_to_hold_the_pause_is_heard_whole() {
         let samples = vec![0.0f32; 3 * 16_000];
         assert_eq!(speech_end(&samples), samples.len());
+    }
+
+    #[test]
+    fn the_cache_keeps_one_folder_per_runtime_version_and_model_commit_in_use() {
+        let root = tempfile::tempdir().unwrap();
+        let commit = "b568445dd5dc8c695bde596f8acbb4694fd6ba64";
+        let current = cache_key("2026.5.0.0", commit);
+        assert_eq!(current, "2026.5.0.0_b568445dd5dc");
+        for stale in [cache_key("2026.4.1.0", commit), cache_key("2026.5.0.0", "0123456789abcdef")] {
+            std::fs::create_dir_all(root.path().join(stale).join("blob")).unwrap();
+        }
+        std::fs::create_dir_all(root.path().join(&current)).unwrap();
+        // Blobs the round-1 builds wrote straight into the cache folder.
+        std::fs::write(root.path().join("123456.blob"), b"x").unwrap();
+        prune_cache(root.path(), &[current.clone()]);
+        let left: Vec<String> = std::fs::read_dir(root.path())
+            .unwrap()
+            .flatten()
+            .map(|item| item.file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(left, [current]);
     }
 
     #[test]

@@ -458,7 +458,11 @@ impl WhisperEngine {
     pub(crate) async fn load_model_in_place(&self, path: &std::path::Path) -> Result<&'static str> {
         #[cfg(windows)]
         if super::openvino::is_model_dir(path) {
-            let device = self.load_openvino(path).await?.ok_or_else(|| {
+            // A folder the app installed has its commit in its record; the
+            // kit's own copy keys its cache as "local".
+            let commit = crate::model_catalog::installed::read_record(&crate::model_catalog::installed::record_path_for_dir(path))
+                .map_or_else(|| "local".to_string(), |record| record.commit);
+            let device = self.load_openvino(path, &commit).await?.ok_or_else(|| {
                 anyhow!("{} is an OpenVINO model, and the device rule picks no OpenVINO GPU here", path.display())
             })?;
             log::info!("Opened {} on OpenVINO {device}", path.display());

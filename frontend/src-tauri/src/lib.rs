@@ -407,8 +407,6 @@ pub fn run() {
             }
             #[cfg(any(windows, target_os = "linux"))]
             onnx_runtime::initialize(_app.handle());
-            #[cfg(windows)]
-            whisper_engine::openvino::initialize(_app.handle());
             log::info!("Application setup complete");
 
             // Initialize system tray
@@ -419,6 +417,10 @@ pub fn run() {
             // The model catalog: the cached copy until the daily check, which
             // runs on the updater's schedule (src/model_catalog/).
             model_catalog::service::init(_app.handle());
+            // OpenVINO's runtime versions and cache that nothing will load,
+            // before anything loads one (#79).
+            #[cfg(windows)]
+            model_catalog::openvino::prune_at_startup();
 
             // In-app updates: restores a downloaded update, then checks daily
             // while automatic checks are on (src/updater/).
@@ -795,15 +797,15 @@ pub fn run() {
             model_catalog::commands::model_catalog_model_size,
             model_catalog::commands::model_update_start,
             model_catalog::commands::model_update_cancel,
-            // OpenVINO companions of Whisper models (#79)
+            // Whisper on an Intel GPU: OpenVINO companions and their runtime (#79)
             #[cfg(windows)]
-            model_catalog::openvino::openvino_companion_status,
+            model_catalog::openvino::openvino_status,
             #[cfg(windows)]
-            model_catalog::openvino::openvino_companion_download,
+            model_catalog::openvino::openvino_download,
             #[cfg(windows)]
-            model_catalog::openvino::openvino_companion_cancel,
+            model_catalog::openvino::openvino_cancel,
             #[cfg(windows)]
-            model_catalog::openvino::openvino_companion_delete,
+            model_catalog::openvino::openvino_remove,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
