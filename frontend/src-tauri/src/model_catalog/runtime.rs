@@ -1,0 +1,540 @@
+//! Inference runtimes downloaded on each PC (#79): the libraries of a
+//! `runtimes` entry of the catalog, taken from their vendor's own archive.
+//! Protocol ships none of them; the catalog pins the archive and every file
+//! by size and SHA-256, so a new version reaches installs without a release.
+//!
+//! On disk a runtime is `<data>/runtimes/<id>/<version>/`: the pinned files,
+//! a `.verified` marker beside each and `runtime.json`, the record of what
+//! was installed (written last). An install is atomic: the archive is
+//! downloaded into `.staging-<version>/` beside the versions, checked
+//! against its pin, only the pinned files are extracted, each checked
+//! against its own pin, the archive is deleted, and the folder is renamed to
+//! `<version>`. A failure or a cancel removes the staging folder, so a
+//! version folder is always complete; a staging folder left by a crash is
+//! removed by the next install or [`prune_in`].
+//!
+//! Which installed version is loaded, and when old ones are removed, is the
+//! caller's (`super::openvino`): a loaded library cannot be deleted on
+//! Windows, so a version is pruned only when this process has not loaded it.
+
+use std::path::{Path, PathBuf};
+use std::time::Duration;
+
+use anyhow::{anyhow, bail, Result};
+use serde::{Deserialize, Serialize};
+use tokio::io::AsyncWriteExt;
+use tokio_util::sync::CancellationToken;
+
+use super::schema::{self, RuntimeEntry};
+use crate::model_integrity::{self, Pinned};
+
+/// The message of a cancelled install; Settings does not show it as an error.
+pub const CANCELLED: &str = "The download was cancelled";
+
+/// The record of an installed version.
+const RECORD: &str = "runtime.json";
+
+/// The prefix of an install in progress.
+const STAGING: &str = ".staging-";
+
+/// A stalled transfer fails after this long without a byte, like the model
+/// downloads.
+const STALL: Duration = Duration::from_secs(30);
+
+/// The file names inside a runtime folder that are not runtime files.
+const ARCHIVE: &str = "archive.zip";
+
+/// Where the versions of runtime `id` are kept under `data_dir`.
+pub fn root_in(data_dir: &Path, id: &str) -> PathBuf {
+    data_dir.join("runtimes").join(id)
+}
+
+/// What an installed version is: written from its catalog entry when the
+/// install completes, read without the catalog afterwards, so a runtime the
+/// catalog no longer lists keeps loading.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RuntimeRecord {
+    pub id: String,
+    pub version: String,
+    /// The API level of the catalog entry it was installed from.
+    pub api: u32,
+    pub files: Vec<RecordFile>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RecordFile {
+    pub name: String,
+    pub size: u64,
+    pub sha256: String,
+}
+
+impl RuntimeRecord {
+    fn from_entry(entry: &RuntimeEntry) -> Self {
+        Self {
+            id: entry.id.clone(),
+            version: entry.version.clone(),
+            api: entry.api,
+            files: entry
+                .files
+                .iter()
+                .map(|file| RecordFile { name: file.name.clone(), size: file.size, sha256: file.sha256.clone() })
+                .collect(),
+        }
+    }
+
+    fn pins(&self) -> impl Iterator<Item = &'static Pinned> + '_ {
+        self.files.iter().map(|file| model_integrity::intern(&file.name, file.size, &file.sha256))
+    }
+
+    /// The bytes the files take.
+    pub fn size(&self) -> u64 {
+        self.files.iter().map(|file| file.size).sum()
+    }
+}
+
+/// An installed version of a runtime.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Installed {
+    pub dir: PathBuf,
+    pub record: RuntimeRecord,
+}
+
+/// The record of the version in `dir` when every file it lists still has a
+/// valid verification marker: metadata reads and small file reads, no
+/// hashing. A file changed since its check loses its marker, and the version
+/// then counts as not installed.
+pub fn verified(dir: &Path) -> Option<RuntimeRecord> {
+    let record: RuntimeRecord = serde_json::from_slice(&std::fs::read(dir.join(RECORD)).ok()?).ok()?;
+    let safe = record.files.iter().all(|file| !file.name.contains(['/', '\\']) && file.name != RECORD);
+    (safe && record.pins().zip(&record.files).all(|(pinned, file)| model_integrity::is_marked(pinned, &dir.join(&file.name))))
+        .then_some(record)
+}
+
+/// The verified versions under `root` (one runtime's folder), newest first.
+pub fn installed_in(root: &Path) -> Vec<Installed> {
+    let Ok(read) = std::fs::read_dir(root) else { return Vec::new() };
+    let mut installed: Vec<Installed> = read
+        .flatten()
+        .filter(|item| !item.file_name().to_string_lossy().starts_with('.'))
+        .filter_map(|item| {
+            let dir = item.path();
+            let record = verified(&dir)?;
+            // A folder named for another version is not what its record says.
+            (item.file_name().to_string_lossy() == record.version).then_some(Installed { dir, record })
+        })
+        .collect();
+    installed.sort_by(|a, b| schema::runtime_version_key(&b.record.version).cmp(&schema::runtime_version_key(&a.record.version)));
+    installed
+}
+
+/// Installs `entry` under `root` (its runtime's folder) and returns the
+/// version's folder; a version already installed and verified is kept as it
+/// is. `client` fetches the archive; `progress` gets the archive bytes done
+/// and its size.
+pub async fn install_into(
+    client: &reqwest::Client,
+    root: &Path,
+    entry: &RuntimeEntry,
+    cancel: &CancellationToken,
+    mut progress: impl FnMut(u64, u64),
+) -> Result<PathBuf> {
+    let target = root.join(&entry.version);
+    if verified(&target).is_some_and(|record| record == RuntimeRecord::from_entry(entry)) {
+        return Ok(target);
+    }
+    let staging = root.join(format!("{STAGING}{}", entry.version));
+    remove_dir(&staging)?;
+    tokio::fs::create_dir_all(&staging).await?;
+    let installed = stage(client, &staging, entry, cancel, &mut progress).await.and_then(|()| {
+        // Only now can a version folder of this name go: one left unverified,
+        // or one this record replaces.
+        remove_dir(&target)?;
+        std::fs::rename(&staging, &target)
+            .map_err(|error| anyhow!("Could not finish installing {} {}: {error}", entry.name, entry.version))
+    });
+    match installed {
+        Ok(()) => Ok(target),
+        Err(error) => {
+            if let Err(cleanup) = remove_dir(&staging) {
+                log::warn!("[runtime] could not remove {}: {cleanup:#}", staging.display());
+            }
+            Err(error)
+        }
+    }
+}
+
+/// Fills `staging` with the checked files and the record.
+async fn stage(
+    client: &reqwest::Client,
+    staging: &Path,
+    entry: &RuntimeEntry,
+    cancel: &CancellationToken,
+    progress: &mut impl FnMut(u64, u64),
+) -> Result<()> {
+    let archive = staging.join(ARCHIVE);
+    download(client, &archive, entry, cancel, progress).await?;
+    let (from, into, files, token) = (archive.clone(), staging.to_path_buf(), entry.files.clone(), cancel.clone());
+    let name = entry.name.clone();
+    tokio::task::spawn_blocking(move || extract(&from, &into, &files, &name, &|| token.is_cancelled()))
+        .await
+        .map_err(|error| anyhow!("the extraction task failed: {error}"))??;
+    tokio::fs::remove_file(&archive).await?;
+    if cancel.is_cancelled() {
+        bail!(CANCELLED);
+    }
+    let record = serde_json::to_vec_pretty(&RuntimeRecord::from_entry(entry))?;
+    super::write_atomically(&staging.join(RECORD), &record)?;
+    Ok(())
+}
+
+/// Downloads the archive to `path`, hashing it as it streams in. A mismatch
+/// deletes it (`Check::finish`).
+async fn download(
+    client: &reqwest::Client,
+    path: &Path,
+    entry: &RuntimeEntry,
+    cancel: &CancellationToken,
+    progress: &mut impl FnMut(u64, u64),
+) -> Result<()> {
+    let pinned = model_integrity::intern(&format!("{} {} archive", entry.name, entry.version), entry.archive.size, &entry.archive.sha256);
+    let total = entry.archive.size;
+    let response = tokio::select! {
+        _ = cancel.cancelled() => bail!(CANCELLED),
+        result = tokio::time::timeout(STALL, client.get(&entry.archive.url).send()) => result
+            .map_err(|_| anyhow!("Could not download {}: no answer for 30 seconds", entry.name))?
+            // reqwest's error names the URL, which is the catalog's, not a signed one.
+            .map_err(|error| anyhow!("Could not download {}: {error}", entry.name))?,
+    };
+    if !response.status().is_success() {
+        bail!("Could not download {}: the server answered {}", entry.name, response.status());
+    }
+    let mut check = model_integrity::Check::new(pinned);
+    let mut writer = tokio::io::BufWriter::with_capacity(8 << 20, tokio::fs::File::create(path).await?);
+    let mut written = 0u64;
+    let mut stream = response.bytes_stream();
+    use futures_util::StreamExt;
+    loop {
+        let next = tokio::select! {
+            biased;
+            _ = cancel.cancelled() => bail!(CANCELLED),
+            next = tokio::time::timeout(STALL, stream.next()) => next,
+        };
+        let chunk = match next {
+            Err(_) => bail!("Could not download {}: no data for 30 seconds", entry.name),
+            Ok(None) => break,
+            Ok(Some(chunk)) => chunk.map_err(|error| anyhow!("Could not download {}: {error}", entry.name))?,
+        };
+        check.update(&chunk)?;
+        writer.write_all(&chunk).await?;
+        written += chunk.len() as u64;
+        progress(written, total);
+    }
+    writer.flush().await?;
+    drop(writer);
+    if written != total {
+        bail!("Could not download {}: stopped at {written} of {total} bytes", entry.name);
+    }
+    check.finish(path)
+}
+
+/// Copies each pinned file out of the archive into `into`, checking it as
+/// it is written. Names in the archive are only looked up, never used as
+/// paths: a file lands under its catalog `name`, which the schema keeps to
+/// one safe path segment.
+fn extract(archive: &Path, into: &Path, files: &[schema::RuntimeFile], name: &str, cancelled: &dyn Fn() -> bool) -> Result<()> {
+    use std::io::{Read, Write};
+    let mut zip = zip::ZipArchive::new(std::fs::File::open(archive)?)
+        .map_err(|error| anyhow!("The {name} archive cannot be read: {error}"))?;
+    let mut buffer = vec![0u8; 1 << 20];
+    for file in files {
+        let pinned = model_integrity::intern(&file.name, file.size, &file.sha256);
+        let mut source = zip
+            .by_name(&file.path)
+            .map_err(|error| anyhow!("The {name} archive lacks {}: {error}", file.path))?;
+        let path = into.join(&file.name);
+        let mut check = model_integrity::Check::new(pinned);
+        let mut output = std::io::BufWriter::new(std::fs::File::create(&path)?);
+        loop {
+            if cancelled() {
+                bail!(CANCELLED);
+            }
+            let read = source.read(&mut buffer)?;
+            if read == 0 {
+                break;
+            }
+            check.update(&buffer[..read])?;
+            output.write_all(&buffer[..read])?;
+        }
+        output.flush()?;
+        drop(output);
+        check.finish(&path)?;
+        model_integrity::mark_verified(pinned, &path);
+    }
+    Ok(())
+}
+
+/// Removes the version in `dir`: the record first, so a removal stopped
+/// halfway leaves files nothing trusts.
+pub fn remove_version(dir: &Path) -> Result<()> {
+    match std::fs::remove_file(dir.join(RECORD)) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(anyhow!("Could not delete {}: {error}", dir.display())),
+    }
+    remove_dir(dir)
+}
+
+fn remove_dir(dir: &Path) -> Result<()> {
+    match std::fs::remove_dir_all(dir) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(anyhow!("Could not delete {}: {error}", dir.display())),
+    }
+}
+
+/// Removes everything under `root` but the version folders in `keep`: other
+/// versions, staging folders a crash left, and with `keep` empty the whole
+/// runtime. Best effort: a folder that cannot go now (its libraries are
+/// loaded by another process) is logged and tried again next time.
+pub fn prune_in(root: &Path, keep: &[PathBuf]) {
+    let Ok(read) = std::fs::read_dir(root) else { return };
+    for item in read.flatten() {
+        let path = item.path();
+        if keep.contains(&path) {
+            continue;
+        }
+        let removed = if item.file_type().is_ok_and(|kind| kind.is_dir()) {
+            remove_version(&path)
+        } else {
+            std::fs::remove_file(&path).map_err(|error| anyhow!("Could not delete {}: {error}", path.display()))
+        };
+        match removed {
+            Ok(()) => log::info!("[runtime] removed {}", path.display()),
+            Err(error) => log::warn!("[runtime] {error:#}; trying again at the next start"),
+        }
+    }
+    if keep.is_empty() {
+        let _ = std::fs::remove_dir(root);
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod testing {
+    use super::*;
+    use sha2::{Digest, Sha256};
+    use std::io::Write;
+
+    pub fn sha256(bytes: &[u8]) -> String {
+        format!("{:x}", Sha256::digest(bytes))
+    }
+
+    /// A zip with `files` (path in the archive, content) and an entry for
+    /// it whose pins match them; `version` names the version.
+    pub fn archive_and_entry(version: &str, files: &[(&str, &str, &[u8])], url: &str) -> (Vec<u8>, RuntimeEntry) {
+        let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        for (path, _, content) in files {
+            zip.start_file(*path, zip::write::SimpleFileOptions::default()).unwrap();
+            zip.write_all(content).unwrap();
+        }
+        let bytes = zip.finish().unwrap().into_inner();
+        let entry = RuntimeEntry {
+            id: schema::OPENVINO_GENAI.to_string(),
+            name: "OpenVINO GenAI".to_string(),
+            description: String::new(),
+            version: version.to_string(),
+            platform: schema::platform().to_string(),
+            api: crate::whisper_engine::openvino::genai::API_LEVEL,
+            license: schema::License { name: "Test".to_string(), url: "https://example.com/license".to_string() },
+            archive: schema::RuntimeArchive { url: url.to_string(), size: bytes.len() as u64, sha256: sha256(&bytes) },
+            files: files
+                .iter()
+                .map(|(path, name, content)| schema::RuntimeFile {
+                    name: name.to_string(),
+                    path: path.to_string(),
+                    size: content.len() as u64,
+                    sha256: sha256(content),
+                })
+                .collect(),
+            min_app_version: None,
+        };
+        (bytes, entry)
+    }
+
+    /// The two libraries the binding opens and a licence, under a root
+    /// folder as Intel's archive has them.
+    pub fn openvino_files(salt: u8) -> Vec<(&'static str, &'static str, Vec<u8>)> {
+        vec![
+            ("root/runtime/bin/openvino_genai_c.dll", "openvino_genai_c.dll", vec![salt; 300]),
+            ("root/runtime/bin/openvino_c.dll", "openvino_c.dll", vec![salt.wrapping_add(1); 200]),
+            ("root/docs/EULA.txt", "openvino-EULA.txt", b"licence".to_vec()),
+        ]
+    }
+
+    /// A local server that answers every request with `body`; returns its URL.
+    pub async fn serve(body: Vec<u8>) -> String {
+        crate::model_integrity::testing::serve_once(body).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::testing::*;
+    use super::*;
+
+    fn entry_with(version: &str, salt: u8) -> (Vec<u8>, RuntimeEntry) {
+        let files = openvino_files(salt);
+        let borrowed: Vec<(&str, &str, &[u8])> = files.iter().map(|(path, name, content)| (*path, *name, content.as_slice())).collect();
+        archive_and_entry(version, &borrowed, "https://example.com/runtime.zip")
+    }
+
+    async fn install(root: &Path, bytes: Vec<u8>, entry: &mut RuntimeEntry, cancel: &CancellationToken) -> Result<PathBuf> {
+        entry.archive.url = serve(bytes).await;
+        install_into(&reqwest::Client::new(), root, entry, cancel, |_, _| {}).await
+    }
+
+    fn leftovers(root: &Path) -> Vec<String> {
+        let mut names: Vec<String> = std::fs::read_dir(root)
+            .map(|read| read.flatten().map(|item| item.file_name().to_string_lossy().into_owned()).collect())
+            .unwrap_or_default();
+        names.sort();
+        names
+    }
+
+    #[tokio::test]
+    async fn an_install_extracts_only_the_pinned_files_verified_and_deletes_the_archive() {
+        let data = tempfile::tempdir().unwrap();
+        let root = root_in(data.path(), "openvino-genai");
+        let files = openvino_files(7);
+        let pinned: Vec<(&str, &str, &[u8])> = files.iter().map(|(path, name, content)| (*path, *name, content.as_slice())).collect();
+        let (_, mut entry) = archive_and_entry("2026.4.1.0", &pinned, "https://example.com/runtime.zip");
+        // The archive holds more than the catalog pins: the rest stays in it.
+        let mut whole = pinned.clone();
+        whole.push(("root/runtime/bin/openvino_intel_npu_plugin.dll", "npu.dll", b"npu"));
+        let (archive, _) = archive_and_entry("2026.4.1.0", &whole, "https://example.com/runtime.zip");
+        entry.archive.size = archive.len() as u64;
+        entry.archive.sha256 = sha256(&archive);
+        let mut reported = Vec::new();
+        entry.archive.url = serve(archive).await;
+        let dir = install_into(&reqwest::Client::new(), &root, &entry, &CancellationToken::new(), |done, total| reported.push((done, total)))
+            .await
+            .unwrap();
+
+        assert_eq!(dir, root.join("2026.4.1.0"));
+        for (_, name, content) in &files {
+            assert_eq!(&std::fs::read(dir.join(name)).unwrap(), content);
+        }
+        assert!(!dir.join("npu.dll").exists());
+        assert!(!dir.join(ARCHIVE).exists());
+        assert_eq!(reported.last(), Some(&(entry.archive.size, entry.archive.size)));
+        assert_eq!(leftovers(&root), ["2026.4.1.0"]);
+        let installed = installed_in(&root);
+        assert_eq!(installed.len(), 1);
+        assert_eq!(installed[0].record, RuntimeRecord::from_entry(&entry));
+        assert_eq!(installed[0].record.size(), 300 + 200 + 7);
+
+        // A file changed since its check: the version no longer counts.
+        std::fs::write(dir.join("openvino_c.dll"), b"changed").unwrap();
+        assert!(installed_in(&root).is_empty());
+    }
+
+    #[tokio::test]
+    async fn an_archive_that_is_not_the_pinned_one_installs_nothing() {
+        let data = tempfile::tempdir().unwrap();
+        let root = root_in(data.path(), "openvino-genai");
+        let (mut bytes, mut entry) = entry_with("2026.4.1.0", 3);
+        let last = bytes.len() - 1;
+        bytes[last] ^= 0xff;
+        let error = install(&root, bytes, &mut entry, &CancellationToken::new()).await.unwrap_err();
+        assert!(error.to_string().contains("integrity check"), "{error:#}");
+        assert!(leftovers(&root).is_empty(), "{:?}", leftovers(&root));
+        assert!(installed_in(&root).is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_file_that_does_not_match_its_pin_installs_nothing() {
+        let data = tempfile::tempdir().unwrap();
+        let root = root_in(data.path(), "openvino-genai");
+        let (bytes, mut entry) = entry_with("2026.4.1.0", 3);
+        // The archive is the pinned one, but the catalog pins another library.
+        entry.files[1].sha256 = sha256(b"something else");
+        let error = install(&root, bytes, &mut entry, &CancellationToken::new()).await.unwrap_err();
+        assert!(error.to_string().contains("openvino_c.dll"), "{error:#}");
+        assert!(leftovers(&root).is_empty(), "{:?}", leftovers(&root));
+
+        // A file the archive lacks fails the same way.
+        let (bytes, mut entry) = entry_with("2026.4.1.0", 3);
+        entry.files[0].path = "root/elsewhere/openvino_genai_c.dll".to_string();
+        let error = install(&root, bytes, &mut entry, &CancellationToken::new()).await.unwrap_err();
+        assert!(error.to_string().contains("lacks root/elsewhere/openvino_genai_c.dll"), "{error:#}");
+        assert!(leftovers(&root).is_empty(), "{:?}", leftovers(&root));
+    }
+
+    #[tokio::test]
+    async fn a_cancelled_install_leaves_nothing_and_the_installed_version_alone() {
+        let data = tempfile::tempdir().unwrap();
+        let root = root_in(data.path(), "openvino-genai");
+        let (bytes, mut old) = entry_with("2026.4.1.0", 1);
+        let installed = install(&root, bytes, &mut old, &CancellationToken::new()).await.unwrap();
+
+        let (bytes, mut new) = entry_with("2026.5.0.0", 2);
+        new.archive.url = serve(bytes).await;
+        let cancel = CancellationToken::new();
+        // Cancelled as the first bytes arrive: mid-way through the download.
+        let error = install_into(&reqwest::Client::new(), &root, &new, &cancel, |_, _| cancel.cancel()).await.unwrap_err();
+        assert_eq!(error.to_string(), CANCELLED);
+        assert_eq!(leftovers(&root), ["2026.4.1.0"]);
+        assert_eq!(installed_in(&root).iter().map(|version| version.dir.clone()).collect::<Vec<_>>(), [installed]);
+    }
+
+    #[tokio::test]
+    async fn a_new_version_installs_beside_the_old_one_which_prune_then_removes() {
+        let data = tempfile::tempdir().unwrap();
+        let root = root_in(data.path(), "openvino-genai");
+        let (bytes, mut old) = entry_with("2026.4.1.0", 1);
+        install(&root, bytes, &mut old, &CancellationToken::new()).await.unwrap();
+        let (bytes, mut new) = entry_with("2026.5.0.0", 2);
+        let new_dir = install(&root, bytes, &mut new, &CancellationToken::new()).await.unwrap();
+        let versions: Vec<String> = installed_in(&root).into_iter().map(|version| version.record.version).collect();
+        assert_eq!(versions, ["2026.5.0.0", "2026.4.1.0"]);
+
+        // A staging folder a crash left goes with the old version.
+        std::fs::create_dir_all(root.join(".staging-2026.6.0.0")).unwrap();
+        std::fs::write(root.join(".staging-2026.6.0.0").join(ARCHIVE), b"half").unwrap();
+        prune_in(&root, &[new_dir.clone()]);
+        assert_eq!(leftovers(&root), ["2026.5.0.0"]);
+        assert_eq!(installed_in(&root).len(), 1);
+
+        // Installing a version that is there and verified fetches nothing.
+        install_into(&reqwest::Client::new(), &root, &new, &CancellationToken::new(), |_, _| panic!("downloaded again"))
+            .await
+            .unwrap();
+
+        prune_in(&root, &[]);
+        assert!(!root.exists());
+    }
+
+    #[tokio::test]
+    async fn a_version_folder_left_unverified_is_replaced_by_the_install() {
+        let data = tempfile::tempdir().unwrap();
+        let root = root_in(data.path(), "openvino-genai");
+        std::fs::create_dir_all(root.join("2026.4.1.0")).unwrap();
+        std::fs::write(root.join("2026.4.1.0").join("openvino_c.dll"), b"stale").unwrap();
+        let (bytes, mut entry) = entry_with("2026.4.1.0", 4);
+        let dir = install(&root, bytes, &mut entry, &CancellationToken::new()).await.unwrap();
+        assert_eq!(std::fs::read(dir.join("openvino_c.dll")).unwrap(), vec![5u8; 200]);
+        assert_eq!(installed_in(&root).len(), 1);
+    }
+
+    #[test]
+    fn a_record_naming_a_path_outside_its_folder_is_not_trusted() {
+        let dir = tempfile::tempdir().unwrap();
+        let record = RuntimeRecord {
+            id: "openvino-genai".to_string(),
+            version: "1.0.0".to_string(),
+            api: 1,
+            files: vec![RecordFile { name: "../x.dll".to_string(), size: 1, sha256: sha256(b"x") }],
+        };
+        std::fs::write(dir.path().join(RECORD), serde_json::to_vec(&record).unwrap()).unwrap();
+        assert_eq!(verified(dir.path()), None);
+    }
+}

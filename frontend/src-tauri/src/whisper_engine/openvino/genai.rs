@@ -2,9 +2,10 @@
 //! `openvino/genai/c/whisper_pipeline.h`, `whisper_generation_config.h`) and to the
 //! two OpenVINO C calls the device rule needs (`openvino/c/ov_core.h`).
 //!
-//! The runtime is loaded at run time from one folder, by absolute path, so the app
-//! starts and whisper.cpp runs without it, and no other copy is ever picked up from
-//! PATH. Two limits of the C API shape the wrapper:
+//! The runtime is downloaded on each PC (`model_catalog::runtime`) and loaded at run
+//! time from its folder in the app's data, by absolute path, so the app starts and
+//! whisper.cpp runs without it, and no other copy is ever picked up from PATH. Two
+//! limits of the C API shape the wrapper:
 //!
 //! - It returns only a status code. The C++ exception's text is dropped (the
 //!   GenAI C functions do not record it for `ov_get_last_err_msg`), so errors here
@@ -18,6 +19,15 @@ use std::path::{Path, PathBuf};
 
 type Status = i32;
 type Opaque = c_void;
+
+/// The level of GenAI's C API this binding calls: the functions bound below,
+/// with the signatures GenAI 2026.4.1's headers give them. The catalog's
+/// runtime entry states the level of the runtime it pins (`api`), and a
+/// runtime of another level is neither installed nor loaded: a C signature
+/// can change under the same symbol name, so a symbol that resolves does not
+/// make a runtime usable. Raise it with a binding change a new runtime needs;
+/// the catalog then pins a runtime per level, and older apps keep theirs.
+pub const API_LEVEL: u32 = 1;
 
 /// The library the binding loads first; its imports pull in `openvino_genai.dll`,
 /// `openvino_c.dll`, `openvino.dll` and TBB from the same folder.
@@ -414,4 +424,27 @@ pub struct Chunk {
     pub start_s: f32,
     pub end_s: f32,
     pub text: String,
+}
+
+#[cfg(all(test, windows))]
+mod tests {
+    use super::*;
+
+    /// A runtime the binding cannot use is an error to report, not a crash:
+    /// a file that is no library, and a library without GenAI's C API.
+    #[test]
+    fn a_folder_without_the_genai_c_api_is_refused() {
+        let folder = tempfile::tempdir().unwrap();
+        std::fs::write(folder.path().join(GENAI_C_LIBRARY), b"not a library").unwrap();
+        let error = GenAi::load(folder.path()).err().expect("garbage must not load");
+        assert!(matches!(error, GenAiError::Load { .. }), "{error}");
+
+        // A real library under the C API's name: it loads, its symbols do not resolve.
+        let system = std::path::PathBuf::from(std::env::var_os("SystemRoot").unwrap()).join("System32").join("version.dll");
+        std::fs::copy(system, folder.path().join(GENAI_C_LIBRARY)).unwrap();
+        std::fs::copy(folder.path().join(GENAI_C_LIBRARY), folder.path().join(OPENVINO_C_LIBRARY)).unwrap();
+        let error = GenAi::load(folder.path()).err().expect("a library without the C API must not load");
+        assert!(error.to_string().contains("could not be loaded"), "{error}");
+        assert!(GenAi::load(Path::new("relative")).is_err());
+    }
 }

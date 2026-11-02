@@ -19,6 +19,8 @@ pub mod installed;
 #[cfg(windows)]
 pub mod openvino;
 pub mod remote;
+#[cfg(windows)]
+pub mod runtime;
 pub mod schema;
 pub mod service;
 pub mod sizes;
