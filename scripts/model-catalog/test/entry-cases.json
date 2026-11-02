@@ -53,6 +53,7 @@
       "name": "Large V3 Turbo for Intel GPUs",
       "languages": ["*"],
       "companion_of": ["large-v3-turbo"],
+      "runtime": "openvino-genai",
       "license": { "name": "MIT", "url": "https://github.com/openai/whisper/blob/main/LICENSE" },
       "repo": "OpenVINO/whisper-large-v3-turbo-int8-ov",
       "revision": "b568445dd5dc8c695bde596f8acbb4694fd6ba64",
@@ -135,6 +136,57 @@
     { "name": "openvino companion as a ggml file", "base": "openvino", "set": { "files": [{ "name": "ggml-large-v3-turbo-openvino-int8.bin", "path": "ggml-large-v3-turbo-openvino-int8.bin" }] }, "valid": false },
     { "name": "companion_of on a ggml model", "base": "whisper", "set": { "companion_of": ["base"] }, "valid": false },
     { "name": "empty companion_of on a ggml model", "base": "whisper", "set": { "companion_of": [] }, "valid": true },
-    { "name": "openvino-ir on parakeet", "base": "parakeet", "set": { "format": "openvino-ir" }, "valid": false }
+    { "name": "openvino-ir on parakeet", "base": "parakeet", "set": { "format": "openvino-ir" }, "valid": false },
+    { "name": "openvino companion without a runtime", "base": "openvino", "remove": ["runtime"], "valid": false },
+    { "name": "openvino companion naming an unknown runtime", "base": "openvino", "set": { "runtime": "onnxruntime" }, "valid": false },
+    { "name": "runtime on a ggml model", "base": "whisper", "set": { "runtime": "openvino-genai" }, "valid": false }
+  ],
+  "runtime_bases": {
+    "openvino": {
+      "id": "openvino-genai",
+      "name": "OpenVINO GenAI",
+      "description": "Intel's OpenVINO libraries that run Whisper on an Intel GPU",
+      "version": "2026.4.1.0",
+      "platform": "windows-x86_64",
+      "api": 1,
+      "license": { "name": "Intel OpenVINO Distribution License", "url": "https://www.intel.com/content/dam/develop/external/us/en/documents/intel-openvino-license-agreements.pdf" },
+      "archive": {
+        "url": "https://storage.openvinotoolkit.org/repositories/openvino_genai/packages/2026.4.1/windows/openvino_genai_windows_2026.4.1.0_x86_64.zip",
+        "size": 254143615,
+        "sha256": "437dc85e0fa60d2231b28f323c9b06ee27bc5eb4d3285fb266f9dd5fb012d0b8"
+      },
+      "files": [
+        { "name": "openvino_genai_c.dll", "path": "root/runtime/bin/openvino_genai_c.dll", "size": 178448, "sha256": "da1a4b545770cf93ae939882fcd70f9f0d436abc49d84b2301b7893cc99283b1" },
+        { "name": "openvino_c.dll", "path": "root/runtime/bin/openvino_c.dll", "size": 234256, "sha256": "170fd507b32660c9904f8d3976b97f2c2c1296b4bc83d5a0f3326b87e782f5e7" }
+      ]
+    }
+  },
+  "runtime_cases": [
+    { "name": "runtime base entry", "base": "openvino", "valid": true },
+    { "name": "runtime without a description", "base": "openvino", "remove": ["description"], "valid": true },
+    { "name": "runtime with min_app_version", "base": "openvino", "set": { "min_app_version": "0.5.0" }, "valid": true },
+    { "name": "runtime of a later API level", "base": "openvino", "set": { "api": 7 }, "valid": true },
+    { "name": "runtime version of three parts", "base": "openvino", "set": { "version": "2026.5.0" }, "valid": true },
+    { "name": "unknown runtime", "base": "openvino", "set": { "id": "onnxruntime" }, "valid": false },
+    { "name": "runtime for another platform", "base": "openvino", "set": { "platform": "linux-x86_64" }, "valid": false },
+    { "name": "runtime without a name", "base": "openvino", "set": { "name": "" }, "valid": false },
+    { "name": "runtime version as a word", "base": "openvino", "set": { "version": "latest" }, "valid": false },
+    { "name": "runtime version with a path", "base": "openvino", "set": { "version": "2026.4.1/.." }, "valid": false },
+    { "name": "runtime API level 0", "base": "openvino", "set": { "api": 0 }, "valid": false },
+    { "name": "runtime API level as a fraction", "base": "openvino", "set": { "api": 1.5 }, "valid": false },
+    { "name": "runtime API level written as a float", "base": "openvino", "set": { "api": 1.0 }, "valid": false },
+    { "name": "runtime without an API level", "base": "openvino", "remove": ["api"], "valid": false },
+    { "name": "runtime licence over http", "base": "openvino", "set": { "license.url": "http://intel.com/eula" }, "valid": false },
+    { "name": "runtime archive over http", "base": "openvino", "set": { "archive.url": "http://storage.openvinotoolkit.org/a.zip" }, "valid": false },
+    { "name": "runtime archive that is not a zip", "base": "openvino", "set": { "archive.url": "https://storage.openvinotoolkit.org/a.tgz" }, "valid": false },
+    { "name": "runtime archive of size 0", "base": "openvino", "set": { "archive.size": 0 }, "valid": false },
+    { "name": "runtime archive with an uppercase hash", "base": "openvino", "set": { "archive.sha256": "437DC85E0FA60D2231B28F323C9B06EE27BC5EB4D3285FB266F9DD5FB012D0B8" }, "valid": false },
+    { "name": "runtime without files", "base": "openvino", "set": { "files": [] }, "valid": false },
+    { "name": "runtime without the library the binding opens", "base": "openvino", "set": { "files": [{ "name": "openvino_c.dll", "path": "root/openvino_c.dll", "size": 1, "sha256": "170fd507b32660c9904f8d3976b97f2c2c1296b4bc83d5a0f3326b87e782f5e7" }] }, "valid": false },
+    { "name": "runtime file listed twice", "base": "openvino", "set": { "files": [{ "name": "openvino_genai_c.dll", "path": "a/openvino_genai_c.dll", "size": 1, "sha256": "da1a4b545770cf93ae939882fcd70f9f0d436abc49d84b2301b7893cc99283b1" }, { "name": "openvino_c.dll", "path": "a/openvino_c.dll", "size": 1, "sha256": "170fd507b32660c9904f8d3976b97f2c2c1296b4bc83d5a0f3326b87e782f5e7" }, { "name": "openvino_c.dll", "path": "b/openvino_c.dll", "size": 1, "sha256": "170fd507b32660c9904f8d3976b97f2c2c1296b4bc83d5a0f3326b87e782f5e7" }] }, "valid": false },
+    { "name": "runtime file escaping the folder", "base": "openvino", "set": { "files": [{ "name": "openvino_genai_c.dll", "path": "a/openvino_genai_c.dll", "size": 1, "sha256": "da1a4b545770cf93ae939882fcd70f9f0d436abc49d84b2301b7893cc99283b1" }, { "name": "../openvino_c.dll", "path": "a/openvino_c.dll", "size": 1, "sha256": "170fd507b32660c9904f8d3976b97f2c2c1296b4bc83d5a0f3326b87e782f5e7" }] }, "valid": false },
+    { "name": "runtime file with an absolute archive path", "base": "openvino", "set": { "files": [{ "name": "openvino_genai_c.dll", "path": "/openvino_genai_c.dll", "size": 1, "sha256": "da1a4b545770cf93ae939882fcd70f9f0d436abc49d84b2301b7893cc99283b1" }, { "name": "openvino_c.dll", "path": "a/openvino_c.dll", "size": 1, "sha256": "170fd507b32660c9904f8d3976b97f2c2c1296b4bc83d5a0f3326b87e782f5e7" }] }, "valid": false },
+    { "name": "runtime file without a size", "base": "openvino", "set": { "files": [{ "name": "openvino_genai_c.dll", "path": "a/openvino_genai_c.dll", "sha256": "da1a4b545770cf93ae939882fcd70f9f0d436abc49d84b2301b7893cc99283b1" }, { "name": "openvino_c.dll", "path": "a/openvino_c.dll", "size": 1, "sha256": "170fd507b32660c9904f8d3976b97f2c2c1296b4bc83d5a0f3326b87e782f5e7" }] }, "valid": false },
+    { "name": "runtime with a bad min_app_version", "base": "openvino", "set": { "min_app_version": "0.5" }, "valid": false }
   ]
 }

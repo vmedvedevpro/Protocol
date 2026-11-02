@@ -443,6 +443,7 @@ mod tests {
             .map(|name| CatalogFile { name: name.to_string(), path: name.to_string() })
             .collect();
         entry.companion_of = vec!["large-v3-turbo".to_string()];
+        entry.runtime = Some("openvino-genai".to_string());
         entry.revision = Some(COMMIT.to_string());
         assert!(entry.problems().is_empty(), "{:?}", entry.problems());
         entry

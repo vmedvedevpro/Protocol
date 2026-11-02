@@ -172,6 +172,7 @@
       "description": "Large V3 Turbo for OpenVINO, int8. Runs on an Intel GPU instead of the Large V3 Turbo models: about four times faster for a quarter of the energy",
       "languages": ["*"],
       "companion_of": ["large-v3-turbo", "large-v3-turbo-q5_0"],
+      "runtime": "openvino-genai",
       "license": { "name": "MIT", "url": "https://github.com/openai/whisper/blob/main/LICENSE" },
       "repo": "OpenVINO/whisper-large-v3-turbo-int8-ov",
       "revision": "b568445dd5dc8c695bde596f8acbb4694fd6ba64",
@@ -299,6 +300,46 @@
         "sampling": { "temperature": 1.0, "top_k": 64, "top_p": 0.95, "presence_penalty": 0.0, "frequency_penalty": 0.0, "repeat_penalty": 1.0, "penalty_last_n": 0 },
         "stop_tokens": ["<end_of_turn>"]
       }
+    }
+  ],
+  "runtimes": [
+    {
+      "id": "openvino-genai",
+      "name": "OpenVINO GenAI",
+      "description": "Intel's OpenVINO libraries that run Whisper on an Intel GPU",
+      "version": "2026.4.1.0",
+      "platform": "windows-x86_64",
+      "api": 1,
+      "license": {
+        "name": "Intel OpenVINO Distribution License",
+        "url": "https://www.intel.com/content/dam/develop/external/us/en/documents/intel-openvino-license-agreements.pdf"
+      },
+      "archive": {
+        "url": "https://storage.openvinotoolkit.org/repositories/openvino_genai/packages/2026.4.1/windows/openvino_genai_windows_2026.4.1.0_x86_64.zip",
+        "size": 254143615,
+        "sha256": "437dc85e0fa60d2231b28f323c9b06ee27bc5eb4d3285fb266f9dd5fb012d0b8"
+      },
+      "files": [
+        { "name": "openvino_genai_c.dll", "path": "openvino_genai_windows_2026.4.1.0_x86_64/runtime/bin/intel64/Release/openvino_genai_c.dll", "size": 178448, "sha256": "da1a4b545770cf93ae939882fcd70f9f0d436abc49d84b2301b7893cc99283b1" },
+        { "name": "openvino_genai.dll", "path": "openvino_genai_windows_2026.4.1.0_x86_64/runtime/bin/intel64/Release/openvino_genai.dll", "size": 7428880, "sha256": "be4c3f89eacb51146151932b4055939d1139ed6e8bdfe423bf9f195b143f2590" },
+        { "name": "openvino_c.dll", "path": "openvino_genai_windows_2026.4.1.0_x86_64/runtime/bin/intel64/Release/openvino_c.dll", "size": 234256, "sha256": "170fd507b32660c9904f8d3976b97f2c2c1296b4bc83d5a0f3326b87e782f5e7" },
+        { "name": "openvino.dll", "path": "openvino_genai_windows_2026.4.1.0_x86_64/runtime/bin/intel64/Release/openvino.dll", "size": 16485640, "sha256": "a4ea3aa9dc4dc5136aa9d2abd94edafa67d7e0798829a0b93e5f289b9ee36892" },
+        { "name": "openvino_intel_gpu_plugin.dll", "path": "openvino_genai_windows_2026.4.1.0_x86_64/runtime/bin/intel64/Release/openvino_intel_gpu_plugin.dll", "size": 34673424, "sha256": "9fd5d05a766978c968e6fa4bc7158f57a887ccede3a1364694d574baa2768c90" },
+        { "name": "openvino_intel_cpu_plugin.dll", "path": "openvino_genai_windows_2026.4.1.0_x86_64/runtime/bin/intel64/Release/openvino_intel_cpu_plugin.dll", "size": 46305552, "sha256": "453a921db1883a34e1384cddf21b404c87fdd5e224866e43bb5ca0124e7ed02d" },
+        { "name": "openvino_ir_frontend.dll", "path": "openvino_genai_windows_2026.4.1.0_x86_64/runtime/bin/intel64/Release/openvino_ir_frontend.dll", "size": 508680, "sha256": "19f07106364f28f1246704ca9cfed8b1b071cff82734ae01457837b1f4c5eba9" },
+        { "name": "openvino_tokenizers.dll", "path": "openvino_genai_windows_2026.4.1.0_x86_64/runtime/bin/intel64/Release/openvino_tokenizers.dll", "size": 3490568, "sha256": "0e7274e2488d68dfaa9c3a3deea0c77131245927f66f848528680f8581c260fb" },
+        { "name": "tbb12.dll", "path": "openvino_genai_windows_2026.4.1.0_x86_64/runtime/3rdparty/tbb/bin/tbb12.dll", "size": 337160, "sha256": "d7603904d45426c05db2d5cb5541aaa861ad36dc481c7fbf3befd11acd596343" },
+        { "name": "tbbmalloc.dll", "path": "openvino_genai_windows_2026.4.1.0_x86_64/runtime/3rdparty/tbb/bin/tbbmalloc.dll", "size": 119056, "sha256": "ef627edf5b1c19ead180f8fdf027b5800c4ffdfbfcc00d67c7e66df7d62b4f92" },
+        { "name": "tbbbind_2_5.dll", "path": "openvino_genai_windows_2026.4.1.0_x86_64/runtime/3rdparty/tbb/bin/tbbbind_2_5.dll", "size": 209168, "sha256": "9a54a33b5c33866c3846e7b8939609dd08449f9037cff568d92dae88baad01dc" },
+        { "name": "openvino-EULA.txt", "path": "openvino_genai_windows_2026.4.1.0_x86_64/docs/licensing/EULA.txt", "size": 7741, "sha256": "2ef6a5d67fc91a095fe753745c02be03e91847816add25bf82a02752aa1be151" },
+        { "name": "openvino-redist.txt", "path": "openvino_genai_windows_2026.4.1.0_x86_64/docs/licensing/redist.txt", "size": 1808, "sha256": "ee34242c138f42d2d24399c72212fb88be4dd46bee9f5845380acb6c19355d1d" },
+        { "name": "openvino-LICENSE.txt", "path": "openvino_genai_windows_2026.4.1.0_x86_64/docs/licensing/LICENSE", "size": 11357, "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4" },
+        { "name": "openvino-third-party-programs.txt", "path": "openvino_genai_windows_2026.4.1.0_x86_64/docs/licensing/runtime-third-party-programs.txt", "size": 118919, "sha256": "21ccba6916a7f99278d7b111ce2ce448377750362341f638e24fc336aaf85806" },
+        { "name": "onednn-third-party-programs.txt", "path": "openvino_genai_windows_2026.4.1.0_x86_64/docs/licensing/onednn_third-party-programs.txt", "size": 28475, "sha256": "f1b16991dfe8488f3f5f07cccba575c31c91175a9f2c8d9e1569665f86e0b2f6" },
+        { "name": "onetbb-third-party-programs.txt", "path": "openvino_genai_windows_2026.4.1.0_x86_64/docs/licensing/onetbb_third-party-programs.txt", "size": 46979, "sha256": "b10997cc50652ba6ab365e3bc43e13057681cd4a56533b46171529bd249749f3" },
+        { "name": "openvino-genai-third-party-programs.txt", "path": "openvino_genai_windows_2026.4.1.0_x86_64/docs/licensing/third-party-programs-genai.txt", "size": 20742, "sha256": "d9b815b6614fe936d53656b5e7a859ed38cf88646732ea739c121d82c074c4aa" },
+        { "name": "TBB-LICENSE.txt", "path": "openvino_genai_windows_2026.4.1.0_x86_64/runtime/3rdparty/tbb/TBB-LICENSE", "size": 11558, "sha256": "1eb85fc97224598dad1852b5d6483bbcf0aa8608790dcc657a5a2a761ae9c8c6" }
+      ]
     }
   ]
 }

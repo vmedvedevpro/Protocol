@@ -28,7 +28,7 @@ pub mod updates;
 
 use once_cell::sync::Lazy;
 use remote::Source;
-use schema::{Catalog, Engine, Entry};
+use schema::{Catalog, Engine, Entry, RuntimeEntry};
 use std::path::Path;
 use std::sync::{Arc, RwLock};
 
@@ -54,6 +54,9 @@ static BUILT_IN_CATALOG: Lazy<Arc<Catalog>> = Lazy::new(|| match schema::parse(B
     Ok(catalog) => {
         for hidden in &catalog.hidden {
             log::error!("[model catalog] built-in entry {} hidden: {}", hidden.index, hidden.problem);
+        }
+        for hidden in &catalog.hidden_runtimes {
+            log::error!("[model catalog] built-in runtime {} hidden: {}", hidden.index, hidden.problem);
         }
         Arc::new(catalog)
     }
@@ -85,10 +88,11 @@ pub fn source() -> Source {
     ACTIVE.read().unwrap_or_else(|poisoned| poisoned.into_inner()).1
 }
 
-/// Puts `catalog` in use; returns whether the models it offers changed.
+/// Puts `catalog` in use; returns whether the models or runtimes it offers
+/// changed.
 pub(crate) fn set_active(catalog: Arc<Catalog>, source: Source) -> bool {
     let mut active = ACTIVE.write().unwrap_or_else(|poisoned| poisoned.into_inner());
-    let changed = active.0.entries != catalog.entries;
+    let changed = active.0.entries != catalog.entries || active.0.runtimes != catalog.runtimes;
     *active = (catalog, source);
     changed
 }
@@ -158,6 +162,29 @@ pub fn companions() -> Vec<Entry> {
         }
     }
     companions
+}
+
+/// The runtime `id` this build would install now: the first entry of the
+/// catalog in use for this platform, of the API level `api` the binding
+/// calls and allowed for this app version; else the built-in catalog's, so
+/// a list that drops the runtime does not take it from installs.
+pub fn runtime(id: &str, api: u32) -> Option<RuntimeEntry> {
+    let find = |catalog: &Catalog| {
+        catalog.runtimes.iter().find(|runtime| runtime.id == id && runtime.runs_on(app_version(), api)).cloned()
+    };
+    find(&active()).or_else(|| find(&built_in()))
+}
+
+/// The versions of runtime `id` for this platform that the catalog in use
+/// lists only for other API levels or app versions: what Settings names when
+/// it cannot offer the runtime (#79).
+pub fn runtimes_out_of_reach(id: &str, api: u32) -> Vec<RuntimeEntry> {
+    active()
+        .runtimes
+        .iter()
+        .filter(|runtime| runtime.id == id && runtime.platform == schema::platform() && !runtime.runs_on(app_version(), api))
+        .cloned()
+        .collect()
 }
 
 #[cfg(test)]
