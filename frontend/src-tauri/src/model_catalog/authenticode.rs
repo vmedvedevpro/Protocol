@@ -4,8 +4,11 @@
 //! load them.
 //!
 //! `WinVerifyTrust` checks the signature embedded in the file and builds its
-//! chain to a root Windows trusts; revocation is not checked (it needs the
-//! certificate authority's servers, and the hash pin already fixes the bytes).
+//! chain to a root Windows trusts. Revocation is not checked, whatever the
+//! machine's policy says (`WTD_REVOKE_NONE` and `WTD_REVOCATION_CHECK_NONE`):
+//! it needs the certificate authority's servers, and the hash pin already
+//! fixes the bytes. Windows may still fetch a root certificate it lacks
+//! through its root update, as for any signature it checks.
 //! The signer is the leaf certificate's simple display name, as
 //! `Get-AuthenticodeSignature` shows it (`CN=Intel Corporation`).
 
@@ -17,8 +20,8 @@ use windows_sys::Win32::Foundation::HANDLE;
 use windows_sys::Win32::Security::Cryptography::{CertGetNameStringW, CERT_NAME_SIMPLE_DISPLAY_TYPE};
 use windows_sys::Win32::Security::WinTrust::{
     WTHelperGetProvSignerFromChain, WTHelperProvDataFromStateData, WinVerifyTrust, WINTRUST_ACTION_GENERIC_VERIFY_V2,
-    WINTRUST_DATA, WINTRUST_DATA_0, WINTRUST_FILE_INFO, WTD_CHOICE_FILE, WTD_REVOKE_NONE, WTD_STATEACTION_CLOSE,
-    WTD_STATEACTION_VERIFY, WTD_UI_NONE,
+    WINTRUST_DATA, WINTRUST_DATA_0, WINTRUST_FILE_INFO, WTD_CHOICE_FILE, WTD_REVOCATION_CHECK_NONE, WTD_REVOKE_NONE,
+    WTD_STATEACTION_CLOSE, WTD_STATEACTION_VERIFY, WTD_UI_NONE,
 };
 
 /// Fails unless `path` carries a valid Authenticode signature whose signer is
@@ -48,6 +51,7 @@ fn signer_of(path: &Path) -> std::result::Result<String, u32> {
     data.cbStruct = std::mem::size_of::<WINTRUST_DATA>() as u32;
     data.dwUIChoice = WTD_UI_NONE;
     data.fdwRevocationChecks = WTD_REVOKE_NONE;
+    data.dwProvFlags = WTD_REVOCATION_CHECK_NONE;
     data.dwUnionChoice = WTD_CHOICE_FILE;
     data.Anonymous = WINTRUST_DATA_0 { pFile: &mut file };
     data.dwStateAction = WTD_STATEACTION_VERIFY;
