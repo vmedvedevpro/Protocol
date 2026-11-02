@@ -135,6 +135,13 @@ fn any_companion_in(models_dir: &Path, entries: &[Entry]) -> bool {
     })
 }
 
+/// Whether a companion other than `entry` keeps the runtime, so that
+/// removing `entry` leaves it installed.
+fn others_keep_runtime(models_dir: &Path, entry: &Entry, companions: &[Entry]) -> bool {
+    let others: Vec<Entry> = companions.iter().filter(|other| other.id != entry.id).cloned().collect();
+    any_companion_in(models_dir, &others)
+}
+
 // --- The runtime ------------------------------------------------------------
 
 fn runtime_root() -> PathBuf {
@@ -285,6 +292,9 @@ pub struct CompanionStatus {
     /// OpenVINO is off because the app closed unexpectedly inside it
     /// (`whisper_engine::openvino::stopped`); `openvino_retry` turns it on.
     pub stopped: Option<String>,
+    /// `openvino_remove` would delete the installed runtime too: no other
+    /// companion keeps it.
+    pub removes_runtime: bool,
 }
 
 /// Running downloads by companion id: their cancellation and progress.
@@ -351,6 +361,7 @@ fn status_in(
         refused,
         downloading: downloads().get(&entry.id).map(|(_, percent)| *percent),
         stopped: None,
+        removes_runtime: false,
     }
 }
 
@@ -386,8 +397,11 @@ async fn unload_engines_if_idle() {
 pub async fn openvino_status<R: Runtime>(app: AppHandle<R>, whisper_model: String) -> Result<Option<CompanionStatus>, String> {
     let Some(entry) = companion_for(&whisper_model) else { return Ok(None) };
     let loaded = crate::whisper_engine::openvino::loaded_runtime_dir();
-    let mut status = status_in(&crate::paths::models_dir(), &runtime_root(), &entry, runtime_entry().as_ref(), loaded.as_deref());
+    let models = crate::paths::models_dir();
+    let mut status = status_in(&models, &runtime_root(), &entry, runtime_entry().as_ref(), loaded.as_deref());
     status.stopped = crate::whisper_engine::openvino::stopped();
+    status.removes_runtime = status.runtime.as_ref().is_some_and(|runtime| runtime.installed.is_some())
+        && !others_keep_runtime(&models, &entry, &super::companions());
     if status.size.is_none() {
         tauri::async_runtime::spawn(async move {
             if sizes::fill(&huggingface::client(), huggingface::HUB, &[entry]).await {
@@ -1006,6 +1020,27 @@ mod tests {
         // Removing the companion lets the runtime go.
         remove_in(&place.models, &entry).unwrap();
         assert!(!any_companion_in(&place.models, std::slice::from_ref(&entry)));
+    }
+
+    /// Settings offers to remove libraries left without their model only
+    /// when that removal deletes them: not while another companion keeps them.
+    #[test]
+    fn removing_a_companion_frees_the_runtime_only_when_no_other_companion_keeps_it() {
+        let data = tempfile::tempdir().unwrap();
+        let models = data.path().join("models");
+        let entry = companion_entry();
+        let mut other = companion_entry();
+        other.id = "other-openvino-int8".to_string();
+        let companions = [entry.clone(), other.clone()];
+        assert!(!others_keep_runtime(&models, &entry, &companions));
+
+        // This companion's own marker does not count; the other one's does.
+        for (dir, keeps) in [(dir_in(&models, &entry), false), (dir_in(&models, &other), true)] {
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(dir.join(REQUESTED), b"").unwrap();
+            assert_eq!(others_keep_runtime(&models, &entry, &companions), keeps);
+        }
+        assert!(!others_keep_runtime(&models, &other, std::slice::from_ref(&other)));
     }
 
     #[tokio::test]

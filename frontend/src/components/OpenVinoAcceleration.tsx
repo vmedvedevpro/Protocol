@@ -67,6 +67,8 @@ export interface CompanionStatus {
   downloading: number | null;
   /** OpenVINO is off because Protocol closed unexpectedly inside it; `openvino_retry` turns it on. */
   stopped: string | null;
+  /** Remove deletes the installed runtime too: no other companion keeps it. */
+  removesRuntime: boolean;
 }
 
 const CHANGED_EVENT = 'openvino-companion-changed';
@@ -181,7 +183,9 @@ export function OpenVinoAcceleration({ whisperModels }: { whisperModels: string[
   };
   const textButton = 'shrink-0 rounded px-2 py-1 font-medium text-af-accent hover:bg-af-accent/10';
   // Intel's libraries without the model: a download that stopped after them.
-  const runtimeOnly = !companion.installed && !!companion.runtime?.installed && companion.downloading === null;
+  // Offered for removal only when no other companion keeps them.
+  const runtimeOnly = !companion.installed && !!companion.runtime?.installed && companion.downloading === null
+    && companion.removesRuntime;
 
   const gpu = availability.gpu ? ` (${availability.gpu})` : '';
   const update = runtimeUpdate(companion);

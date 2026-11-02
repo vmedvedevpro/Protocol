@@ -69,6 +69,7 @@ beforeEach(() => {
     refused: null,
     downloading: null,
     stopped: null,
+    removesRuntime: false,
   };
   downloadResult = async () => {};
 });
@@ -189,7 +190,14 @@ test('after Protocol closed inside OpenVINO the row says so and can turn it on a
 });
 
 test('libraries left without the model can be completed or removed', async () => {
+  // Another companion keeps the libraries: removing this one would not delete them.
   companion = { ...companion!, downloadSize: 828 * MB, runtime: { ...companion!.runtime, installed: '2026.4.1.0' } };
+  await render(['large-v3-turbo-q5_0']);
+  expect(text()).toContain('2026.4.1.0 installed');
+  expect(text()).not.toContain('Download fetches only the model');
+  expect(() => buttonWithText('Remove the libraries')).toThrow();
+
+  companion = { ...companion!, removesRuntime: true };
   await render(['large-v3-turbo-q5_0']);
   expect(text()).toContain('2026.4.1.0 installed');
   expect(text()).toContain('Download fetches only the model');
