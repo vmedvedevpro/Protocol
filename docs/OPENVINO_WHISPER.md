@@ -45,7 +45,9 @@ All of these, checked when a Whisper model loads (`WhisperEngine::load_model`):
    none did. Either way a hybrid laptop keeps its NVIDIA or AMD GPU on
    whisper.cpp (neither its address nor its name is an Intel GPU's), and an
    Intel iGPU plus an Arc card runs on the card.
-4. The runtime loads and the model compiles on that device.
+4. The runtime loads and the model compiles on that device, and the app did
+   not close unexpectedly inside OpenVINO before (the crash guard, under
+   Loading).
 
 If 1 or 3 does not hold, or no companion is installed, whisper.cpp loads as
 before and nothing is reported. A companion whose runtime is missing (its
@@ -98,6 +100,16 @@ without a Protocol release.
 - Licence: the binaries are under the Intel OpenVINO Distribution License
   (the archive's `docs/licensing/EULA.txt`; Settings links Intel's copy). The
   person's PC downloads them from Intel; Protocol does not redistribute them.
+- Where it comes from is this build's, not the catalog's: the catalog is not
+  signed and the runtime is native code every install loads, so a catalog
+  commit can choose a version but not a server or a publisher. The archive
+  must be on `storage.openvinotoolkit.org` (`schema::runtime_host`, https, no
+  port or user; both catalog checks hide another host), a redirect is
+  followed only to https on that host, and each `.dll` must carry a valid
+  Authenticode signature of Intel Corporation (`model_catalog/authenticode.rs`,
+  `WinVerifyTrust` without a revocation check; all 11 of 2026.4.1 are signed
+  by Intel) before it is marked verified. These rules ship with each app and
+  cannot be loosened for it afterwards.
 - No network: none of the 11 libraries imports WinHTTP, WinINet, Winsock or
   urlmon. The data collection the EULA allows (clause 7.2) is the Python
   `openvino_telemetry` package of the converter tools, which is not among the
@@ -110,28 +122,46 @@ companion lacks: the catalog's runtime version, then the companion. The
 runtime install:
 
 1. checks the volume has room for the archive and the files;
-2. downloads the archive into `<data>/runtimes/openvino-genai/.staging-<version>/`
-   and hashes it as it streams in (`model_integrity::Check`); a mismatch
-   deletes it;
+2. downloads the archive from the pinned host (above) into
+   `<data>/runtimes/openvino-genai/.staging-<version>/` and hashes it as it
+   streams in (`model_integrity::Check`); a mismatch deletes it;
 3. extracts only the pinned files, each under its catalog name (an archive
-   path is looked up, never used as a path), each checked against its own pin
-   and given a `.verified` marker;
+   path is looked up, never used as a path; a name must be one that Windows
+   keeps apart from the others and from the install's own files, see
+   [MODEL_CATALOG.md](MODEL_CATALOG.md#runtimes)), each checked against its
+   own pin and each library against Intel's signature, then given a
+   `.verified` marker;
 4. deletes the archive, writes `runtime.json` (id, version, API level, the
-   files' pins) and renames the staging folder to `<version>`.
+   files' pins) and renames the staging folder to `<version>`. Windows
+   refuses to rename a folder while a file in it is open, and an antivirus
+   scans fresh libraries, so the rename and the archive's deletion wait out
+   a lock for up to 20 s before they fail.
 
 A failure or Cancel removes the staging folder, so a version folder is always
 complete; a staging folder a crash left is removed at the next start. The
 download reports one progress over both parts and holds
-`BusyReason::ModelDownload` for its lifetime. A version is installed when its
+`BusyReason::ModelDownload` for its lifetime. Installs, removals and prunes of
+the runtime and the companions run one at a time (`openvino::OPERATIONS`): they
+share the runtime's folder and the question whether a companion still needs
+it, and a prune holds the engine's runtime slot, so no version starts loading
+from a folder being deleted. When the companion's part fails or is cancelled
+after the runtime installed, a `.requested` file in the companion's folder
+keeps the runtime (the next click fetches only the companion; the row also
+offers to remove the libraries) until the companion is installed or removed. A version is installed when its
 record is there and every file has a valid marker (`runtime::verified`:
 metadata reads, no hashing); a file changed since loses its marker and the
 version counts as missing.
 
 ### Loading and compatibility
 
-`whisper_engine::openvino::runtime` loads the runtime on first use: the
-installed version the catalog names, else the newest installed one of the
-binding's API level (`runtime_to_load`). It loads by absolute path from that
+`whisper_engine::openvino::runtime` loads the runtime on first use
+(`runtime_to_load`), an installed version of the binding's API level: the one
+the catalog names, else the newest one older than it (an update not
+downloaded yet), never a newer one. So a catalog that steps back retires a
+version it pinned before: a newer version is not loaded but shown as "the
+model list no longer offers …", the row offers the catalog's version, and the
+next prune deletes the newer one. Without any offer (no catalog entry this
+build can run), the newest installed one. It loads by absolute path from that
 folder with `LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS`,
 so dependencies resolve from that folder and System32 only, and stays loaded
 for the process. A process loads at most one version, once: the libraries of
@@ -151,6 +181,34 @@ libraries do not load or lack a symbol is refused by the load; either is
 logged and shown in Local stack, and whisper.cpp runs. When neither the
 catalog in use nor the built-in one has a runtime this build can run, the
 Settings row says so instead of offering a download.
+
+GenAI 2026.4.1 builds a `std::filesystem::path` from the `const char*` paths
+of its C API (`whisper_pipeline.cpp`, `whisper_generation_config.cpp`), which
+MSVC reads in the process's ANSI code page, not as UTF-8; OpenVINO's own
+string options (`CACHE_DIR`) are UTF-8 (`ov::util::make_path`). So the model
+folder goes to GenAI in that code page, or by its 8.3 short name when the code
+page cannot hold it (a Cyrillic user name on a code page 1252 system, as on
+the test machine), and `CACHE_DIR` as UTF-8 (`genai::genai_path`). A path with
+neither form (short names disabled on the volume) is refused with a message,
+and whisper.cpp runs.
+
+The device rule asks only OpenVINO's GPU plugin for its devices
+(`AVAILABLE_DEVICES`, then each `GPU.<n>`'s properties; `genai::GenAi::gpus`).
+Listing every device would make OpenVINO load each plugin it knows, and the
+ones the runtime does not install (NPU, AUTO, HETERO, BATCH) it then looks up
+by bare name, which reaches PATH, where another OpenVINO could answer. The
+pipelines are created on a `GPU` name, which loads the GPU plugin and, for
+GenAI's tokenizer, the CPU plugin, both from the runtime's folder.
+
+Crash guard: loading the libraries, asking the GPU plugin and compiling a
+model run native code that a broken driver or runtime can crash in, beyond
+any `Result`. Before each of these steps the app writes
+`<data>/runtimes/openvino-genai.attempt` and removes it when none runs. A
+marker found by the first such step of a process was left by one that died
+there: OpenVINO then stays off (whisper.cpp runs) and the Settings row says
+"Protocol closed unexpectedly the last time OpenVINO was …" with "Try
+OpenVINO again" (`openvino_retry`), which removes the marker and lets the next
+model load try. Without it, a crash in OpenVINO would repeat at every start.
 
 ### Update and removal
 
@@ -235,30 +293,47 @@ files the engine requires.
 
 - Unit tests: the device rule's two paths, two identical cards, a hybrid
   laptop and another vendor, and the offer by the display adapters' vendor
-  (`device.rs`); the piece trim, the model folder check and the cache keying
-  and pruning (`openvino/mod.rs`); a folder whose libraries are no GenAI C API
-  is refused without a crash (`genai.rs`).
+  (`device.rs`); the piece trim, the model folder check, the cache keying
+  and pruning, and the crash guard (a step's marker, a panic, a marker left
+  by a dead process stopping OpenVINO until a retry) (`openvino/mod.rs`); a
+  folder whose libraries are no GenAI C API is refused without a crash, GPU
+  names as OpenVINO forms them, and a path handed to GenAI naming the same
+  folder when read back as MSVC reads it, for an ASCII, a code page and a
+  Cyrillic folder (`genai.rs`).
 - The catalog: the `runtimes` rules in the shared cases
-  (`entry-cases.json`: `runtime_cases`), a broken runtime list that hides only
-  runtimes, one entry per runtime, platform and level (`schema.rs`,
-  `check-catalog.test.mjs`); a companion's `runtime`.
+  (`entry-cases.json`: `runtime_cases`, among them another host, a host that
+  only ends like the pinned one, a port, a user, file names that clash
+  without case, a trailing dot, device names and the install's own names), a
+  broken runtime list that hides only runtimes, one entry per runtime,
+  platform and level (`schema.rs`, `check-catalog.test.mjs`); a companion's
+  `runtime`.
 - The install (`model_catalog/runtime.rs`, against a local server and a zip
   made in the test): only the pinned files extracted and verified and the
   archive deleted; a corrupt archive, a wrong file hash and a file missing
   from the archive install nothing; a cancel mid-download leaves nothing and
   an installed older version alone; a new version beside the old one, then
-  pruned; a leftover staging folder; an unverified version folder replaced.
+  pruned; a leftover staging folder; an unverified version folder replaced;
+  an archive off the pinned host refused before any request; a redirect off
+  it failing the download; an unsigned library installing nothing; a rename
+  and a deletion waiting out a file held open. `authenticode.rs`: an unsigned
+  file refused.
 - The one action (`model_catalog/openvino.rs`): the runtime then the companion
   with one progress, the busy registry held, a second click fetching nothing,
-  a cancel during the runtime leaving neither; which version loads (the
-  catalog's, else the newest of the binding's level, never another level);
-  what the row says before, during and after an install, for an update and
-  after an update while the old version runs, and when no runtime can be
-  installed.
+  a cancel during the runtime leaving neither, a runtime kept when the
+  companion's part fails; which version loads (the catalog's, an older one
+  while an update waits, never a newer one the catalog withdrew, never
+  another level); what the row says before, during and after an install, for
+  an update and after an update while the old version runs, and when no
+  runtime can be installed.
 - Settings: `tests/model-catalog/openvino-acceleration.test.tsx` (the row's
   text, sizes and licence link, the offer, progress and cancel, the device
   and the mismatch, a removed runtime, an update and its restart note, a
-  failure and a refusal).
+  failure and a refusal, the crash note and its retry, libraries without the
+  model).
+- Ignored, with an installed runtime (`OPENVINO_TEST_RUNTIME`): Intel's 11
+  libraries pass the signature check (`authenticode.rs`), and GenAI itself
+  reads a file in a Cyrillic folder through the converted path while the
+  UTF-8 bytes miss it (`genai.rs`, with `OPENVINO_TEST_MODEL`).
 - The measurement kit opens an OpenVINO model folder given as
   `MEASURE_WHISPER_MODEL`, with the runtime installed by the app (or a folder
   in `MEASURE_OPENVINO_RUNTIME`, installed by the ignored
@@ -274,6 +349,9 @@ files the engine requires.
   installed after another was loaded, at the next start.
 - A runtime download does not resume: after a failure, Cancel or a restart it
   starts over (242 MB). The companion's download resumes.
-- Trust is HTTPS to Intel's server and to GitHub for the catalog, as for the
-  models: the catalog's hashes catch a changed or damaged archive, not a
-  malicious catalog.
+- Trust: the catalog (from GitHub, unsigned) picks the version and its
+  hashes; the host and the publisher are this build's. A malicious catalog
+  can still make installs fetch another genuine Intel release from Intel's
+  server, or withdraw the runtime, not load foreign code.
+- A model folder whose path the system code page cannot hold, on a volume
+  without 8.3 names, stays on whisper.cpp (with a message).

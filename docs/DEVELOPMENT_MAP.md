@@ -809,21 +809,27 @@ installed and the GPU whisper.cpp would use is an Intel GPU OpenVINO lists
   is installed, `device::offer_for` decides whether Settings offers it: the
   vendor (0x8086) of the display adapters Windows lists under that GPU's name.
 - `whisper_engine/openvino/`: `genai.rs` (the C API binding and its
-  `API_LEVEL`, loaded by absolute path), `device.rs` (the device rule and
-  the offer), `mod.rs` (the process's one runtime load, `OpenVinoWhisper`,
-  its lifecycle, the model cache keyed by runtime version and model commit,
-  the live and post-meeting calls, the piece trim, `availability`).
+  `API_LEVEL`, loaded by absolute path; it asks only the GPU plugin for
+  devices and hands GenAI paths in the code page it reads them in),
+  `device.rs` (the device rule and the offer), `mod.rs` (the process's one
+  runtime load, the crash guard around loading, the GPU query and compiling,
+  `OpenVinoWhisper`, its lifecycle, the model cache keyed by runtime version
+  and model commit, the live and post-meeting calls, the piece trim,
+  `availability`).
   `WhisperEngine` keeps the pipeline in `openvino` in place of
   `current_context`; `transcribe_audio*`, `PostMeetingWhisper::transcribe_piece`
   and `detect_language_with_probability` branch on it.
 - The runtime is not in the installer: the catalog's `runtimes` list pins
   Intel's archive and every file ([MODEL_CATALOG.md](MODEL_CATALOG.md#runtimes)),
   and `model_catalog/runtime.rs` installs a version atomically into
-  `<data>/runtimes/openvino-genai/<version>/`.
+  `<data>/runtimes/openvino-genai/<version>/`, only from the host this build
+  pins for it and with every library signed by Intel
+  (`model_catalog/authenticode.rs`): the catalog is not signed.
 - `model_catalog/openvino.rs`: the `openvino-ir` companion entries
   (`companion_of`, `runtime`), the one download that installs the runtime
   and the companion, removal, runtime updates and pruning (also at startup,
-  `prune_at_startup` in `lib.rs`), and `installed_companion` and
+  `prune_at_startup` in `lib.rs`; all under one lock, `OPERATIONS`), the
+  retry after a crash (`openvino_retry`), and `installed_companion` and
   `runtime_to_load`, which the engine asks; Settings offers the download
   under the Whisper model (`OpenVinoAcceleration.tsx` in
   `TranscriptSettings.tsx`).
