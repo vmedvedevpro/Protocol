@@ -793,9 +793,9 @@ on one pass, which must give the same rows). Windows Vulkan builds need a short 
 ### Whisper on OpenVINO (Intel GPUs)
 
 On Windows the Vulkan build runs Large V3 Turbo through OpenVINO GenAI's
-`WhisperPipeline` when the model's OpenVINO companion is installed and the GPU
-whisper.cpp would use is an Intel GPU OpenVINO lists (#79); otherwise, and
-after a failed load, whisper.cpp runs as above. Read
+`WhisperPipeline` when the model's OpenVINO companion and Intel's runtime are
+installed and the GPU whisper.cpp would use is an Intel GPU OpenVINO lists
+(#79); otherwise, and after a failed load, whisper.cpp runs as above. Read
 [OPENVINO_WHISPER.md](OPENVINO_WHISPER.md) before changing it.
 
 - The device rule (`whisper_engine/openvino/device.rs`): OpenVINO runs only
@@ -805,25 +805,34 @@ after a failed load, whisper.cpp runs as above. Read
   (without its ` (iGPU)`/` (dGPU)` suffix) and `DEVICE_TYPE`, unique match
   only. The second path exists because ggml-vulkan reads the address from
   `VK_EXT_pci_bus_info`, which the Arc B390's Windows driver does not offer.
-  Hybrid NVIDIA/AMD laptops keep whisper.cpp either way.
-- `whisper_engine/openvino/`: `genai.rs` (the C API binding, loaded by
-  absolute path), `device.rs` (the device rule), `mod.rs` (`OpenVinoWhisper`,
-  its lifecycle, the live and post-meeting calls, the piece trim).
+  Hybrid NVIDIA/AMD laptops keep whisper.cpp either way. Before the runtime
+  is installed, `device::offer_for` decides whether Settings offers it: the
+  vendor (0x8086) of the display adapters Windows lists under that GPU's name.
+- `whisper_engine/openvino/`: `genai.rs` (the C API binding and its
+  `API_LEVEL`, loaded by absolute path), `device.rs` (the device rule and
+  the offer), `mod.rs` (the process's one runtime load, `OpenVinoWhisper`,
+  its lifecycle, the model cache keyed by runtime version and model commit,
+  the live and post-meeting calls, the piece trim, `availability`).
   `WhisperEngine` keeps the pipeline in `openvino` in place of
   `current_context`; `transcribe_audio*`, `PostMeetingWhisper::transcribe_piece`
   and `detect_language_with_probability` branch on it.
-- `build/openvino.rs`: the runtime's source and pins, staged into
-  `binaries/openvino/` by `build/onnxruntime.rs::ensure_runtime` and bundled by
-  `tauri.windows.conf.json`.
+- The runtime is not in the installer: the catalog's `runtimes` list pins
+  Intel's archive and every file ([MODEL_CATALOG.md](MODEL_CATALOG.md#runtimes)),
+  and `model_catalog/runtime.rs` installs a version atomically into
+  `<data>/runtimes/openvino-genai/<version>/`.
 - `model_catalog/openvino.rs`: the `openvino-ir` companion entries
-  (`companion_of`, [MODEL_CATALOG.md](MODEL_CATALOG.md)), their download and
-  delete, and `installed_companion`, which `load_model` asks; Settings offers
-  the download under the Whisper model (`OpenVinoCompanion.tsx` in
+  (`companion_of`, `runtime`), the one download that installs the runtime
+  and the companion, removal, runtime updates and pruning (also at startup,
+  `prune_at_startup` in `lib.rs`), and `installed_companion` and
+  `runtime_to_load`, which the engine asks; Settings offers the download
+  under the Whisper model (`OpenVinoAcceleration.tsx` in
   `TranscriptSettings.tsx`).
-- Busy registry: compiling the model holds `BusyReason::ModelCompile`.
+- Busy registry: the download holds `BusyReason::ModelDownload`, compiling the
+  model `BusyReason::ModelCompile`.
 - Settings: Local stack shows the OpenVINO device or the fallback reason
   (`get_local_stack_status`, `whisper.openvino`); `get_openvino_availability`
-  decides whether the companion download is offered.
+  decides whether the download is offered and, once the runtime is
+  installed, names the device or the mismatch.
 
 ### Windows installer
 
