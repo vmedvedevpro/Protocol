@@ -830,6 +830,9 @@ pub fn run() {
                 }
                 tauri::RunEvent::Exit => {
                     log::info!("Application exiting, cleaning up resources...");
+                    // An OpenVINO compile this exit cuts short is not a crash.
+                    #[cfg(windows)]
+                    whisper_engine::openvino::set_closing(true);
                     tauri::async_runtime::block_on(async {
                         // Clean up database connection and checkpoint WAL
                         if let Some(app_state) = _app_handle.try_state::<state::AppState>() {

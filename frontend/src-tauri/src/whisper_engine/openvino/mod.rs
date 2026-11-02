@@ -135,21 +135,24 @@ impl Step {
     }
 }
 
-/// The crash guard around those steps: a marker is written before one
-/// starts and removed when none runs. A marker found by the first step of a
-/// process was left by a process that died in that step, and OpenVINO then
+/// The crash guard around those steps: the marker names the steps running
+/// and is removed when none runs. A marker found by the first step of a
+/// process was left by a process that died in those steps, and OpenVINO then
 /// stays off, saying so in Settings, until the person retries ([`retry`]);
-/// otherwise the app would crash again at each start.
+/// otherwise the app would crash again at each start. A process that ends on
+/// purpose while a step runs removes it first ([`set_closing`]).
 struct Guard {
     marker: Option<PathBuf>,
     checked: bool,
     stopped: Option<String>,
-    running: usize,
+    /// One entry per step running now, in the order they started.
+    running: Vec<Step>,
+    closing: bool,
 }
 
 impl Guard {
     const fn new(marker: Option<PathBuf>) -> Mutex<Guard> {
-        Mutex::new(Guard { marker, checked: false, stopped: None, running: 0 })
+        Mutex::new(Guard { marker, checked: false, stopped: None, running: Vec::new(), closing: false })
     }
 
     /// Beside the runtime's versions, outside the folder prunes empty.
@@ -165,13 +168,34 @@ impl Guard {
             return;
         }
         self.checked = true;
-        if let Ok(step) = std::fs::read_to_string(self.marker()) {
+        if let Ok(marker) = std::fs::read_to_string(self.marker()) {
+            let steps: Vec<&str> = marker.lines().map(str::trim).filter(|step| !step.is_empty()).collect();
+            let steps = if steps.is_empty() { "running".to_string() } else { steps.join(" and ") };
             let message = format!(
-                "Protocol closed unexpectedly the last time OpenVINO was {}, so Whisper runs on Vulkan. Try OpenVINO again in Settings › Transcription.",
-                step.trim()
+                "Protocol closed unexpectedly the last time OpenVINO was {steps}, so Whisper runs on Vulkan. Try OpenVINO again in Settings › Transcription."
             );
             log::error!("{message}");
             self.stopped = Some(message);
+        }
+    }
+
+    /// Writes the steps running now into the marker, one per line, or
+    /// removes it when none runs or the process is closing.
+    fn record(&self) {
+        let marker = self.marker();
+        if self.running.is_empty() || self.closing {
+            let _ = std::fs::remove_file(&marker);
+            return;
+        }
+        let mut steps: Vec<&str> = Vec::new();
+        for step in &self.running {
+            if !steps.contains(&step.describe()) {
+                steps.push(step.describe());
+            }
+        }
+        let written = marker.parent().map_or(Ok(()), std::fs::create_dir_all).and_then(|()| std::fs::write(&marker, steps.join("\n")));
+        if let Err(error) = written {
+            log::warn!("Cannot write the OpenVINO crash marker {}: {error}", marker.display());
         }
     }
 }
@@ -203,9 +227,21 @@ fn retry_in(guard: &Mutex<Guard>) {
     let mut guard = lock_guard(guard);
     guard.checked = true;
     guard.stopped = None;
-    if guard.running == 0 {
-        let _ = std::fs::remove_file(guard.marker());
-    }
+    guard.record();
+}
+
+/// The process is ending on purpose (`RunEvent::Exit`, or the updater
+/// closing the app to install): a step it cuts short did not crash, so the
+/// marker goes and no step writes one from here on. `false` when the update
+/// did not install and the app carries on.
+pub fn set_closing(closing: bool) {
+    set_closing_in(&GUARD, closing);
+}
+
+fn set_closing_in(guard: &Mutex<Guard>, closing: bool) {
+    let mut guard = lock_guard(guard);
+    guard.closing = closing;
+    guard.record();
 }
 
 /// Runs `work` inside the crash guard; `Err` when a crash stopped OpenVINO.
@@ -220,27 +256,21 @@ fn guarded_in<T>(guard: &Mutex<Guard>, step: Step, work: impl FnOnce() -> T) -> 
         if let Some(stopped) = &state.stopped {
             return Err(stopped.clone());
         }
-        if state.running == 0 {
-            let marker = state.marker();
-            let written = marker.parent().map_or(Ok(()), std::fs::create_dir_all).and_then(|()| std::fs::write(&marker, step.describe()));
-            if let Err(error) = written {
-                log::warn!("Cannot write the OpenVINO crash marker {}: {error}", marker.display());
-            }
-        }
-        state.running += 1;
+        state.running.push(step);
+        state.record();
     }
     /// Ends the step also when `work` panics.
-    struct Running<'a>(&'a Mutex<Guard>);
+    struct Running<'a>(&'a Mutex<Guard>, Step);
     impl Drop for Running<'_> {
         fn drop(&mut self) {
             let mut state = lock_guard(self.0);
-            state.running -= 1;
-            if state.running == 0 {
-                let _ = std::fs::remove_file(state.marker());
+            if let Some(index) = state.running.iter().position(|step| *step == self.1) {
+                state.running.remove(index);
             }
+            state.record();
         }
     }
-    let _running = Running(guard);
+    let _running = Running(guard, step);
     Ok(work())
 }
 
@@ -798,10 +828,17 @@ mod tests {
         let data = tempfile::tempdir().unwrap();
         let marker = data.path().join("runtimes").join("openvino-genai.attempt");
 
-        // A step that ends leaves no marker, also when nested in another.
+        // The marker names every step running; a step that ends leaves no
+        // marker, also when nested in another.
         let running = Guard::new(Some(marker.clone()));
-        let nested = guarded_in(&running, Step::Load, || guarded_in(&running, Step::ListGpus, || marker.exists()).unwrap()).unwrap();
-        assert!(nested);
+        let read = || std::fs::read_to_string(&marker).unwrap();
+        let (inner, outer) = guarded_in(&running, Step::Load, || {
+            let inner = guarded_in(&running, Step::ListGpus, read).unwrap();
+            (inner, read())
+        })
+        .unwrap();
+        assert_eq!(inner, "loading its libraries\nlooking for the GPU");
+        assert_eq!(outer, "loading its libraries");
         assert!(!marker.exists());
         assert_eq!(stopped_in(&running), None);
         // A panic inside a step ends it too.
@@ -809,12 +846,15 @@ mod tests {
         assert!(panicked.is_err());
         assert!(!marker.exists());
 
-        // A process died while compiling: its marker stays for the next one,
-        // which does not run OpenVINO and says why.
-        std::fs::write(&marker, Step::Compile.describe()).unwrap();
+        // A process died while listing GPUs and compiling: its marker stays
+        // for the next one, which does not run OpenVINO and says why.
+        std::fs::write(&marker, "looking for the GPU\npreparing the model for the GPU").unwrap();
         let next = Guard::new(Some(marker.clone()));
         let refused = guarded_in::<()>(&next, Step::Load, || panic!("OpenVINO ran after a crash")).unwrap_err();
-        assert!(refused.contains("preparing the model for the GPU") && refused.contains("Try OpenVINO again"), "{refused}");
+        assert!(
+            refused.contains("was looking for the GPU and preparing the model for the GPU,") && refused.contains("Try OpenVINO again"),
+            "{refused}"
+        );
         assert_eq!(stopped_in(&next).as_deref(), Some(refused.as_str()));
         assert!(marker.exists());
 
@@ -823,6 +863,31 @@ mod tests {
         assert!(!marker.exists());
         assert_eq!(stopped_in(&next), None);
         assert_eq!(guarded_in(&next, Step::Load, || 7), Ok(7));
+    }
+
+    /// Quitting from the tray, or the updater closing the app, while a
+    /// model compiles ends the process inside the step: no crash.
+    #[test]
+    fn quitting_during_a_guarded_step_is_not_taken_for_a_crash() {
+        let data = tempfile::tempdir().unwrap();
+        let marker = data.path().join("runtimes").join("openvino-genai.attempt");
+        let app = Guard::new(Some(marker.clone()));
+        guarded_in(&app, Step::Compile, || {
+            assert!(marker.exists());
+            set_closing_in(&app, true);
+            assert!(!marker.exists());
+            // A step that starts while the app closes writes no marker.
+            guarded_in(&app, Step::Load, || assert!(!marker.exists())).unwrap();
+            // The process ends here; the next one runs OpenVINO.
+            let next = Guard::new(Some(marker.clone()));
+            assert_eq!(stopped_in(&next), None);
+        })
+        .unwrap();
+
+        // An update that did not install: the app carries on, guarded again.
+        set_closing_in(&app, false);
+        guarded_in(&app, Step::Compile, || assert!(marker.exists())).unwrap();
+        assert!(!marker.exists());
     }
 
     #[test]
