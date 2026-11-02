@@ -89,13 +89,15 @@ without a Protocol release.
 
 - Source today: Intel's GenAI 2026.4.1 Windows archive
   (`storage.openvinotoolkit.org`, 254 MB; Settings counts binary megabytes
-  and shows 242 MB). 11 libraries (`openvino_genai_c`, `openvino_genai`,
-  `openvino_c`, `openvino`, the GPU and CPU plugins, the IR frontend,
-  `openvino_tokenizers`, oneTBB's three), 110 MB (105 in Settings) on disk,
-  plus Intel's licence files (`openvino-EULA.txt` and the third-party
+  and shows 242 MB). 12 libraries (`openvino_genai_c`, `openvino_genai`,
+  `openvino_c`, `openvino`, the GPU, CPU and auto-batching plugins, the IR
+  frontend, `openvino_tokenizers`, oneTBB's three), 110 MB (105 in Settings)
+  on disk, plus Intel's licence files (`openvino-EULA.txt` and the third-party
   notices), which stay beside the libraries. The CPU plugin is
   needed even on the GPU: GenAI compiles the tokenizer and detokenizer models
-  on the CPU. The NPU plugin (108 MB) and the other frontends stay in the
+  on the CPU. The auto-batching plugin (0.2 MB) is there because every
+  compile asks for it (below, under Loading). The NPU, AUTO and HETERO
+  plugins (the NPU one is 108 MB) and the other frontends stay in the
   archive.
 - Licence: the binaries are under the Intel OpenVINO Distribution License
   (the archive's `docs/licensing/EULA.txt`; Settings links Intel's copy). The
@@ -107,10 +109,11 @@ without a Protocol release.
   port or user; both catalog checks hide another host), a redirect is
   followed only to https on that host, and each `.dll` must carry a valid
   Authenticode signature of Intel Corporation (`model_catalog/authenticode.rs`,
-  `WinVerifyTrust` without a revocation check; all 11 of 2026.4.1 are signed
-  by Intel) before it is marked verified. These rules ship with each app and
+  `WinVerifyTrust` with no revocation check whatever the machine's policy,
+  `WTD_REVOKE_NONE` and `WTD_REVOCATION_CHECK_NONE`; all 12 of 2026.4.1 are
+  signed by Intel) before it is marked verified. These rules ship with each app and
   cannot be loosened for it afterwards.
-- No network: none of the 11 libraries imports WinHTTP, WinINet, Winsock or
+- No network: none of the 12 libraries imports WinHTTP, WinINet, Winsock or
   urlmon. The data collection the EULA allows (clause 7.2) is the Python
   `openvino_telemetry` package of the converter tools, which is not among the
   pinned files.
@@ -184,31 +187,55 @@ Settings row says so instead of offering a download.
 
 GenAI 2026.4.1 builds a `std::filesystem::path` from the `const char*` paths
 of its C API (`whisper_pipeline.cpp`, `whisper_generation_config.cpp`), which
-MSVC reads in the process's ANSI code page, not as UTF-8; OpenVINO's own
-string options (`CACHE_DIR`) are UTF-8 (`ov::util::make_path`). So the model
-folder goes to GenAI in that code page, or by its 8.3 short name when the code
-page cannot hold it (a Cyrillic user name on a code page 1252 system, as on
-the test machine), and `CACHE_DIR` as UTF-8 (`genai::genai_path`). A path with
-neither form (short names disabled on the volume) is refused with a message,
-and whisper.cpp runs.
+MSVC reads not as UTF-8 but in the code page `__std_fs_code_page` picks: UTF-8
+under a UTF-8 CRT locale, else the ANSI code page (the OEM one if file APIs
+were switched to it). OpenVINO's own string options (`CACHE_DIR`) are UTF-8
+(`ov::util::make_path`). An ASCII path reads the same in every code page, so
+the model folder goes to GenAI as it is when it is ASCII, else by its 8.3
+short name when that is ASCII (a Cyrillic user name, on any code page), and
+only then in that code page (a Latin-1 name under code page 1252);
+`CACHE_DIR` goes as UTF-8 (`genai::genai_path`). A path with none of these
+forms (no short names on the volume, and characters the code page lacks) is
+refused with a message, and whisper.cpp runs.
+
+GenAI loads its tokenizer extension (`openvino_tokenizers.dll`) from the path
+in `OPENVINO_TOKENIZERS_PATH_GENAI`, which it reads through the C runtime and
+keeps when it is already set (`ScopedVar`, `tokenizer_impl.cpp`), loading that
+file unchecked. Before the libraries load, the binding sets it to the
+runtime folder's verified copy through the same Universal CRT
+(`ucrtbase.dll`'s `_wputenv_s`; a variable set through Win32 after the CRT
+started would not be seen), so a value inherited from the environment cannot
+bring in another copy.
 
 The device rule asks only OpenVINO's GPU plugin for its devices
-(`AVAILABLE_DEVICES`, then each `GPU.<n>`'s properties; `genai::GenAi::gpus`).
-Listing every device would make OpenVINO load each plugin it knows, and the
-ones the runtime does not install (NPU, AUTO, HETERO, BATCH) it then looks up
-by bare name, which reaches PATH, where another OpenVINO could answer. The
-pipelines are created on a `GPU` name, which loads the GPU plugin and, for
-GenAI's tokenizer, the CPU plugin, both from the runtime's folder.
+(`AVAILABLE_DEVICES`, then each `GPU.<n>`'s properties; `genai::GenAi::gpus`):
+listing every device would load every plugin OpenVINO registered. OpenVINO
+registers a plugin it was built with only where it finds the file:
+`openvino-2026.4.1\` under the runtime's folder, the folder itself, or the
+process's current directory (`get_compiled_plugin_path`; nothing is looked up
+on PATH). The pipelines are created on a `GPU` name, which loads the GPU
+plugin and, for GenAI's tokenizer, the CPU plugin. Every compile of a model
+GenAI builds in memory (the decoder, tokenizer and detokenizer) also asks for
+the auto-batching plugin (`apply_auto_batching`, whatever the hints), so the
+runtime carries it, and the catalog must list it (`schema::RUNTIMES`): found
+in the folder, it is never looked for in the current directory. Batching
+itself stays off: GenAI's Whisper sets no `THROUGHPUT` hint, and the GPU
+plugin's default is `LATENCY`.
 
 Crash guard: loading the libraries, asking the GPU plugin and compiling a
 model run native code that a broken driver or runtime can crash in, beyond
-any `Result`. Before each of these steps the app writes
-`<data>/runtimes/openvino-genai.attempt` and removes it when none runs. A
-marker found by the first such step of a process was left by one that died
-there: OpenVINO then stays off (whisper.cpp runs) and the Settings row says
-"Protocol closed unexpectedly the last time OpenVINO was …" with "Try
-OpenVINO again" (`openvino_retry`), which removes the marker and lets the next
-model load try. Without it, a crash in OpenVINO would repeat at every start.
+any `Result`. While any of these steps runs, the app keeps
+`<data>/runtimes/openvino-genai.attempt` naming the steps running, one per
+line, and removes it when none runs. A marker found by the first such step of
+a process was left by one that died there: OpenVINO then stays off
+(whisper.cpp runs) and the Settings row says "Protocol closed unexpectedly the
+last time OpenVINO was …" with "Try OpenVINO again" (`openvino_retry`), which
+removes the marker and lets the next model load try. Without it, a crash in
+OpenVINO would repeat at every start. A process that ends on purpose while a
+step runs (Quit, `RunEvent::Exit`, or the updater closing the app to install)
+removes the marker first and writes none afterwards (`set_closing`), so
+quitting during a compile is not taken for a crash; an update that fails to
+install turns the guard back on.
 
 ### Update and removal
 
@@ -294,16 +321,20 @@ files the engine requires.
 - Unit tests: the device rule's two paths, two identical cards, a hybrid
   laptop and another vendor, and the offer by the display adapters' vendor
   (`device.rs`); the piece trim, the model folder check, the cache keying
-  and pruning, and the crash guard (a step's marker, a panic, a marker left
-  by a dead process stopping OpenVINO until a retry) (`openvino/mod.rs`); a
-  folder whose libraries are no GenAI C API is refused without a crash, GPU
-  names as OpenVINO forms them, and a path handed to GenAI naming the same
-  folder when read back as MSVC reads it, for an ASCII, a code page and a
-  Cyrillic folder (`genai.rs`).
+  and pruning, and the crash guard (a marker naming every step running, a
+  panic, a marker left by a dead process stopping OpenVINO until a retry, a
+  quit during a step not taken for a crash) (`openvino/mod.rs`); a folder
+  whose libraries are no GenAI C API is refused without a crash, GPU names as
+  OpenVINO forms them, a path handed to GenAI naming the same folder when read
+  back as MSVC reads it (ASCII as it is, a Cyrillic and a Latin-1 folder by
+  the ASCII short name, and through the code page where it holds them), and
+  loading a runtime replacing an inherited tokenizer path with its own
+  (`genai.rs`).
 - The catalog: the `runtimes` rules in the shared cases
   (`entry-cases.json`: `runtime_cases`, among them another host, a host that
   only ends like the pinned one, a port, a user, file names that clash
-  without case, a trailing dot, device names and the install's own names), a
+  without case, a trailing dot, device names, the install's own names, and a
+  runtime without the auto-batching plugin), a
   broken runtime list that hides only runtimes, one entry per runtime,
   platform and level (`schema.rs`, `check-catalog.test.mjs`); a companion's
   `runtime`.
@@ -324,16 +355,18 @@ files the engine requires.
   while an update waits, never a newer one the catalog withdrew, never
   another level); what the row says before, during and after an install, for
   an update and after an update while the old version runs, and when no
-  runtime can be installed.
+  runtime can be installed; a removal that frees the runtime only when no
+  other companion keeps it.
 - Settings: `tests/model-catalog/openvino-acceleration.test.tsx` (the row's
   text, sizes and licence link, the offer, progress and cancel, the device
   and the mismatch, a removed runtime, an update and its restart note, a
   failure and a refusal, the crash note and its retry, libraries without the
-  model).
-- Ignored, with an installed runtime (`OPENVINO_TEST_RUNTIME`): Intel's 11
+  model, offered for removal only when that removes them).
+- Ignored, with an installed runtime (`OPENVINO_TEST_RUNTIME`): Intel's 12
   libraries pass the signature check (`authenticode.rs`), and GenAI itself
-  reads a file in a Cyrillic folder through the converted path while the
-  UTF-8 bytes miss it (`genai.rs`, with `OPENVINO_TEST_MODEL`).
+  reads a file in a Cyrillic and in a Latin-1 folder through `genai_path`,
+  the Latin-1 one also through the code page alone, while the UTF-8 bytes
+  miss both (`genai.rs`, with `OPENVINO_TEST_MODEL`).
 - The measurement kit opens an OpenVINO model folder given as
   `MEASURE_WHISPER_MODEL`, with the runtime installed by the app (or a folder
   in `MEASURE_OPENVINO_RUNTIME`, installed by the ignored
@@ -355,3 +388,6 @@ files the engine requires.
   server, or withdraw the runtime, not load foreign code.
 - A model folder whose path the system code page cannot hold, on a volume
   without 8.3 names, stays on whisper.cpp (with a message).
+- OpenVINO still registers the NPU, AUTO and HETERO plugins from the current
+  directory when it holds files of those names; the app never names those
+  devices, so they are not loaded.

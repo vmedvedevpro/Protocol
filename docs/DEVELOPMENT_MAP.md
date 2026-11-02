@@ -810,9 +810,11 @@ installed and the GPU whisper.cpp would use is an Intel GPU OpenVINO lists
   vendor (0x8086) of the display adapters Windows lists under that GPU's name.
 - `whisper_engine/openvino/`: `genai.rs` (the C API binding and its
   `API_LEVEL`, loaded by absolute path; it asks only the GPU plugin for
-  devices and hands GenAI paths in the code page it reads them in),
+  devices, hands GenAI paths as ASCII or in the code page it reads them in,
+  and points GenAI's tokenizer variable at the runtime's own copy),
   `device.rs` (the device rule and the offer), `mod.rs` (the process's one
   runtime load, the crash guard around loading, the GPU query and compiling,
+  which a clean exit turns off,
   `OpenVinoWhisper`, its lifecycle, the model cache keyed by runtime version
   and model commit, the live and post-meeting calls, the piece trim,
   `availability`).
