@@ -38,11 +38,17 @@ export const OPENVINO_WHISPER_FILES = [
   'preprocessor_config.json',
 ];
 // Inference runtimes this version of the app can load (#79), by id: the
-// platforms it loads each on and the libraries its binding opens by name.
-// A runtime is not a model: it sits in the document's `runtimes` list, which
-// apps before 0.5.0 never read.
+// platforms it loads each on, the libraries its binding opens by name, and
+// the only host its archive comes from (over https; the catalog is not
+// signed, so a commit can pick a version but not a server). A runtime is not
+// a model: it sits in the document's `runtimes` list, which apps before 0.5.0
+// never read.
 export const RUNTIMES = {
-  'openvino-genai': { platforms: ['windows-x86_64'], files: ['openvino_genai_c.dll', 'openvino_c.dll'] },
+  'openvino-genai': {
+    platforms: ['windows-x86_64'],
+    files: ['openvino_genai_c.dll', 'openvino_c.dll'],
+    host: 'storage.openvinotoolkit.org',
+  },
 };
 export const CHAT_FORMATS = ['gemma3', 'qwen3.5_nonthinking'];
 export const SAMPLING_FIELDS = [
@@ -63,6 +69,17 @@ const LANGUAGE = /^(\*|[a-z]{2,3})$/;
 const VERSION = /^\d+\.\d+\.\d+$/;
 const RUNTIME_VERSION = /^\d+\.\d+\.\d+(\.\d+)?$/;
 const SHA256 = /^[0-9a-f]{64}$/;
+const ZIP_URL = /^https:\/\/([^/?#:@]+)\/[^?#]*\.zip$/;
+// Names a runtime file cannot take in its version folder: the install's own
+// files and Windows device names, which open a device in any folder.
+const RESERVED_RUNTIME_FILES = ['runtime.json', 'archive.zip'];
+const DEVICE_NAME = /^(con|prn|aux|nul|com[0-9]|lpt[0-9])(\..*)?$/i;
+const isRuntimeFileName = (name) =>
+  FILE_NAME.test(name) &&
+  !name.endsWith('.') &&
+  !DEVICE_NAME.test(name) &&
+  !RESERVED_RUNTIME_FILES.includes(name.toLowerCase()) &&
+  !name.toLowerCase().endsWith('.verified');
 
 const isObject = (value) => typeof value === 'object' && value !== null && !Array.isArray(value) && !(value instanceof Number);
 const isText = (value, max) => typeof value === 'string' && value.trim() !== '' && value.length <= max;
@@ -225,24 +242,26 @@ export function runtimeProblems(runtime) {
   if (
     !isObject(archive) ||
     typeof archive.url !== 'string' ||
-    !/^https:\/\/[^/?#]+\/[^?#]*\.zip$/.test(archive.url) ||
+    !ZIP_URL.test(archive.url) ||
     !isWhole(archive.size, SIZE) ||
     typeof archive.sha256 !== 'string' ||
     !SHA256.test(archive.sha256)
   ) {
     problems.push('archive needs the https url of a .zip, its size and its sha256');
+  } else if (known && ZIP_URL.exec(archive.url)[1].toLowerCase() !== known.host) {
+    problems.push(`the archive of ${runtime.id} must come from https://${known.host}/`);
   }
   if (runtime.min_app_version !== undefined && (typeof runtime.min_app_version !== 'string' || !VERSION.test(runtime.min_app_version))) {
     problems.push('min_app_version must be X.Y.Z');
   }
   const { files } = runtime;
   if (!Array.isArray(files) || files.length === 0) return [...problems, 'files must list at least one file'];
+  // Windows compares file names without case.
   const names = new Set();
   for (const file of files) {
     if (
       !isObject(file) ||
       typeof file.name !== 'string' ||
-      !FILE_NAME.test(file.name) ||
       !isRepoPath(file.path) ||
       !isWhole(file.size, SIZE) ||
       typeof file.sha256 !== 'string' ||
@@ -251,10 +270,14 @@ export function runtimeProblems(runtime) {
       problems.push('every file needs a safe name, its path in the archive, its size and its sha256');
       continue;
     }
-    if (names.has(file.name)) problems.push(`file ${file.name} is listed twice`);
-    names.add(file.name);
+    if (!isRuntimeFileName(file.name)) {
+      problems.push(`file name ${JSON.stringify(file.name)} cannot be used: it is not one plain file name on Windows, or the install uses it`);
+      continue;
+    }
+    if (names.has(file.name.toLowerCase())) problems.push(`file ${file.name} is listed twice`);
+    names.add(file.name.toLowerCase());
   }
-  const missing = (known?.files ?? []).filter((name) => !names.has(name));
+  const missing = (known?.files ?? []).filter((name) => !names.has(name.toLowerCase()));
   if (missing.length > 0) problems.push(`${runtime.id} needs the files ${missing.join(', ')}`);
   return problems;
 }

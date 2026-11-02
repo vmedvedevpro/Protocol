@@ -47,11 +47,44 @@ pub const OPENVINO_WHISPER_FILES: [&str; 11] = [
 /// (`whisper_engine::openvino::genai`).
 pub const OPENVINO_GENAI: &str = "openvino-genai";
 
-/// The inference runtimes this build can load (#79): the catalog id, the
-/// platforms it loads each on, and the libraries its binding opens by name.
+/// An inference runtime this build can load (#79).
+struct KnownRuntime {
+    id: &'static str,
+    /// The platforms it is loaded on.
+    platforms: &'static [&'static str],
+    /// The libraries its binding opens by name.
+    files: &'static [&'static str],
+    /// The only host its archive is downloaded from, over https, redirects
+    /// included. The catalog is not signed, and the runtime is native code
+    /// every install loads: a catalog commit can pick a version, but not a
+    /// server, and these rules cannot be tightened for an app once it ships.
+    host: &'static str,
+    /// The publisher whose Authenticode signature every `.dll` of it carries.
+    signer: &'static str,
+}
+
 /// Mirrors `RUNTIMES` in check-catalog.mjs.
-const RUNTIMES: [(&str, &[&str], &[&str]); 1] =
-    [(OPENVINO_GENAI, &["windows-x86_64"], &["openvino_genai_c.dll", "openvino_c.dll"])];
+const RUNTIMES: [KnownRuntime; 1] = [KnownRuntime {
+    id: OPENVINO_GENAI,
+    platforms: &["windows-x86_64"],
+    files: &["openvino_genai_c.dll", "openvino_c.dll"],
+    host: "storage.openvinotoolkit.org",
+    signer: "Intel Corporation",
+}];
+
+fn known_runtime(id: &str) -> Option<&'static KnownRuntime> {
+    RUNTIMES.iter().find(|known| known.id == id)
+}
+
+/// The host the archive of runtime `id` must come from.
+pub fn runtime_host(id: &str) -> Option<&'static str> {
+    known_runtime(id).map(|known| known.host)
+}
+
+/// The publisher that signs the libraries of runtime `id`.
+pub fn runtime_signer(id: &str) -> Option<&'static str> {
+    known_runtime(id).map(|known| known.signer)
+}
 
 /// This build's platform as the catalog's runtimes name it.
 pub fn platform() -> &'static str {
@@ -365,8 +398,8 @@ impl Entry {
             if self.revision.is_none() {
                 problems.push("an openvino-ir model needs a pinned revision".to_string());
             }
-            if !self.runtime.as_deref().is_some_and(|runtime| RUNTIMES.iter().any(|(id, ..)| *id == runtime)) {
-                let known: Vec<&str> = RUNTIMES.iter().map(|(id, ..)| *id).collect();
+            if !self.runtime.as_deref().is_some_and(|runtime| known_runtime(runtime).is_some()) {
+                let known: Vec<&str> = RUNTIMES.iter().map(|known| known.id).collect();
                 problems.push(format!("runtime must name the runtime that runs it: {}", known.join(", ")));
             }
         } else {
@@ -402,7 +435,29 @@ impl Entry {
 }
 
 static RUNTIME_VERSION: Lazy<Regex> = Lazy::new(|| Regex::new(r"^\d+\.\d+\.\d+(\.\d+)?$").unwrap());
-static ZIP_URL: Lazy<Regex> = Lazy::new(|| Regex::new(r"^https://[^/?#]+/[^?#]*\.zip$").unwrap());
+static ZIP_URL: Lazy<Regex> = Lazy::new(|| Regex::new(r"^https://([^/?#:@]+)/[^?#]*\.zip$").unwrap());
+
+/// Whether `url` is the https URL of a `.zip` on `host` (no port, no user).
+pub fn is_archive_url(url: &str, host: &str) -> bool {
+    ZIP_URL.captures(url).is_some_and(|captures| captures[1].eq_ignore_ascii_case(host))
+}
+
+/// The names a runtime file cannot take: the install's own files and
+/// Windows device names, which open a device in any folder (`NUL`, `com1.txt`).
+const RESERVED_RUNTIME_FILES: [&str; 2] = ["runtime.json", "archive.zip"];
+static DEVICE_NAME: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)^(con|prn|aux|nul|com[0-9]|lpt[0-9])(\..*)?$").unwrap());
+
+/// Whether a runtime file can be called `name` in its version folder on
+/// Windows: one safe path segment that Windows keeps as written (no trailing
+/// dot, no device name) and that is not a file of the install itself.
+fn is_runtime_file_name(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    FILE_NAME.is_match(name)
+        && !name.ends_with('.')
+        && !DEVICE_NAME.is_match(name)
+        && !RESERVED_RUNTIME_FILES.contains(&lower.as_str())
+        && !lower.ends_with(".verified")
+}
 
 /// Byte sizes as check-catalog.mjs can hold them: 1 to 2^53 - 1.
 fn is_size(size: u64) -> bool {
@@ -414,9 +469,10 @@ impl RuntimeEntry {
     /// be used. Mirrors `runtimeProblems` in check-catalog.mjs.
     pub fn problems(&self) -> Vec<String> {
         let mut problems = Vec::new();
-        match RUNTIMES.iter().find(|(id, ..)| *id == self.id) {
+        let known = known_runtime(&self.id);
+        match known {
             None => problems.push(format!("runtime {:?} is not supported", self.id)),
-            Some((_, platforms, _)) if !platforms.contains(&self.platform.as_str()) => {
+            Some(known) if !known.platforms.contains(&self.platform.as_str()) => {
                 problems.push(format!("platform {:?} is not supported by {}", self.platform, self.id));
             }
             Some(_) => {}
@@ -439,6 +495,8 @@ impl RuntimeEntry {
         let archive = &self.archive;
         if !ZIP_URL.is_match(&archive.url) || !is_size(archive.size) || !is_sha256(&archive.sha256) {
             problems.push("archive needs the https url of a .zip, its size and its sha256".to_string());
+        } else if let Some(known) = known.filter(|known| !is_archive_url(&archive.url, known.host)) {
+            problems.push(format!("the archive of {} must come from https://{}/", known.id, known.host));
         }
         if self.min_app_version.as_deref().is_some_and(|version| !VERSION.is_match(version)) {
             problems.push("min_app_version must be X.Y.Z".to_string());
@@ -447,18 +505,23 @@ impl RuntimeEntry {
             problems.push("files must list at least one file".to_string());
             return problems;
         }
+        // Windows compares file names without case.
         let mut names = HashSet::new();
         for file in &self.files {
-            if !FILE_NAME.is_match(&file.name) || !is_repo_path(&file.path) || !is_size(file.size) || !is_sha256(&file.sha256) {
+            if !is_repo_path(&file.path) || !is_size(file.size) || !is_sha256(&file.sha256) {
                 problems.push("every file needs a safe name, its path in the archive, its size and its sha256".to_string());
                 continue;
             }
-            if !names.insert(file.name.as_str()) {
+            if !is_runtime_file_name(&file.name) {
+                problems.push(format!("file name {:?} cannot be used: it is not one plain file name on Windows, or the install uses it", file.name));
+                continue;
+            }
+            if !names.insert(file.name.to_ascii_lowercase()) {
                 problems.push(format!("file {} is listed twice", file.name));
             }
         }
-        let required = RUNTIMES.iter().find(|(id, ..)| *id == self.id).map_or(&[][..], |(_, _, files)| *files);
-        let missing: Vec<&str> = required.iter().copied().filter(|name| !names.contains(name)).collect();
+        let required = known.map_or(&[][..], |known| known.files);
+        let missing: Vec<&str> = required.iter().copied().filter(|name| !names.contains(&name.to_ascii_lowercase())).collect();
         if !missing.is_empty() {
             problems.push(format!("{} needs the files {}", self.id, missing.join(", ")));
         }
