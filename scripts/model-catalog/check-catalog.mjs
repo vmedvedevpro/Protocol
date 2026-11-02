@@ -38,15 +38,16 @@ export const OPENVINO_WHISPER_FILES = [
   'preprocessor_config.json',
 ];
 // Inference runtimes this version of the app can load (#79), by id: the
-// platforms it loads each on, the libraries its binding opens by name, and
-// the only host its archive comes from (over https; the catalog is not
+// platforms it loads each on, the files it must list (the libraries its
+// binding opens by name, and the auto-batching plugin, which OpenVINO would
+// otherwise look for in the current directory), and the only host its archive comes from (over https; the catalog is not
 // signed, so a commit can pick a version but not a server). A runtime is not
 // a model: it sits in the document's `runtimes` list, which apps before 0.5.0
 // never read.
 export const RUNTIMES = {
   'openvino-genai': {
     platforms: ['windows-x86_64'],
-    files: ['openvino_genai_c.dll', 'openvino_c.dll'],
+    files: ['openvino_genai_c.dll', 'openvino_c.dll', 'openvino_auto_batch_plugin.dll'],
     host: 'storage.openvinotoolkit.org',
   },
 };

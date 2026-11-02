@@ -115,7 +115,7 @@ mod tests {
             .map(|item| item.path())
             .filter(|path| path.extension().is_some_and(|extension| extension.eq_ignore_ascii_case("dll")))
             .collect();
-        assert_eq!(libraries.len(), 11);
+        assert_eq!(libraries.len(), 12);
         for library in &libraries {
             check_signed_by(library, "Intel Corporation").unwrap();
         }

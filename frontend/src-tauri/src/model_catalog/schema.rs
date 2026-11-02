@@ -52,7 +52,8 @@ struct KnownRuntime {
     id: &'static str,
     /// The platforms it is loaded on.
     platforms: &'static [&'static str],
-    /// The libraries its binding opens by name.
+    /// The files it must list: the libraries its binding opens by name, and
+    /// those OpenVINO would otherwise look for outside the runtime's folder.
     files: &'static [&'static str],
     /// The only host its archive is downloaded from, over https, redirects
     /// included. The catalog is not signed, and the runtime is native code
@@ -67,7 +68,10 @@ struct KnownRuntime {
 const RUNTIMES: [KnownRuntime; 1] = [KnownRuntime {
     id: OPENVINO_GENAI,
     platforms: &["windows-x86_64"],
-    files: &["openvino_genai_c.dll", "openvino_c.dll"],
+    // Every compile asks for the auto-batching plugin, and OpenVINO looks
+    // for a plugin it lacks in the current directory (`get_plugin_path`):
+    // with it in the folder, that lookup never happens.
+    files: &["openvino_genai_c.dll", "openvino_c.dll", "openvino_auto_batch_plugin.dll"],
     host: "storage.openvinotoolkit.org",
     signer: "Intel Corporation",
 }];
