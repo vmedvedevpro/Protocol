@@ -22,7 +22,7 @@ mock.module('@tauri-apps/api/core', () => ({ invoke: async (command: string, arg
   }
   if (command === 'openvino_status') return args.whisperModel === 'large-v3-turbo-q5_0' ? companion : null;
   if (command === 'openvino_download') return downloadResult();
-  if (command === 'openvino_cancel' || command === 'openvino_remove' || command === 'open_external_url') return;
+  if (['openvino_cancel', 'openvino_remove', 'openvino_retry', 'open_external_url'].includes(command)) return;
   throw new Error(command);
 } }));
 const { OpenVinoAcceleration } = await import('../../src/components/OpenVinoAcceleration');
@@ -68,6 +68,7 @@ beforeEach(() => {
     downloadSize: (254 + 828) * MB,
     refused: null,
     downloading: null,
+    stopped: null,
   };
   downloadResult = async () => {};
 });
@@ -171,6 +172,31 @@ test('a newer runtime in the model list is offered as an update, then used after
   await fire('model-catalog-changed');
   expect(text()).not.toContain('is available');
   expect(text()).toContain('OpenVINO GenAI 2026.5.0.0 is installed. Protocol uses it after a restart.');
+});
+
+test('after Protocol closed inside OpenVINO the row says so and can turn it on again', async () => {
+  const stopped = 'Protocol closed unexpectedly the last time OpenVINO was preparing the model for the GPU, so Whisper runs on Vulkan. Try OpenVINO again in Settings › Transcription.';
+  companion = { ...companion!, companionInstalled: true, installed: true, downloadSize: 0, stopped,
+    runtime: { ...companion!.runtime, installed: '2026.4.1.0' } };
+  await render(['large-v3-turbo-q5_0']);
+  expect(text()).toContain('Protocol closed unexpectedly the last time OpenVINO was preparing the model for the GPU');
+  await act(async () => { buttonWithText('Try OpenVINO again').props.onClick(); await settle(); });
+  expect(commands.some(({ command }) => command === 'openvino_retry')).toBe(true);
+
+  companion = { ...companion!, stopped: null };
+  await fire('openvino-companion-changed');
+  expect(text()).not.toContain('closed unexpectedly');
+});
+
+test('libraries left without the model can be completed or removed', async () => {
+  companion = { ...companion!, downloadSize: 828 * MB, runtime: { ...companion!.runtime, installed: '2026.4.1.0' } };
+  await render(['large-v3-turbo-q5_0']);
+  expect(text()).toContain('2026.4.1.0 installed');
+  expect(text()).toContain('Download fetches only the model');
+  expect(text()).toContain('828 MB');
+  await act(async () => { buttonWithText('Remove the libraries').props.onClick(); await settle(); });
+  expect(commands.filter(({ command }) => command === 'openvino_remove').map(({ args }) => args))
+    .toEqual([{ id: 'large-v3-turbo-openvino-int8' }]);
 });
 
 test('a failed download shows why and offers a retry; a runtime this version cannot run is refused', async () => {

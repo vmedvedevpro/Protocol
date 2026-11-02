@@ -80,16 +80,18 @@ fn runtime_to_load() -> std::result::Result<crate::model_catalog::runtime::Insta
 }
 
 /// The process's runtime, loaded on first use from the version installed in
-/// the app's data. A runtime that is not installed is looked for again on the
-/// next call (it can be installed while the app runs); a load, failed or
-/// not, is kept for the process.
+/// the app's data. A runtime that is not installed, or that a crash stopped
+/// ([`stopped`]), is looked for again on the next call (it can be installed,
+/// or retried, while the app runs); a load, failed or not, is kept for the
+/// process.
 pub fn runtime() -> Result<&'static GenAi> {
     let mut slot = loaded();
     if let Some(loaded) = slot.as_ref() {
         return loaded.outcome.clone().map_err(|error| anyhow!("{error}"));
     }
     let chosen = runtime_to_load().map_err(|reason| anyhow!("{reason}"))?;
-    let outcome = GenAi::load(&chosen.dir)
+    let outcome = guarded(Step::Load, || GenAi::load(&chosen.dir))
+        .map_err(|stopped| anyhow!("{stopped}"))?
         .map(|api| &*Box::leak(Box::new(api)))
         .map_err(|error| format!("OpenVINO GenAI {} could not be loaded: {error}", chosen.record.version));
     match &outcome {
@@ -113,6 +115,135 @@ pub fn with_runtime_slot<T>(work: impl FnOnce(Option<&Path>) -> T) -> T {
     work(slot.as_ref().map(|loaded| loaded.dir.as_path()))
 }
 
+/// Native work of OpenVINO's that can take the process down with it: a
+/// broken driver or runtime crashes inside these calls, where no `Result`
+/// reaches the app.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Step {
+    Load,
+    ListGpus,
+    Compile,
+}
+
+impl Step {
+    fn describe(self) -> &'static str {
+        match self {
+            Step::Load => "loading its libraries",
+            Step::ListGpus => "looking for the GPU",
+            Step::Compile => "preparing the model for the GPU",
+        }
+    }
+}
+
+/// The crash guard around those steps: a marker is written before one
+/// starts and removed when none runs. A marker found by the first step of a
+/// process was left by a process that died in that step, and OpenVINO then
+/// stays off, saying so in Settings, until the person retries ([`retry`]);
+/// otherwise the app would crash again at each start.
+struct Guard {
+    marker: Option<PathBuf>,
+    checked: bool,
+    stopped: Option<String>,
+    running: usize,
+}
+
+impl Guard {
+    const fn new(marker: Option<PathBuf>) -> Mutex<Guard> {
+        Mutex::new(Guard { marker, checked: false, stopped: None, running: 0 })
+    }
+
+    /// Beside the runtime's versions, outside the folder prunes empty.
+    fn marker(&self) -> PathBuf {
+        self.marker
+            .clone()
+            .unwrap_or_else(|| crate::paths::install_data_root().join("runtimes").join("openvino-genai.attempt"))
+    }
+
+    /// Reads the marker once per process, before this process writes one.
+    fn check(&mut self) {
+        if self.checked {
+            return;
+        }
+        self.checked = true;
+        if let Ok(step) = std::fs::read_to_string(self.marker()) {
+            let message = format!(
+                "Protocol closed unexpectedly the last time OpenVINO was {}, so Whisper runs on Vulkan. Try OpenVINO again in Settings › Transcription.",
+                step.trim()
+            );
+            log::error!("{message}");
+            self.stopped = Some(message);
+        }
+    }
+}
+
+static GUARD: Mutex<Guard> = Guard::new(None);
+
+fn lock_guard(guard: &Mutex<Guard>) -> std::sync::MutexGuard<'_, Guard> {
+    guard.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// Why OpenVINO is off after a crash, if it is.
+pub fn stopped() -> Option<String> {
+    stopped_in(&GUARD)
+}
+
+fn stopped_in(guard: &Mutex<Guard>) -> Option<String> {
+    let mut guard = lock_guard(guard);
+    guard.check();
+    guard.stopped.clone()
+}
+
+/// Lets OpenVINO run again after a crash stopped it.
+pub fn retry() {
+    retry_in(&GUARD);
+    DEVICE.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).take();
+}
+
+fn retry_in(guard: &Mutex<Guard>) {
+    let mut guard = lock_guard(guard);
+    guard.checked = true;
+    guard.stopped = None;
+    if guard.running == 0 {
+        let _ = std::fs::remove_file(guard.marker());
+    }
+}
+
+/// Runs `work` inside the crash guard; `Err` when a crash stopped OpenVINO.
+fn guarded<T>(step: Step, work: impl FnOnce() -> T) -> std::result::Result<T, String> {
+    guarded_in(&GUARD, step, work)
+}
+
+fn guarded_in<T>(guard: &Mutex<Guard>, step: Step, work: impl FnOnce() -> T) -> std::result::Result<T, String> {
+    {
+        let mut state = lock_guard(guard);
+        state.check();
+        if let Some(stopped) = &state.stopped {
+            return Err(stopped.clone());
+        }
+        if state.running == 0 {
+            let marker = state.marker();
+            let written = marker.parent().map_or(Ok(()), std::fs::create_dir_all).and_then(|()| std::fs::write(&marker, step.describe()));
+            if let Err(error) = written {
+                log::warn!("Cannot write the OpenVINO crash marker {}: {error}", marker.display());
+            }
+        }
+        state.running += 1;
+    }
+    /// Ends the step also when `work` panics.
+    struct Running<'a>(&'a Mutex<Guard>);
+    impl Drop for Running<'_> {
+        fn drop(&mut self) {
+            let mut state = lock_guard(self.0);
+            state.running -= 1;
+            if state.running == 0 {
+                let _ = std::fs::remove_file(state.marker());
+            }
+        }
+    }
+    let _running = Running(guard);
+    Ok(work())
+}
+
 fn loaded_runtime_version() -> Option<String> {
     loaded().as_ref().map(|loaded| loaded.version.clone())
 }
@@ -121,8 +252,9 @@ fn loaded_runtime_version() -> Option<String> {
 /// the rule in [`device`]. `chosen` is that GPU as ggml reports it
 /// (`acceleration::whisper_gpu`). Logs which way it matched, or why not.
 pub fn device_for(chosen: Option<&super::WhisperGpu>) -> Result<Option<String>> {
-    let gpus: Vec<device::OpenVinoGpu> = runtime()?
-        .gpus()?
+    let api = runtime()?;
+    let gpus: Vec<device::OpenVinoGpu> = guarded(Step::ListGpus, || api.gpus())
+        .map_err(|stopped| anyhow!("{stopped}"))??
         .into_iter()
         .map(|info| device::OpenVinoGpu {
             vendor: info.architecture.as_deref().and_then(device::vendor_from_architecture),
@@ -255,7 +387,8 @@ impl OpenVinoWhisper {
             log::warn!("Cannot create the OpenVINO cache folder {}: {error}; compiling without a cache", cache.display());
         }
         let started = std::time::Instant::now();
-        let pipeline = Pipeline::create(api, model_dir, device, cache.is_dir().then_some(cache.as_path()))
+        let pipeline = guarded(Step::Compile, || Pipeline::create(api, model_dir, device, cache.is_dir().then_some(cache.as_path())))
+            .map_err(|stopped| anyhow!("{stopped}"))?
             .map_err(|error| anyhow!("OpenVINO could not load {} on {device}: {error}", model_dir.display()))?;
         log::info!("OpenVINO Whisper pipeline for {} on {device} ready in {:.1} s", model_dir.display(), started.elapsed().as_secs_f64());
         Ok(pipeline)
@@ -478,7 +611,8 @@ async fn offer() -> Availability {
 /// silent.
 pub async fn availability() -> Availability {
     let mut availability = offer().await;
-    if !availability.offer || (loaded_runtime_dir().is_none() && runtime_to_load().is_err()) {
+    // After a crash the row says so itself (`stopped`), with a retry.
+    if !availability.offer || stopped().is_some() || (loaded_runtime_dir().is_none() && runtime_to_load().is_err()) {
         return availability;
     }
     let cached = DEVICE.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone();
@@ -657,6 +791,38 @@ mod tests {
             .map(|item| item.file_name().to_string_lossy().into_owned())
             .collect();
         assert_eq!(left, [current]);
+    }
+
+    #[test]
+    fn a_crash_inside_a_guarded_step_keeps_openvino_off_at_the_next_start_until_a_retry() {
+        let data = tempfile::tempdir().unwrap();
+        let marker = data.path().join("runtimes").join("openvino-genai.attempt");
+
+        // A step that ends leaves no marker, also when nested in another.
+        let running = Guard::new(Some(marker.clone()));
+        let nested = guarded_in(&running, Step::Load, || guarded_in(&running, Step::ListGpus, || marker.exists()).unwrap()).unwrap();
+        assert!(nested);
+        assert!(!marker.exists());
+        assert_eq!(stopped_in(&running), None);
+        // A panic inside a step ends it too.
+        let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| guarded_in::<()>(&running, Step::Compile, || panic!("boom"))));
+        assert!(panicked.is_err());
+        assert!(!marker.exists());
+
+        // A process died while compiling: its marker stays for the next one,
+        // which does not run OpenVINO and says why.
+        std::fs::write(&marker, Step::Compile.describe()).unwrap();
+        let next = Guard::new(Some(marker.clone()));
+        let refused = guarded_in::<()>(&next, Step::Load, || panic!("OpenVINO ran after a crash")).unwrap_err();
+        assert!(refused.contains("preparing the model for the GPU") && refused.contains("Try OpenVINO again"), "{refused}");
+        assert_eq!(stopped_in(&next).as_deref(), Some(refused.as_str()));
+        assert!(marker.exists());
+
+        // A retry runs it again.
+        retry_in(&next);
+        assert!(!marker.exists());
+        assert_eq!(stopped_in(&next), None);
+        assert_eq!(guarded_in(&next, Step::Load, || 7), Ok(7));
     }
 
     #[test]

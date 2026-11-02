@@ -806,6 +806,8 @@ pub fn run() {
             model_catalog::openvino::openvino_cancel,
             #[cfg(windows)]
             model_catalog::openvino::openvino_remove,
+            #[cfg(windows)]
+            model_catalog::openvino::openvino_retry,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

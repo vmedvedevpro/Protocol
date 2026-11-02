@@ -282,6 +282,9 @@ pub struct CompanionStatus {
     pub refused: Option<String>,
     /// The percentage of a running download.
     pub downloading: Option<u8>,
+    /// OpenVINO is off because the app closed unexpectedly inside it
+    /// (`whisper_engine::openvino::stopped`); `openvino_retry` turns it on.
+    pub stopped: Option<String>,
 }
 
 /// Running downloads by companion id: their cancellation and progress.
@@ -347,6 +350,7 @@ fn status_in(
         download_size: runtime_fetch.zip(companion_fetch).map(|(runtime, model)| runtime + model),
         refused,
         downloading: downloads().get(&entry.id).map(|(_, percent)| *percent),
+        stopped: None,
     }
 }
 
@@ -382,7 +386,8 @@ async fn unload_engines_if_idle() {
 pub async fn openvino_status<R: Runtime>(app: AppHandle<R>, whisper_model: String) -> Result<Option<CompanionStatus>, String> {
     let Some(entry) = companion_for(&whisper_model) else { return Ok(None) };
     let loaded = crate::whisper_engine::openvino::loaded_runtime_dir();
-    let status = status_in(&crate::paths::models_dir(), &runtime_root(), &entry, runtime_entry().as_ref(), loaded.as_deref());
+    let mut status = status_in(&crate::paths::models_dir(), &runtime_root(), &entry, runtime_entry().as_ref(), loaded.as_deref());
+    status.stopped = crate::whisper_engine::openvino::stopped();
     if status.size.is_none() {
         tauri::async_runtime::spawn(async move {
             if sizes::fill(&huggingface::client(), huggingface::HUB, &[entry]).await {
@@ -516,6 +521,18 @@ async fn ensure_room(dir: &Path, needed: u64, name: &str) -> Result<()> {
         ),
         _ => Ok(()),
     }
+}
+
+/// Turns OpenVINO on again after the app closed unexpectedly inside it: the
+/// next model load tries it (and if it crashes again, the next start stops
+/// it again).
+#[tauri::command]
+pub async fn openvino_retry<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
+    crate::whisper_engine::openvino::retry();
+    log::info!("[openvino] retrying OpenVINO after a crash stopped it");
+    unload_engines_if_idle().await;
+    emit(&app);
+    Ok(())
 }
 
 #[tauri::command]

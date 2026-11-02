@@ -65,6 +65,8 @@ export interface CompanionStatus {
   /** Why this version of Protocol cannot install the runtime. */
   refused: string | null;
   downloading: number | null;
+  /** OpenVINO is off because Protocol closed unexpectedly inside it; `openvino_retry` turns it on. */
+  stopped: string | null;
 }
 
 const CHANGED_EVENT = 'openvino-companion-changed';
@@ -173,6 +175,13 @@ export function OpenVinoAcceleration({ whisperModels }: { whisperModels: string[
     }
     refresh();
   };
+  const retry = async () => {
+    await invoke('openvino_retry').catch(() => {});
+    refresh();
+  };
+  const textButton = 'shrink-0 rounded px-2 py-1 font-medium text-af-accent hover:bg-af-accent/10';
+  // Intel's libraries without the model: a download that stopped after them.
+  const runtimeOnly = !companion.installed && !!companion.runtime?.installed && companion.downloading === null;
 
   const gpu = availability.gpu ? ` (${availability.gpu})` : '';
   const update = runtimeUpdate(companion);
@@ -181,6 +190,18 @@ export function OpenVinoAcceleration({ whisperModels }: { whisperModels: string[
   const notes = (
     <>
       <Parts companion={companion} />
+      {companion.stopped && (
+        <div role="alert" className="mt-2 flex items-center justify-between gap-3 text-xs text-af-warning">
+          <p className="[overflow-wrap:anywhere]">{companion.stopped}</p>
+          <button type="button" className={textButton} onClick={() => void retry()}>Try OpenVINO again</button>
+        </div>
+      )}
+      {runtimeOnly && (
+        <div className="mt-2 flex items-center justify-between gap-3 text-xs text-af-text-2">
+          <p>{`Intel's libraries are installed without the model; Download fetches only the model.`}</p>
+          <button type="button" className={textButton} onClick={() => void remove()}>Remove the libraries</button>
+        </div>
+      )}
       {availability.device && companion.installed && (
         <p className="mt-2 text-xs text-af-text-3">{`Whisper runs on ${availability.device} with OpenVINO.`}</p>
       )}
@@ -201,7 +222,7 @@ export function OpenVinoAcceleration({ whisperModels }: { whisperModels: string[
           </p>
           <button
             type="button"
-            className="shrink-0 rounded px-2 py-1 font-medium text-af-accent hover:bg-af-accent/10"
+            className={textButton}
             aria-label={`Update ${update.name} to ${update.version}`}
             onClick={() => void download()}
           >
