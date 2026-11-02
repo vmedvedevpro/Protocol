@@ -71,8 +71,9 @@ fn recording_span(tracks: &[Track], span: Option<Span>) -> Result<Option<Span>> 
 }
 
 /// Inputs: `MEASURE_AUDIO`, `MEASURE_OUT`, `MEASURE_SETTINGS`,
-/// `MEASURE_WHISPER_MODEL` and/or `MEASURE_PARAKEET_MODEL`, and optionally
-/// `MEASURE_LANGUAGE`, `MEASURE_VOCABULARY`, `MEASURE_SPAN`,
+/// `MEASURE_WHISPER_MODEL` (with an OpenVINO model folder, the runtime in
+/// `MEASURE_OPENVINO_RUNTIME`) and/or `MEASURE_PARAKEET_MODEL`, and
+/// optionally `MEASURE_LANGUAGE`, `MEASURE_VOCABULARY`, `MEASURE_SPAN`,
 /// `MEASURE_DIARIZATION` with `MEASURE_DIARIZATION_MODEL`.
 #[tokio::test]
 #[ignore = "measurement command; inputs from MEASURE_* (docs/MEASURING_TRANSCRIPTION.md)"]
