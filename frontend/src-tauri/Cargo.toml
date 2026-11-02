@@ -182,7 +182,19 @@ tauri-plugin-updater = "2.14"
 [target.'cfg(windows)'.dependencies]
 tauri-winrt-notification = "0.8.1"
 winreg = "0.55"
-windows-sys = { version = "0.59", features = ["Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_Graphics_Gdi"] }
+windows-sys = { version = "0.59", features = [
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_Graphics_Gdi",
+    # Runtime downloads (#79): Authenticode, and paths GenAI reads in the ANSI code page.
+    "Win32_Foundation",
+    "Win32_Globalization",
+    "Win32_Security_Cryptography",
+    "Win32_Security_Cryptography_Catalog",
+    "Win32_Security_Cryptography_Sip",
+    "Win32_Security_WinTrust",
+    "Win32_Storage_FileSystem",
+] }
 windows = { version = "0.54.0", features = [
     "implement",
     "Win32_Devices_Properties",

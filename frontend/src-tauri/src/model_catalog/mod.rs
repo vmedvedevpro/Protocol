@@ -13,6 +13,8 @@
 //! entries every time they list or download, so a refreshed catalog applies
 //! without a restart.
 
+#[cfg(windows)]
+pub mod authenticode;
 pub mod commands;
 pub mod huggingface;
 pub mod installed;

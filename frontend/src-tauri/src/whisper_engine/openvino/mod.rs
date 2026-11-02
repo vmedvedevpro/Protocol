@@ -106,6 +106,13 @@ pub fn loaded_runtime_dir() -> Option<PathBuf> {
     loaded().as_ref().map(|loaded| loaded.dir.clone())
 }
 
+/// Runs `work` with that folder while no load can start, so a prune of the
+/// runtime's versions never deletes one as it is being loaded.
+pub fn with_runtime_slot<T>(work: impl FnOnce(Option<&Path>) -> T) -> T {
+    let slot = loaded();
+    work(slot.as_ref().map(|loaded| loaded.dir.as_path()))
+}
+
 fn loaded_runtime_version() -> Option<String> {
     loaded().as_ref().map(|loaded| loaded.version.clone())
 }

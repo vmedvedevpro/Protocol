@@ -8,10 +8,16 @@
 //! was installed (written last). An install is atomic: the archive is
 //! downloaded into `.staging-<version>/` beside the versions, checked
 //! against its pin, only the pinned files are extracted, each checked
-//! against its own pin, the archive is deleted, and the folder is renamed to
+//! against its own pin (and each library against its publisher's
+//! signature), the archive is deleted, and the folder is renamed to
 //! `<version>`. A failure or a cancel removes the staging folder, so a
 //! version folder is always complete; a staging folder left by a crash is
 //! removed by the next install or [`prune_in`].
+//!
+//! The catalog is not signed, so it does not choose where the code comes
+//! from: the archive's host and the libraries' signer are this build's, per
+//! runtime id (`schema::runtime_host`, `schema::runtime_signer`), and a
+//! redirect off that host fails the download ([`Fetch::Vendor`]).
 //!
 //! Which installed version is loaded, and when old ones are removed, is the
 //! caller's (`super::openvino`): a loaded library cannot be deleted on
@@ -43,6 +49,85 @@ const STALL: Duration = Duration::from_secs(30);
 
 /// The file names inside a runtime folder that are not runtime files.
 const ARCHIVE: &str = "archive.zip";
+
+/// How long a rename or deletion waits out a lock on a freshly written file
+/// (an antivirus scan of the new libraries, the search indexer) before it
+/// fails: Windows refuses to rename a folder while a file in it is open, and
+/// a failure there would throw away a checked download.
+const LOCK_PATIENCE: Duration = Duration::from_secs(20);
+
+/// Where an install fetches from and what it checks beyond the pins.
+pub enum Fetch {
+    /// The runtime's vendor: the archive URL must be on the host this build
+    /// pins for the runtime, redirects go only to https on that host, and
+    /// every `.dll` must carry the Authenticode signature of its publisher.
+    Vendor,
+    /// A test's server and unsigned files: the pins only.
+    #[cfg(test)]
+    Local(reqwest::Client),
+    /// A test's server, and libraries signed by this publisher.
+    #[cfg(test)]
+    LocalSigned(reqwest::Client, &'static str),
+}
+
+/// Whether a redirect may go to `url`: https on the pinned `host`, without
+/// a port or a user.
+fn redirect_allowed(url: &reqwest::Url, host: &str) -> bool {
+    url.scheme() == "https"
+        && url.port().is_none()
+        && url.username().is_empty()
+        && url.host_str().is_some_and(|found| found.eq_ignore_ascii_case(host))
+}
+
+/// The client that downloads `entry` from its vendor, and the publisher
+/// whose signature its libraries need.
+fn vendor_client(entry: &RuntimeEntry) -> Result<(reqwest::Client, &'static str)> {
+    let (Some(host), Some(signer)) = (schema::runtime_host(&entry.id), schema::runtime_signer(&entry.id)) else {
+        bail!("{} is not a runtime this version of Protocol installs", entry.id);
+    };
+    if !schema::is_archive_url(&entry.archive.url, host) {
+        bail!("The model list names an archive of {} that is not on https://{host}/", entry.name);
+    }
+    let client = super::huggingface::builder()
+        .connect_timeout(STALL)
+        .redirect(redirect_policy(host))
+        .build()
+        .map_err(|error| anyhow!("Could not prepare the download of {}: {error}", entry.name))?;
+    Ok((client, signer))
+}
+
+fn redirect_policy(host: &'static str) -> reqwest::redirect::Policy {
+    reqwest::redirect::Policy::custom(move |attempt| {
+        if attempt.previous().len() >= 10 {
+            attempt.error("too many redirects")
+        } else if redirect_allowed(attempt.url(), host) {
+            attempt.follow()
+        } else {
+            attempt.error(format!("a redirect left https://{host}/"))
+        }
+    })
+}
+
+/// Runs `operation` until it does not fail on a lock, for up to
+/// [`LOCK_PATIENCE`].
+async fn patiently<T>(mut operation: impl FnMut() -> std::io::Result<T>) -> std::io::Result<T> {
+    // ERROR_ACCESS_DENIED, ERROR_SHARING_VIOLATION, ERROR_LOCK_VIOLATION.
+    let locked = |error: &std::io::Error| {
+        error.kind() == std::io::ErrorKind::PermissionDenied || matches!(error.raw_os_error(), Some(5 | 32 | 33))
+    };
+    let started = std::time::Instant::now();
+    let mut pause = Duration::from_millis(100);
+    loop {
+        match operation() {
+            Err(error) if locked(&error) && started.elapsed() + pause <= LOCK_PATIENCE => {
+                log::info!("[runtime] {error}; trying again in {} ms", pause.as_millis());
+                tokio::time::sleep(pause).await;
+                pause = (pause * 2).min(Duration::from_secs(2));
+            }
+            result => return result,
+        }
+    }
+}
 
 /// Where the versions of runtime `id` are kept under `data_dir`.
 pub fn root_in(data_dir: &Path, id: &str) -> PathBuf {
@@ -129,10 +214,10 @@ pub fn installed_in(root: &Path) -> Vec<Installed> {
 
 /// Installs `entry` under `root` (its runtime's folder) and returns the
 /// version's folder; a version already installed and verified is kept as it
-/// is. `client` fetches the archive; `progress` gets the archive bytes done
-/// and its size.
+/// is. `fetch` says where from; `progress` gets the archive bytes done and
+/// its size.
 pub async fn install_into(
-    client: &reqwest::Client,
+    fetch: &Fetch,
     root: &Path,
     entry: &RuntimeEntry,
     cancel: &CancellationToken,
@@ -142,16 +227,27 @@ pub async fn install_into(
     if verified(&target).is_some_and(|record| record == RuntimeRecord::from_entry(entry)) {
         return Ok(target);
     }
+    let (client, signer) = match fetch {
+        Fetch::Vendor => vendor_client(entry).map(|(client, signer)| (client, Some(signer)))?,
+        #[cfg(test)]
+        Fetch::Local(client) => (client.clone(), None),
+        #[cfg(test)]
+        Fetch::LocalSigned(client, signer) => (client.clone(), Some(*signer)),
+    };
     let staging = root.join(format!("{STAGING}{}", entry.version));
     remove_dir(&staging)?;
     tokio::fs::create_dir_all(&staging).await?;
-    let installed = stage(client, &staging, entry, cancel, &mut progress).await.and_then(|()| {
+    let mut installed = stage(&client, &staging, entry, signer, cancel, &mut progress).await;
+    if installed.is_ok() {
         // Only now can a version folder of this name go: one left unverified,
         // or one this record replaces.
-        remove_dir(&target)?;
-        std::fs::rename(&staging, &target)
-            .map_err(|error| anyhow!("Could not finish installing {} {}: {error}", entry.name, entry.version))
-    });
+        installed = match remove_dir(&target) {
+            Ok(()) => patiently(|| std::fs::rename(&staging, &target))
+                .await
+                .map_err(|error| anyhow!("Could not finish installing {} {}: {error}", entry.name, entry.version)),
+            Err(error) => Err(error),
+        };
+    }
     match installed {
         Ok(()) => Ok(target),
         Err(error) => {
@@ -168,6 +264,7 @@ async fn stage(
     client: &reqwest::Client,
     staging: &Path,
     entry: &RuntimeEntry,
+    signer: Option<&'static str>,
     cancel: &CancellationToken,
     progress: &mut impl FnMut(u64, u64),
 ) -> Result<()> {
@@ -175,10 +272,12 @@ async fn stage(
     download(client, &archive, entry, cancel, progress).await?;
     let (from, into, files, token) = (archive.clone(), staging.to_path_buf(), entry.files.clone(), cancel.clone());
     let name = entry.name.clone();
-    tokio::task::spawn_blocking(move || extract(&from, &into, &files, &name, &|| token.is_cancelled()))
+    tokio::task::spawn_blocking(move || extract(&from, &into, &files, &name, signer, &|| token.is_cancelled()))
         .await
         .map_err(|error| anyhow!("the extraction task failed: {error}"))??;
-    tokio::fs::remove_file(&archive).await?;
+    patiently(|| std::fs::remove_file(&archive))
+        .await
+        .map_err(|error| anyhow!("Could not delete the {} archive: {error}", entry.name))?;
     if cancel.is_cancelled() {
         bail!(CANCELLED);
     }
@@ -238,10 +337,18 @@ async fn download(
 }
 
 /// Copies each pinned file out of the archive into `into`, checking it as
-/// it is written. Names in the archive are only looked up, never used as
+/// it is written and, with `signer`, each library's signature, before it is
+/// marked verified. Names in the archive are only looked up, never used as
 /// paths: a file lands under its catalog `name`, which the schema keeps to
 /// one safe path segment.
-fn extract(archive: &Path, into: &Path, files: &[schema::RuntimeFile], name: &str, cancelled: &dyn Fn() -> bool) -> Result<()> {
+fn extract(
+    archive: &Path,
+    into: &Path,
+    files: &[schema::RuntimeFile],
+    name: &str,
+    signer: Option<&str>,
+    cancelled: &dyn Fn() -> bool,
+) -> Result<()> {
     use std::io::{Read, Write};
     let mut zip = zip::ZipArchive::new(std::fs::File::open(archive)?)
         .map_err(|error| anyhow!("The {name} archive cannot be read: {error}"))?;
@@ -268,6 +375,9 @@ fn extract(archive: &Path, into: &Path, files: &[schema::RuntimeFile], name: &st
         output.flush()?;
         drop(output);
         check.finish(&path)?;
+        if let Some(signer) = signer.filter(|_| file.name.to_ascii_lowercase().ends_with(".dll")) {
+            super::authenticode::check_signed_by(&path, signer)?;
+        }
         model_integrity::mark_verified(pinned, &path);
     }
     Ok(())
@@ -374,6 +484,27 @@ pub(crate) mod testing {
     pub async fn serve(body: Vec<u8>) -> String {
         crate::model_integrity::testing::serve_once(body).await
     }
+
+    /// A local server that answers one request with a redirect to `location`.
+    pub async fn serve_redirect(location: &str) -> String {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/runtime.zip", listener.local_addr().unwrap());
+        let head = format!("HTTP/1.1 302 Found\r\nLocation: {location}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+        tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut request = Vec::new();
+            let mut buffer = [0; 1024];
+            while !request.windows(4).any(|part| part == b"\r\n\r\n") {
+                match stream.read(&mut buffer).await {
+                    Ok(0) | Err(_) => return,
+                    Ok(read) => request.extend_from_slice(&buffer[..read]),
+                }
+            }
+            let _ = stream.write_all(head.as_bytes()).await;
+        });
+        url
+    }
 }
 
 #[cfg(test)]
@@ -389,7 +520,7 @@ mod tests {
 
     async fn install(root: &Path, bytes: Vec<u8>, entry: &mut RuntimeEntry, cancel: &CancellationToken) -> Result<PathBuf> {
         entry.archive.url = serve(bytes).await;
-        install_into(&reqwest::Client::new(), root, entry, cancel, |_, _| {}).await
+        install_into(&Fetch::Local(reqwest::Client::new()), root, entry, cancel, |_, _| {}).await
     }
 
     fn leftovers(root: &Path) -> Vec<String> {
@@ -415,7 +546,7 @@ mod tests {
         entry.archive.sha256 = sha256(&archive);
         let mut reported = Vec::new();
         entry.archive.url = serve(archive).await;
-        let dir = install_into(&reqwest::Client::new(), &root, &entry, &CancellationToken::new(), |done, total| reported.push((done, total)))
+        let dir = install_into(&Fetch::Local(reqwest::Client::new()), &root, &entry, &CancellationToken::new(), |done, total| reported.push((done, total)))
             .await
             .unwrap();
 
@@ -480,7 +611,7 @@ mod tests {
         new.archive.url = serve(bytes).await;
         let cancel = CancellationToken::new();
         // Cancelled as the first bytes arrive: mid-way through the download.
-        let error = install_into(&reqwest::Client::new(), &root, &new, &cancel, |_, _| cancel.cancel()).await.unwrap_err();
+        let error = install_into(&Fetch::Local(reqwest::Client::new()), &root, &new, &cancel, |_, _| cancel.cancel()).await.unwrap_err();
         assert_eq!(error.to_string(), CANCELLED);
         assert_eq!(leftovers(&root), ["2026.4.1.0"]);
         assert_eq!(installed_in(&root).iter().map(|version| version.dir.clone()).collect::<Vec<_>>(), [installed]);
@@ -505,7 +636,7 @@ mod tests {
         assert_eq!(installed_in(&root).len(), 1);
 
         // Installing a version that is there and verified fetches nothing.
-        install_into(&reqwest::Client::new(), &root, &new, &CancellationToken::new(), |_, _| panic!("downloaded again"))
+        install_into(&Fetch::Local(reqwest::Client::new()), &root, &new, &CancellationToken::new(), |_, _| panic!("downloaded again"))
             .await
             .unwrap();
 
@@ -536,5 +667,91 @@ mod tests {
         };
         std::fs::write(dir.path().join(RECORD), serde_json::to_vec(&record).unwrap()).unwrap();
         assert_eq!(verified(dir.path()), None);
+    }
+
+    #[tokio::test]
+    async fn the_vendor_install_refuses_an_archive_off_the_pinned_host_before_any_request() {
+        let data = tempfile::tempdir().unwrap();
+        let root = root_in(data.path(), "openvino-genai");
+        let (_, mut entry) = entry_with("2026.4.1.0", 1);
+        for url in [
+            "https://example.com/runtime.zip",
+            "https://storage.openvinotoolkit.org.example.com/runtime.zip",
+            "http://storage.openvinotoolkit.org/runtime.zip",
+            "https://storage.openvinotoolkit.org:8443/runtime.zip",
+        ] {
+            entry.archive.url = url.to_string();
+            let error = install_into(&Fetch::Vendor, &root, &entry, &CancellationToken::new(), |_, _| panic!("downloaded"))
+                .await
+                .unwrap_err();
+            assert!(error.to_string().contains("not on https://storage.openvinotoolkit.org/"), "{url}: {error:#}");
+        }
+        assert!(!root.exists());
+    }
+
+    #[test]
+    fn a_redirect_may_go_only_to_https_on_the_pinned_host() {
+        let allowed = |url: &str| redirect_allowed(&reqwest::Url::parse(url).unwrap(), "storage.openvinotoolkit.org");
+        assert!(allowed("https://storage.openvinotoolkit.org/repositories/x.zip"));
+        assert!(allowed("https://STORAGE.openvinotoolkit.org/x.zip"));
+        assert!(!allowed("http://storage.openvinotoolkit.org/x.zip"));
+        assert!(!allowed("https://storage.openvinotoolkit.org:444/x.zip"));
+        assert!(!allowed("https://user@storage.openvinotoolkit.org/x.zip"));
+        assert!(!allowed("https://cdn.openvinotoolkit.org/x.zip"));
+        assert!(!allowed("https://storage.openvinotoolkit.org.example.com/x.zip"));
+    }
+
+    #[tokio::test]
+    async fn a_redirect_off_the_pinned_host_fails_the_download() {
+        let data = tempfile::tempdir().unwrap();
+        let root = root_in(data.path(), "openvino-genai");
+        let (_, mut entry) = entry_with("2026.4.1.0", 1);
+        entry.archive.url = serve_redirect("https://example.com/runtime.zip").await;
+        let client = reqwest::Client::builder().no_proxy().redirect(redirect_policy("storage.openvinotoolkit.org")).build().unwrap();
+        let error = install_into(&Fetch::Local(client), &root, &entry, &CancellationToken::new(), |_, _| {}).await.unwrap_err();
+        assert!(format!("{error:#}").contains("a redirect left https://storage.openvinotoolkit.org/"), "{error:#}");
+        assert!(leftovers(&root).is_empty(), "{:?}", leftovers(&root));
+    }
+
+    #[tokio::test]
+    async fn a_library_without_its_publishers_signature_installs_nothing() {
+        let data = tempfile::tempdir().unwrap();
+        let root = root_in(data.path(), "openvino-genai");
+        let (bytes, mut entry) = entry_with("2026.4.1.0", 1);
+        entry.archive.url = serve(bytes).await;
+        let fetch = Fetch::LocalSigned(reqwest::Client::new(), "Intel Corporation");
+        let error = install_into(&fetch, &root, &entry, &CancellationToken::new(), |_, _| {}).await.unwrap_err();
+        assert!(error.to_string().contains("openvino_genai_c.dll does not carry a valid signature of Intel Corporation"), "{error:#}");
+        assert!(leftovers(&root).is_empty(), "{:?}", leftovers(&root));
+    }
+
+    #[tokio::test]
+    async fn a_rename_or_deletion_waits_out_a_file_held_open() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let data = tempfile::tempdir().unwrap();
+        let (from, to) = (data.path().join(".staging-1.0.0"), data.path().join("1.0.0"));
+        std::fs::create_dir_all(&from).unwrap();
+        // As an antivirus scan holds a fresh library: no sharing at all.
+        let hold = |path: &Path| std::fs::OpenOptions::new().write(true).create(true).share_mode(0).open(path).unwrap();
+        let held = hold(&from.join("openvino.dll"));
+        assert!(std::fs::rename(&from, &to).is_err(), "Windows renamed a folder holding an open file");
+        let release = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(600));
+            drop(held);
+        });
+        patiently(|| std::fs::rename(&from, &to)).await.unwrap();
+        release.join().unwrap();
+        assert!(to.join("openvino.dll").exists());
+
+        let archive = to.join(ARCHIVE);
+        let held = hold(&archive);
+        assert!(std::fs::remove_file(&archive).is_err());
+        let release = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(600));
+            drop(held);
+        });
+        patiently(|| std::fs::remove_file(&archive)).await.unwrap();
+        release.join().unwrap();
+        assert!(!archive.exists());
     }
 }
