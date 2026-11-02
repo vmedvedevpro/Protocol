@@ -13,7 +13,7 @@ import { Textarea } from './ui/textarea';
 import { RecordingPreferences } from './RecordingSettings';
 import { ModelManager } from './WhisperModelManager';
 import { ParakeetModelManager } from './ParakeetModelManager';
-import { OpenVinoCompanion } from './OpenVinoCompanion';
+import { OpenVinoAcceleration } from './OpenVinoAcceleration';
 import { LANGUAGES } from './LanguageSelection';
 import { RowNote, SettingRow, SettingsGroup } from './settings/SettingsGroup';
 import type { RawModelInfo } from '@/hooks/useTranscriptionModels';
@@ -632,7 +632,7 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
                     />
                 </div>
             </SettingRow>
-            <OpenVinoCompanion whisperModels={whisperInUse} />
+            <OpenVinoAcceleration whisperModels={whisperInUse} />
         </SettingsGroup>
     );
 
