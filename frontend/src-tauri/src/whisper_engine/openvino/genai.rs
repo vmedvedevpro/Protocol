@@ -83,10 +83,78 @@ unsafe fn read_string(
     Ok(CStr::from_bytes_until_nul(&buffer).map(|text| text.to_string_lossy().into_owned()).unwrap_or_default())
 }
 
-#[repr(C)]
-struct AvailableDevices {
-    devices: *mut *mut c_char,
-    size: usize,
+/// `path` as GenAI's C API takes a path. GenAI 2026.4.1 builds a
+/// `std::filesystem::path` from the `const char*` (`whisper_pipeline.cpp`,
+/// `whisper_generation_config.cpp`), which MSVC reads in the process's ANSI
+/// code page (the OEM one if file APIs were switched to it), not as UTF-8:
+/// a data folder under a Cyrillic user name would not be found. So the path
+/// goes in that code page, or by its 8.3 short name when the code page
+/// cannot hold it. OpenVINO's own string options are UTF-8 instead
+/// (`ov::util::make_path`), so `CACHE_DIR` is not passed through this.
+#[cfg(windows)]
+fn genai_path(path: &Path) -> Result<CString, GenAiError> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::GetShortPathNameW;
+    let wide = |text: &std::ffi::OsStr| -> Vec<u16> { text.encode_wide().collect() };
+    let mut candidates = vec![wide(path.as_os_str())];
+    let mut long: Vec<u16> = candidates[0].clone();
+    long.push(0);
+    // SAFETY: the buffer is sized by the first call; both calls read `long`.
+    unsafe {
+        let size = GetShortPathNameW(long.as_ptr(), std::ptr::null_mut(), 0);
+        if size > 0 {
+            let mut short = vec![0u16; size as usize];
+            let written = GetShortPathNameW(long.as_ptr(), short.as_mut_ptr(), size);
+            if written > 0 && written < size {
+                short.truncate(written as usize);
+                candidates.push(short);
+            }
+        }
+    }
+    candidates
+        .iter()
+        .find_map(|candidate| narrow_for_file_apis(candidate))
+        .and_then(|bytes| CString::new(bytes).ok())
+        .ok_or_else(|| {
+            GenAiError::Invalid(format!(
+                "{} cannot be handed to OpenVINO: its name has characters the system's code page lacks, and it has no short name",
+                path.display()
+            ))
+        })
+}
+
+/// `wide` in the code page MSVC's `std::filesystem` reads narrow paths in,
+/// or `None` when a character does not convert exactly.
+#[cfg(windows)]
+fn narrow_for_file_apis(wide: &[u16]) -> Option<Vec<u8>> {
+    use windows_sys::Win32::Globalization::{GetACP, WideCharToMultiByte, CP_ACP, CP_OEMCP, CP_UTF8, WC_NO_BEST_FIT_CHARS};
+    use windows_sys::Win32::Storage::FileSystem::AreFileApisANSI;
+    if wide.is_empty() {
+        return Some(Vec::new());
+    }
+    // SAFETY: plain conversions of `wide` into a buffer the first call sizes.
+    unsafe {
+        let code_page = if AreFileApisANSI() != 0 { CP_ACP } else { CP_OEMCP };
+        // With UTF-8 as the system code page (a Windows option) every path
+        // converts, and the call takes neither flag nor default character.
+        let utf8 = code_page == CP_ACP && GetACP() == CP_UTF8;
+        let flags = if utf8 { 0 } else { WC_NO_BEST_FIT_CHARS };
+        let mut defaulted = 0;
+        let defaulted_ptr = if utf8 { std::ptr::null_mut() } else { &mut defaulted as *mut _ };
+        let length = wide.len() as i32;
+        let size = WideCharToMultiByte(code_page, flags, wide.as_ptr(), length, std::ptr::null_mut(), 0, std::ptr::null(), defaulted_ptr);
+        if size <= 0 {
+            return None;
+        }
+        let mut narrow = vec![0u8; size as usize];
+        let written = WideCharToMultiByte(code_page, flags, wide.as_ptr(), length, narrow.as_mut_ptr(), size, std::ptr::null(), defaulted_ptr);
+        (written == size && defaulted == 0).then_some(narrow)
+    }
+}
+
+#[cfg(not(windows))]
+fn genai_path(path: &Path) -> Result<CString, GenAiError> {
+    c_string(&path.to_string_lossy())
 }
 
 macro_rules! api {
@@ -137,11 +205,12 @@ api! {
         unsafe extern "C" fn(*const Opaque, *mut c_char, *mut usize) -> Status,
 }
 
+/// The OpenVINO calls the device rule needs. There is deliberately no
+/// `ov_core_get_available_devices`: it loads every plugin OpenVINO knows
+/// (see [`GenAi::gpus`]).
 struct CoreFns {
     core_create: unsafe extern "C" fn(*mut *mut Opaque) -> Status,
     core_free: unsafe extern "C" fn(*mut Opaque),
-    available_devices: unsafe extern "C" fn(*const Opaque, *mut AvailableDevices) -> Status,
-    available_devices_free: unsafe extern "C" fn(*mut AvailableDevices),
     get_property: unsafe extern "C" fn(*const Opaque, *const c_char, *const c_char, *mut *mut c_char) -> Status,
     free: unsafe extern "C" fn(*const c_char),
 }
@@ -193,8 +262,6 @@ impl GenAi {
             CoreFns {
                 core_create: *openvino_c.get(b"ov_core_create\0").map_err(load_error)?,
                 core_free: *openvino_c.get(b"ov_core_free\0").map_err(load_error)?,
-                available_devices: *openvino_c.get(b"ov_core_get_available_devices\0").map_err(load_error)?,
-                available_devices_free: *openvino_c.get(b"ov_available_devices_free\0").map_err(load_error)?,
                 get_property: *openvino_c.get(b"ov_core_get_property\0").map_err(load_error)?,
                 free: *openvino_c.get(b"ov_free\0").map_err(load_error)?,
             }
@@ -206,32 +273,40 @@ impl GenAi {
         &self.folder
     }
 
-    /// Every OpenVINO device with the properties the device rule reads. Creating a
-    /// core loads the device plugins, so this is called once per engine selection.
-    pub fn devices(&self) -> Result<Vec<DeviceInfo>, GenAiError> {
+    /// The GPUs of OpenVINO's GPU plugin, with the properties the device rule
+    /// reads, named as OpenVINO lists them. Only that plugin is asked, and it
+    /// is one of the runtime's files: listing every device makes OpenVINO
+    /// load each plugin it knows, and those the runtime does not install (NPU,
+    /// AUTO, HETERO, BATCH) it then looks up by bare name, which reaches
+    /// PATH, where another OpenVINO could answer. A pipeline is created on
+    /// one of these names, so it loads the GPU plugin and, for GenAI's
+    /// tokenizer, the CPU one, both by absolute path from this folder.
+    /// Loading the GPU plugin is costly, so this is called once per engine
+    /// selection.
+    pub fn gpus(&self) -> Result<Vec<DeviceInfo>, GenAiError> {
         let mut core = std::ptr::null_mut();
         // SAFETY: plain C calls on a core this function creates and frees.
         unsafe {
             check("ov_core_create", (self.core.core_create)(&mut core))?;
-            let mut list = AvailableDevices { devices: std::ptr::null_mut(), size: 0 };
-            let listed = check("ov_core_get_available_devices", (self.core.available_devices)(core, &mut list));
-            let mut devices = Vec::new();
-            if listed.is_ok() {
-                for index in 0..list.size {
-                    let name = CStr::from_ptr(*list.devices.add(index)).to_string_lossy().into_owned();
+            // A GPU plugin that finds no device fails here; OpenVINO's own
+            // device list counts that as no GPU, and so does this.
+            let ids = self.property(core, "GPU", "AVAILABLE_DEVICES").unwrap_or_default();
+            let ids: Vec<&str> = ids.split_whitespace().collect();
+            let devices = gpu_names(&ids)
+                .into_iter()
+                .map(|name| {
                     let property = |key: &str| self.property(core, &name, key);
-                    devices.push(DeviceInfo {
+                    DeviceInfo {
                         full_name: property("FULL_DEVICE_NAME"),
                         device_type: property("DEVICE_TYPE"),
                         architecture: property("DEVICE_ARCHITECTURE"),
                         pci_info: property("DEVICE_PCI_INFO"),
                         name,
-                    });
-                }
-                (self.core.available_devices_free)(&mut list);
-            }
+                    }
+                })
+                .collect();
             (self.core.core_free)(core);
-            listed.map(|_| devices)
+            Ok(devices)
         }
     }
 
@@ -244,6 +319,17 @@ impl GenAi {
         let text = CStr::from_ptr(value).to_string_lossy().into_owned();
         (self.core.free)(value);
         Some(text)
+    }
+}
+
+/// The device names of the GPU plugin's `AVAILABLE_DEVICES` ids, as
+/// `ov::Core::get_available_devices` forms them: `GPU` for one, `GPU.<id>`
+/// for each of several.
+fn gpu_names(ids: &[&str]) -> Vec<String> {
+    match ids {
+        [] => Vec::new(),
+        [_] => vec!["GPU".to_string()],
+        several => several.iter().map(|id| format!("GPU.{id}")).collect(),
     }
 }
 
@@ -278,7 +364,7 @@ impl<'a> Pipeline<'a> {
     /// the compiled blobs are kept there (OpenVINO's `CACHE_DIR`), which turns a
     /// later compile into a load.
     pub fn create(api: &'a GenAi, model_dir: &Path, device: &str, cache_dir: Option<&Path>) -> Result<Self, GenAiError> {
-        let model = c_string(&model_dir.to_string_lossy())?;
+        let model = genai_path(model_dir)?;
         let device = c_string(device)?;
         let mut raw = std::ptr::null_mut();
         // SAFETY: the variadic tail is `property_args_size` C strings, key then value.
@@ -367,7 +453,7 @@ impl<'a> GenerationConfig<'a> {
     /// A config read from a `generation_config.json`: the only way the C API sets
     /// `num_beams` (see the module comment).
     pub fn from_json(api: &'a GenAi, path: &Path) -> Result<Self, GenAiError> {
-        let path = c_string(&path.to_string_lossy())?;
+        let path = genai_path(path)?;
         let mut raw = std::ptr::null_mut();
         check("ov_genai_whisper_generation_config_create_from_json", unsafe {
             (api.fns.config_from_json)(path.as_ptr(), &mut raw)
@@ -446,5 +532,83 @@ mod tests {
         let error = GenAi::load(folder.path()).err().expect("a library without the C API must not load");
         assert!(error.to_string().contains("could not be loaded"), "{error}");
         assert!(GenAi::load(Path::new("relative")).is_err());
+    }
+
+    #[test]
+    fn gpus_are_named_as_openvino_lists_them() {
+        assert!(gpu_names(&[]).is_empty());
+        assert_eq!(gpu_names(&["0"]), ["GPU"]);
+        assert_eq!(gpu_names(&["0", "1"]), ["GPU.0", "GPU.1"]);
+    }
+
+    /// `bytes` read back as MSVC's `std::filesystem::path` reads a narrow path.
+    fn as_msvc_reads(bytes: &[u8]) -> PathBuf {
+        use std::os::windows::ffi::OsStringExt;
+        use windows_sys::Win32::Globalization::{MultiByteToWideChar, CP_ACP};
+        let mut wide = vec![0u16; bytes.len() + 1];
+        let written = unsafe {
+            MultiByteToWideChar(CP_ACP, 0, bytes.as_ptr(), bytes.len() as i32, wide.as_mut_ptr(), wide.len() as i32)
+        };
+        PathBuf::from(std::ffi::OsString::from_wide(&wide[..written as usize]))
+    }
+
+    /// The narrow path GenAI gets names the same folder: an ASCII one as it
+    /// is, a Cyrillic one (outside code page 1252, as on this PC) by a form
+    /// the code page holds, or a clear error when the volume has no short names.
+    #[test]
+    fn a_path_reaches_genai_in_the_code_page_msvc_reads_it_in() {
+        let root = tempfile::tempdir().unwrap();
+        let ascii = root.path().join("models");
+        std::fs::create_dir_all(&ascii).unwrap();
+        assert_eq!(genai_path(&ascii).unwrap().as_bytes(), ascii.to_str().unwrap().as_bytes());
+
+        for name in ["модель Протокол", "Ünïcödé"] {
+            let folder = root.path().join(name);
+            std::fs::create_dir_all(&folder).unwrap();
+            std::fs::write(folder.join("generation_config.json"), name.as_bytes()).unwrap();
+            match genai_path(&folder) {
+                Ok(narrow) => {
+                    let read = as_msvc_reads(narrow.as_bytes());
+                    assert_eq!(std::fs::read(read.join("generation_config.json")).unwrap(), name.as_bytes(), "{}", read.display());
+                }
+                Err(error) => assert!(error.to_string().contains("no short name"), "{error}"),
+            }
+        }
+        // The UTF-8 bytes round 1 passed name no folder when the code page
+        // is not UTF-8.
+        let cyrillic = root.path().join("модель Протокол");
+        let utf8 = as_msvc_reads(cyrillic.to_str().unwrap().as_bytes());
+        if unsafe { windows_sys::Win32::Globalization::GetACP() } != windows_sys::Win32::Globalization::CP_UTF8 {
+            assert!(!utf8.exists(), "{}", utf8.display());
+        }
+    }
+
+    /// GenAI itself finds a file under a non-ASCII folder: the config read
+    /// (`GenerationConfig::from_json`) takes the same path conversion as the
+    /// pipeline and needs no device. Needs an installed runtime and a model's
+    /// `generation_config.json`.
+    #[test]
+    #[ignore = "needs OPENVINO_TEST_RUNTIME (an installed runtime) and OPENVINO_TEST_MODEL (an OpenVINO Whisper folder)"]
+    fn genai_reads_a_file_in_a_folder_whose_name_is_not_ascii() {
+        let runtime = PathBuf::from(std::env::var_os("OPENVINO_TEST_RUNTIME").expect("OPENVINO_TEST_RUNTIME"));
+        let model = PathBuf::from(std::env::var_os("OPENVINO_TEST_MODEL").expect("OPENVINO_TEST_MODEL"));
+        let api = GenAi::load(&runtime).unwrap();
+        let root = tempfile::tempdir().unwrap();
+        let folder = root.path().join("Протокол модель");
+        std::fs::create_dir_all(&folder).unwrap();
+        let config = folder.join("generation_config.json");
+        std::fs::copy(model.join("generation_config.json"), &config).unwrap();
+        GenerationConfig::from_json(&api, &config).expect("GenAI reads the config through the converted path");
+
+        // As round 1 passed it: GenAI does not find the file.
+        let utf8 = c_string(config.to_str().unwrap()).unwrap();
+        let mut raw = std::ptr::null_mut();
+        let status = unsafe { (api.fns.config_from_json)(utf8.as_ptr(), &mut raw) };
+        if status == 0 {
+            unsafe { (api.fns.config_free)(raw) };
+        }
+        if unsafe { windows_sys::Win32::Globalization::GetACP() } != windows_sys::Win32::Globalization::CP_UTF8 {
+            assert_ne!(status, 0, "GenAI read a UTF-8 path in a non-UTF-8 code page");
+        }
     }
 }

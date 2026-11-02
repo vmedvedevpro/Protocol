@@ -122,9 +122,8 @@ fn loaded_runtime_version() -> Option<String> {
 /// (`acceleration::whisper_gpu`). Logs which way it matched, or why not.
 pub fn device_for(chosen: Option<&super::WhisperGpu>) -> Result<Option<String>> {
     let gpus: Vec<device::OpenVinoGpu> = runtime()?
-        .devices()?
+        .gpus()?
         .into_iter()
-        .filter(|info| info.name.starts_with("GPU"))
         .map(|info| device::OpenVinoGpu {
             vendor: info.architecture.as_deref().and_then(device::vendor_from_architecture),
             pci: info.pci_info.as_deref().and_then(device::PciAddress::from_openvino),
