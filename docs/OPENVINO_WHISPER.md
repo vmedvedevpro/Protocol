@@ -142,7 +142,10 @@ runtime install:
 
 A failure or Cancel removes the staging folder, so a version folder is always
 complete; a staging folder a crash left is removed at the next start. The
-download reports one progress over both parts and holds
+download reports one progress over the parts it fetches, as bytes done of
+their total (`CompanionStatus::progress`): the row prints those, not its own
+size, which changes once the runtime is in during a full download and counts
+both parts during an update that fetches only the runtime. It holds
 `BusyReason::ModelDownload` for its lifetime. Installs, removals and prunes of
 the runtime and the companions run one at a time (`openvino::OPERATIONS`): they
 share the runtime's folder and the question whether a companion still needs
@@ -350,6 +353,8 @@ files the engine requires.
   file refused.
 - The one action (`model_catalog/openvino.rs`): the runtime then the companion
   with one progress, the busy registry held, a second click fetching nothing,
+  an update and a companion-only download each counting only what they fetch,
+  the percentage never 100 before the end,
   a cancel during the runtime leaving neither, a runtime kept when the
   companion's part fails; which version loads (the catalog's, an older one
   while an update waits, never a newer one the catalog withdrew, never
@@ -358,7 +363,8 @@ files the engine requires.
   runtime can be installed; a removal that frees the runtime only when no
   other companion keeps it.
 - Settings: `tests/model-catalog/openvino-acceleration.test.tsx` (the row's
-  text, sizes and licence link, the offer, progress and cancel, the device
+  text, sizes and licence link, the offer, progress in the download's own
+  bytes (also during an update and after the runtime part) and cancel, the device
   and the mismatch, a removed runtime, an update and its restart note, a
   failure and a refusal, the crash note and its retry, libraries without the
   model, offered for removal only when that removes them).

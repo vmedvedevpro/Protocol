@@ -65,6 +65,8 @@ export interface CompanionStatus {
   /** Why this version of Protocol cannot install the runtime. */
   refused: string | null;
   downloading: number | null;
+  /** A running download's bytes: what it fetches, not `size` or `downloadSize` once a part is installed during it. */
+  progress: { done: number; total: number } | null;
   /** OpenVINO is off because Protocol closed unexpectedly inside it; `openvino_retry` turns it on. */
   stopped: string | null;
   /** Remove deletes the installed runtime too: no other companion keeps it. */
@@ -253,6 +255,7 @@ export function OpenVinoAcceleration({ whisperModels }: { whisperModels: string[
             description={companion.description}
             status={rowStatus(companion, update ? null : error)}
             sizeBytes={sizeBytes}
+            progress={companion.progress ?? null}
             usage={companion.installed ? ['Used on the Intel GPU'] : []}
             onDownload={() => void download()}
             onCancel={cancel}

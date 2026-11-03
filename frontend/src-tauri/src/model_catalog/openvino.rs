@@ -289,6 +289,9 @@ pub struct CompanionStatus {
     pub refused: Option<String>,
     /// The percentage of a running download.
     pub downloading: Option<u8>,
+    /// The bytes of a running download: what it fetches, which is not
+    /// `size` or `download_size` once a part is installed during it.
+    pub progress: Option<Progress>,
     /// OpenVINO is off because the app closed unexpectedly inside it
     /// (`whisper_engine::openvino::stopped`); `openvino_retry` turns it on.
     pub stopped: Option<String>,
@@ -297,11 +300,43 @@ pub struct CompanionStatus {
     pub removes_runtime: bool,
 }
 
-/// Running downloads by companion id: their cancellation and progress.
-static DOWNLOADS: Lazy<Mutex<HashMap<String, (CancellationToken, u8)>>> = Lazy::new(|| Mutex::new(HashMap::new()));
+/// How far a running download got, over every part it fetches.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Progress {
+    /// Bytes fetched, or found intact on disk, so far.
+    pub done: u64,
+    /// What this download fetches: the runtime's archive when its version
+    /// is missing, plus the companion's files when they are. 0 until the
+    /// first report.
+    pub total: u64,
+}
 
-fn downloads() -> std::sync::MutexGuard<'static, HashMap<String, (CancellationToken, u8)>> {
+impl Progress {
+    /// At most 99 until both are installed.
+    fn percent(self) -> u8 {
+        (self.done.saturating_mul(100) / self.total.max(1)).min(99) as u8
+    }
+}
+
+/// A running download: its cancellation and how far it got.
+struct Running {
+    cancel: CancellationToken,
+    progress: Progress,
+}
+
+/// Running downloads by companion id.
+static DOWNLOADS: Lazy<Mutex<HashMap<String, Running>>> = Lazy::new(|| Mutex::new(HashMap::new()));
+
+fn downloads() -> std::sync::MutexGuard<'static, HashMap<String, Running>> {
     DOWNLOADS.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// Records how far the running download of companion `id` got.
+fn report(id: &str, progress: Progress) {
+    if let Some(download) = downloads().get_mut(id) {
+        download.progress = progress;
+    }
 }
 
 /// The archive's host, for "from storage.openvinotoolkit.org".
@@ -347,6 +382,7 @@ fn status_in(
     // Without an entry this build can install, only an installed version can
     // run; a download is not offered.
     let refused = (offered.is_none() && selected.is_err()).then(refusal);
+    let running = downloads().get(&entry.id).map(|download| download.progress);
     CompanionStatus {
         id: entry.id.clone(),
         name: entry.name.clone(),
@@ -359,7 +395,8 @@ fn status_in(
         installed: companion_installed && selected.is_ok(),
         download_size: runtime_fetch.zip(companion_fetch).map(|(runtime, model)| runtime + model),
         refused,
-        downloading: downloads().get(&entry.id).map(|(_, percent)| *percent),
+        downloading: running.map(Progress::percent),
+        progress: running,
         stopped: None,
         removes_runtime: false,
     }
@@ -426,7 +463,7 @@ pub async fn openvino_download<R: Runtime>(app: AppHandle<R>, id: String) -> Res
         if downloads.contains_key(&id) {
             return Err(format!("{} is already downloading", entry.name));
         }
-        downloads.insert(id.clone(), (cancel.clone(), 0));
+        downloads.insert(id.clone(), Running { cancel: cancel.clone(), progress: Progress::default() });
     }
     emit(&app);
     let mut last = Instant::now() - PROGRESS_INTERVAL;
@@ -443,11 +480,7 @@ pub async fn openvino_download<R: Runtime>(app: AppHandle<R>, id: String) -> Res
             return;
         }
         last = Instant::now();
-        // At most 99 until both are installed.
-        let percent = (done.saturating_mul(100) / total.max(1)).min(99) as u8;
-        if let Some(download) = downloads().get_mut(&id) {
-            download.1 = percent;
-        }
+        report(&id, Progress { done, total });
         emit(&app);
     })
     .await;
@@ -552,8 +585,8 @@ pub async fn openvino_retry<R: Runtime>(app: AppHandle<R>) -> Result<(), String>
 #[tauri::command]
 pub async fn openvino_cancel(id: String) -> Result<(), String> {
     match downloads().get(&id) {
-        Some((cancel, _)) => {
-            cancel.cancel();
+        Some(download) => {
+            download.cancel.cancel();
             Ok(())
         }
         None => Err(format!("{id} is not downloading")),
@@ -1125,6 +1158,43 @@ mod tests {
 
         // A second click finds both installed and fetches nothing.
         install_both(&place, Ok(&offered), &entry, &CancellationToken::new(), |_, _| panic!("downloaded again")).await.unwrap();
+
+        // An update fetches the runtime's archive alone, and its progress
+        // counts only that, not the companion it leaves in place.
+        let newer = runtime_entry_served("2026.5.0.0", 4, API_LEVEL).await;
+        let mut reported = Vec::new();
+        install_both(&place, Ok(&newer), &entry, &CancellationToken::new(), |done, total| reported.push((done, total))).await.unwrap();
+        assert!(reported.iter().all(|(_, total)| *total == newer.archive.size), "{reported:?}");
+        assert_eq!(reported.last(), Some(&(newer.archive.size, newer.archive.size)));
+
+        // The companion alone, after the runtime is in: its own bytes.
+        remove_in(&place.models, &entry).unwrap();
+        let mut reported = Vec::new();
+        install_both(&place, Ok(&newer), &entry, &CancellationToken::new(), |done, total| reported.push((done, total))).await.unwrap();
+        let companion: u64 = contents.iter().map(|content| content.len() as u64).sum();
+        assert_eq!(reported.last(), Some(&(companion, companion)));
+    }
+
+    /// Settings shows a running download's own bytes, which the row's sizes
+    /// stop matching once a part is installed during it.
+    #[test]
+    fn a_running_download_reports_its_bytes_and_never_100_before_the_end() {
+        let data = tempfile::tempdir().unwrap();
+        let root = runtimes::root_in(data.path(), OPENVINO_GENAI);
+        let mut entry = companion_entry();
+        // Its own id: the running downloads are shared by the tests.
+        entry.id = "progress-openvino-int8".to_string();
+        let status = || status_in(&data.path().join("models"), &root, &entry, None, None);
+        assert_eq!((status().downloading, status().progress), (None, None));
+
+        downloads().insert(entry.id.clone(), Running { cancel: CancellationToken::new(), progress: Progress::default() });
+        assert_eq!((status().downloading, status().progress), (Some(0), Some(Progress::default())));
+        let quarter = Progress { done: 50 << 20, total: 200 << 20 };
+        report(&entry.id, quarter);
+        assert_eq!((status().downloading, status().progress), (Some(25), Some(quarter)));
+        report(&entry.id, Progress { done: 200 << 20, total: 200 << 20 });
+        assert_eq!(status().downloading, Some(99));
+        downloads().remove(&entry.id);
     }
 
     /// The real install from Intel's server (network, 254 MB): the built-in

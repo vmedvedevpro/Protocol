@@ -29,6 +29,12 @@ export interface ModelRowProps {
   status: ModelRowStatus;
   /** Bytes; unknown sizes are not shown (see formatModelSize). */
   sizeBytes?: number | null;
+  /**
+   * A running download's own bytes, for a download of several parts whose
+   * total is not `sizeBytes`; `null` while it has not reported them (the
+   * percentage alone). Without it the label is `sizeBytes` times the percentage.
+   */
+  progress?: { done: number; total: number } | null;
   recommended?: boolean;
   /** Where the installed model is in use, e.g. "Used after meetings". */
   usage?: string[];
@@ -45,6 +51,7 @@ export function ModelRow({
   facts = [],
   status,
   sizeBytes,
+  progress,
   recommended,
   usage = [],
   onDownload,
@@ -55,6 +62,10 @@ export function ModelRow({
   const [confirmRemove, setConfirmRemove] = React.useState(false);
   const size = formatModelSize(sizeBytes);
   const downloading = typeof status === 'object' && 'Downloading' in status ? status.Downloading : null;
+  const downloaded =
+    progress === undefined
+      ? sizeBytes && downloading !== null ? { done: (sizeBytes * downloading) / 100, total: sizeBytes } : null
+      : progress && progress.total > 0 ? progress : null;
   const error = typeof status === 'object' && 'Error' in status ? status.Error : null;
   const corrupted = typeof status === 'object' && 'Corrupted' in status;
   const installed = status === 'Available';
@@ -127,7 +138,7 @@ export function ModelRow({
           <Progress value={downloading} aria-label={`Downloading ${name}`} />
           <p className="text-[11px] tabular-nums text-af-text-3">
             Downloading… {Math.round(downloading)}%
-            {sizeBytes ? ` · ${formatModelSize((sizeBytes * downloading) / 100)} of ${size}` : ''}
+            {downloaded ? ` · ${formatModelSize(downloaded.done) || '0 MB'} of ${formatModelSize(downloaded.total)}` : ''}
           </p>
         </div>
       )}

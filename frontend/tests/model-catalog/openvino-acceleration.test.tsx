@@ -68,6 +68,7 @@ beforeEach(() => {
     downloadSize: (254 + 828) * MB,
     refused: null,
     downloading: null,
+    progress: null,
     stopped: null,
     removesRuntime: false,
   };
@@ -114,9 +115,19 @@ test('nothing is offered where whisper.cpp does not run on an Intel GPU, or for 
 });
 
 test('a running download shows its progress and can be cancelled; then it can be tried again', async () => {
-  companion = { ...companion!, downloading: 40 };
+  // Before its first report: the percentage alone.
+  companion = { ...companion!, downloading: 0, progress: { done: 0, total: 0 } };
   await render(['large-v3-turbo-q5_0']);
   expect(text()).toContain('Downloading… ');
+  expect(text()).not.toContain('MB of ');
+  await act(async () => root.unmount());
+
+  // The runtime is in, so the row's size is now the model's alone; the label
+  // keeps counting the whole download.
+  companion = { ...companion!, downloadSize: 828 * MB, downloading: 23, progress: { done: 250 * MB, total: (254 + 828) * MB } };
+  await render(['large-v3-turbo-q5_0']);
+  expect(text()).toContain('23');
+  expect(text()).toContain(' · 250 MB of 1.1 GB');
   await click('Cancel downloading Large V3 Turbo for Intel GPUs');
   expect(commands.some(({ command }) => command === 'openvino_cancel')).toBe(true);
 
@@ -168,6 +179,12 @@ test('a newer runtime in the model list is offered as an update, then used after
   expect(text()).toContain('OpenVINO GenAI 2026.5.0.0 is available · 260 MB to download');
   await click('Update OpenVINO GenAI to 2026.5.0.0');
   expect(commands.filter(({ command }) => command === 'openvino_download')).toHaveLength(1);
+
+  // The update fetches the runtime alone: its bytes, not what is on disk.
+  companion = { ...companion!, downloading: 12, progress: { done: 31 * MB, total: 260 * MB } };
+  await fire('openvino-companion-changed');
+  expect(text()).toContain(' · 31 MB of 260 MB');
+  companion = { ...companion!, downloading: null, progress: null };
 
   companion = { ...companion!, runtime: { ...companion!.runtime, installed: '2026.5.0.0', afterRestart: '2026.5.0.0' } };
   await fire('model-catalog-changed');
