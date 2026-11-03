@@ -9,8 +9,12 @@ let commands: Array<{ command: string; args?: any }>;
 let availability: Record<string, unknown> | Error;
 let companion: Record<string, any> | null;
 let downloadResult: () => Promise<void>;
+let toasts: Array<[string, string | undefined]>;
 
-mock.module('sonner', () => ({ toast: { success: () => {}, error: () => {} } }));
+mock.module('sonner', () => ({ toast: {
+  success: (title: string, options?: { description?: string }) => { toasts.push([title, options?.description]); },
+  error: () => {},
+} }));
 mock.module('@tauri-apps/api/event', () => ({ listen: async (name: string, callback: any) => {
   listeners.set(name, callback); return () => listeners.delete(name);
 } }));
@@ -25,7 +29,7 @@ mock.module('@tauri-apps/api/core', () => ({ invoke: async (command: string, arg
   if (['openvino_cancel', 'openvino_remove', 'openvino_retry', 'open_external_url'].includes(command)) return;
   throw new Error(command);
 } }));
-const { OpenVinoAcceleration } = await import('../../src/components/OpenVinoAcceleration');
+const { OpenVinoAcceleration, installedNotice } = await import('../../src/components/OpenVinoAcceleration');
 
 const MB = 1024 * 1024;
 const LICENSE_URL = 'https://www.intel.com/content/dam/develop/external/us/en/documents/intel-openvino-license-agreements.pdf';
@@ -45,6 +49,7 @@ const fire = (event: string) => act(async () => { listeners.get(event)!({ payloa
 
 beforeEach(() => {
   commands = [];
+  toasts = [];
   availability = { offer: true, gpu: 'Intel(R) Arc(TM) B390 GPU', reason: null, device: null, mismatch: null };
   companion = {
     id: 'large-v3-turbo-openvino-int8',
@@ -93,9 +98,14 @@ test('the row says what one click downloads, from where, under which licence and
   await act(async () => { buttonWithText('Intel OpenVINO Distribution License').props.onClick(); await settle(); });
   expect(commands.find(({ command }) => command === 'open_external_url')?.args).toEqual({ url: LICENSE_URL });
 
+  downloadResult = async () => {
+    companion = { ...companion!, companionInstalled: true, installed: true, downloadSize: 0,
+      runtime: { ...companion!.runtime, installed: '2026.4.1.0' } };
+  };
   await click('Download Large V3 Turbo for Intel GPUs');
   expect(commands.filter(({ command }) => command === 'openvino_download').map(({ args }) => args))
     .toEqual([{ id: 'large-v3-turbo-openvino-int8' }]);
+  expect(toasts).toEqual([['Large V3 Turbo for Intel GPUs is ready', 'Whisper uses the Intel GPU from the next transcription on.']]);
 });
 
 test('nothing is offered where whisper.cpp does not run on an Intel GPU, or for a model without a companion', async () => {
@@ -178,8 +188,14 @@ test('a newer runtime in the model list is offered as an update, then used after
   };
   await render(['large-v3-turbo-q5_0']);
   expect(text()).toContain('OpenVINO GenAI 2026.5.0.0 is available · 260 MB to download');
+  // This run has 2026.4.1.0 loaded: the toast says what the row says.
+  downloadResult = async () => {
+    companion = { ...companion!, runtime: { ...companion!.runtime, installed: '2026.5.0.0', afterRestart: '2026.5.0.0' } };
+  };
   await click('Update OpenVINO GenAI to 2026.5.0.0');
   expect(commands.filter(({ command }) => command === 'openvino_download')).toHaveLength(1);
+  expect(toasts).toEqual([['OpenVINO GenAI 2026.5.0.0 is installed', 'Protocol uses it after a restart.']]);
+  companion = { ...companion!, runtime: { ...companion!.runtime, installed: '2026.4.1.0', afterRestart: null } };
 
   // The update fetches the runtime alone: its bytes, not what is on disk.
   companion = { ...companion!, downloading: 12, progress: { done: 31 * MB, total: 260 * MB } };
@@ -201,6 +217,12 @@ test('after Protocol closed inside OpenVINO the row says so and can turn it on a
   expect(text()).toContain('Protocol closed unexpectedly the last time OpenVINO was preparing the model for the GPU');
   await act(async () => { buttonWithText('Try OpenVINO again').props.onClick(); await settle(); });
   expect(commands.some(({ command }) => command === 'openvino_retry')).toBe(true);
+
+  // An install while OpenVINO is off does not promise the GPU.
+  expect(installedNotice(companion as any)).toEqual({
+    title: 'Large V3 Turbo for Intel GPUs is installed',
+    description: 'Whisper stays on Vulkan until you try OpenVINO again in this row.',
+  });
 
   companion = { ...companion!, stopped: null };
   await fire('openvino-companion-changed');

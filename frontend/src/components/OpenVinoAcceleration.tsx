@@ -95,6 +95,22 @@ export function runtimeUpdate(companion: CompanionStatus): RuntimeStatus | null 
   return runtime;
 }
 
+/**
+ * The toast after a download installed everything, from the status asked
+ * again then: a runtime this run has not loaded is used after a restart, as
+ * the row says, and the crash guard keeps OpenVINO off until it is retried.
+ */
+export function installedNotice(companion: CompanionStatus): { title: string; description: string } {
+  const runtime = companion.runtime;
+  if (runtime?.afterRestart) {
+    return { title: `${runtime.name} ${runtime.afterRestart} is installed`, description: 'Protocol uses it after a restart.' };
+  }
+  if (companion.stopped) {
+    return { title: `${companion.name} is installed`, description: 'Whisper stays on Vulkan until you try OpenVINO again in this row.' };
+  }
+  return { title: `${companion.name} is ready`, description: 'Whisper uses the Intel GPU from the next transcription on.' };
+}
+
 export function rowStatus(companion: CompanionStatus, error: string | null): ModelRowStatus {
   if (companion.downloading !== null) return { Downloading: companion.downloading };
   if (companion.installed) return 'Available';
@@ -137,18 +153,18 @@ export function OpenVinoAcceleration({ whisperModels }: { whisperModels: string[
   const [error, setError] = useState<string | null>(null);
   const models = whisperModels.join('\n');
   const revision = useRef(0);
+  const wanted = useCallback(() => (models ? models.split('\n') : []), [models]);
 
   const refresh = useCallback(() => {
     const current = ++revision.current;
-    const wanted = models ? models.split('\n') : [];
     // The device is decided once the runtime is installed: ask again.
     invoke<OpenVinoAvailability>('get_openvino_availability')
       .then((found) => { if (current === revision.current) setAvailability(found); })
       .catch(() => { if (current === revision.current) setAvailability(null); });
-    companionOf(wanted)
+    companionOf(wanted())
       .then((status) => { if (current === revision.current) setCompanion(status); })
       .catch(() => { if (current === revision.current) setCompanion(null); });
-  }, [models]);
+  }, [wanted]);
 
   useEffect(() => {
     refresh();
@@ -165,7 +181,8 @@ export function OpenVinoAcceleration({ whisperModels }: { whisperModels: string[
     setError(null);
     try {
       await invoke('openvino_download', { id: companion.id });
-      toast.success(`${companion.name} is ready`, { description: 'Whisper uses the Intel GPU from the next transcription on.' });
+      const notice = installedNotice((await companionOf(wanted()).catch(() => null)) ?? companion);
+      toast.success(notice.title, { description: notice.description });
     } catch (failure) {
       const message = String(failure);
       if (message !== CANCELLED) setError(message);

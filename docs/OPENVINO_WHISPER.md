@@ -246,10 +246,11 @@ When the catalog pins another version for this build's level, the row offers
 it ("OpenVINO GenAI X is available · N MB to download", Update), as a model
 update is offered; the click is the same download. The new version installs
 beside the old one. If this process has not loaded the old one, it is removed
-at once and the next model load uses the new one; if it has, the row says the
-new version is used after a restart, and the old one is removed at the next
-start (`prune_at_startup`, called after the catalog is set and before
-anything loads the runtime). A version the catalog moves back to (a rollback)
+at once and the next model load uses the new one; if it has, the row and the
+toast that ends the download (it reads the status again) say the new version
+is used after a restart, and the old one is removed at the next start
+(`prune_at_startup`, called after the catalog is set and before anything
+loads the runtime). A version the catalog moves back to (a rollback)
 is installed and used the same way.
 
 Remove in the row removes the companion, and with the last companion the
@@ -372,7 +373,7 @@ files the engine requires.
 - Settings: `tests/model-catalog/openvino-acceleration.test.tsx` (the row's
   text, sizes and licence link, the offer, progress in the download's own
   bytes (also during an update and after the runtime part) and cancel, the device
-  and the mismatch, a removed runtime, an update and its restart note, a
+  and the mismatch, a removed runtime, an update and its restart note and toast, a
   failure and a refusal, the crash note and its retry, libraries without the
   model, offered for removal only when that removes them, and libraries a
   restart removes shown as such with the full download).
