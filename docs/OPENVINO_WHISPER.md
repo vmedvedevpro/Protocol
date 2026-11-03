@@ -61,7 +61,9 @@ Settings › Local stack shows `OpenVINO GPU` (the device name) in the Whisper
 row while the model runs on OpenVINO (`get_local_stack_status`,
 `whisper.openvino`). `get_openvino_availability` tells the model settings
 whether to offer the download here, and once the runtime is installed which
-device the rule picks or why it picks none (the row shows the mismatch).
+device the rule picks or why it picks none (the row shows the mismatch). The
+row names that device by the GPU's name, as its description does (the rule
+picks the GPU whisper.cpp uses), not by OpenVINO's `GPU` or `GPU.<n>`.
 
 ### Offering the download before the runtime is there
 
@@ -233,7 +235,9 @@ line, and removes it when none runs. A marker found by the first such step of
 a process was left by one that died there: OpenVINO then stays off
 (whisper.cpp runs) and the Settings row says "Protocol closed unexpectedly the
 last time OpenVINO was …" with "Try OpenVINO again" (`openvino_retry`), which
-removes the marker and lets the next model load try. Without it, a crash in
+removes the marker and lets the next model load try. Meanwhile the row drops
+its "Used on the Intel GPU" tag, and a download that ends then says Whisper
+stays on Vulkan. Without it, a crash in
 OpenVINO would repeat at every start. A process that ends on purpose while a
 step runs (Quit, `RunEvent::Exit`, or the updater closing the app to install)
 removes the marker first and writes none afterwards (`set_closing`), so

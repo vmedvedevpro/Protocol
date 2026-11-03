@@ -228,7 +228,9 @@ export function OpenVinoAcceleration({ whisperModels }: { whisperModels: string[
         </div>
       )}
       {availability.device && companion.installed && (
-        <p className="mt-2 text-xs text-af-text-3">{`Whisper runs on ${availability.device} with OpenVINO.`}</p>
+        // The device rule picks the GPU whisper.cpp uses, so it is the one the
+        // description names; OpenVINO's own name for it (`GPU`, `GPU.1`) says nothing.
+        <p className="mt-2 text-xs text-af-text-3">{`Whisper runs on ${availability.gpu ?? availability.device} with OpenVINO.`}</p>
       )}
       {availability.mismatch && (
         <p role="alert" className="mt-2 text-xs text-af-warning [overflow-wrap:anywhere]">
@@ -280,7 +282,7 @@ export function OpenVinoAcceleration({ whisperModels }: { whisperModels: string[
             status={rowStatus(companion, update ? null : error)}
             sizeBytes={sizeBytes}
             progress={companion.progress ?? null}
-            usage={companion.installed ? ['Used on the Intel GPU'] : []}
+            usage={companion.installed && !companion.stopped ? ['Used on the Intel GPU'] : []}
             onDownload={() => void download()}
             onCancel={cancel}
             onRemove={remove}

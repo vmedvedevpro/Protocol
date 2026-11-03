@@ -161,7 +161,8 @@ test('once both are installed the device is shown, and a mismatch is said, not h
   await render(['large-v3-turbo-q5_0']);
   expect(text()).toContain('Installed');
   expect(text()).toContain('Used on the Intel GPU');
-  expect(text()).toContain('Whisper runs on GPU with OpenVINO.');
+  // The GPU by the name the description uses, not OpenVINO's device id.
+  expect(text()).toContain('Whisper runs on Intel(R) Arc(TM) B390 GPU with OpenVINO.');
   await act(async () => root.unmount());
 
   availability = { offer: true, gpu: 'Intel(R) Arc(TM) B390 GPU', reason: null, device: null, mismatch: 'OpenVINO lists no Intel GPU that is Intel(R) Arc(TM) B390 GPU, so Whisper stays on Vulkan' };
@@ -215,6 +216,9 @@ test('after Protocol closed inside OpenVINO the row says so and can turn it on a
     runtime: { ...companion!.runtime, installed: '2026.4.1.0' } };
   await render(['large-v3-turbo-q5_0']);
   expect(text()).toContain('Protocol closed unexpectedly the last time OpenVINO was preparing the model for the GPU');
+  // Installed, but Whisper is not on the Intel GPU meanwhile.
+  expect(text()).toContain('Installed');
+  expect(text()).not.toContain('Used on the Intel GPU');
   await act(async () => { buttonWithText('Try OpenVINO again').props.onClick(); await settle(); });
   expect(commands.some(({ command }) => command === 'openvino_retry')).toBe(true);
 
@@ -227,6 +231,7 @@ test('after Protocol closed inside OpenVINO the row says so and can turn it on a
   companion = { ...companion!, stopped: null };
   await fire('openvino-companion-changed');
   expect(text()).not.toContain('closed unexpectedly');
+  expect(text()).toContain('Used on the Intel GPU');
 });
 
 test('libraries left without the model can be completed or removed', async () => {
