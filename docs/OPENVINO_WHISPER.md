@@ -143,7 +143,9 @@ runtime install:
    a lock for up to 20 s before they fail.
 
 A failure or Cancel removes the staging folder, so a version folder is always
-complete; a staging folder a crash left is removed at the next start. The
+complete; a staging folder a crash left is removed at the next start. After a
+Cancel the row returns to Download without a message (the person asked for
+it); a failure shows its reason with Retry. The
 download reports one progress over the parts it fetches, as bytes done of
 their total (`CompanionStatus::progress`): the row prints those, not its own
 size, which changes once the runtime is in during a full download and counts
@@ -166,11 +168,15 @@ version counts as missing.
 (`runtime_to_load`), an installed version of the binding's API level: the one
 the catalog names, else the newest one older than it (an update not
 downloaded yet), never a newer one. So a catalog that steps back retires a
-version it pinned before: a newer version is not loaded but shown as "the
-model list no longer offers …", the row offers the catalog's version, and the
-next prune deletes the newer one. Without any offer (no catalog entry this
-build can run), the newest installed one. It loads by absolute path from that
-folder with `LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS`,
+version it pinned before: a newer version is not loaded, the row offers the
+catalog's version, and the next prune deletes the newer one. Only a catalog
+that changes during a session, before this process loaded the runtime, makes
+a model load report "the model list no longer offers …" (and fall back):
+after a restart the startup prune has already deleted the newer version, so
+Local stack says the runtime is not installed. Without any offer (no
+catalog entry this build can run), the newest installed one. It loads by
+absolute path from that folder with
+`LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS`,
 so dependencies resolve from that folder and System32 only, and stays loaded
 for the process. A process loads at most one version, once: the libraries of
 two versions share their names, and Windows resolves a dependency by name to
@@ -272,10 +278,10 @@ companion.
 
 The companion of `large-v3-turbo` and `large-v3-turbo-q5_0` is
 `OpenVINO/whisper-large-v3-turbo-int8-ov` (MIT) pinned to commit `b568445d`,
-11 files, 828 MB: int8 weights (asymmetric, per channel), the
-`optimum-intel` export GenAI reads. It is a separate download because
-GenAI cannot read ggml files. `whisper_engine::openvino::MODEL_FILES` lists the
-files the engine requires.
+11 files, 822 MB (784 MB in Settings, which counts binary megabytes): int8
+weights (asymmetric, per channel), the `optimum-intel` export GenAI reads.
+It is a separate download because GenAI cannot read ggml files.
+`whisper_engine::openvino::MODEL_FILES` lists the files the engine requires.
 
 ## Engine and lifecycle
 
