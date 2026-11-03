@@ -7,6 +7,14 @@ is inherited from the project Protocol forked from; Protocol did not release it.
 
 ## Protocol — unreleased
 
+## Protocol 0.5.0 — 2026-11-03
+
+On a Windows PC with an Intel GPU, Whisper can run through Intel's OpenVINO:
+one click in Settings › Transcription downloads Intel's libraries from Intel
+and a copy of the model from Hugging Face, and on the Intel Arc laptop GPU it
+was measured on, the transcript after a meeting came about four times as fast.
+Live Whisper on a Vulkan GPU is also about an eighth faster per call.
+
 ### New
 
 - **Whisper on Intel GPUs through OpenVINO**
@@ -29,6 +37,16 @@ is inherited from the project Protocol forked from; Protocol did not release it.
   stays on whisper.cpp where OpenVINO cannot load or does not list that GPU,
   and Settings says why; after Protocol closes unexpectedly inside OpenVINO,
   it stays off until you try it again in the row.
+
+### Changed
+
+- **Faster live Whisper on a Vulkan GPU**
+  ([#78](https://github.com/vmedvedevpro/Protocol/issues/78)): live
+  transcription keeps one Whisper decoding state through the meeting instead
+  of creating one for every piece. On an Intel Arc B390 integrated GPU, a live
+  call on a public Russian sample (FLEURS) took 607 ms instead of 694 and about
+  9 % less energy, with the same text. The state is freed when transcription
+  stops or the model changes.
 
 ### For developers
 
