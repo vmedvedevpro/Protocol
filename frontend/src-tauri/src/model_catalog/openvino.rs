@@ -261,6 +261,10 @@ pub struct RuntimeStatus {
     pub installed: Option<String>,
     /// The version used after a restart, when this process loaded another.
     pub after_restart: Option<String>,
+    /// An installed version no companion needs any more, which the next
+    /// start removes: it stayed because this process loaded it. It counts
+    /// as not installed meanwhile, so the row shows what that start leaves.
+    pub removed_at_restart: Option<String>,
 }
 
 /// What Settings shows for a companion and its runtime.
@@ -283,7 +287,10 @@ pub struct CompanionStatus {
     pub runtime: Option<RuntimeStatus>,
     /// Both are there: Whisper can run on OpenVINO from the next model load.
     pub installed: bool,
-    /// What a click on Download fetches now, when every part's size is known.
+    /// What a click on Download fetches now, when every part's size is known;
+    /// with a runtime awaiting its removal at the next start
+    /// (`RuntimeStatus::removed_at_restart`), what that start leaves to fetch
+    /// (a click before it keeps that runtime and fetches only the companion).
     pub download_size: Option<u64>,
     /// Why the runtime cannot be installed or loaded here.
     pub refused: Option<String>,
@@ -344,24 +351,34 @@ fn host(url: &str) -> String {
     url.split("://").nth(1).and_then(|rest| rest.split('/').next()).unwrap_or_default().to_string()
 }
 
+/// The status of `entry` among `companions` (which decide whether the
+/// runtime is still needed), with `loaded` the runtime folder this process
+/// loaded.
 fn status_in(
     models_dir: &Path,
     runtime_root: &Path,
     entry: &Entry,
     offered: Option<&RuntimeEntry>,
     loaded: Option<&Path>,
+    companions: &[Entry],
 ) -> CompanionStatus {
     let dir = dir_in(models_dir, entry);
     let companion_installed = verified_in(models_dir, entry).is_some();
     let size = installed::expected(entry, &installed::record_path_for_dir(&dir))
         .map(|expected| expected.total_size())
         .or_else(|| sizes::download_size(entry));
+    let running = downloads().get(&entry.id).map(|download| download.progress);
     let selected = selected_in(runtime_root, offered);
+    // A version no companion needs is on disk only because this process
+    // loaded it when a removal ran, and the next start removes it: it counts
+    // as gone. A download of this companion keeps it, also before the
+    // download has marked the companion's folder.
+    let wanted = running.is_some() || any_companion_in(models_dir, companions);
+    let usable = selected.as_ref().ok().filter(|_| wanted);
+    let removed_at_restart = selected.as_ref().ok().filter(|_| !wanted).map(|version| version.record.version.clone());
     let runtime = offered.map(|offered| {
-        let installed = selected.as_ref().ok().map(|version| version.record.version.clone());
-        let after_restart = selected
-            .as_ref()
-            .ok()
+        let installed = usable.map(|version| version.record.version.clone());
+        let after_restart = usable
             .filter(|version| loaded.is_some_and(|loaded| loaded != version.dir.as_path()))
             .map(|version| version.record.version.clone());
         RuntimeStatus {
@@ -373,16 +390,16 @@ fn status_in(
             installed_size: offered.installed_size(),
             installed,
             after_restart,
+            removed_at_restart: removed_at_restart.clone(),
         }
     });
-    let runtime_current = matches!((&selected, offered), (Ok(version), Some(offered)) if version.record.version == offered.version)
-        || (offered.is_none() && selected.is_ok());
+    let runtime_current = matches!((usable, offered), (Some(version), Some(offered)) if version.record.version == offered.version)
+        || (offered.is_none() && usable.is_some());
     let runtime_fetch = if runtime_current { Some(0) } else { offered.map(|offered| offered.archive.size) };
     let companion_fetch = if companion_installed { Some(0) } else { size };
     // Without an entry this build can install, only an installed version can
     // run; a download is not offered.
-    let refused = (offered.is_none() && selected.is_err()).then(refusal);
-    let running = downloads().get(&entry.id).map(|download| download.progress);
+    let refused = (offered.is_none() && usable.is_none()).then(refusal);
     CompanionStatus {
         id: entry.id.clone(),
         name: entry.name.clone(),
@@ -392,13 +409,13 @@ fn status_in(
         size,
         companion_installed,
         runtime,
-        installed: companion_installed && selected.is_ok(),
+        installed: companion_installed && usable.is_some(),
         download_size: runtime_fetch.zip(companion_fetch).map(|(runtime, model)| runtime + model),
         refused,
         downloading: running.map(Progress::percent),
         progress: running,
         stopped: None,
-        removes_runtime: false,
+        removes_runtime: usable.is_some() && !others_keep_runtime(models_dir, entry, companions),
     }
 }
 
@@ -435,10 +452,8 @@ pub async fn openvino_status<R: Runtime>(app: AppHandle<R>, whisper_model: Strin
     let Some(entry) = companion_for(&whisper_model) else { return Ok(None) };
     let loaded = crate::whisper_engine::openvino::loaded_runtime_dir();
     let models = crate::paths::models_dir();
-    let mut status = status_in(&models, &runtime_root(), &entry, runtime_entry().as_ref(), loaded.as_deref());
+    let mut status = status_in(&models, &runtime_root(), &entry, runtime_entry().as_ref(), loaded.as_deref(), &super::companions());
     status.stopped = crate::whisper_engine::openvino::stopped();
-    status.removes_runtime = status.runtime.as_ref().is_some_and(|runtime| runtime.installed.is_some())
-        && !others_keep_runtime(&models, &entry, &super::companions());
     if status.size.is_none() {
         tauri::async_runtime::spawn(async move {
             if sizes::fill(&huggingface::client(), huggingface::HUB, &[entry]).await {
@@ -1024,7 +1039,7 @@ mod tests {
         // Settings offers the catalog's version for download, and the next
         // prune removes the withdrawn one.
         let entry = companion_entry();
-        let status = status_in(&data.path().join("models"), &root, &entry, Some(&pinned_old), None);
+        let status = status_in(&data.path().join("models"), &root, &entry, Some(&pinned_old), None, std::slice::from_ref(&entry));
         assert!(!status.installed);
         assert_eq!(status.runtime.unwrap().installed, None);
         prune_runtimes(&root, true, Some(&pinned_old));
@@ -1047,12 +1062,54 @@ mod tests {
         assert!(any_companion_in(&place.models, std::slice::from_ref(&entry)));
         prune_runtimes(&place.runtime_root, true, Some(&offered));
         assert_eq!(runtimes::installed_in(&place.runtime_root).len(), 1);
-        let status = status_in(&place.models, &place.runtime_root, &entry, Some(&offered), None);
+        let status = status_in(&place.models, &place.runtime_root, &entry, Some(&offered), None, std::slice::from_ref(&entry));
         assert_eq!(status.runtime.unwrap().installed.as_deref(), Some("2026.4.1.0"));
 
         // Removing the companion lets the runtime go.
         remove_in(&place.models, &entry).unwrap();
         assert!(!any_companion_in(&place.models, std::slice::from_ref(&entry)));
+    }
+
+    /// A removal keeps a runtime this process loaded until the next start
+    /// (`prune_runtimes`). Meanwhile Settings counts it as gone: the full
+    /// download, a note that the next start removes it, and no offer to
+    /// remove libraries that a click cannot delete (QA B2).
+    #[tokio::test]
+    async fn a_runtime_awaiting_its_removal_at_the_next_start_counts_as_gone() {
+        let data = tempfile::tempdir().unwrap();
+        let place = test_place(data.path(), "http://127.0.0.1:9");
+        let mut entry = companion_entry();
+        // Its own id: the running downloads are shared by the tests.
+        entry.id = "removal-openvino-int8".to_string();
+        let companions = [entry.clone()];
+        let offered = runtime_entry_served("2026.4.1.0", 5, API_LEVEL).await;
+        // The libraries without the model, as a failed or cancelled download leaves them.
+        install_both(&place, Ok(&offered), &entry, &CancellationToken::new(), |_, _| {}).await.unwrap_err();
+        let loaded = runtimes::installed_in(&place.runtime_root)[0].dir.clone();
+        let status = || status_in(&place.models, &place.runtime_root, &entry, Some(&offered), Some(&loaded), &companions);
+        let before = status();
+        let runtime = before.runtime.unwrap();
+        assert_eq!((runtime.installed.as_deref(), runtime.removed_at_restart), (Some("2026.4.1.0"), None));
+        assert!(before.removes_runtime);
+
+        // Removed while loaded: the prune would keep the loaded version
+        // (the test process has none loaded, so it is not called).
+        remove_in(&place.models, &entry).unwrap();
+        let after = status();
+        let runtime = after.runtime.clone().unwrap();
+        assert_eq!(
+            (runtime.installed, runtime.after_restart, runtime.removed_at_restart.as_deref()),
+            (None, None, Some("2026.4.1.0"))
+        );
+        assert!(!after.installed && !after.removes_runtime);
+        // The download the next start leaves: the runtime's archive and the companion.
+        assert_eq!(after.download_size, after.size.map(|size| size + offered.archive.size));
+
+        // A download of the companion keeps the runtime from its first moment.
+        downloads().insert(entry.id.clone(), Running { cancel: CancellationToken::new(), progress: Progress::default() });
+        let downloading = status().runtime.unwrap();
+        downloads().remove(&entry.id);
+        assert_eq!((downloading.installed.as_deref(), downloading.removed_at_restart), (Some("2026.4.1.0"), None));
     }
 
     /// Settings offers to remove libraries left without their model only
@@ -1089,7 +1146,7 @@ mod tests {
 
         let client = huggingface::client();
         download_into(&client, &client, &hub.url, &models, &entry, &CancellationToken::new(), |_, _| {}).await.unwrap();
-        let status = status_in(&models, &root, &entry, Some(&current), None);
+        let status = status_in(&models, &root, &entry, Some(&current), None, std::slice::from_ref(&entry));
         assert!(status.companion_installed && !status.installed);
         assert_eq!(status.size, Some(companion_size));
         // Only the runtime is missing: a download fetches its archive.
@@ -1102,7 +1159,7 @@ mod tests {
         assert_eq!(status.refused, None);
 
         let old = runtimes::install_into(&runtimes::Fetch::Local(reqwest::Client::new()), &root, &current, &CancellationToken::new(), |_, _| {}).await.unwrap();
-        let status = status_in(&models, &root, &entry, Some(&current), None);
+        let status = status_in(&models, &root, &entry, Some(&current), None, std::slice::from_ref(&entry));
         assert!(status.installed);
         assert_eq!(status.download_size, Some(0));
         assert_eq!(status.runtime.unwrap().installed.as_deref(), Some("2026.4.1.0"));
@@ -1110,7 +1167,7 @@ mod tests {
         // The catalog pins a newer runtime: offered as an update, while the
         // installed one keeps running.
         let newer = runtime_entry_served("2026.5.0.0", 2, API_LEVEL).await;
-        let status = status_in(&models, &root, &entry, Some(&newer), Some(&old));
+        let status = status_in(&models, &root, &entry, Some(&newer), Some(&old), std::slice::from_ref(&entry));
         assert!(status.installed);
         assert_eq!(status.download_size, Some(newer.archive.size));
         let runtime = status.runtime.unwrap();
@@ -1119,7 +1176,7 @@ mod tests {
 
         // Installed while this process runs the old one: used after a restart.
         runtimes::install_into(&runtimes::Fetch::Local(reqwest::Client::new()), &root, &newer, &CancellationToken::new(), |_, _| {}).await.unwrap();
-        let runtime = status_in(&models, &root, &entry, Some(&newer), Some(&old)).runtime.unwrap();
+        let runtime = status_in(&models, &root, &entry, Some(&newer), Some(&old), std::slice::from_ref(&entry)).runtime.unwrap();
         assert_eq!(runtime.installed.as_deref(), Some("2026.5.0.0"));
         assert_eq!(runtime.after_restart.as_deref(), Some("2026.5.0.0"));
     }
@@ -1129,7 +1186,7 @@ mod tests {
         let data = tempfile::tempdir().unwrap();
         let entry = companion_entry();
         let root = runtimes::root_in(data.path(), OPENVINO_GENAI);
-        let status = status_in(&data.path().join("models"), &root, &entry, None, None);
+        let status = status_in(&data.path().join("models"), &root, &entry, None, None, std::slice::from_ref(&entry));
         assert!(status.refused.is_some());
         assert_eq!((status.runtime, status.download_size, status.installed), (None, None, false));
     }
@@ -1184,7 +1241,7 @@ mod tests {
         let mut entry = companion_entry();
         // Its own id: the running downloads are shared by the tests.
         entry.id = "progress-openvino-int8".to_string();
-        let status = || status_in(&data.path().join("models"), &root, &entry, None, None);
+        let status = || status_in(&data.path().join("models"), &root, &entry, None, None, std::slice::from_ref(&entry));
         assert_eq!((status().downloading, status().progress), (None, None));
 
         downloads().insert(entry.id.clone(), Running { cancel: CancellationToken::new(), progress: Progress::default() });

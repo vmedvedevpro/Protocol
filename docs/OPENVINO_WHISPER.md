@@ -255,7 +255,13 @@ is installed and used the same way.
 Remove in the row removes the companion, and with the last companion the
 runtime (a version this process loaded goes at the next start) and the model
 cache. At startup, a runtime no companion needs (none installed or begun) is
-removed too.
+removed too. A version left on disk only because this process loaded it
+counts as gone in the row until then (`RuntimeStatus::removed_at_restart`):
+the row offers the download as the next start leaves it and says that
+Intel's libraries are removed when Protocol restarts, rather than showing
+them installed with a "Remove the libraries" that cannot delete them. A
+download before that restart keeps the version and fetches only the
+companion.
 
 ## Model
 
@@ -361,13 +367,15 @@ files the engine requires.
   another level); what the row says before, during and after an install, for
   an update and after an update while the old version runs, and when no
   runtime can be installed; a removal that frees the runtime only when no
-  other companion keeps it.
+  other companion keeps it; a runtime awaiting its removal at the next start
+  counted as gone, until a download of the companion keeps it.
 - Settings: `tests/model-catalog/openvino-acceleration.test.tsx` (the row's
   text, sizes and licence link, the offer, progress in the download's own
   bytes (also during an update and after the runtime part) and cancel, the device
   and the mismatch, a removed runtime, an update and its restart note, a
   failure and a refusal, the crash note and its retry, libraries without the
-  model, offered for removal only when that removes them).
+  model, offered for removal only when that removes them, and libraries a
+  restart removes shown as such with the full download).
 - Ignored, with an installed runtime (`OPENVINO_TEST_RUNTIME`): Intel's 12
   libraries pass the signature check (`authenticode.rs`), and GenAI itself
   reads a file in a Cyrillic and in a Latin-1 folder through `genai_path`,
