@@ -25,6 +25,14 @@ free of paid tiers and added speaker diarization and voice profiles.
 
 Everything Meetily – Actually Free offers is here, plus:
 
+- **Faster transcription.** On a laptop with an Intel Core Ultra X7 358H,
+  Whisper Large V3 Turbo Compressed on its Arc B390 GPU transcribes 20 minutes
+  of a meeting after the call in about 2 minutes, where whisper.cpp 1.7.1 with
+  the settings Protocol inherited took 10. On its processor, Parakeet
+  transcribes about twice as fast as with the ONNX Runtime 1.22 setup Protocol
+  inherited. Measured in [#64](https://github.com/vmedvedevpro/Protocol/pull/64),
+  [#71](https://github.com/vmedvedevpro/Protocol/pull/71) and
+  [#72](https://github.com/vmedvedevpro/Protocol/pull/72).
 - **Runs next to Meetily.** Its own name, `protocol.exe`, folders, and
   settings. Install it beside Meetily or Meetily – Actually Free and keep
   both: installing, updating, or removing Protocol leaves them running and
