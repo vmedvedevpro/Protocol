@@ -89,18 +89,17 @@ downloads it from Intel's server, under Intel's licence, as it fetches models
 from Hugging Face, and a new version reaches installs through the catalog,
 without a Protocol release.
 
-- Source today: Intel's GenAI 2026.4.1 Windows archive
-  (`storage.openvinotoolkit.org`, 254 MB; Settings counts binary megabytes
-  and shows 242 MB). 12 libraries (`openvino_genai_c`, `openvino_genai`,
-  `openvino_c`, `openvino`, the GPU, CPU and auto-batching plugins, the IR
-  frontend, `openvino_tokenizers`, oneTBB's three), 110 MB (105 in Settings)
-  on disk, plus Intel's licence files (`openvino-EULA.txt` and the third-party
-  notices), which stay beside the libraries. The CPU plugin is
-  needed even on the GPU: GenAI compiles the tokenizer and detokenizer models
-  on the CPU. The auto-batching plugin (0.2 MB) is there because every
-  compile asks for it (below, under Loading). The NPU, AUTO and HETERO
-  plugins (the NPU one is 108 MB) and the other frontends stay in the
-  archive.
+- Source: the Intel GenAI Windows archive the catalog pins on
+  `storage.openvinotoolkit.org`. Settings shows its download size and what
+  the libraries take on disk, both from the catalog entry. The app takes the
+  libraries (`openvino_genai_c`, `openvino_genai`, `openvino_c`, `openvino`,
+  the GPU, CPU and auto-batching plugins, the IR frontend,
+  `openvino_tokenizers`, oneTBB's three) and Intel's licence files
+  (`openvino-EULA.txt` and the third-party notices), which stay beside the
+  libraries. The CPU plugin is needed even on the GPU: GenAI compiles the
+  tokenizer and detokenizer models on the CPU. The auto-batching plugin is
+  there because every compile asks for it (below, under Loading). The NPU,
+  AUTO and HETERO plugins and the other frontends stay in the archive.
 - Licence: the binaries are under the Intel OpenVINO Distribution License
   (the archive's `docs/licensing/EULA.txt`; Settings links Intel's copy). The
   person's PC downloads them from Intel; Protocol does not redistribute them.
@@ -115,10 +114,10 @@ without a Protocol release.
   `WTD_REVOKE_NONE` and `WTD_REVOCATION_CHECK_NONE`; all 12 of 2026.4.1 are
   signed by Intel) before it is marked verified. These rules ship with each app and
   cannot be loosened for it afterwards.
-- No network: none of the 12 libraries imports WinHTTP, WinINet, Winsock or
-  urlmon. The data collection the EULA allows (clause 7.2) is the Python
-  `openvino_telemetry` package of the converter tools, which is not among the
-  pinned files.
+- No network: none of 2026.4.1's 12 libraries imports WinHTTP, WinINet,
+  Winsock or urlmon. The data collection the EULA allows (clause 7.2) is
+  the Python `openvino_telemetry` package of the converter tools, which is
+  not among the pinned files.
 
 ### Install (`model_catalog/runtime.rs`)
 
@@ -276,8 +275,8 @@ only the companion, so the row offers it at the companion's size.
 ## Model
 
 The companion of `large-v3-turbo` and `large-v3-turbo-q5_0` is
-`OpenVINO/whisper-large-v3-turbo-int8-ov` (MIT) pinned to commit `b568445d`,
-11 files, 822 MB (784 MB in Settings, which counts binary megabytes): int8
+`OpenVINO/whisper-large-v3-turbo-int8-ov` (MIT) at the commit the catalog
+pins, 11 files (Settings shows their size, read from Hugging Face): int8
 weights (asymmetric, per channel), the `optimum-intel` export GenAI reads.
 It is a separate download because GenAI cannot read ggml files.
 `whisper_engine::openvino::MODEL_FILES` lists the files the engine requires.
@@ -294,7 +293,7 @@ It is a separate download because GenAI cannot read ggml files.
 - Compiling holds `BusyReason::ModelCompile` in the busy registry, so an
   update cannot restart the app in the middle of it. OpenVINO's `CACHE_DIR`
   is `<data>/cache/openvino/<runtime version>_<model commit, 12>`: the first
-  load of a model on a runtime compiles GPU kernels (seconds, 0.8 GB), later
+  load of a model on a runtime compiles GPU kernels (seconds), later
   loads read them back. A blob compiled by one runtime is not for another, and
   a model update brings new weights, so both start a new folder; each compile
   removes the folders of other runtime versions and of commits no installed
@@ -405,7 +404,7 @@ It is a separate download because GenAI cannot read ggml files.
   effect at the next model load (idle unload or restart); a runtime version
   installed after another was loaded, at the next start.
 - A runtime download does not resume: after a failure, Cancel or a restart it
-  starts over (242 MB). The companion's download resumes.
+  starts over. The companion's download resumes.
 - Trust: the catalog (from GitHub, unsigned) picks the version and its
   hashes; the host and the publisher are this build's. A malicious catalog
   can still make installs fetch another genuine Intel release from Intel's

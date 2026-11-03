@@ -14,21 +14,21 @@ is inherited from the project Protocol forked from; Protocol did not release it.
   where Whisper runs on an Intel GPU, Settings › Transcription offers, under
   Large V3 Turbo (and its Compressed version), a download that runs it through
   Intel's OpenVINO instead of Vulkan. One click fetches Intel's OpenVINO
-  libraries from Intel's server (242 MB, under Intel's licence, linked in the
-  row) and a copy of the model made for them from Hugging Face (784 MB);
-  nothing is downloaded before that click. Every file is checked against the
-  hash the model list pins, and every library against Intel's signature. A
-  newer version of Intel's libraries arrives through the model list, like a
-  model update, without a new app release. On an Intel Arc B390 integrated
-  GPU, the transcript after a meeting of a public Russian sample (FLEURS) came
-  36.6 times faster than real time instead of 9.1 with whisper.cpp on Vulkan,
-  with no more word errors (6.0 % against 6.4 %), and live lines 30.3 times
-  instead of 7.3. On 20 minutes of a recorded meeting, transcription took
-  26 seconds instead of about 110 (one run). OpenVINO decodes greedily where
-  whisper.cpp uses beam search after a meeting. Whisper stays on whisper.cpp
-  where OpenVINO cannot load or does not list that GPU, and Settings says why;
-  after Protocol closes unexpectedly inside OpenVINO, it stays off until you
-  try it again in the row.
+  libraries from Intel's server, under Intel's licence (linked in the row),
+  and a copy of the model made for them from Hugging Face; the row says how
+  big each is, and nothing is downloaded before that click. Every file is
+  checked against the hash the model list pins, and every library against
+  Intel's signature. A newer version of Intel's libraries arrives through the
+  model list, like a model update, without a new app release. On an Intel Arc
+  B390 integrated GPU, the transcript after a meeting of a public Russian
+  sample (FLEURS) came 36.6 times faster than real time instead of 9.1 with
+  whisper.cpp on Vulkan, with no more word errors (6.0 % against 6.4 %), and
+  live lines 30.3 times instead of 7.3. On 20 minutes of a recorded meeting,
+  transcription took 26 seconds instead of about 110 (one run). OpenVINO
+  decodes greedily where whisper.cpp uses beam search after a meeting. Whisper
+  stays on whisper.cpp where OpenVINO cannot load or does not list that GPU,
+  and Settings says why; after Protocol closes unexpectedly inside OpenVINO,
+  it stays off until you try it again in the row.
 
 ### For developers
 

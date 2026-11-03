@@ -1269,14 +1269,14 @@ mod tests {
         downloads().remove(&entry.id);
     }
 
-    /// The real install from Intel's server (network, 254 MB): the built-in
+    /// The real install from Intel's server (network): the built-in
     /// catalog's runtime into `OPENVINO_INSTALL_DATA`, a scratch data folder,
     /// whose `runtimes/openvino-genai/<version>` the kit's
     /// `MEASURE_OPENVINO_RUNTIME` can then name. As the app does: the pinned
     /// host and Intel's signature on every library. It loads the libraries,
     /// but creates no OpenVINO core, so no device is touched.
     #[tokio::test]
-    #[ignore = "network: downloads Intel's 254 MB archive into OPENVINO_INSTALL_DATA"]
+    #[ignore = "network: downloads Intel's runtime archive into OPENVINO_INSTALL_DATA"]
     async fn installs_the_catalogs_runtime_from_intel() {
         let data = PathBuf::from(std::env::var_os("OPENVINO_INSTALL_DATA").expect("OPENVINO_INSTALL_DATA: a scratch data folder"));
         let entry = {
