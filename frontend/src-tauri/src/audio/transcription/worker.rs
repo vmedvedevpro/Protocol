@@ -456,6 +456,10 @@ pub fn start_transcription_task<R: Runtime>(
                 info!("✅ Worker {} completed successfully", worker_id);
             }
         }
+        // The workers were the live Whisper state's only user (#78).
+        if let TranscriptionEngine::Whisper(engine) = &transcription_engine {
+            engine.release_live_state().await;
+        }
 
         // Final verification with retry logic to catch any stragglers
         let mut verification_attempts = 0;
