@@ -28,6 +28,7 @@ mod engines;
 mod input;
 mod output;
 mod settings;
+mod stages;
 mod tracks;
 
 use std::path::Path;

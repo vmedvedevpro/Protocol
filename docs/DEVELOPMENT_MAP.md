@@ -700,7 +700,16 @@ what Protocol does about it:
 - 1.8 adds flash attention to the Vulkan backend, but `acceleration.rs` keeps
   it off there: on an Intel Arc B390 iGPU it made the post-call pass 41 %
   slower (20 meeting minutes in 251 s instead of 178 s) and the text no closer
-  to a reference transcript. Metal and CUDA keep it on fast tiers.
+  to a reference transcript. Metal and CUDA keep it on fast tiers. Per stage
+  (#78, live pieces of `fleurs-ru`, Turbo q5_0): flash attention doubles the
+  encoder (833 ms per 30 s window instead of 447; ggml-vulkan's
+  `FLASH_ATTN_EXT` takes 18 ms per layer, against 7 ms for the unfused
+  `KQ`, softmax and `KQV`) and leaves the decoder as it is. whisper.cpp
+  #3806 reports an AMD RDNA4 Vulkan driver crashing with it. ggml's Intel Xe
+  flash attention kernels (whisper.cpp 1.9.5, and the prefill kernel still
+  in review as llama.cpp #29357) engage only with an f16 mask, and Whisper's
+  encoder and cross attention pass none: re-measure before turning it on
+  after an update.
 - On the CPU (whisper.cpp's default of 4 threads; the app's `max_threads` is
   still not applied) a 20-second clip took 197 s instead of 252 s with Large
   V3 Turbo Compressed and 10.5 s instead of 7.9 s with Base.
@@ -779,6 +788,42 @@ what Protocol does about it:
   another copy of the model. The model is leaked at most once per app session,
   and the warning is logged once. The live calls' single decoder never grows
   the cache.
+- **The live calls share one whisper.cpp state** (#78; `live_state` in
+  `whisper_engine.rs`). A state holds the KV caches and the compute buffers
+  of the conv, encoder, cross and decoder graphs, about 450 MB for Turbo on
+  Vulkan; creating one took 23 ms and freeing it 62 ms of a 690 ms live call
+  on an Intel Arc B390 (the post-meeting pass's 1761 ms piece: 98 ms).
+  - Owner and user: `WhisperEngine` owns it; its only user is the live
+    transcription worker (one worker) through
+    `transcribe_audio_with_confidence`. The `whisper_transcribe_audio`
+    command and the post-meeting pass keep a new state per call.
+  - Lifecycle: the first live call makes it from the loaded context. It is
+    freed when the transcription task's workers have finished
+    (`release_live_state` at the end of `start_transcription_task`), when the
+    model is unloaded or replaced (`unload_model`, `load_model`), and after a
+    call that failed on it; the next live call makes a new one. A state holds
+    its model context, so freeing the state is what lets an unload free the
+    model. Lock order: the context, then the state.
+  - Text: `no_context` (whisper.cpp's default) clears the past text before
+    every call, and each call resets the KV cache, mel, results, language and
+    token-timestamp state. Only decoder 0's sampler carries on; it draws only
+    in the temperature fallback, so a fallback's text depends on the earlier
+    fallbacks of the recording instead of on a seed of 0. On the 46 live
+    pieces of `fleurs-ru` there were none, and the texts on a shared state
+    were identical to those on new states.
+  - The post-meeting pass keeps a new state per piece on purpose (see above):
+    a shared one changed the text of 4 of 15 pieces, for 5.5 % of the time.
+  - Measured against `main` on `fleurs-ru` (Arc B390, three interleaved
+    runs each):
+    - The kit's live setting: 694 → 608 ms per call and 9 % less package
+      energy, with the same text and WER.
+    - The live pace (a 6 s window every 6 s): 732 → 622 ms per call, and
+      17.1 → 15.6 J per call above the pauses. After 5 s of idle a state
+      costs 32 + 70 ms to create and free.
+    - Back to back, the decoder on a shared state is 3–10 % slower per
+      token, with the GPU time of its graph unchanged, so the cost is on the
+      host. At the live pace it is not slower (3.87 against 4.03 ms per
+      token).
 - Every Whisper call's output wraps at 200 bytes (`max_len` counts bytes) only
   before a word (`split_on_word`); a byte wrap inside a Cyrillic word would
   split it in two.
@@ -787,8 +832,32 @@ The ignored test `an_installed_model_loads_and_transcribes` loads a model
 (`PROTOCOL_WHISPER_TEST_MODEL`, read only) and transcribes a 16 kHz mono WAV
 (`PROTOCOL_WHISPER_TEST_WAV`, optional `PROTOCOL_WHISPER_TEST_LANGUAGE`) on the
 build's backend, through the live call and through `PostMeetingWhisper` (twice
-on one pass, which must give the same rows). Windows Vulkan builds need a short cargo target dir
+on one pass, which must give the same rows). The live call runs three times:
+twice on the shared state and once on a new one after `release_live_state`,
+with the same text each time, and unloading the model must free the live
+state. Windows Vulkan builds need a short cargo target dir
 ([BUILDING.md](BUILDING.md#build-from-source-windows)).
+
+Where a live call's time goes, measured with the kit's
+`measure::stages::whisper_stages` (#78;
+[MEASURING_TRANSCRIPTION.md](MEASURING_TRANSCRIPTION.md#measurestageswhisper_stages)):
+
+| Turbo q5_0, Vulkan, Intel Arc B390, 6 s pieces | ms per call |
+|---|---:|
+| state created / freed (before #78) | 23 / 62 |
+| mel on the CPU | 26 |
+| encoder (conv, 32 layers, cross) | 447 |
+| prompt and 23 generated tokens (3.5 ms each) | 86 |
+| sampling on the CPU, the rest of `whisper_full` | 46 |
+
+The encoder's GPU time is the unfused attention (`KQ`, softmax, `KQV` over a
+1500 × 1500 × 20 f32 score matrix per layer, 237 ms, bound by memory
+traffic), the q5_0 weight matmuls (135 ms at 12–17 TFLOPS) and unfused
+element-wise ops (60 ms). q8_0 and f16 weights take the same encoder time or
+more (447, 472 ms) and a slower decoder (4.0, 5.3 ms per token). OpenVINO
+GenAI with INT8 weights on the same GPU spends about 74 ms on the encoder and
+3.6 ms per token (166 ms per call); the difference is ggml-vulkan's encoder
+kernels, not the state or the decoder.
 
 ### Windows installer
 
