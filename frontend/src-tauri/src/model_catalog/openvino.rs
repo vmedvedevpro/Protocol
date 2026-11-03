@@ -263,7 +263,7 @@ pub struct RuntimeStatus {
     pub after_restart: Option<String>,
     /// An installed version no companion needs any more, which the next
     /// start removes: it stayed because this process loaded it. It counts
-    /// as not installed meanwhile, so the row shows what that start leaves.
+    /// as not installed meanwhile; a download before that start keeps it.
     pub removed_at_restart: Option<String>,
 }
 
@@ -287,10 +287,10 @@ pub struct CompanionStatus {
     pub runtime: Option<RuntimeStatus>,
     /// Both are there: Whisper can run on OpenVINO from the next model load.
     pub installed: bool,
-    /// What a click on Download fetches now, when every part's size is known;
-    /// with a runtime awaiting its removal at the next start
-    /// (`RuntimeStatus::removed_at_restart`), what that start leaves to fetch
-    /// (a click before it keeps that runtime and fetches only the companion).
+    /// What a click on Download fetches now, when every part's size is known.
+    /// A runtime awaiting its removal at the next start
+    /// (`RuntimeStatus::removed_at_restart`) is reused, not fetched: the
+    /// click keeps it.
     pub download_size: Option<u64>,
     /// Why the runtime cannot be installed or loaded here.
     pub refused: Option<String>,
@@ -393,8 +393,10 @@ fn status_in(
             removed_at_restart: removed_at_restart.clone(),
         }
     });
-    let runtime_current = matches!((usable, offered), (Some(version), Some(offered)) if version.record.version == offered.version)
-        || (offered.is_none() && usable.is_some());
+    // A download reuses the catalog's version wherever it is on disk, also
+    // one awaiting its removal (`install_both` keeps it then).
+    let runtime_current = matches!((&selected, offered), (Ok(version), Some(offered)) if version.record.version == offered.version)
+        || (offered.is_none() && selected.is_ok());
     let runtime_fetch = if runtime_current { Some(0) } else { offered.map(|offered| offered.archive.size) };
     let companion_fetch = if companion_installed { Some(0) } else { size };
     // Without an entry this build can install, only an installed version can
@@ -837,10 +839,16 @@ mod tests {
     /// The repository with a distinct small content per file: weights in LFS,
     /// the XML and JSON files in Git, as on Hugging Face.
     fn hub_with_model() -> (Hub, Vec<Vec<u8>>) {
+        hub_with_model_in("owner/turbo-ov")
+    }
+
+    /// [`hub_with_model`] under another repository name, whose sizes no
+    /// other test lists.
+    fn hub_with_model_in(name: &str) -> (Hub, Vec<Vec<u8>>) {
         let mut hub = Hub::new();
         let contents: Vec<Vec<u8>> =
             (0..OPENVINO_WHISPER_FILES.len()).map(|index| vec![index as u8 + 1; 40 + index * 3]).collect();
-        let mut repo = hub.repo("owner/turbo-ov", COMMIT);
+        let mut repo = hub.repo(name, COMMIT);
         for (name, content) in OPENVINO_WHISPER_FILES.iter().zip(&contents) {
             if name.ends_with(".bin") {
                 repo.lfs_file(name, content);
@@ -1071,16 +1079,23 @@ mod tests {
     }
 
     /// A removal keeps a runtime this process loaded until the next start
-    /// (`prune_runtimes`). Meanwhile Settings counts it as gone: the full
-    /// download, a note that the next start removes it, and no offer to
-    /// remove libraries that a click cannot delete (QA B2).
+    /// (`prune_runtimes`). Meanwhile Settings counts it as gone: a note that
+    /// the next start removes it, no offer to remove libraries that a click
+    /// cannot delete (QA B2), and the size a download then fetches, which
+    /// reuses those libraries (QA N1).
     #[tokio::test]
     async fn a_runtime_awaiting_its_removal_at_the_next_start_counts_as_gone() {
         let data = tempfile::tempdir().unwrap();
         let place = test_place(data.path(), "http://127.0.0.1:9");
         let mut entry = companion_entry();
-        // Its own id: the running downloads are shared by the tests.
+        // Its own id and repository: the running downloads and the listed
+        // sizes are shared by the tests.
         entry.id = "removal-openvino-int8".to_string();
+        entry.repo = "owner/removal-ov".to_string();
+        let (hub, contents) = hub_with_model_in(&entry.repo);
+        let hub = hub.serve().await;
+        assert!(sizes::fill(&huggingface::client(), &hub.url, std::slice::from_ref(&entry)).await);
+        let companion: u64 = contents.iter().map(|content| content.len() as u64).sum();
         let companions = [entry.clone()];
         let offered = runtime_entry_served("2026.4.1.0", 5, API_LEVEL).await;
         // The libraries without the model, as a failed or cancelled download leaves them.
@@ -1102,8 +1117,8 @@ mod tests {
             (None, None, Some("2026.4.1.0"))
         );
         assert!(!after.installed && !after.removes_runtime);
-        // The download the next start leaves: the runtime's archive and the companion.
-        assert_eq!(after.download_size, after.size.map(|size| size + offered.archive.size));
+        // A download now keeps the libraries and fetches the companion alone.
+        assert_eq!((after.size, after.download_size), (Some(companion), Some(companion)));
 
         // A download of the companion keeps the runtime from its first moment.
         downloads().insert(entry.id.clone(), Running { cancel: CancellationToken::new(), progress: Progress::default() });

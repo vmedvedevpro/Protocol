@@ -255,14 +255,15 @@ test('libraries left without the model can be completed or removed', async () =>
 test('libraries removed while this run has them loaded count as gone until the restart removes them', async () => {
   // Remove, or Remove the libraries, while the runtime is loaded: it stays on
   // disk until the next start, which the row says instead of showing it installed.
-  companion = { ...companion!, runtime: { ...companion!.runtime, removedAtRestart: '2026.4.1.0' } };
+  companion = { ...companion!, downloadSize: 828 * MB, runtime: { ...companion!.runtime, removedAtRestart: '2026.4.1.0' } };
   await render(['large-v3-turbo-q5_0']);
-  expect(text()).toContain("Intel's OpenVINO GenAI 2026.4.1.0 libraries are removed when Protocol restarts.");
+  expect(text()).toContain("Intel's OpenVINO GenAI 2026.4.1.0 libraries are removed when Protocol restarts; Download before then keeps them and fetches only the model.");
   expect(text()).not.toContain('2026.4.1.0 installed');
-  expect(text()).not.toContain('Download fetches only the model');
+  expect(text()).not.toContain("Intel's libraries are installed without the model");
   expect(() => buttonWithText('Remove the libraries')).toThrow();
-  // The full download, as the next start leaves it.
-  expect(text()).toContain('1.1 GB');
+  // What Download fetches now: the model alone.
+  expect(text()).toContain('Runs on an Intel GPU · 828 MB');
+  expect(text()).not.toContain('1.1 GB');
   await click('Download Large V3 Turbo for Intel GPUs');
   expect(commands.some(({ command }) => command === 'openvino_download')).toBe(true);
 });

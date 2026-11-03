@@ -268,11 +268,10 @@ runtime (a version this process loaded goes at the next start) and the model
 cache. At startup, a runtime no companion needs (none installed or begun) is
 removed too. A version left on disk only because this process loaded it
 counts as gone in the row until then (`RuntimeStatus::removed_at_restart`):
-the row offers the download as the next start leaves it and says that
-Intel's libraries are removed when Protocol restarts, rather than showing
-them installed with a "Remove the libraries" that cannot delete them. A
-download before that restart keeps the version and fetches only the
-companion.
+the row says that Intel's libraries are removed when Protocol restarts,
+rather than showing them installed with a "Remove the libraries" that cannot
+delete them. A download before that restart keeps the version and fetches
+only the companion, so the row offers it at the companion's size.
 
 ## Model
 
@@ -386,7 +385,7 @@ It is a separate download because GenAI cannot read ggml files.
   and the mismatch, a removed runtime, an update and its restart note and toast, a
   failure and a refusal, the crash note and its retry, libraries without the
   model, offered for removal only when that removes them, and libraries a
-  restart removes shown as such with the full download).
+  restart removes shown as such with the model's size).
 - Ignored, with an installed runtime (`OPENVINO_TEST_RUNTIME`): Intel's 12
   libraries pass the signature check (`authenticode.rs`), and GenAI itself
   reads a file in a Cyrillic and in a Latin-1 folder through `genai_path`,

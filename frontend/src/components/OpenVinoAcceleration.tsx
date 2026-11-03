@@ -46,7 +46,7 @@ export interface RuntimeStatus {
   installed: string | null;
   /** Installed while this run of Protocol uses another: used after a restart. */
   afterRestart: string | null;
-  /** Needed by no companion but loaded by this run: the next start removes it; it counts as not installed. */
+  /** Needed by no companion but loaded by this run: the next start removes it, a download before then reuses it. */
   removedAtRestart: string | null;
 }
 
@@ -239,7 +239,7 @@ export function OpenVinoAcceleration({ whisperModels }: { whisperModels: string[
       )}
       {companion.runtime?.removedAtRestart && companion.downloading === null && (
         <p className="mt-2 text-xs text-af-text-2">
-          {`Intel's ${companion.runtime.name} ${companion.runtime.removedAtRestart} libraries are removed when Protocol restarts.`}
+          {`Intel's ${companion.runtime.name} ${companion.runtime.removedAtRestart} libraries are removed when Protocol restarts; Download before then keeps them and fetches only the model.`}
         </p>
       )}
       {companion.runtime?.afterRestart && (
