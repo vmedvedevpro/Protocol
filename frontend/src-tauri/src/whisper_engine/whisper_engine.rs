@@ -83,8 +83,9 @@ pub struct WhisperEngine {
     /// `transcribe_audio_with_confidence`. The first live call creates it.
     /// It is freed when live transcription ends (`release_live_state`, called
     /// by the transcription task once its workers have finished), when the
-    /// model is unloaded or replaced (`unload_model`), and after a call that
-    /// failed on it. Lock order: `current_context`, then this.
+    /// model is unloaded or replaced (`unload_model`, or a load on OpenVINO,
+    /// whose live calls never use it, #79), and after a call that failed on
+    /// it. Lock order: `current_context`, then this.
     live_state: Arc<tokio::sync::Mutex<Option<WhisperState>>>,
     current_model: Arc<RwLock<Option<String>>>,
     available_models: Arc<RwLock<HashMap<String, ModelInfo>>>,
@@ -410,6 +411,7 @@ impl WhisperEngine {
 
                 #[cfg(windows)]
                 if self.load_openvino_companion(model_name).await {
+                    self.release_whisper_cpp().await;
                     *self.current_model.write().await = Some(model_name.to_string());
                     return Ok(());
                 }
@@ -445,6 +447,9 @@ impl WhisperEngine {
                     self.live_state.lock().await.take();
                     *ctx_guard = Some(ctx);
                 }
+                // A pipeline left from before would take the calls first.
+                #[cfg(windows)]
+                self.set_openvino(None);
                 *self.current_model.write().await = Some(model_name.to_string());
 
                 // Enhanced acceleration status reporting
@@ -487,6 +492,7 @@ impl WhisperEngine {
                 anyhow!("{} is an OpenVINO model, and the device rule picks no OpenVINO GPU here", path.display())
             })?;
             log::info!("Opened {} on OpenVINO {device}", path.display());
+            self.release_whisper_cpp().await;
             *self.current_model.write().await = Some(path.display().to_string());
             return Ok("OpenVINO GPU");
         }
@@ -496,8 +502,21 @@ impl WhisperEngine {
         let mut ctx_guard = self.current_context.write().await;
         self.live_state.lock().await.take();
         *ctx_guard = Some(ctx);
+        drop(ctx_guard);
+        #[cfg(windows)]
+        self.set_openvino(None);
         *self.current_model.write().await = Some(path.display().to_string());
         Ok(acceleration.status_label())
+    }
+
+    /// Frees the whisper.cpp context and the live state made from it once
+    /// the model runs on OpenVINO (#79), whose live calls never use them
+    /// (`transcribe_audio_with_confidence` returns before the state).
+    #[cfg(windows)]
+    async fn release_whisper_cpp(&self) {
+        let mut ctx_guard = self.current_context.write().await;
+        self.live_state.lock().await.take();
+        ctx_guard.take();
     }
 
     pub async fn unload_model(&self) -> bool  {
@@ -1490,5 +1509,50 @@ mod tests {
         assert!(engine.holds_live_state().await);
         assert!(engine.unload_model().await);
         assert!(!engine.holds_live_state().await, "unloading the model kept the live state");
+    }
+
+    /// One engine switching between whisper.cpp and OpenVINO, as a fallback,
+    /// a retry or a model switch does: the live state (#78) exists only while
+    /// whisper.cpp holds the model, OpenVINO's live calls neither make nor
+    /// need it, and each load frees what the other backend held.
+    #[cfg(windows)]
+    #[tokio::test]
+    #[ignore = "Requires PROTOCOL_WHISPER_TEST_MODEL (ggml-*.bin), OPENVINO_TEST_MODEL (an OpenVINO model folder), MEASURE_OPENVINO_RUNTIME and PROTOCOL_WHISPER_TEST_WAV; runs on the Intel GPU"]
+    async fn the_live_state_exists_only_while_whisper_cpp_holds_the_model() {
+        let ggml = std::path::PathBuf::from(std::env::var("PROTOCOL_WHISPER_TEST_MODEL").expect("Set PROTOCOL_WHISPER_TEST_MODEL"));
+        let openvino = std::path::PathBuf::from(std::env::var("OPENVINO_TEST_MODEL").expect("Set OPENVINO_TEST_MODEL"));
+        let wav = std::env::var("PROTOCOL_WHISPER_TEST_WAV").expect("Set PROTOCOL_WHISPER_TEST_WAV");
+        let language = std::env::var("PROTOCOL_WHISPER_TEST_LANGUAGE").ok();
+        let (mut audio, rate) = crate::diarization::dsp::read_wav(std::path::Path::new(&wav)).unwrap();
+        assert_eq!(rate, 16000);
+        // A live piece is at most 6 s.
+        audio.truncate(6 * 16000);
+        let dir = tempfile::tempdir().unwrap();
+        let engine = WhisperEngine::new_with_models_dir(Some(dir.path().to_path_buf())).unwrap();
+        let live = || engine.transcribe_audio_with_confidence(audio.clone(), language.clone(), None);
+
+        engine.load_model_in_place(&ggml).await.unwrap();
+        assert!(!live().await.unwrap().0.trim().is_empty());
+        assert!(engine.holds_live_state().await);
+
+        // To OpenVINO: the context and its state go, and its live calls make none.
+        assert_eq!(engine.load_model_in_place(&openvino).await.unwrap(), "OpenVINO GPU");
+        assert!(!engine.holds_live_state().await, "OpenVINO took the model and the live state stayed");
+        assert!(engine.current_context.read().await.is_none(), "OpenVINO took the model and the context stayed");
+        let (text, _, _) = live().await.unwrap();
+        println!("OpenVINO: {text}");
+        assert!(!text.trim().is_empty());
+        assert!(!engine.holds_live_state().await, "an OpenVINO live call made a whisper.cpp state");
+        // The end of live transcription has nothing to free then.
+        engine.release_live_state().await;
+
+        // Back to whisper.cpp: the pipeline goes, and the next live call
+        // makes the state again.
+        engine.load_model_in_place(&ggml).await.unwrap();
+        assert!(engine.loaded_openvino().is_none(), "whisper.cpp took the model and the pipeline stayed");
+        assert!(!live().await.unwrap().0.trim().is_empty());
+        assert!(engine.holds_live_state().await);
+        assert!(engine.unload_model().await);
+        assert!(!engine.holds_live_state().await && engine.loaded_openvino().is_none());
     }
 }

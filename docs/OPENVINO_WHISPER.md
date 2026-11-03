@@ -290,6 +290,14 @@ It is a separate download because GenAI cannot read ggml files.
   a whisper.cpp context. Unload, a model switch and the idle unloader drop the
   engine's `Arc`; a call in flight keeps its own `Arc`, so the pipeline is
   freed when that call returns.
+- The live calls on OpenVINO return before whisper.cpp's shared live state
+  (`live_state`, #78) and never create it. A load on OpenVINO frees the
+  whisper.cpp context and that state, and a load on whisper.cpp drops the
+  pipeline, so one engine holds one backend even when a model is replaced
+  without an unload (the app's switches, after a companion install, a retry
+  or a removal, unload first). The ignored
+  `the_live_state_exists_only_while_whisper_cpp_holds_the_model` switches one
+  engine from whisper.cpp to OpenVINO and back with live calls on each.
 - Compiling holds `BusyReason::ModelCompile` in the busy registry, so an
   update cannot restart the app in the middle of it. OpenVINO's `CACHE_DIR`
   is `<data>/cache/openvino/<runtime version>_<model commit, 12>`: the first
@@ -385,6 +393,9 @@ It is a separate download because GenAI cannot read ggml files.
   failure and a refusal, the crash note and its retry, libraries without the
   model, offered for removal only when that removes them, and libraries a
   restart removes shown as such with the model's size).
+- Ignored, on the Intel GPU (`PROTOCOL_WHISPER_TEST_MODEL`,
+  `OPENVINO_TEST_MODEL`, `MEASURE_OPENVINO_RUNTIME`, a 16 kHz WAV): the live
+  state exists only while whisper.cpp holds the model (above).
 - Ignored, with an installed runtime (`OPENVINO_TEST_RUNTIME`): Intel's 12
   libraries pass the signature check (`authenticode.rs`), and GenAI itself
   reads a file in a Cyrillic and in a Latin-1 folder through `genai_path`,

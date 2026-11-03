@@ -889,7 +889,9 @@ installed and the GPU whisper.cpp would use is an Intel GPU OpenVINO lists
   `availability`).
   `WhisperEngine` keeps the pipeline in `openvino` in place of
   `current_context`; `transcribe_audio*`, `PostMeetingWhisper::transcribe_piece`
-  and `detect_language_with_probability` branch on it.
+  and `detect_language_with_probability` branch on it. The OpenVINO live
+  calls never create #78's `live_state`; a load on either backend frees the
+  other's model, and on OpenVINO also the live state.
 - The runtime is not in the installer: the catalog's `runtimes` list pins
   Intel's archive and every file ([MODEL_CATALOG.md](MODEL_CATALOG.md#runtimes)),
   and `model_catalog/runtime.rs` installs a version atomically into
