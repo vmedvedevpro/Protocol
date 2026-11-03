@@ -20,6 +20,89 @@ pub const SCHEMA: u64 = 1;
 pub const PARAKEET_FILES: [&str; 4] =
     ["encoder-model.int8.onnx", "decoder_joint-model.int8.onnx", "nemo128.onnx", "vocab.txt"];
 
+/// The format of a Whisper model exported to OpenVINO IR by `optimum-intel`,
+/// run by OpenVINO GenAI on an Intel GPU (#79). Such an entry is a companion:
+/// it is never offered as a model of its own, only beside the ggml models it
+/// names in `companion_of` (`super::openvino`).
+pub const OPENVINO_IR: &str = "openvino-ir";
+
+/// The files of an OpenVINO Whisper model that GenAI's `WhisperPipeline`
+/// reads, as `OpenVINO/whisper-*-ov` on Hugging Face has them; the engine
+/// checks the same list (`whisper_engine::openvino::MODEL_FILES`).
+pub const OPENVINO_WHISPER_FILES: [&str; 11] = [
+    "openvino_encoder_model.xml",
+    "openvino_encoder_model.bin",
+    "openvino_decoder_model.xml",
+    "openvino_decoder_model.bin",
+    "openvino_tokenizer.xml",
+    "openvino_tokenizer.bin",
+    "openvino_detokenizer.xml",
+    "openvino_detokenizer.bin",
+    "config.json",
+    "generation_config.json",
+    "preprocessor_config.json",
+];
+
+/// The OpenVINO GenAI runtime that runs `openvino-ir` companions
+/// (`whisper_engine::openvino::genai`).
+pub const OPENVINO_GENAI: &str = "openvino-genai";
+
+/// An inference runtime this build can load (#79).
+struct KnownRuntime {
+    id: &'static str,
+    /// The platforms it is loaded on.
+    platforms: &'static [&'static str],
+    /// The files it must list: the libraries its binding opens by name, and
+    /// those OpenVINO would otherwise look for outside the runtime's folder.
+    files: &'static [&'static str],
+    /// The only host its archive is downloaded from, over https, redirects
+    /// included. The catalog is not signed, and the runtime is native code
+    /// every install loads: a catalog commit can pick a version, but not a
+    /// server, and these rules cannot be tightened for an app once it ships.
+    host: &'static str,
+    /// The publisher whose Authenticode signature every `.dll` of it carries.
+    signer: &'static str,
+}
+
+/// Mirrors `RUNTIMES` in check-catalog.mjs.
+const RUNTIMES: [KnownRuntime; 1] = [KnownRuntime {
+    id: OPENVINO_GENAI,
+    platforms: &["windows-x86_64"],
+    // Every compile asks for the auto-batching plugin, and OpenVINO looks
+    // for a plugin it lacks in the current directory (`get_plugin_path`):
+    // with it in the folder, that lookup never happens.
+    files: &["openvino_genai_c.dll", "openvino_c.dll", "openvino_auto_batch_plugin.dll"],
+    host: "storage.openvinotoolkit.org",
+    signer: "Intel Corporation",
+}];
+
+fn known_runtime(id: &str) -> Option<&'static KnownRuntime> {
+    RUNTIMES.iter().find(|known| known.id == id)
+}
+
+/// The host the archive of runtime `id` must come from.
+pub fn runtime_host(id: &str) -> Option<&'static str> {
+    known_runtime(id).map(|known| known.host)
+}
+
+/// The publisher that signs the libraries of runtime `id`.
+pub fn runtime_signer(id: &str) -> Option<&'static str> {
+    known_runtime(id).map(|known| known.signer)
+}
+
+/// This build's platform as the catalog's runtimes name it.
+pub fn platform() -> &'static str {
+    if cfg!(all(windows, target_arch = "x86_64")) {
+        "windows-x86_64"
+    } else if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
+        "linux-x86_64"
+    } else if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+        "macos-aarch64"
+    } else {
+        "other"
+    }
+}
+
 /// Chat templates `summary_engine::models::format_prompt` knows.
 pub const CHAT_FORMATS: [&str; 2] = ["gemma3", "qwen3.5_nonthinking"];
 
@@ -44,7 +127,7 @@ impl Engine {
     /// The file formats this build can run for the engine.
     fn formats(self) -> &'static [&'static str] {
         match self {
-            Engine::Whisper => &["ggml"],
+            Engine::Whisper => &["ggml", OPENVINO_IR],
             Engine::Parakeet => &["onnx-tdt-int8"],
             Engine::Llama => &["gguf"],
         }
@@ -124,6 +207,59 @@ pub struct Entry {
     pub min_app_version: Option<String>,
     #[serde(default)]
     pub params: Option<LlamaParams>,
+    /// An `openvino-ir` entry: the ids of the ggml Whisper models it runs in
+    /// place of. Older apps ignore the field and hide the entry for its format.
+    #[serde(default)]
+    pub companion_of: Vec<String>,
+    /// An `openvino-ir` entry: the id of the runtime (`Catalog::runtimes`)
+    /// that runs it.
+    #[serde(default)]
+    pub runtime: Option<String>,
+}
+
+/// The archive a runtime is taken from: its vendor's own download, pinned.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RuntimeArchive {
+    pub url: String,
+    pub size: u64,
+    pub sha256: String,
+}
+
+/// One file the app takes from a runtime's archive: `name` in the install
+/// folder, `path` in the archive, and its pin.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RuntimeFile {
+    pub name: String,
+    pub path: String,
+    pub size: u64,
+    pub sha256: String,
+}
+
+/// An inference runtime (#79), in the document's `runtimes` list: libraries
+/// the app downloads on each PC from their vendor and loads by absolute path.
+/// Unlike a model's, its version and hashes are in the catalog, since the
+/// archive comes from a plain download server, not Hugging Face. Apps before
+/// 0.5.0 read only `models` and never see these entries.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RuntimeEntry {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+    /// The vendor's version, `2026.4.1.0`; also the install folder's name.
+    pub version: String,
+    /// `windows-x86_64`: the build that may load it ([`platform`]).
+    pub platform: String,
+    /// The level of the runtime's API that the app's binding for `id` calls
+    /// (`whisper_engine::openvino::genai::API_LEVEL`). A build installs and
+    /// loads only a runtime of its own level, so one catalog can pin a
+    /// runtime for each level in use.
+    pub api: u32,
+    pub license: License,
+    pub archive: RuntimeArchive,
+    pub files: Vec<RuntimeFile>,
+    #[serde(default)]
+    pub min_app_version: Option<String>,
 }
 
 fn listed_by_default() -> bool {
@@ -201,6 +337,7 @@ impl Entry {
             problems.push("min_app_version must be X.Y.Z".to_string());
         }
         problems.extend(self.file_problems());
+        problems.extend(self.companion_problems());
         match (self.engine, &self.params) {
             (Engine::Llama, Some(params)) => problems.extend(llama_problems(params)),
             (Engine::Llama, None) => problems.push("params are required for llama".to_string()),
@@ -229,6 +366,13 @@ impl Entry {
             return problems;
         }
         match self.engine {
+            Engine::Whisper if self.format == OPENVINO_IR => {
+                if self.files.len() != OPENVINO_WHISPER_FILES.len()
+                    || !OPENVINO_WHISPER_FILES.iter().all(|name| names.contains(name))
+                {
+                    problems.push(format!("an openvino-ir model is the files {}", OPENVINO_WHISPER_FILES.join(", ")));
+                }
+            }
             Engine::Whisper if self.files.len() != 1 || self.files[0].name != format!("ggml-{}.bin", self.id) => {
                 problems.push(format!("a whisper model is one file named ggml-{}.bin", self.id));
             }
@@ -245,6 +389,39 @@ impl Entry {
         problems
     }
 
+    /// An `openvino-ir` entry names the models it serves, the runtime that
+    /// runs it and a pinned commit: GenAI reads an IR export only as far as
+    /// the runtime understands it, so a new commit comes with a runtime it
+    /// was measured on.
+    fn companion_problems(&self) -> Vec<String> {
+        let mut problems = Vec::new();
+        if self.format == OPENVINO_IR {
+            if self.companion_of.is_empty() || !self.companion_of.iter().all(|id| ID.is_match(id)) {
+                problems.push("companion_of must list the ids of the whisper models it serves".to_string());
+            }
+            if self.revision.is_none() {
+                problems.push("an openvino-ir model needs a pinned revision".to_string());
+            }
+            if !self.runtime.as_deref().is_some_and(|runtime| known_runtime(runtime).is_some()) {
+                let known: Vec<&str> = RUNTIMES.iter().map(|known| known.id).collect();
+                problems.push(format!("runtime must name the runtime that runs it: {}", known.join(", ")));
+            }
+        } else {
+            if !self.companion_of.is_empty() {
+                problems.push("companion_of is only used by openvino-ir models".to_string());
+            }
+            if self.runtime.is_some() {
+                problems.push("runtime is only used by openvino-ir models".to_string());
+            }
+        }
+        problems
+    }
+
+    /// Whether this is an OpenVINO companion rather than a model of its own.
+    pub fn is_companion(&self) -> bool {
+        self.engine == Engine::Whisper && self.format == OPENVINO_IR
+    }
+
     /// The single file of a Whisper or summary model.
     pub fn single_file(&self) -> &CatalogFile {
         &self.files[0]
@@ -259,6 +436,120 @@ impl Entry {
             Some(minimum) => version_triple(app_version) >= version_triple(minimum),
         }
     }
+}
+
+static RUNTIME_VERSION: Lazy<Regex> = Lazy::new(|| Regex::new(r"^\d+\.\d+\.\d+(\.\d+)?$").unwrap());
+static ZIP_URL: Lazy<Regex> = Lazy::new(|| Regex::new(r"^https://([^/?#:@]+)/[^?#]*\.zip$").unwrap());
+
+/// Whether `url` is the https URL of a `.zip` on `host` (no port, no user).
+pub fn is_archive_url(url: &str, host: &str) -> bool {
+    ZIP_URL.captures(url).is_some_and(|captures| captures[1].eq_ignore_ascii_case(host))
+}
+
+/// The names a runtime file cannot take: the install's own files and
+/// Windows device names, which open a device in any folder (`NUL`, `com1.txt`).
+const RESERVED_RUNTIME_FILES: [&str; 2] = ["runtime.json", "archive.zip"];
+static DEVICE_NAME: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)^(con|prn|aux|nul|com[0-9]|lpt[0-9])(\..*)?$").unwrap());
+
+/// Whether a runtime file can be called `name` in its version folder on
+/// Windows: one safe path segment that Windows keeps as written (no trailing
+/// dot, no device name) and that is not a file of the install itself.
+fn is_runtime_file_name(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    FILE_NAME.is_match(name)
+        && !name.ends_with('.')
+        && !DEVICE_NAME.is_match(name)
+        && !RESERVED_RUNTIME_FILES.contains(&lower.as_str())
+        && !lower.ends_with(".verified")
+}
+
+/// Byte sizes as check-catalog.mjs can hold them: 1 to 2^53 - 1.
+fn is_size(size: u64) -> bool {
+    (1..=(1u64 << 53) - 1).contains(&size)
+}
+
+impl RuntimeEntry {
+    /// The rules serde does not check, as sentences; empty when the entry can
+    /// be used. Mirrors `runtimeProblems` in check-catalog.mjs.
+    pub fn problems(&self) -> Vec<String> {
+        let mut problems = Vec::new();
+        let known = known_runtime(&self.id);
+        match known {
+            None => problems.push(format!("runtime {:?} is not supported", self.id)),
+            Some(known) if !known.platforms.contains(&self.platform.as_str()) => {
+                problems.push(format!("platform {:?} is not supported by {}", self.platform, self.id));
+            }
+            Some(_) => {}
+        }
+        if !is_text(&self.name, 80) {
+            problems.push("name must be a non-empty text of at most 80 characters".to_string());
+        }
+        if self.description.chars().count() > 300 {
+            problems.push("description must be a text of at most 300 characters".to_string());
+        }
+        if !RUNTIME_VERSION.is_match(&self.version) {
+            problems.push("version must be X.Y.Z or X.Y.Z.W".to_string());
+        }
+        if self.api == 0 {
+            problems.push("api must be a whole number from 1".to_string());
+        }
+        if !is_text(&self.license.name, 80) || !self.license.url.starts_with("https://") {
+            problems.push("license needs a name and an https url".to_string());
+        }
+        let archive = &self.archive;
+        if !ZIP_URL.is_match(&archive.url) || !is_size(archive.size) || !is_sha256(&archive.sha256) {
+            problems.push("archive needs the https url of a .zip, its size and its sha256".to_string());
+        } else if let Some(known) = known.filter(|known| !is_archive_url(&archive.url, known.host)) {
+            problems.push(format!("the archive of {} must come from https://{}/", known.id, known.host));
+        }
+        if self.min_app_version.as_deref().is_some_and(|version| !VERSION.is_match(version)) {
+            problems.push("min_app_version must be X.Y.Z".to_string());
+        }
+        if self.files.is_empty() {
+            problems.push("files must list at least one file".to_string());
+            return problems;
+        }
+        // Windows compares file names without case.
+        let mut names = HashSet::new();
+        for file in &self.files {
+            if !is_repo_path(&file.path) || !is_size(file.size) || !is_sha256(&file.sha256) {
+                problems.push("every file needs a safe name, its path in the archive, its size and its sha256".to_string());
+                continue;
+            }
+            if !is_runtime_file_name(&file.name) {
+                problems.push(format!("file name {:?} cannot be used: it is not one plain file name on Windows, or the install uses it", file.name));
+                continue;
+            }
+            if !names.insert(file.name.to_ascii_lowercase()) {
+                problems.push(format!("file {} is listed twice", file.name));
+            }
+        }
+        let required = known.map_or(&[][..], |known| known.files);
+        let missing: Vec<&str> = required.iter().copied().filter(|name| !names.contains(&name.to_ascii_lowercase())).collect();
+        if !missing.is_empty() {
+            problems.push(format!("{} needs the files {}", self.id, missing.join(", ")));
+        }
+        problems
+    }
+
+    /// Whether this build may install and load the runtime: it is for this
+    /// platform, of the API level `api` this build's binding calls, and its
+    /// `min_app_version` is not above `app_version`.
+    pub fn runs_on(&self, app_version: &str, api: u32) -> bool {
+        self.platform == platform()
+            && self.api == api
+            && self.min_app_version.as_deref().map_or(true, |minimum| version_triple(app_version) >= version_triple(minimum))
+    }
+
+    /// The bytes the files take once installed.
+    pub fn installed_size(&self) -> u64 {
+        self.files.iter().map(|file| file.size).sum()
+    }
+}
+
+/// A runtime version as numbers for ordering: `2026.4.1.0` → [2026, 4, 1, 0].
+pub fn runtime_version_key(version: &str) -> Vec<u64> {
+    version.split('.').map(|part| part.parse().unwrap_or(0)).collect()
 }
 
 fn llama_problems(params: &LlamaParams) -> Vec<String> {
@@ -302,11 +593,15 @@ pub struct Hidden {
     pub problem: String,
 }
 
-/// A readable catalog: the usable entries in file order and the hidden ones.
+/// A readable catalog: the usable entries in file order and the hidden ones,
+/// and the same for the runtimes (`hidden_runtimes` indexes `runtimes` in
+/// the document).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Catalog {
     pub entries: Vec<Entry>,
     pub hidden: Vec<Hidden>,
+    pub runtimes: Vec<RuntimeEntry>,
+    pub hidden_runtimes: Vec<Hidden>,
 }
 
 /// Why a document cannot be used at all.
@@ -380,7 +675,44 @@ pub fn parse(bytes: &[u8]) -> Result<Catalog, DocumentError> {
         }
         catalog.entries.push(entry);
     }
+    parse_runtimes(object.get("runtimes"), &mut catalog);
     Ok(catalog)
+}
+
+/// Reads the document's `runtimes` (optional): a broken list or entry hides
+/// runtimes only, never models. Of two entries with the same id, platform
+/// and API level the first is kept.
+fn parse_runtimes(runtimes: Option<&serde_json::Value>, catalog: &mut Catalog) {
+    let list = match runtimes {
+        None => return,
+        Some(serde_json::Value::Array(list)) => list,
+        Some(_) => {
+            catalog.hidden_runtimes.push(Hidden { index: 0, id: None, problem: "runtimes must be a list".to_string() });
+            return;
+        }
+    };
+    let mut keys = HashSet::new();
+    for (index, value) in list.iter().enumerate() {
+        let id = value.get("id").and_then(|id| id.as_str()).map(str::to_string);
+        let hide = |problem: String| Hidden { index, id: id.clone(), problem };
+        let runtime = match serde_json::from_value::<RuntimeEntry>(value.clone()) {
+            Ok(runtime) => runtime,
+            Err(error) => {
+                catalog.hidden_runtimes.push(hide(error.to_string()));
+                continue;
+            }
+        };
+        let problems = runtime.problems();
+        if !problems.is_empty() {
+            catalog.hidden_runtimes.extend(problems.into_iter().map(hide));
+            continue;
+        }
+        if !keys.insert((runtime.id.clone(), runtime.platform.clone(), runtime.api)) {
+            catalog.hidden_runtimes.push(hide(format!("{}/{}/api {} is listed twice", runtime.id, runtime.platform, runtime.api)));
+            continue;
+        }
+        catalog.runtimes.push(runtime);
+    }
 }
 
 #[cfg(test)]
@@ -393,7 +725,11 @@ mod tests {
     /// The base entry with the case's dotted paths set and removed, as in
     /// check-catalog.test.mjs.
     fn case_entry(cases: &Value, case: &Value) -> Value {
-        let mut entry = cases["bases"][case["base"].as_str().unwrap()].clone();
+        case_entry_from(&cases["bases"], case)
+    }
+
+    fn case_entry_from(bases: &Value, case: &Value) -> Value {
+        let mut entry = bases[case["base"].as_str().unwrap()].clone();
         let mut walk = |path: &str, apply: &mut dyn FnMut(&mut serde_json::Map<String, Value>, &str)| {
             let mut keys: Vec<&str> = path.split('.').collect();
             let last = keys.pop().unwrap();
@@ -431,6 +767,57 @@ mod tests {
             assert_eq!(valid, case["valid"].as_bool().unwrap(), "{}: {:?}", case["name"], catalog.hidden);
             assert_eq!(catalog.entries.len(), usize::from(valid));
         }
+    }
+
+    #[test]
+    fn the_shared_runtime_cases_agree_with_the_pull_request_check() {
+        let cases: Value = serde_json::from_str(CASES).unwrap();
+        for case in cases["runtime_cases"].as_array().unwrap() {
+            let runtime = case_entry_from(&cases["runtime_bases"], case);
+            let document = serde_json::json!({ "schema": 1, "models": [], "runtimes": [runtime] });
+            let catalog = parse(document.to_string().as_bytes()).unwrap();
+            let valid = catalog.hidden_runtimes.is_empty();
+            assert_eq!(valid, case["valid"].as_bool().unwrap(), "{}: {:?}", case["name"], catalog.hidden_runtimes);
+            assert_eq!(catalog.runtimes.len(), usize::from(valid));
+        }
+    }
+
+    #[test]
+    fn runtimes_are_hidden_on_their_own_and_never_take_models_with_them() {
+        let cases: Value = serde_json::from_str(CASES).unwrap();
+        let whisper = cases["bases"]["whisper"].clone();
+        let runtime = cases["runtime_bases"]["openvino"].clone();
+        let mut twin = runtime.clone();
+        twin["version"] = Value::from("2026.5.0.0");
+        let mut later = runtime.clone();
+        later["api"] = Value::from(2);
+        let document = serde_json::json!({ "schema": 1, "models": [whisper], "runtimes": [runtime, twin, later, 7] });
+        let catalog = parse(document.to_string().as_bytes()).unwrap();
+        assert_eq!(catalog.entries.len(), 1);
+        assert_eq!(catalog.runtimes.iter().map(|runtime| runtime.api).collect::<Vec<_>>(), [1, 2]);
+        assert_eq!(catalog.hidden_runtimes.iter().map(|hidden| hidden.index).collect::<Vec<_>>(), [1, 3]);
+        assert!(catalog.hidden_runtimes[0].problem.contains("api 1 is listed twice"));
+
+        let document = serde_json::json!({ "schema": 1, "models": [cases["bases"]["whisper"].clone()], "runtimes": {} });
+        let catalog = parse(document.to_string().as_bytes()).unwrap();
+        assert_eq!((catalog.entries.len(), catalog.runtimes.len()), (1, 0));
+        assert_eq!(catalog.hidden_runtimes[0].problem, "runtimes must be a list");
+    }
+
+    #[test]
+    fn a_runtime_runs_only_on_its_platform_api_level_and_app_versions() {
+        let cases: Value = serde_json::from_str(CASES).unwrap();
+        let mut runtime: RuntimeEntry = serde_json::from_value(cases["runtime_bases"]["openvino"].clone()).unwrap();
+        runtime.platform = platform().to_string();
+        assert!(runtime.runs_on("0.5.0", 1));
+        assert!(!runtime.runs_on("0.5.0", 2));
+        runtime.min_app_version = Some("0.6.0".to_string());
+        assert!(!runtime.runs_on("0.5.0", 1));
+        assert!(runtime.runs_on("0.6.0", 1));
+        runtime.platform = "elsewhere-x86_64".to_string();
+        assert!(!runtime.runs_on("0.6.0", 1));
+        assert!(runtime_version_key("2026.10.0.0") > runtime_version_key("2026.4.1.0"));
+        assert!(runtime_version_key("2026.4.1.1") > runtime_version_key("2026.4.1"));
     }
 
     #[test]

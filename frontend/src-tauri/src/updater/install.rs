@@ -180,8 +180,10 @@ fn platform_install(update: tauri_plugin_updater::Update, bytes: Vec<u8>, mode: 
 /// still fail: checkpoint the database without closing it, stop llama-helper
 /// (it is spawned again on demand, and a running copy would lock its file in
 /// the install folder), and close the crash session so the next launch does
-/// not report a crash.
+/// not report a crash, nor OpenVINO's crash guard one inside OpenVINO.
 async fn prepare_exit<R: Runtime>(app: &AppHandle<R>) {
+    #[cfg(windows)]
+    crate::whisper_engine::openvino::set_closing(true);
     if let Some(app_state) = app.try_state::<crate::state::AppState>() {
         if let Err(error) = sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)")
             .execute(app_state.db_manager.pool())
@@ -199,6 +201,8 @@ async fn prepare_exit<R: Runtime>(app: &AppHandle<R>) {
 }
 
 fn resume_after_failed_install() {
+    #[cfg(windows)]
+    crate::whisper_engine::openvino::set_closing(false);
     if let Err(error) = crate::crash_report::start_session() {
         log::warn!("[updater] could not reopen the crash session: {error}");
     }

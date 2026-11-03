@@ -79,6 +79,8 @@ pub fn entry_for(engine: Engine, id: &str, repo: &str) -> Entry {
         files,
         min_app_version: None,
         params,
+        companion_of: Vec::new(),
+        runtime: None,
     };
     assert!(entry.problems().is_empty(), "{:?}", entry.problems());
     entry

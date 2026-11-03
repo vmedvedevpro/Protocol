@@ -7,7 +7,9 @@ app offers are listed in `model-catalog/catalog.json` on this repository's
 installed apps pick it up within a day. A model's version and size are not in
 the list: the app resolves them from Hugging Face, and offers an update when
 Hugging Face's files differ from the installed ones. Diarization models are not in the
-catalog; they ship with the app and stay pinned in `model_integrity.rs`.
+catalog; they ship with the app and stay pinned in `model_integrity.rs`. The
+same file lists the inference runtimes the app downloads on each PC instead of
+shipping them ([Runtimes](#runtimes), #79).
 
 The owner's decisions behind this (2026-10-27): no signature, key, publish
 workflow or history file. Trust is HTTPS to GitHub and Hugging Face, plus the
@@ -15,12 +17,13 @@ checks below.
 
 ## The file
 
-`{ "schema": 1, "models": [ … ] }`. An entry:
+`{ "schema": 1, "models": [ … ], "runtimes": [ … ] }`; `runtimes` is
+optional ([Runtimes](#runtimes)). An entry of `models`:
 
 | Field | Meaning |
 | --- | --- |
 | `id` | The value saved in settings and the database. Permanent: never renamed or reused. 1–64 of `a-z 0-9 . _ : -`. |
-| `engine`, `format` | `whisper`/`ggml`, `parakeet`/`onnx-tdt-int8` or `llama`/`gguf`. A build hides an engine or format it does not know. |
+| `engine`, `format` | `whisper`/`ggml`, `whisper`/`openvino-ir` (a companion, below), `parakeet`/`onnx-tdt-int8` or `llama`/`gguf`. A build hides an engine or format it does not know. |
 | `name`, `description` | Display text (≤ 80 and ≤ 300 characters). |
 | `languages` | `["*"]` or language codes. |
 | `accuracy`, `speed` | Short display labels (Whisper, Parakeet). |
@@ -30,14 +33,17 @@ checks below.
 | `license` | `{ name, url }` (https). |
 | `repo` | The Hugging Face repository, `owner/name`. |
 | `revision` | Optional 40-character commit: the entry stays on it instead of following the default branch. |
-| `files` | `[{ name, path }]`: the name on disk and the path in the repository. Whisper: one `ggml-<id>.bin`; Parakeet: exactly `encoder-model.int8.onnx`, `decoder_joint-model.int8.onnx`, `nemo128.onnx`, `vocab.txt`; summary: one `.gguf`. |
+| `files` | `[{ name, path }]`: the name on disk and the path in the repository. Whisper: one `ggml-<id>.bin`; an `openvino-ir` companion: exactly the 11 files `WhisperPipeline` reads (`model_catalog::schema::OPENVINO_WHISPER_FILES`); Parakeet: exactly `encoder-model.int8.onnx`, `decoder_joint-model.int8.onnx`, `nemo128.onnx`, `vocab.txt`; summary: one `.gguf`. |
+| `companion_of` | `openvino-ir` entries only, and required there: the ggml Whisper ids the companion runs instead of on an Intel GPU (`docs/OPENVINO_WHISPER.md`). A companion needs a pinned `revision`. It is never a Whisper model of its own: it is left out of the model lists, downloads and update checks, and Settings offers it with its runtime under the Whisper model it serves (`OpenVinoAcceleration.tsx`) only where `get_openvino_availability` offers it. It installs into `models/openvino/<id>/` with an install record and a `.verified` marker per file (`model_catalog/openvino.rs`). |
+| `runtime` | `openvino-ir` entries only, and required there: the id of the runtime that runs it (`openvino-genai`). The pull-request check also requires an entry of that id in `runtimes`. |
 | `min_app_version` | Optional `X.Y.Z`: older apps leave the entry out. |
 | `params` | Summary models only: `chat_format` (`gemma3` or `qwen3.5_nonthinking`, the templates in `summary_engine/models.rs`), `context_size` (512–1048576), `sampling` (`temperature`, `top_k`, `top_p`, `presence_penalty`, `frequency_penalty`, `repeat_penalty`, `penalty_last_n`) and `stop_tokens`. |
 
 The rules live twice, kept equal by shared cases:
 `scripts/model-catalog/check-catalog.mjs` (pull requests) and
 `model_catalog::schema` (the app). Both run
-`scripts/model-catalog/test/entry-cases.json`. Numbers are read as the app's
+`scripts/model-catalog/test/entry-cases.json` (`cases` for models,
+`runtime_cases` for runtimes). Numbers are read as the app's
 reader takes them: `rank` (u32), `context_size`, `top_k` and `penalty_last_n`
 (i32) are whole numbers written without a fraction or exponent (`3.0` and
 `1e2` are refused) and within their type; the other sampling values must fit
@@ -61,6 +67,55 @@ A new engine, format or chat template needs app code; give such an entry the
 `min_app_version` that brings it, so older apps do not even try. Removing an
 entry stops new downloads; models this build shipped with keep working from
 its built-in copy (below), others do not.
+
+## Runtimes
+
+An entry of `runtimes` is an inference runtime the app downloads on each PC
+from its vendor and loads by absolute path, instead of shipping it in the
+installer (#79; owner's direction: what does not depend on Protocol is
+downloaded per PC, pinned here, and updated here without a release). Unlike a
+model's, its version and hashes are in the catalog: the archive comes from a
+plain download server, not Hugging Face.
+
+| Field | Meaning |
+| --- | --- |
+| `id` | The runtime, as a companion's `runtime` names it. This build knows `openvino-genai` (`schema::RUNTIMES`, `RUNTIMES` in the check); another id is hidden. |
+| `name`, `description` | Display text (≤ 80 and ≤ 300 characters). |
+| `version` | The vendor's version, `X.Y.Z` or `X.Y.Z.W`; also the install folder's name. |
+| `platform` | The build that may load it: `windows-x86_64` for `openvino-genai`. |
+| `api` | Whole number ≥ 1: the level of the runtime's API that the app's binding for this id calls (`whisper_engine::openvino::genai::API_LEVEL`). A build installs and loads only a runtime of its own level, so the list can pin one runtime per level in use; an entry of another level is valid and left alone. |
+| `license` | `{ name, url }` (https); Settings links it before the download. |
+| `archive` | `{ url, size, sha256 }`: the vendor's archive, an https URL of a `.zip` on the one host the app pins for the id in code (`openvino-genai`: `storage.openvinotoolkit.org`, no port or user). The download follows a redirect only to https on that host. The catalog is not signed, so this keeps a bad commit from pointing every install at another server: it can pick a version, not a server, and the rule cannot be loosened for an app once it ships. |
+| `files` | `[{ name, path, size, sha256 }]`: each file the app takes from the archive, its name in the install folder (one safe path segment that Windows keeps as written: no trailing dot, no device name such as `NUL` or `com1.dll`, not `runtime.json`, `archive.zip` or a `*.verified` marker, and unique without regard to case), its path in the archive, and its pin. Each `.dll` must also carry a valid Authenticode signature of the id's publisher (`Intel Corporation`, revocation not checked), checked before the file is marked verified. `openvino-genai` must list `openvino_genai_c.dll` and `openvino_c.dll`, which the binding opens by name, and `openvino_auto_batch_plugin.dll`, which every compile asks for and OpenVINO would otherwise look for in the current directory; the rest is the libraries they load and the vendor's licence files. |
+| `min_app_version` | Optional `X.Y.Z`: older apps leave the entry out. |
+
+Rules: one entry per `id`, `platform` and `api` (of two, the first is kept).
+A broken entry, or a `runtimes` that is not a list, hides runtimes only, never
+models. The app takes the first entry of the list in use for its platform,
+level and version, else the built-in list's, so a list that drops the runtime
+does not take it from installs.
+
+Apps before 0.5.0 read only `schema` and `models` (`schema::parse` at
+`v0.4.3`): `runtimes` is not read at all, and the `openvino-ir` companion in
+`models` is hidden for its format, as every unknown format is (Settings ›
+About in 0.4.x then counts "1 entry of the model list could not be used by
+this version"). Checked by running 0.4.3's own parser on this catalog: the
+same 18 models as before #79, the companion the only hidden entry.
+
+### Changing a runtime
+
+1. Take the version's archive from the vendor, its size and SHA-256, and the
+   size and SHA-256 of each file the app needs, as the current entry lists
+   them; check what the libraries now import (a new dependency is a new
+   file).
+2. Measure it with the kit ([MEASURING_TRANSCRIPTION.md](MEASURING_TRANSCRIPTION.md);
+   `MEASURE_OPENVINO_RUNTIME` names a folder installed by the ignored
+   `installs_the_catalogs_runtime_from_intel`) against the version in use.
+3. Same C API as the binding calls: replace the entry (same `api`); installs
+   offer it as an update. A changed C API needs a binding change in an app
+   release that raises `API_LEVEL`; add the new runtime as a second entry of
+   the new level and keep the old one for the apps already out.
+4. Run the check and its tests as for models.
 
 ## How the app reads it
 
@@ -179,6 +234,10 @@ model is being updated) keeps what the last check found. A check stores its
 results against the status as it is when the check ends, so an update that
 ended meanwhile is not offered again (`CatalogState::store_check`).
 
+Runtimes are not checked here: Settings compares the installed version with
+the catalog's whenever it shows the OpenVINO row, and offers the catalog's
+version as an update (`docs/OPENVINO_WHISPER.md`).
+
 **Update** (`model_update_start`, the card's **Update**), in
 `updates::run`:
 
@@ -235,15 +294,20 @@ repository whose sizes a list asked for before. Showing a model list (Settings,
 onboarding, the optional downloads) asks for the sizes it lacks: the same two
 requests per repository of its models, once, also with the switch off. All use
 the user agent `Protocol/<version>`. Nothing identifies the installation;
-downloads happen only on a click. `PRIVACY_POLICY.md` says the same.
+downloads happen only on a click. A runtime is downloaded from its vendor
+(`storage.openvinotoolkit.org` for OpenVINO GenAI) only on a click, with no
+request before it. `PRIVACY_POLICY.md` says the same.
 
 ## Tests
 
 - Node: `node --test "scripts/model-catalog/test/*.test.mjs"` (shared cases,
-  the repository's catalog, fatal documents, duplicates, the CLI).
+  the repository's catalog, fatal documents, duplicates, a companion's
+  runtime, the runtime list, the CLI).
 - Native (`cargo test -p protocol --lib model_catalog`):
-  `schema` (the shared cases, refused documents, hidden and duplicate entries,
-  `min_app_version`), the built-in catalog and fallback to built-in entries of
+  `schema` (the shared cases of models and runtimes, refused documents,
+  hidden and duplicate entries, a broken runtime list, `min_app_version`, a
+  runtime's platform, level and version), `runtime` (the runtime install, see
+  `docs/OPENVINO_WHISPER.md`), the built-in catalog and fallback to built-in entries of
   installed models, `remote` and `service` (cache, oversized or unreadable
   answers, the fallback order, the schedule), `sizes` (one listing per
   repository, kept and not asked again, a pinned revision, a failed repository

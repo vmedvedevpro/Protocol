@@ -88,8 +88,9 @@ impl WhisperDecoding {
     }
 }
 
-/// whisper.cpp's language and translate flag for the app's language setting.
-fn language_and_translation(language: Option<&str>) -> (Option<&str>, bool) {
+/// whisper.cpp's language and translate flag for the app's language setting;
+/// OpenVINO calls map it the same way.
+pub(crate) fn language_and_translation(language: Option<&str>) -> (Option<&str>, bool) {
     match language {
         Some("auto") | None => (None, false),
         Some("auto-translate") => (None, true),

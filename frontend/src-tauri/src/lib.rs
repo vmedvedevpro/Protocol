@@ -417,6 +417,10 @@ pub fn run() {
             // The model catalog: the cached copy until the daily check, which
             // runs on the updater's schedule (src/model_catalog/).
             model_catalog::service::init(_app.handle());
+            // OpenVINO's runtime versions and cache that nothing will load,
+            // before anything loads one (#79).
+            #[cfg(windows)]
+            model_catalog::openvino::prune_at_startup();
 
             // In-app updates: restores a downloaded update, then checks daily
             // while automatic checks are on (src/updater/).
@@ -588,6 +592,7 @@ pub fn run() {
             whisper_engine::commands::force_unload_stt_models,
             whisper_engine::commands::force_unload_all_models,
             whisper_engine::commands::get_local_stack_status,
+            whisper_engine::commands::get_openvino_availability,
             whisper_engine::commands::get_cuda_reconfiguration_status,
             whisper_engine::commands::whisper_has_available_models,
             whisper_engine::commands::whisper_validate_model_ready,
@@ -792,6 +797,17 @@ pub fn run() {
             model_catalog::commands::model_catalog_model_size,
             model_catalog::commands::model_update_start,
             model_catalog::commands::model_update_cancel,
+            // Whisper on an Intel GPU: OpenVINO companions and their runtime (#79)
+            #[cfg(windows)]
+            model_catalog::openvino::openvino_status,
+            #[cfg(windows)]
+            model_catalog::openvino::openvino_download,
+            #[cfg(windows)]
+            model_catalog::openvino::openvino_cancel,
+            #[cfg(windows)]
+            model_catalog::openvino::openvino_remove,
+            #[cfg(windows)]
+            model_catalog::openvino::openvino_retry,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
@@ -814,6 +830,9 @@ pub fn run() {
                 }
                 tauri::RunEvent::Exit => {
                     log::info!("Application exiting, cleaning up resources...");
+                    // An OpenVINO compile this exit cuts short is not a crash.
+                    #[cfg(windows)]
+                    whisper_engine::openvino::set_closing(true);
                     tauri::async_runtime::block_on(async {
                         // Clean up database connection and checkpoint WAL
                         if let Some(app_state) = _app_handle.try_state::<state::AppState>() {

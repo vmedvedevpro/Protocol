@@ -44,13 +44,15 @@ pub enum BusyReason {
     Summary,
     PostCall,
     ModelDownload,
+    /// A speech model being compiled for the GPU (OpenVINO, #79).
+    ModelCompile,
     Onboarding,
     /// Only from the install gate: the engine lifecycle lock stayed taken.
     SpeechEngine,
 }
 
 impl BusyReason {
-    const ALL: [BusyReason; 11] = [
+    const ALL: [BusyReason; 12] = [
         BusyReason::Recording,
         BusyReason::RecordingStopping,
         BusyReason::RecordingSave,
@@ -60,6 +62,7 @@ impl BusyReason {
         BusyReason::Summary,
         BusyReason::PostCall,
         BusyReason::ModelDownload,
+        BusyReason::ModelCompile,
         BusyReason::Onboarding,
         BusyReason::SpeechEngine,
     ];

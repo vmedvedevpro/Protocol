@@ -42,6 +42,11 @@ Data leaves your machine only when **you** choose an action that sends it:
 - **Model downloads**, including **Re-download models** for the bundled speaker
   models, contact Hugging Face (`huggingface.co` and the Hugging Face download
   servers it redirects to). These requests carry no meeting content.
+- **Intel GPU acceleration** (Windows): when you click **Download** or
+  **Update** for it in Settings › Transcription, Protocol downloads Intel's
+  OpenVINO libraries from Intel's server (`storage.openvinotoolkit.org`) and
+  the model from Hugging Face. These requests carry no meeting content, and
+  none is made before the click.
 - **Update checks** (automatic unless you turn them off) read release
   information and the model list from GitHub and the versions of your
   downloaded models from Hugging Face, and an update downloads only when you

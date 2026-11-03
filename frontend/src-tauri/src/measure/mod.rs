@@ -72,8 +72,9 @@ fn recording_span(tracks: &[Track], span: Option<Span>) -> Result<Option<Span>> 
 }
 
 /// Inputs: `MEASURE_AUDIO`, `MEASURE_OUT`, `MEASURE_SETTINGS`,
-/// `MEASURE_WHISPER_MODEL` and/or `MEASURE_PARAKEET_MODEL`, and optionally
-/// `MEASURE_LANGUAGE`, `MEASURE_VOCABULARY`, `MEASURE_SPAN`,
+/// `MEASURE_WHISPER_MODEL` (with an OpenVINO model folder, the runtime in
+/// `MEASURE_OPENVINO_RUNTIME`) and/or `MEASURE_PARAKEET_MODEL`, and
+/// optionally `MEASURE_LANGUAGE`, `MEASURE_VOCABULARY`, `MEASURE_SPAN`,
 /// `MEASURE_DIARIZATION` with `MEASURE_DIARIZATION_MODEL`.
 #[tokio::test]
 #[ignore = "measurement command; inputs from MEASURE_* (docs/MEASURING_TRANSCRIPTION.md)"]
@@ -83,7 +84,7 @@ async fn transcribe_settings() -> Result<()> {
     let inputs = Inputs::from_env()?;
     let settings = Setting::list(optional("MEASURE_SETTINGS").as_deref())?;
     let whisper_model = settings.iter().any(|s| s.uses_whisper())
-        .then(|| existing_path("MEASURE_WHISPER_MODEL", "the ggml model file of the Whisper settings"))
+        .then(|| existing_path("MEASURE_WHISPER_MODEL", "the ggml model file of the Whisper settings, or on Windows an OpenVINO model folder"))
         .transpose()?;
     let parakeet_model = settings.contains(&Setting::Parakeet)
         .then(|| existing_path("MEASURE_PARAKEET_MODEL", "the Parakeet model folder"))

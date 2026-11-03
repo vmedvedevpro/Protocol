@@ -56,7 +56,7 @@ test('Restart and update names the first reason it cannot run', () => {
 });
 
 test('every busy reason and error kind has wording', () => {
-  const reasons = ['recording', 'recordingStopping', 'recordingSave', 'import', 'retranscription', 'diarization', 'summary', 'postCall', 'modelDownload', 'onboarding', 'speechEngine'] as const;
+  const reasons = ['recording', 'recordingStopping', 'recordingSave', 'import', 'retranscription', 'diarization', 'summary', 'postCall', 'modelDownload', 'modelCompile', 'onboarding', 'speechEngine'] as const;
   for (const reason of reasons) expect(lib.busySentence(reason)).not.toContain('undefined');
   const kinds = ['network', 'noRelease', 'noPlatform', 'feed', 'signature', 'download', 'diskSpace', 'installStart', 'installIncomplete', 'location'] as const;
   for (const kind of kinds) {

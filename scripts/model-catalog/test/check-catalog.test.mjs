@@ -6,17 +6,22 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { catalogProblems, entryProblems, parseCatalogJson } from '../check-catalog.mjs';
+import { catalogProblems, entryProblems, parseCatalogJson, runtimeProblems } from '../check-catalog.mjs';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
 const script = join(here, '..', 'check-catalog.mjs');
 const catalogPath = join(here, '..', '..', '..', 'model-catalog', 'catalog.json');
 // Read as the checker reads a catalog, so `3.0` in a case stays a float.
-const { bases, cases } = parseCatalogJson(readFileSync(join(here, 'entry-cases.json'), 'utf8'));
+const {
+  bases,
+  cases,
+  runtime_bases: runtimeBases,
+  runtime_cases: runtimeCases,
+} = parseCatalogJson(readFileSync(join(here, 'entry-cases.json'), 'utf8'));
 
 // The base entry with the case's dotted paths set and removed.
-function caseEntry({ base, set = {}, remove = [] }) {
-  const entry = structuredClone(bases[base]);
+function caseEntry({ base, set = {}, remove = [] }, from = bases) {
+  const entry = structuredClone(from[base]);
   const walk = (path) => {
     const keys = path.split('.');
     const last = keys.pop();
@@ -36,6 +41,13 @@ function caseEntry({ base, set = {}, remove = [] }) {
 for (const shared of cases) {
   test(`shared case: ${shared.name}`, () => {
     const problems = entryProblems(caseEntry(shared));
+    assert.equal(problems.length === 0, shared.valid, problems.join('; '));
+  });
+}
+
+for (const shared of runtimeCases) {
+  test(`shared runtime case: ${shared.name}`, () => {
+    const problems = runtimeProblems(caseEntry(shared, runtimeBases));
     assert.equal(problems.length === 0, shared.valid, problems.join('; '));
   });
 }
@@ -75,6 +87,37 @@ test('a broken entry is reported on its own and the first of two duplicates is k
   );
   assert.match(problems[1].problem, /whisper\/tiny is listed twice/);
   assert.match(problems[2].problem, /already used by another summary model/);
+});
+
+test('an openvino companion must serve ggml whisper models of the same catalog', () => {
+  const turbo = { ...bases.whisper, id: 'large-v3-turbo', files: [{ name: 'ggml-large-v3-turbo.bin', path: 'ggml-large-v3-turbo.bin' }] };
+  const runtimes = [runtimeBases.openvino];
+  assert.deepEqual(catalogProblems({ schema: 1, models: [turbo, bases.openvino], runtimes }).problems, []);
+  const { problems } = catalogProblems({ schema: 1, models: [bases.whisper, bases.openvino], runtimes });
+  assert.deepEqual(problems.map(({ index }) => index), [1]);
+  assert.match(problems[0].problem, /companion_of names large-v3-turbo, which is not a ggml whisper model here/);
+});
+
+test('a companion must name a runtime the catalog lists', () => {
+  const turbo = { ...bases.whisper, id: 'large-v3-turbo', files: [{ name: 'ggml-large-v3-turbo.bin', path: 'ggml-large-v3-turbo.bin' }] };
+  const models = [turbo, bases.openvino];
+  assert.deepEqual(catalogProblems({ schema: 1, models, runtimes: [runtimeBases.openvino] }).problems, []);
+  const { problems } = catalogProblems({ schema: 1, models });
+  assert.deepEqual(problems.map(({ list, index }) => [list, index]), [['models', 1]]);
+  assert.match(problems[0].problem, /runtime names openvino-genai, which has no entry in runtimes/);
+});
+
+test('runtimes are a list of their own, one entry per runtime, platform and API level', () => {
+  const runtime = runtimeBases.openvino;
+  const later = { ...runtime, version: '2027.0.0.0', api: 2 };
+  assert.deepEqual(catalogProblems({ schema: 1, models: [], runtimes: [runtime, later] }).problems, []);
+  const { problems } = catalogProblems({ schema: 1, models: [], runtimes: [runtime, { ...runtime, version: '2026.5.0.0' }, { ...runtime, name: '' }] });
+  assert.deepEqual(problems.map(({ list, index }) => [list, index]), [['runtimes', 1], ['runtimes', 2]]);
+  assert.match(problems[0].problem, /openvino-genai\/windows-x86_64\/api 1 is listed twice/);
+  // Not a list: the runtimes are refused, the models are not.
+  const broken = catalogProblems({ schema: 1, models: [bases.whisper], runtimes: {} });
+  assert.equal(broken.fatal, null);
+  assert.deepEqual(broken.problems.map(({ list, problem }) => [list, problem]), [['runtimes', 'runtimes must be a list']]);
 });
 
 test('the command fails on a broken entry and passes the repository catalog', () => {

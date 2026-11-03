@@ -308,6 +308,9 @@ fn apply_fetch(dir: &Path, fetched: Result<Vec<u8>, FetchError>) -> Result<bool,
     for hidden in &catalog.hidden {
         log::warn!("[model catalog] entry {} ({:?}) hidden: {}", hidden.index, hidden.id, hidden.problem);
     }
+    for hidden in &catalog.hidden_runtimes {
+        log::warn!("[model catalog] runtime {} ({:?}) hidden: {}", hidden.index, hidden.id, hidden.problem);
+    }
     if let Err(error) = remote::write_cache(dir, &bytes) {
         log::warn!("[model catalog] could not keep the model list for offline starts: {error}");
     }
@@ -690,7 +693,7 @@ mod tests {
         const NEW: &str = "2222222222222222222222222222222222222222";
         let tiny = entry_for(Engine::Whisper, "tiny", "owner/whisper");
         let gone = entry_for(Engine::Whisper, "base", "owner/gone");
-        let _catalog = use_catalog(super::super::schema::Catalog { entries: vec![tiny.clone(), gone.clone()], hidden: Vec::new() });
+        let _catalog = use_catalog(super::super::schema::Catalog { entries: vec![tiny.clone(), gone.clone()], ..Default::default() });
         let dir = tempfile::tempdir().unwrap();
         install_whisper(dir.path(), &tiny, b"old tiny", OLD);
         install_whisper(dir.path(), &gone, b"old base", OLD);

@@ -13,10 +13,16 @@
 //! entries every time they list or download, so a refreshed catalog applies
 //! without a restart.
 
+#[cfg(windows)]
+pub mod authenticode;
 pub mod commands;
 pub mod huggingface;
 pub mod installed;
+#[cfg(windows)]
+pub mod openvino;
 pub mod remote;
+#[cfg(windows)]
+pub mod runtime;
 pub mod schema;
 pub mod service;
 pub mod sizes;
@@ -26,7 +32,7 @@ pub mod updates;
 
 use once_cell::sync::Lazy;
 use remote::Source;
-use schema::{Catalog, Engine, Entry};
+use schema::{Catalog, Engine, Entry, RuntimeEntry};
 use std::path::Path;
 use std::sync::{Arc, RwLock};
 
@@ -52,6 +58,9 @@ static BUILT_IN_CATALOG: Lazy<Arc<Catalog>> = Lazy::new(|| match schema::parse(B
     Ok(catalog) => {
         for hidden in &catalog.hidden {
             log::error!("[model catalog] built-in entry {} hidden: {}", hidden.index, hidden.problem);
+        }
+        for hidden in &catalog.hidden_runtimes {
+            log::error!("[model catalog] built-in runtime {} hidden: {}", hidden.index, hidden.problem);
         }
         Arc::new(catalog)
     }
@@ -83,10 +92,11 @@ pub fn source() -> Source {
     ACTIVE.read().unwrap_or_else(|poisoned| poisoned.into_inner()).1
 }
 
-/// Puts `catalog` in use; returns whether the models it offers changed.
+/// Puts `catalog` in use; returns whether the models or runtimes it offers
+/// changed.
 pub(crate) fn set_active(catalog: Arc<Catalog>, source: Source) -> bool {
     let mut active = ACTIVE.write().unwrap_or_else(|poisoned| poisoned.into_inner());
-    let changed = active.0.entries != catalog.entries;
+    let changed = active.0.entries != catalog.entries || active.0.runtimes != catalog.runtimes;
     *active = (catalog, source);
     changed
 }
@@ -127,11 +137,58 @@ pub fn entry(engine: Engine, id: &str) -> Option<Entry> {
     find(&active()).or_else(|| find(&built_in()))
 }
 
+/// The models of `engine`. OpenVINO companions are left out: Whisper's model
+/// list, downloads and updates handle ggml files only, and a companion is
+/// listed beside its models instead ([`companions`]).
 fn usable(catalog: &Catalog, engine: Engine) -> impl Iterator<Item = &Entry> {
     catalog
         .entries
         .iter()
-        .filter(move |entry| entry.engine == engine && entry.runs_on(app_version()))
+        .filter(move |entry| entry.engine == engine && !entry.is_companion() && entry.runs_on(app_version()))
+}
+
+/// The OpenVINO companions this build can run (#79): the catalog in use's,
+/// then built-in ones it no longer has, so a companion removed from `main`
+/// stays known to the installs that have it.
+pub fn companions() -> Vec<Entry> {
+    let runnable = |catalog: &Catalog| -> Vec<Entry> {
+        catalog
+            .entries
+            .iter()
+            .filter(|entry| entry.is_companion() && entry.runs_on(app_version()))
+            .cloned()
+            .collect()
+    };
+    let mut companions = runnable(&active());
+    for entry in runnable(&built_in()) {
+        if !companions.iter().any(|known| known.id == entry.id) {
+            companions.push(entry);
+        }
+    }
+    companions
+}
+
+/// The runtime `id` this build would install now: the first entry of the
+/// catalog in use for this platform, of the API level `api` the binding
+/// calls and allowed for this app version; else the built-in catalog's, so
+/// a list that drops the runtime does not take it from installs.
+pub fn runtime(id: &str, api: u32) -> Option<RuntimeEntry> {
+    let find = |catalog: &Catalog| {
+        catalog.runtimes.iter().find(|runtime| runtime.id == id && runtime.runs_on(app_version(), api)).cloned()
+    };
+    find(&active()).or_else(|| find(&built_in()))
+}
+
+/// The versions of runtime `id` for this platform that the catalog in use
+/// lists only for other API levels or app versions: what Settings names when
+/// it cannot offer the runtime (#79).
+pub fn runtimes_out_of_reach(id: &str, api: u32) -> Vec<RuntimeEntry> {
+    active()
+        .runtimes
+        .iter()
+        .filter(|runtime| runtime.id == id && runtime.platform == schema::platform() && !runtime.runs_on(app_version(), api))
+        .cloned()
+        .collect()
 }
 
 #[cfg(test)]
@@ -171,6 +228,21 @@ mod tests {
         assert!(with_installed.iter().any(|entry| entry.id == "tiny"));
         assert!(!entries_with_installed(Engine::Whisper, |_| false).iter().any(|entry| entry.id == "tiny"));
         assert_eq!(entry(Engine::Whisper, "tiny").unwrap().files[0].name, "ggml-tiny.bin");
+    }
+
+    #[test]
+    fn companions_serve_whisper_models_and_are_not_whisper_models_themselves() {
+        let _catalog = testing::built_in_catalog();
+        let companions = companions();
+        assert!(!companions.is_empty());
+        let whisper = entries(Engine::Whisper);
+        for companion in &companions {
+            assert!(!whisper.iter().any(|entry| entry.id == companion.id), "{} is listed as a Whisper model", companion.id);
+            assert!(entry(Engine::Whisper, &companion.id).is_none());
+            for id in &companion.companion_of {
+                assert!(whisper.iter().any(|entry| &entry.id == id && entry.format == "ggml"), "{} serves unknown {id}", companion.id);
+            }
+        }
     }
 
     #[test]
