@@ -13,7 +13,7 @@ use super::{ms_since, SAMPLES_PER_MS};
 use crate::audio::post_meeting::{self, Pass, PieceOutcome};
 use crate::audio::transcription::worker::{is_digital_silence, peak_level};
 use crate::audio::vad::{ContinuousSpeechCap, SpeechSegment};
-use crate::parakeet_engine::chunking::{Live, Word};
+use crate::parakeet_engine::chunking::{Held, Live};
 use crate::parakeet_engine::ParakeetEngine;
 use crate::whisper_engine::decoding::WhisperDecoding;
 use crate::whisper_engine::WhisperEngine;
@@ -187,10 +187,15 @@ impl<'a> Call<'a> {
                         &mut windows.last_mut().expect("just pushed").1
                     }
                 };
+                // Words the last stretch held, when this piece does not
+                // continue it, are a row of their own with their own time.
+                let earlier = if live.continues(piece.start_timestamp_ms) { None } else { live.flush() };
                 let text = engine
                     .transcribe_live(live, piece.start_timestamp_ms, piece.samples.clone(), piece.capped, vocabulary)
                     .await?;
-                Ok(PieceOutcome::Rows(whole_piece(text)))
+                let mut rows: Vec<(String, f64, f64)> = earlier.map(held_row).into_iter().collect();
+                rows.extend(whole_piece(text));
+                Ok(PieceOutcome::Rows(rows))
             }
             Self::Reference(pass, engine) => {
                 if let Some(reason) = post_meeting::skip_reason(&piece.samples) {
@@ -227,12 +232,20 @@ impl<'a> Call<'a> {
 
     /// Words the live windows still hold at the end, per track, as the
     /// worker shows them after the last piece.
-    fn held(&mut self) -> Vec<(&'static str, Vec<Word>)> {
+    fn held(&mut self) -> Vec<(&'static str, Held)> {
         match self {
-            Self::ParakeetLive(_, windows) => windows.iter_mut().map(|(track, live)| (*track, live.flush())).collect(),
+            Self::ParakeetLive(_, windows) => {
+                windows.iter_mut().filter_map(|(track, live)| live.flush().map(|held| (*track, held))).collect()
+            }
             _ => Vec::new(),
         }
     }
+}
+
+/// The row of words a live stretch held: from the first to the stretch's end.
+fn held_row(held: Held) -> (String, f64, f64) {
+    let start_ms = held.words.first().map_or(held.end_ms, |word| word.start_ms.min(held.end_ms));
+    (crate::parakeet_engine::chunking::text(&held.words), start_ms, held.end_ms)
 }
 
 fn decoding_name(decoding: WhisperDecoding) -> String {
@@ -326,11 +339,10 @@ pub async fn run(
         }
     }
 
-    for (track, words) in call.held() {
-        let text = crate::parakeet_engine::chunking::text(&words);
+    for (track, held) in call.held() {
+        let (text, start_ms, end_ms) = held_row(held);
         if let (false, Some(last)) = (text.is_empty(), results.iter_mut().rev().find(|result| result.track == track && result.skipped.is_none())) {
-            let start_ms = words[0].start_ms.min(last.end_ms);
-            last.rows.push(Row { start_ms, end_ms: last.end_ms, text, speakers: None });
+            last.rows.push(Row { start_ms, end_ms, text, speakers: None });
         }
     }
 

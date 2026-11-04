@@ -458,6 +458,14 @@ impl LiveStretch {
     }
 }
 
+/// Words a stretch held at a cap cut that no continuation joined: shown on
+/// their own, in a row that ends where the stretch ended.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Held {
+    pub words: Vec<Word>,
+    pub end_ms: f64,
+}
+
 /// The live windows of one source (#66, phase 1's `live-hold`): pieces come
 /// one at a time with the VAD's word on whether it cut them by its cap, and
 /// each gets the words it shows, final from then on.
@@ -467,12 +475,18 @@ pub struct Live {
 }
 
 impl Live {
+    /// Whether a piece at `start_ms` continues the stretch (touches its end).
+    /// One that does not ends it: the caller shows what it held first
+    /// ([`Self::flush`]), as a row of its own.
+    pub fn continues(&self, start_ms: f64) -> bool {
+        self.stretch.as_ref().is_some_and(|stretch| start_ms - stretch.end_ms <= TOUCH_MS)
+    }
+
     /// The words to show with the piece at `start_ms`: the stretch's windows
     /// decoded with the retry and joined. With `capped` the stretch goes on
     /// and the words of the piece's last [`HOLD_MS`] wait for the next piece.
-    /// A piece that does not continue the stretch first shows what was held
-    /// (the continuation the VAD sends after a cap cut was lost: too short,
-    /// or silent).
+    /// A piece that does not continue the stretch starts a new one; words the
+    /// old one still held, if the caller did not flush them, come first.
     pub fn piece<E>(
         &mut self,
         start_ms: f64,
@@ -481,9 +495,8 @@ impl Live {
         mut decode: impl FnMut(&[f32], f64) -> Result<Vec<Word>, E>,
     ) -> Result<Vec<Word>, E> {
         let mut shown = Vec::new();
-        let continues = self.stretch.as_ref().is_some_and(|stretch| start_ms - stretch.end_ms <= TOUCH_MS);
-        if !continues {
-            shown.extend(self.flush());
+        if !self.continues(start_ms) {
+            shown.extend(self.flush().map(|held| held.words).unwrap_or_default());
             self.stretch = Some(LiveStretch::new(start_ms));
         }
         let Some(stretch) = self.stretch.as_mut() else { return Ok(shown) };
@@ -518,9 +531,23 @@ impl Live {
         Ok(shown)
     }
 
-    /// The words still held, at the end of the recording or of the stretch.
-    pub fn flush(&mut self) -> Vec<Word> {
-        self.stretch.take().map(|stretch| stretch.pending).unwrap_or_default()
+    /// Ends the stretch, at the end of the recording or before a piece that
+    /// does not continue it: the words it still held, if any.
+    pub fn flush(&mut self) -> Option<Held> {
+        let stretch = self.stretch.take()?;
+        (!stretch.pending.is_empty()).then_some(Held { words: stretch.pending, end_ms: stretch.end_ms })
+    }
+
+    /// The continuation did not come in time: the held words are shown now,
+    /// final like any shown word, and the stretch stays for a late one.
+    pub fn release(&mut self) -> Option<Held> {
+        let stretch = self.stretch.as_mut()?;
+        if stretch.pending.is_empty() {
+            return None;
+        }
+        let words = std::mem::take(&mut stretch.pending);
+        stretch.shown.extend(words.iter().cloned());
+        Some(Held { words, end_ms: stretch.end_ms })
     }
 
     /// Whether words are held.
@@ -779,10 +806,38 @@ mod tests {
         let mut later = |_: &[f32], offset: f64| -> Result<Vec<Word>, ()> { Ok(vec![Word::new(offset + 100.0, " новое")]) };
         let second = live.piece(10_000.0, &sound.slice(10_000.0, 12_000.0), false, &mut later).unwrap();
         assert_eq!(texts(&second), vec!["конец", "новое"]);
-        // The end of the recording flushes what is held.
+        // The end of the recording flushes what is held, with the stretch's end.
         live.piece(12_000.0, &sound.slice(12_000.0, 18_000.0), true, &mut call).unwrap();
-        assert_eq!(texts(&live.flush()), vec!["конец"]);
-        assert!(!live.holds());
+        let held = live.flush().unwrap();
+        assert_eq!((texts(&held.words), held.end_ms), (vec!["конец"], 18_000.0));
+        assert!(!live.holds() && live.flush().is_none());
+    }
+
+    #[test]
+    fn a_caller_flushes_a_stretch_a_piece_does_not_continue_and_releases_a_late_one() {
+        let sound = audio(0.0, 30_000.0, &[]);
+        let mut live = Live::default();
+        let mut call = |_: &[f32], offset: f64| -> Result<Vec<Word>, ()> { Ok(vec![Word::new(offset + 5600.0, " конец")]) };
+        live.piece(0.0, &sound.slice(0.0, 6000.0), true, &mut call).unwrap();
+        assert!(live.continues(6000.0) && live.continues(6050.0) && !live.continues(6100.0));
+        // Flushed before the unrelated piece, the words keep their own time
+        // and that piece shows only its own.
+        let held = live.flush().unwrap();
+        assert_eq!((held.words[0].start_ms, held.end_ms), (5600.0, 6000.0));
+        let mut later = |_: &[f32], offset: f64| -> Result<Vec<Word>, ()> { Ok(vec![Word::new(offset + 100.0, " новое")]) };
+        let next = live.piece(10_000.0, &sound.slice(10_000.0, 12_000.0), false, &mut later).unwrap();
+        assert_eq!(texts(&next), vec!["новое"]);
+
+        // Released after a wait, they are shown and stay shown: a late
+        // continuation that hears them again does not repeat them.
+        let mut live = Live::default();
+        live.piece(0.0, &sound.slice(0.0, 6000.0), true, &mut call).unwrap();
+        let held = live.release().unwrap();
+        assert_eq!(texts(&held.words), vec!["конец"]);
+        assert!(!live.holds() && live.release().is_none());
+        let mut again = |_: &[f32], _: f64| -> Result<Vec<Word>, ()> { Ok(vec![Word::new(5600.0, " конец"), Word::new(7000.0, " дальше")]) };
+        let late = live.piece(6000.0, &sound.slice(6000.0, 8000.0), false, &mut again).unwrap();
+        assert_eq!(texts(&late), vec!["дальше"]);
     }
 
     #[test]

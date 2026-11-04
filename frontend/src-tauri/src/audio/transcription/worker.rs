@@ -22,6 +22,7 @@
 //! overwrites these live labels with more accurate ones.
 
 use super::engine::TranscriptionEngine;
+use super::parakeet_live::{HeldRow, ParakeetLive};
 use super::provider::TranscriptionError;
 use crate::audio::AudioChunk;
 use crate::database::repositories::vocabulary::VocabularyRepository;
@@ -149,10 +150,8 @@ pub fn start_transcription_task<R: Runtime>(
             let worker_handle = tokio::spawn(async move {
                 info!("👷 Worker {} started", worker_id);
                 // Parakeet's live windows on the NPU (#66), one per capture
-                // source, and the label and end of each source's last row:
-                // this worker owns them for the recording.
-                let mut parakeet_live: [crate::parakeet_engine::chunking::Live; 2] = Default::default();
-                let mut last_rows: [Option<(String, f64)>; 2] = [None, None];
+                // source: this worker owns them for the recording.
+                let mut parakeet_live = ParakeetLive::default();
 
                 // PRE-VALIDATE model state to avoid repeated async calls per chunk
                 let initial_model_loaded = engine_clone.is_model_loaded().await;
@@ -173,10 +172,20 @@ pub fn start_transcription_task<R: Runtime>(
                 }
 
                 loop {
-                    // Try to get a chunk to process
+                    for row in parakeet_live.overdue(std::time::Instant::now()) {
+                        emit_held_row(&engine_clone, &app_clone, worker_id, row).await;
+                    }
+                    // Try to get a chunk to process; words Parakeet holds wait
+                    // for their continuation until their deadline (#66).
                     let chunk = {
                         let mut receiver = work_receiver_clone.lock().await;
-                        receiver.recv().await
+                        match parakeet_live.deadline() {
+                            Some(deadline) => match tokio::time::timeout_at(deadline.into(), receiver.recv()).await {
+                                Ok(chunk) => chunk,
+                                Err(_) => continue,
+                            },
+                            None => receiver.recv().await,
+                        }
                     };
 
                     match chunk {
@@ -246,13 +255,16 @@ pub fn start_transcription_task<R: Runtime>(
                                 }
                             };
 
-                            let source_index = live_source(&chunk.device_type);
+                            let source_index = ParakeetLive::index(&chunk.device_type);
+                            if let Some(row) = parakeet_live.before_piece(source_index, chunk_timestamp * 1000.0) {
+                                emit_held_row(&engine_clone, &app_clone, worker_id, row).await;
+                            }
                             // Transcribe with provider-agnostic approach
                             match transcribe_chunk_with_provider(
                                 &engine_clone,
                                 chunk,
                             vocabulary_clone.as_deref(),
-                                &mut parakeet_live[source_index],
+                                parakeet_live.live(source_index),
                             )
                             .await
                             {
@@ -267,6 +279,7 @@ pub fn start_transcription_task<R: Runtime>(
                                         Some(name.unwrap_or(label))
                                     }).await.ok().flatten().unwrap_or_else(|| "Guest".into());
                                 }
+                                parakeet_live.after_piece(source_index, &chunk_source, std::time::Instant::now());
                                     let confidence_str = match confidence_opt {
                                         Some(c) => format!("{:.2}", c),
                                         None => "N/A".to_string(),
@@ -325,7 +338,6 @@ pub fn start_transcription_task<R: Runtime>(
                                             duration: chunk_duration,
                                         };
 
-                                        last_rows[source_index] = Some((update.source.clone(), update.audio_end_time));
                                         if let Err(e) = app_clone.emit("transcript-update", &update)
                                         {
                                             error!(
@@ -423,30 +435,8 @@ pub fn start_transcription_task<R: Runtime>(
 
                 // What the NPU's windows still hold: the last piece was cut
                 // at the cap and the rest of its speech never came.
-                for (live, last_row) in parakeet_live.iter_mut().zip(&last_rows) {
-                    let held = live.flush();
-                    let text = crate::parakeet_engine::chunking::text(&held);
-                    if text.is_empty() || !should_emit_transcript(&text, None) {
-                        continue;
-                    }
-                    let (source, end) = last_row.clone().unwrap_or_else(|| ("You".to_string(), held[held.len() - 1].start_ms / 1000.0));
-                    let start = (held[0].start_ms / 1000.0).min(end);
-                    let update = TranscriptUpdate {
-                        text,
-                        timestamp: format_current_timestamp(),
-                        source,
-                        sequence_id: SEQUENCE_COUNTER.fetch_add(1, Ordering::SeqCst),
-                        chunk_start_time: start,
-                        is_partial: false,
-                        confidence: 0.85,
-                        audio_start_time: start,
-                        audio_end_time: end,
-                        duration: end - start,
-                    };
-                    info!("Worker {}: emitting the words held at the end: '{}'", worker_id, update.text);
-                    if let Err(e) = app_clone.emit("transcript-update", &update) {
-                        error!("Worker {}: Failed to emit transcript update: {}", worker_id, e);
-                    }
+                for row in parakeet_live.finish() {
+                    emit_held_row(&engine_clone, &app_clone, worker_id, row).await;
                 }
 
                 info!("👷 Worker {} completed", worker_id);
@@ -542,11 +532,31 @@ pub fn start_transcription_task<R: Runtime>(
     })
 }
 
-/// The index of `device_type`'s live windows in the worker.
-fn live_source(device_type: &crate::audio::recording_state::DeviceType) -> usize {
-    match device_type {
-        crate::audio::recording_state::DeviceType::System => 1,
-        _ => 0,
+/// Shows words Parakeet held at a cap cut as a row of their own
+/// (`parakeet_live`), with the glossary's spellings.
+async fn emit_held_row<R: Runtime>(engine: &TranscriptionEngine, app: &AppHandle<R>, worker_id: usize, row: HeldRow) {
+    let text = match engine {
+        TranscriptionEngine::Parakeet(parakeet) => parakeet.correct_text(&row.text).await,
+        _ => row.text,
+    };
+    if text.trim().is_empty() || !should_emit_transcript(&text, None) {
+        return;
+    }
+    let update = TranscriptUpdate {
+        text,
+        timestamp: format_current_timestamp(),
+        source: row.source,
+        sequence_id: SEQUENCE_COUNTER.fetch_add(1, Ordering::SeqCst),
+        chunk_start_time: row.start_s,
+        is_partial: false,
+        confidence: 0.85,
+        audio_start_time: row.start_s,
+        audio_end_time: row.end_s,
+        duration: row.end_s - row.start_s,
+    };
+    info!("Worker {}: emitting held words as their own row: '{}'", worker_id, update.text);
+    if let Err(e) = app.emit("transcript-update", &update) {
+        error!("Worker {}: Failed to emit transcript update: {}", worker_id, e);
     }
 }
 

@@ -562,7 +562,7 @@ impl ParakeetEngine {
         vocabulary: Option<&str>,
     ) -> Result<String> {
         if !self.uses_npu().await {
-            let held = chunking::text(&live.flush());
+            let held = live.flush().map(|held| chunking::text(&held.words)).unwrap_or_default();
             let text = self.transcribe_audio(audio_data, vocabulary).await?;
             return Ok([held, text].iter().filter(|part| !part.trim().is_empty()).cloned().collect::<Vec<_>>().join(" "));
         }
@@ -572,6 +572,15 @@ impl ParakeetEngine {
             .piece(start_ms, &audio_data, capped, |samples, offset| model.window_words(samples, offset, vocabulary))
             .map_err(|e| anyhow!("Parakeet transcription failed: {}", e))?;
         Ok(model.correct_text(&chunking::text(&shown)))
+    }
+
+    /// `text` with the glossary's spellings of the loaded model's last call:
+    /// live rows of held words get them as every other row does.
+    pub async fn correct_text(&self, text: &str) -> String {
+        match self.current_model.read().await.as_ref() {
+            Some(model) => model.correct_text(text),
+            None => text.to_string(),
+        }
     }
 
     /// Get the models directory path
