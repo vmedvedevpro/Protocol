@@ -146,3 +146,93 @@ fn npu_encoder_smoke() {
         std::fs::write(out.join("npu-smoke.json"), serde_json::to_string_pretty(&summary).unwrap()).unwrap();
     }
 }
+
+/// The 16-bit mono samples of a WAV file as #80's `read_wav` reads them
+/// (int16 / 32768), so the snap's energies are the same to the bit.
+fn read_wav(path: &std::path::Path) -> Vec<f32> {
+    let bytes = std::fs::read(path).expect("read the WAV");
+    let mut at = 12;
+    while at + 8 <= bytes.len() {
+        let size = u32::from_le_bytes(bytes[at + 4..at + 8].try_into().unwrap()) as usize;
+        if &bytes[at..at + 4] == b"data" {
+            let data = &bytes[at + 8..(at + 8 + size).min(bytes.len())];
+            return data.chunks_exact(2).map(|pair| i16::from_le_bytes([pair[0], pair[1]]) as f32 / 32768.0).collect();
+        }
+        at += 8 + size + (size & 1);
+    }
+    panic!("{} has no data chunk", path.display());
+}
+
+/// Feed B's port (`parakeet_engine::chunking`) against #80's `chunking.py`
+/// on one recording: the windows it plans for the kit's pieces, and the
+/// texts its merge and assign give from the words #80 decoded in those
+/// windows. `CHUNKING_RUN` is a `parakeet_ort.py` run of feed B
+/// (`--chunking overlap --hop-s 3.5 --snap-s 0.5 --retry-words-per-s 0.5`)
+/// on `MEASURE_AUDIO` (a 16 kHz mono WAV), kept under `.measure/`: it holds
+/// the pieces, each window with its words, the retries and the texts.
+#[test]
+#[ignore = "needs CHUNKING_RUN and MEASURE_AUDIO (kit fixtures under .measure/)"]
+fn chunking_matches_feed_b() {
+    use crate::parakeet_engine::chunking::{assign, merge, plan, StretchAudio, Window, Word};
+    let run: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(std::env::var_os("CHUNKING_RUN").expect("CHUNKING_RUN")).expect("read the run"),
+    )
+    .expect("parse the run");
+    let samples = read_wav(&PathBuf::from(std::env::var_os("MEASURE_AUDIO").expect("MEASURE_AUDIO")));
+    let audio = StretchAudio::borrowed(0.0, &samples);
+    let kept: Vec<&serde_json::Value> = run["pieces"].as_array().unwrap().iter().filter(|piece| piece["skipped"].is_null()).collect();
+    let pieces: Vec<(f64, f64)> = kept.iter().map(|piece| (piece["start_ms"].as_f64().unwrap(), piece["end_ms"].as_f64().unwrap())).collect();
+    let ort = &run["ort"];
+    let saved = ort["windows"].as_array().unwrap();
+    let retried = ort["retried"].as_array().unwrap();
+
+    // The plan, with each retry that stayed moved back to where it was planned.
+    let planned = plan(&pieces, &audio);
+    let mut unretried: Vec<(i64, i64, u64)> = Vec::new();
+    for window in saved {
+        let (mut start, mut end) = (window["start_ms"].as_i64().unwrap(), window["end_ms"].as_i64().unwrap());
+        if let Some(retry) = retried.iter().find(|retry| {
+            retry["words_after"].as_u64() > retry["words"].as_u64()
+                && retry["start_ms"].as_f64().unwrap() + retry["shift_ms"].as_f64().unwrap() == start as f64
+        }) {
+            let shift = retry["shift_ms"].as_f64().unwrap() as i64;
+            (start, end) = (start - shift, end - shift);
+        }
+        unretried.push((start, end, window["stretch"].as_u64().unwrap()));
+    }
+    let ours: Vec<(i64, i64, u64)> =
+        planned.iter().map(|window| (window.start_ms.round() as i64, window.end_ms.round() as i64, window.stretch as u64)).collect();
+    assert_eq!(ours.len(), unretried.len(), "windows planned");
+    let differing: Vec<_> = ours.iter().zip(&unretried).enumerate().filter(|(_, (a, b))| a != b).collect();
+    assert!(differing.is_empty(), "windows that differ from chunking.py: {differing:?}");
+
+    // The merge and assign over #80's decoded words.
+    let windows: Vec<Window> = saved
+        .iter()
+        .enumerate()
+        .map(|(index, window)| Window {
+            start_ms: window["start_ms"].as_f64().unwrap(),
+            end_ms: window["end_ms"].as_f64().unwrap(),
+            stretch: window["stretch"].as_u64().unwrap() as usize,
+            first: index == 0 || saved[index - 1]["stretch"] != window["stretch"],
+        })
+        .collect();
+    let decoded: Vec<Vec<Word>> = saved
+        .iter()
+        .map(|window| {
+            window["words"].as_array().unwrap().iter().map(|word| Word::new(word[0].as_f64().unwrap(), word[1].as_str().unwrap())).collect()
+        })
+        .collect();
+    let texts = assign(&pieces, &merge(&windows, &decoded));
+    let expected: Vec<String> = kept.iter().map(|piece| piece["rows"].get(0).and_then(|row| row["text"].as_str()).unwrap_or("").to_string()).collect();
+    let mut differ = 0;
+    for (index, (ours, theirs)) in texts.iter().zip(&expected).enumerate() {
+        if ours != theirs {
+            differ += 1;
+            println!("piece {index} at {:.0} ms:\n  port       {ours}\n  chunking.py {theirs}", pieces[index].0);
+        }
+    }
+    println!("{} pieces, {} windows, {} retries; {differ} texts differ", pieces.len(), windows.len(), retried.len());
+    assert_eq!(differ, 0);
+}
+

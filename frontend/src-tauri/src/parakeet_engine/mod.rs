@@ -22,6 +22,7 @@ pub mod labs;
 pub mod model;
 pub mod commands;
 mod download_response;
+pub mod chunking;
 #[cfg(windows)]
 pub mod npu;
 
