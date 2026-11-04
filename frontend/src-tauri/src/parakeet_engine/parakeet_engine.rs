@@ -682,6 +682,9 @@ impl ParakeetEngine {
             self.cancel_downloads.write().await.insert(model_name.to_string(), cancellation.clone());
             self.completed_cancellations.write().await.remove(model_name);
         }
+        // Parakeet on the NPU keeps Intel's runtime while v3 downloads (#66).
+        #[cfg(windows)]
+        let _npu_keeps_runtime = crate::parakeet_engine::npu::state::model_download(model_name);
 
         let result = self
             .download_model_detailed_reserved(model_name, progress_callback, &cancellation)

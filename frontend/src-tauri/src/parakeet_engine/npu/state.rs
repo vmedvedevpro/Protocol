@@ -33,11 +33,11 @@
 //! the runtime ([`runtime_removed`]) and, at startup, when v3 is not
 //! installed ([`startup`]); a preparation that a removal overtook drops what
 //! it compiled. On a PC with an NPU, the runtime stays installed even when no
-//! Whisper companion uses it while v3 is installed or the runtime was
-//! downloaded for the NPU ([`keeps_runtime`]).
+//! Whisper companion uses it, while v3 is installed or downloading
+//! ([`keeps_runtime`]).
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
@@ -59,8 +59,6 @@ pub const RUNTIME_FILES: [&str; 2] = ["openvino_intel_npu_plugin.dll", "openvino
 pub const ENCODER: &str = "encoder-model.int8.onnx";
 const PREPARED: &str = "prepared";
 const FAILED: &str = "failed.txt";
-/// Beside the crash marker: the runtime was downloaded for the NPU.
-const REQUESTED: &str = "parakeet-npu.requested";
 /// How often a postponed preparation looks again.
 const WAIT: Duration = Duration::from_secs(2);
 
@@ -111,6 +109,8 @@ static JOB: AtomicBool = AtomicBool::new(false);
 /// Bumped by each removal of the NPU's cache: a preparation that started
 /// before one drops what it compiled.
 static GENERATION: AtomicU64 = AtomicU64::new(0);
+/// Downloads of Parakeet v3 running now ([`model_download`]).
+static V3_DOWNLOADS: Downloads = Downloads(AtomicUsize::new(0));
 static EMIT: OnceLock<Box<dyn Fn(&ParakeetNpuStatus) + Send + Sync>> = OnceLock::new();
 
 fn progress() -> std::sync::MutexGuard<'static, Progress> {
@@ -205,36 +205,47 @@ pub fn set_app<R: tauri::Runtime>(app: tauri::AppHandle<R>) {
     }));
 }
 
-fn requested_marker() -> PathBuf {
-    crate::paths::install_data_root().join("runtimes").join(REQUESTED)
-}
-
 /// Whether the NPU keeps Intel's runtime installed: an Intel NPU is here
-/// and Parakeet v3 is installed, or the runtime was downloaded for the NPU
-/// (v3 may still be downloading, or come next). `model_catalog::openvino`
-/// prunes it otherwise once no Whisper companion keeps it.
+/// and Parakeet v3 is installed or downloading. `model_catalog::openvino`
+/// prunes it otherwise once no Whisper companion keeps it, so a runtime
+/// downloaded for a v3 that never came goes at the next start.
 pub fn keeps_runtime() -> bool {
-    keeps(detect::present(), || installed_encoder().is_some(), &requested_marker())
+    keeps(detect::present(), || V3_DOWNLOADS.running() || installed_encoder().is_some())
 }
 
-fn keeps(present: bool, model: impl FnOnce() -> bool, requested: &Path) -> bool {
-    present && (model() || requested.is_file())
+fn keeps(present: bool, model: impl FnOnce() -> bool) -> bool {
+    present && model()
 }
 
-/// The runtime alone is being downloaded (`openvino_runtime_download`): on a
-/// PC with an NPU it is the NPU's, and stays until v3 or it is removed.
-pub fn runtime_requested() {
-    request_in(detect::present(), &requested_marker());
-}
+/// A count of running downloads of Parakeet v3.
+struct Downloads(AtomicUsize);
 
-fn request_in(present: bool, marker: &Path) {
-    if !present {
-        return;
+impl Downloads {
+    fn start(&'static self, model_id: &str) -> Option<ModelDownload> {
+        (model_id == MODEL_ID).then(|| {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            ModelDownload(self)
+        })
     }
-    let written = marker.parent().map_or(Ok(()), std::fs::create_dir_all).and_then(|()| std::fs::write(marker, b""));
-    if let Err(error) = written {
-        log::warn!("[npu] cannot write {}: {error}", marker.display());
+
+    fn running(&self) -> bool {
+        self.0.load(Ordering::SeqCst) > 0
     }
+}
+
+/// A download of Parakeet v3 runs while this lives.
+pub struct ModelDownload(&'static Downloads);
+
+impl Drop for ModelDownload {
+    fn drop(&mut self) {
+        self.0 .0.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+/// The download of Parakeet `model_id` starts: v3's keeps the runtime while
+/// it runs (`ParakeetEngine::download_model_detailed`).
+pub fn model_download(model_id: &str) -> Option<ModelDownload> {
+    V3_DOWNLOADS.start(model_id)
 }
 
 /// Whether the Labs DirectML toggle is overruled: the NPU is being
@@ -605,12 +616,10 @@ fn remove_cache() {
     progress.failed = None;
 }
 
-/// Parakeet `model_id` was deleted: v3 takes the NPU cache with it, and the
-/// NPU no longer keeps the runtime.
+/// Parakeet `model_id` was deleted: v3 takes the NPU cache with it.
 pub fn model_removed(model_id: &str) {
     if model_id == MODEL_ID {
         remove_cache();
-        let _ = std::fs::remove_file(requested_marker());
         emit();
     }
 }
@@ -618,7 +627,6 @@ pub fn model_removed(model_id: &str) {
 /// Intel's runtime was removed (or is pruned at startup): the NPU cache goes.
 pub fn runtime_removed() {
     remove_cache();
-    let _ = std::fs::remove_file(requested_marker());
     emit();
 }
 
@@ -723,20 +731,22 @@ mod tests {
     }
 
     #[test]
-    fn the_npu_keeps_the_runtime_for_v3_or_once_it_was_downloaded_for_it() {
-        let dir = tempfile::tempdir().unwrap();
-        let marker = dir.path().join("runtimes").join(REQUESTED);
-        assert!(keeps(true, || true, &marker));
-        assert!(!keeps(true, || false, &marker));
-        // The runtime downloaded alone for the NPU stays while v3 is not
-        // there yet (downloading, failed, or next).
-        request_in(true, &marker);
-        assert!(keeps(true, || false, &marker));
-        // Without an NPU nothing is kept, and nothing is marked.
-        assert!(!keeps(false, || true, &marker));
-        std::fs::remove_file(&marker).unwrap();
-        request_in(false, &marker);
-        assert!(!marker.exists());
+    fn the_npu_keeps_the_runtime_only_while_v3_is_installed_or_downloading() {
+        assert!(keeps(true, || true));
+        assert!(!keeps(true, || false));
+        assert!(!keeps(false, || true));
+        // A v3 download keeps it while it runs, whatever its end: failed,
+        // cancelled or never finished, the next start prunes the runtime.
+        // (A count of its own: other tests download v3 too.)
+        static DOWNLOADS: Downloads = Downloads(AtomicUsize::new(0));
+        assert!(DOWNLOADS.start("parakeet-tdt-0.6b-v2-int8").is_none());
+        let first = DOWNLOADS.start(MODEL_ID).unwrap();
+        let second = DOWNLOADS.start(MODEL_ID).unwrap();
+        assert!(keeps(true, || DOWNLOADS.running()));
+        drop(first);
+        assert!(keeps(true, || DOWNLOADS.running()));
+        drop(second);
+        assert!(!keeps(true, || DOWNLOADS.running()));
     }
 
     #[test]

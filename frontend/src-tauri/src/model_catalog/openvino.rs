@@ -550,9 +550,6 @@ pub async fn openvino_runtime_download<R: Runtime>(app: AppHandle<R>) -> Result<
         downloads.insert(OPENVINO_GENAI.to_string(), Running { cancel: cancel.clone(), progress: Progress::default() });
     }
     emit(&app);
-    // On a PC with an NPU the runtime is the NPU's from now on, also before
-    // Parakeet v3 is installed (#66).
-    crate::parakeet_engine::npu::state::runtime_requested();
     let mut last = Instant::now() - PROGRESS_INTERVAL;
     let offered = runtime_entry().ok_or_else(refusal);
     let operations = OPERATIONS.lock().await;
