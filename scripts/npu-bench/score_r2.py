@@ -2,6 +2,11 @@
 kit's normaliser for both models), plus a WER without fillers for the AMI files.
 
     python score_r2.py --runs .measure/runs/80/r2-acc --out .measure/runs/80/r2-acc/scores.json
+    python score_r2.py --batch .measure/runs/80/r2-wb .measure/runs/80/r2-pb --out .measure/runs/80/r2-batch-wer.json
+
+`--batch` scores every timed run of the batch cells (one folder per run, the text of its last pass) against
+fleurs-ru, the audio those cells transcribe; the decoding is deterministic, so the repeats of one feed and device
+should agree, and the output says whether they do.
 
 Per file (`<runs>/<file>/`): Whisper on the GPU (`wh-gpu/live.json`, `wh-gpu/post-meeting.json`), Parakeet on the
 NPU with feed B (`pk-npu-b/parakeet.json`), the product today (the kit's `kit/rep1/`: Parakeet on the CPU, and
@@ -63,12 +68,57 @@ def without_fillers(run, reference) -> dict:
             "words": total.reference}
 
 
+def entry_of(path: Path, run, reference, label: str) -> dict:
+    scores = report.score(run, reference, None, label)
+    a = scores.accuracy_scores
+    # Where the deleted reference words lay against the pieces the pass kept: outside every piece means the VAD
+    # never gave that speech to the model; inside a piece means the model heard it and left it out.
+    return {"path": str(path), "wer": a.words.rate, "cer": a.characters.rate,
+            "s_d_i": [a.words.substitutions, a.words.deletions, a.words.insertions],
+            "reference_words": a.words.reference, "lost_stretches": len(a.deletions.lost_stretches),
+            "lost_stretch_words": sum(s.words for s in a.deletions.lost_stretches),
+            "deleted_outside_pieces": a.deletions.outside_pieces, "deleted_at_piece_edges": a.deletions.at_piece_edges,
+            "deleted_inside_pieces": a.deletions.inside_pieces,
+            "x_realtime": scores.real_time_factor, "pieces": len(run.pieces)}
+
+
+def batch(cells: list[Path]) -> dict:
+    """WER of every timed run in the batch cells against fleurs-ru, grouped by feed and device (`wh-live-gpu-3` ->
+    `wh-live-gpu`)."""
+    reference = load_reference(ROOT / ".measure/fixtures/fleurs-ru/reference.json")
+    groups: dict[str, list[dict]] = {}
+    for cell in cells:
+        for path in sorted(cell.glob("*/*.json")):
+            name = path.parent.name
+            entry = entry_of(path, load_run(path), reference, name)
+            entry["run"] = name
+            groups.setdefault(name.rsplit("-", 1)[0], []).append(entry)
+    out = {}
+    for group, entries in groups.items():
+        out[group] = {"wer": entries[0]["wer"], "cer": entries[0]["cer"], "s_d_i": entries[0]["s_d_i"],
+                      "reference_words": entries[0]["reference_words"],
+                      "lost_stretches": entries[0]["lost_stretches"],
+                      "repeats": len(entries),
+                      "repeats_agree": all(e["s_d_i"] == entries[0]["s_d_i"] for e in entries),
+                      "runs": entries}
+        print(f"  {group:<16} WER {entries[0]['wer']:.3f}  CER {entries[0]['cer']:.3f}  S/D/I {entries[0]['s_d_i']}  "
+              f"repeats {len(entries)} agree {out[group]['repeats_agree']}")
+    return out
+
+
 def main() -> None:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser()
-    parser.add_argument("--runs", type=Path, required=True)
+    parser.add_argument("--runs", type=Path)
+    parser.add_argument("--batch", type=Path, nargs="+")
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
+    if not args.runs and not args.batch:
+        parser.error("give --runs or --batch")
+    if args.batch:
+        args.out.write_text(json.dumps(batch(args.batch), indent=1, ensure_ascii=False), encoding="utf-8")
+        print(f"\nwrote {args.out}")
+        return
     out = {}
     for name in FILES:
         reference_path = ROOT / ".measure/fixtures" / name / "reference.json"
@@ -80,18 +130,12 @@ def main() -> None:
         print(f"\n{name}")
         for label, path in found.items():
             run = load_run(path)
-            scores = report.score(run, reference, None, label)
-            a = scores.accuracy_scores
-            entry = {"path": str(path), "wer": a.words.rate, "cer": a.characters.rate,
-                     "s_d_i": [a.words.substitutions, a.words.deletions, a.words.insertions],
-                     "reference_words": a.words.reference, "lost_stretches": len(a.deletions.lost_stretches),
-                     "lost_stretch_words": sum(s.words for s in a.deletions.lost_stretches),
-                     "x_realtime": scores.real_time_factor, "pieces": len(run.pieces)}
+            entry = entry_of(path, run, reference, label)
             if name.startswith("ami"):
                 entry["no_fillers"] = without_fillers(run, reference)
             rows[label] = entry
             extra = f"  no fillers {entry['no_fillers']['wer']:.3f}" if "no_fillers" in entry else ""
-            print(f"  {label:<20} WER {a.words.rate:.3f}  CER {a.characters.rate:.3f}  S/D/I {entry['s_d_i']}  "
+            print(f"  {label:<20} WER {entry['wer']:.3f}  CER {entry['cer']:.3f}  S/D/I {entry['s_d_i']}  "
                   f"lost {entry['lost_stretches']} ({entry['lost_stretch_words']} words){extra}")
         out[name] = rows
     args.out.write_text(json.dumps(out, indent=1, ensure_ascii=False), encoding="utf-8")
