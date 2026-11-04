@@ -155,6 +155,51 @@ pub struct Pass<'a, K> {
 struct StretchTexts<'a, K> {
     pieces: &'a [(SpeechSegment, K)],
     texts: Vec<Option<String>>,
+    /// Each piece's stretch, found once, at the first stretch the NPU decodes:
+    /// the skip rule reads every sample of every piece.
+    stretches: Option<Stretches>,
+}
+
+/// The stretch of each piece (`of`) and the pieces of each stretch.
+struct Stretches {
+    of: Vec<usize>,
+    members: Vec<Vec<usize>>,
+}
+
+impl Stretches {
+    /// Each stretch is the pieces of one track that are not skipped and touch
+    /// in a chain, in time order; a skipped piece is a stretch of its own.
+    fn of<K: Copy + PartialEq>(pieces: &[(SpeechSegment, K)]) -> Self {
+        let mut of = vec![0; pieces.len()];
+        let mut members: Vec<Vec<usize>> = Vec::new();
+        // Per track: its last kept piece and that piece's stretch.
+        let mut open: Vec<(K, usize, usize)> = Vec::new();
+        for (index, (segment, track)) in pieces.iter().enumerate() {
+            if skip_reason(&segment.samples).is_some() {
+                of[index] = members.len();
+                members.push(vec![index]);
+                continue;
+            }
+            let last = open.iter().position(|(known, ..)| known == track);
+            let touches = last.filter(|&at| {
+                segment.start_timestamp_ms - pieces[open[at].1].0.end_timestamp_ms <= crate::parakeet_engine::chunking::TOUCH_MS
+            });
+            let stretch = match touches {
+                Some(at) => open[at].2,
+                None => {
+                    members.push(Vec::new());
+                    members.len() - 1
+                }
+            };
+            members[stretch].push(index);
+            of[index] = stretch;
+            match last {
+                Some(at) => open[at] = (*track, index, stretch),
+                None => open.push((*track, index, stretch)),
+            }
+        }
+        Self { of, members }
+    }
 }
 
 impl<K: Copy + PartialEq> StretchTexts<'_, K> {
@@ -163,25 +208,11 @@ impl<K: Copy + PartialEq> StretchTexts<'_, K> {
         self.pieces.iter().position(|(candidate, _)| std::ptr::eq(candidate, piece))
     }
 
-    /// The pieces of `index`'s stretch: those of its track that are not
-    /// skipped and touch it in a chain, in time order.
-    fn stretch_of(&self, index: usize) -> Vec<usize> {
-        let track = self.pieces[index].1;
-        let kept: Vec<usize> = (0..self.pieces.len())
-            .filter(|&i| self.pieces[i].1 == track && skip_reason(&self.pieces[i].0.samples).is_none())
-            .collect();
-        let Some(at) = kept.iter().position(|&i| i == index) else { return vec![index] };
-        let touches = |a: usize, b: usize| {
-            self.pieces[b].0.start_timestamp_ms - self.pieces[a].0.end_timestamp_ms <= crate::parakeet_engine::chunking::TOUCH_MS
-        };
-        let (mut first, mut last) = (at, at);
-        while first > 0 && touches(kept[first - 1], kept[first]) {
-            first -= 1;
-        }
-        while last + 1 < kept.len() && touches(kept[last], kept[last + 1]) {
-            last += 1;
-        }
-        kept[first..=last].to_vec()
+    /// The pieces of `index`'s stretch, in time order.
+    fn stretch_of(&mut self, index: usize) -> Vec<usize> {
+        let pieces = self.pieces;
+        let stretches = self.stretches.get_or_insert_with(|| Stretches::of(pieces));
+        stretches.members[stretches.of[index]].clone()
     }
 }
 
@@ -208,7 +239,7 @@ impl<'a, K: Copy + PartialEq + Debug> Pass<'a, K> {
     /// order, so that Parakeet on the NPU can decode each stretch whole.
     /// Without it, or on any other engine, each piece is one call.
     pub fn windows_over(mut self, pieces: &'a [(SpeechSegment, K)]) -> Self {
-        self.windows = Some(StretchTexts { pieces, texts: vec![None; pieces.len()] });
+        self.windows = Some(StretchTexts { pieces, texts: vec![None; pieces.len()], stretches: None });
         self
     }
 
@@ -631,6 +662,23 @@ mod tests {
     fn whisper_pieces_run_from_pause_to_pause_and_parakeet_keeps_the_cap() {
         assert_eq!(vad_cap(false), ContinuousSpeechCap::PauseToPause);
         assert_eq!(vad_cap(true), ContinuousSpeechCap::Streaming);
+    }
+
+    #[test]
+    fn a_pass_finds_each_pieces_stretch_once_by_track_and_touch() {
+        // The microphone's pieces touch through a skipped (silent) one; the
+        // system's interleave with them; a 1 s gap starts a new stretch.
+        let pieces = vec![
+            (segment(0.0, 3.0, 0.1), "mic"),
+            (segment(1.0, 2.0, 0.1), "system"),
+            (segment(3.0, 0.5, 0.0), "mic"),
+            (segment(3.02, 3.0, 0.1), "mic"),
+            (segment(3.0, 2.0, 0.1), "system"),
+            (segment(7.02, 1.0, 0.1), "mic"),
+        ];
+        let stretches = Stretches::of(&pieces);
+        let members: Vec<&Vec<usize>> = (0..pieces.len()).map(|index| &stretches.members[stretches.of[index]]).collect();
+        assert_eq!(members, [&vec![0, 3], &vec![1, 4], &vec![2], &vec![0, 3], &vec![1, 4], &vec![5]]);
     }
 
     #[test]
