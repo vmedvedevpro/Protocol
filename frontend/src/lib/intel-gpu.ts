@@ -68,3 +68,22 @@ export function runtimeUpdate(companion: CompanionStatus): RuntimeStatus | null 
   if (!companion.installed || !runtime?.installed || runtime.installed === runtime.version || runtime.afterRestart) return null;
   return runtime;
 }
+
+/**
+ * A native error of the Intel GPU version or of Intel's libraries in the
+ * UI's words (#88): native texts name the runtime and its folders ("OpenVINO
+ * GenAI"), which the UI never does. `detail` keeps the original for a
+ * tooltip; other errors pass unchanged.
+ */
+export function intelError(raw: string): { message: string; detail: string | null } {
+  const space = /^Not enough free space for [^:]+: (.+?)\.?$/.exec(raw);
+  if (space) return { message: `Not enough free space: ${space[1]}.`, detail: raw };
+  if (/no OpenVINO runtime/i.test(raw)) return { message: "Intel's libraries for this computer aren't available yet.", detail: raw };
+  if (/cannot run/i.test(raw) && /OpenVINO/i.test(raw)) {
+    return { message: "This version of Protocol can't use the Intel libraries on offer. Update Protocol to use them.", detail: raw };
+  }
+  if (/openvino|genai|runtime|plugin|directml|onnx/i.test(raw)) {
+    return { message: "Something went wrong with Intel's libraries. Try again later.", detail: raw };
+  }
+  return { message: raw, detail: null };
+}

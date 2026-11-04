@@ -28,6 +28,7 @@ import { fieldClass } from '@/components/ui/input';
 import { PostCallHandoffCard } from '@/components/PostCallHandoffCard';
 import type { RawModelInfo } from '@/hooks/useTranscriptionModels';
 import { isVisibleParakeetModel } from '@/lib/parakeet';
+import { gpuVersionStandIn } from '@/lib/speech-choice';
 import { announceChange } from '@/lib/workspace-api';
 
 type Stage = 'idle' | 'prompt' | 'enhancing' | 'diarizing' | 'refreshing' | 'error';
@@ -83,8 +84,8 @@ async function resolveEnhancementModel(
   if (configured) return configured;
   // The Intel GPU version (#88) stays the choice when it is gone: native code
   // then runs a regular copy of it, or says to download one.
-  if (normalizedProvider === 'whisper' && whisperModels.some((model) => model.name === configuredModel && model.companion_of?.length)) {
-    return { provider: 'whisper', name: configuredModel! };
+  if (normalizedProvider === 'whisper' && configuredModel && gpuVersionStandIn(whisperModels, configuredModel)) {
+    return { provider: 'whisper', name: configuredModel };
   }
   if (normalizedProvider === 'whisper' || normalizedProvider === 'parakeet') {
     const sameProvider = available.find((model) => model.provider === normalizedProvider);

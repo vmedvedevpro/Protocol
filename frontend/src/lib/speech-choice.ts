@@ -18,6 +18,7 @@
  */
 import type { RawModelInfo } from '@/hooks/useTranscriptionModels';
 import type { CompanionStatus, OpenVinoAvailability } from '@/lib/intel-gpu';
+import { speechModelLabel } from '@/lib/speech-models';
 
 /** `parakeet_npu_status` (the #66 contract, `050r2-npu-contract.md`). */
 export type NpuState = 'absent' | 'needs_runtime' | 'needs_model' | 'waiting' | 'preparing' | 'ready' | 'failed';
@@ -51,6 +52,29 @@ export type WhisperListed = RawModelInfo & { recommended?: boolean; companion_of
 export type ParakeetListed = RawModelInfo & { recommended?: boolean };
 
 export const isGpuVersion = (model: { companion_of?: string[] } | undefined | null) => !!model?.companion_of?.length;
+
+/** The Intel GPU version's name: after the model it serves, with its device. */
+export const gpuVersionLabel = (version: { name: string; display_name?: string }) =>
+  `${speechModelLabel('whisper', version.name, version.display_name)} · Intel GPU`;
+
+type Listed = { name: string; status: unknown; recommended?: boolean; companion_of?: string[] };
+
+/**
+ * A saved Intel GPU version whose entry is not installed (its files or
+ * Intel's libraries gone): what a load of it runs instead, as native code
+ * decides it (`speech_choice::regular_copy`): an installed regular copy it
+ * serves, the recommended one first, else none (the load then fails saying
+ * to download the standard version). Null when `id` is no such entry. The
+ * post-meeting pass, the Import and Enhance dialogs and Settings use it.
+ */
+export function gpuVersionStandIn<T extends Listed>(whisper: T[], id: string): { version: T; copy: string | null } | null {
+  const version = whisper.find((model) => model.name === id && isGpuVersion(model));
+  if (!version || version.status === 'Available') return null;
+  const installed = (version.companion_of ?? []).filter((name) =>
+    whisper.some((model) => model.name === name && !isGpuVersion(model) && model.status === 'Available'));
+  const copy = installed.find((name) => whisper.find((model) => model.name === name)?.recommended) ?? installed[0] ?? null;
+  return { version, copy };
+}
 
 export interface PairInputs {
   whisper: WhisperListed[];
@@ -110,7 +134,9 @@ export interface DeviceContext {
  * the Intel GPU version (and a ggml model it runs in place of, #79) on the
  * Intel GPU unless it fell back; Parakeet v3 on the Intel NPU once
  * prepared. whisper.cpp on Vulkan or the processor gets no badge: "Intel
- * GPU" names the Intel GPU version.
+ * GPU" names the Intel GPU version. The ggml model the Intel GPU version is
+ * named after ("Large V3 Turbo") goes without it, or the two would read the
+ * same in a select.
  */
 export function deviceOf(engine: 'whisper' | 'parakeet', name: string, context: DeviceContext): Device | null {
   if (engine === 'parakeet') {
@@ -118,7 +144,9 @@ export function deviceOf(engine: 'whisper' | 'parakeet', name: string, context: 
   }
   const version = context.gpuVersion;
   if (!version || version.status !== 'Available' || context.gpuFallback) return null;
-  return name === version.name || !!version.companion_of?.includes(name) ? 'Intel GPU' : null;
+  if (name === version.name) return 'Intel GPU';
+  if (name === version.companion_of?.[0]) return null;
+  return version.companion_of?.includes(name) ? 'Intel GPU' : null;
 }
 
 /** The NPU states in which the Labs GPU toggle for Parakeet does nothing (the NPU wins). */

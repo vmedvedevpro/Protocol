@@ -98,6 +98,7 @@ export function SetupOverviewStep() {
   ];
 
   const handleContinue = () => {
+    if (!choice.loaded) return;
     // Native code makes either Whisper the after-meeting model when its
     // download ends, whatever happens to this screen.
     if (installWhisper && gpu && !gpu.installed && gpu.downloading === null) {
@@ -313,6 +314,8 @@ export function SetupOverviewStep() {
         <div className="w-full max-w-xs space-y-4">
           <Button
             onClick={handleContinue}
+            // What Whisper downloads depends on the pair, which loads first.
+            disabled={!choice.loaded}
             className="w-full h-11 bg-af-elevated hover:bg-af-elevated text-white"
           >
             Let's Go

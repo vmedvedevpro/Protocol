@@ -27,7 +27,7 @@ import { npuNote, parakeetLine, sumBytes, type Device } from '@/lib/speech-choic
 import { speechModelDescription, speechModelLanguages, speechModelName } from '@/lib/speech-models';
 import type { SpeechChoice } from '@/hooks/useSpeechChoice';
 import { CANCELLED, cancelIntelLibraries, dismissIntelLibrariesError, downloadIntelLibraries, useIntelLibraries } from '@/hooks/useIntelLibraries';
-import { runtimeUpdate, type CompanionStatus } from '@/lib/intel-gpu';
+import { intelError, runtimeUpdate, type CompanionStatus } from '@/lib/intel-gpu';
 
 export function DeviceBadge({ device }: { device: Device }) {
   const Icon = device === 'Intel NPU' ? Share2 : Cpu;
@@ -172,7 +172,6 @@ export function ForThisComputer({ choice, onParakeetInstalled, onModelsChanged, 
   const { jobs, startDownload, uninstallModel } = useOptionalModelDownloads();
   const [errors, setErrors] = useState<{ live?: string; after?: string }>({});
   const libraries = useIntelLibraries();
-  const [gpuRetried, setGpuRetried] = useState(false);
   const { pair, companion, npu } = choice;
 
   // --- Live: Parakeet ---
@@ -202,7 +201,7 @@ export function ForThisComputer({ choice, onParakeetInstalled, onModelsChanged, 
     : 'Whisper Large V3 Turbo';
   const gpu = pair.after.gpu && companion ? companion : null;
   const gpuInstalled = !!gpu?.installed;
-  const fellBack = gpu && gpuInstalled && !gpuRetried ? choice.devices.gpuFallback : null;
+  const fellBack = gpu && gpuInstalled ? choice.devices.gpuFallback : null;
   const copyJob = jobs.whisper;
   const copyDownloading = copyJob.status === 'downloading' || copyJob.status === 'activating';
   const languages = speechModelLanguages(copy?.languages ?? ['*']);
@@ -238,8 +237,11 @@ export function ForThisComputer({ choice, onParakeetInstalled, onModelsChanged, 
     onModelsChanged();
   };
 
-  // The NPU alone needs Intel's libraries; with the Intel GPU version they come with it.
-  const runtimeWanted = npu.present && npu.state === 'needs_runtime' && !gpu;
+  // The NPU alone needs Intel's libraries; a download of the Intel GPU
+  // version brings them. An installed one may predate the NPU files (0.5.0):
+  // they are then a download of their own.
+  const gpuBringsLibraries = !!gpu && !gpu.installed;
+  const runtimeWanted = npu.present && npu.state === 'needs_runtime' && !gpuBringsLibraries;
   // The job is shared with the offer and onboarding (`useIntelLibraries`),
   // which keeps a failure; this only asks the statuses again.
   const downloadRuntime = async () => {
@@ -289,7 +291,7 @@ export function ForThisComputer({ choice, onParakeetInstalled, onModelsChanged, 
     try {
       await invoke('speech_choice_remove_gpu_version', { id: gpu.id });
     } catch (error) {
-      toast.error(`Could not remove ${gpuName}`, { description: String(error) });
+      toast.error(`Could not remove ${gpuName}`, { description: intelError(String(error)).message });
     }
     choice.refresh();
     onModelsChanged();
@@ -298,10 +300,9 @@ export function ForThisComputer({ choice, onParakeetInstalled, onModelsChanged, 
   const cancelParakeet = () => { void invoke('parakeet_cancel_download', { modelName: pair.live.id }).catch(() => {}); };
   const cancelCopy = () => { void invoke('whisper_cancel_download', { modelName: pair.copy }).catch(() => {}); };
   const retryNpu = () => { void invoke('parakeet_npu_retry').catch(() => {}).finally(choice.refresh); };
-  const retryGpu = () => {
-    setGpuRetried(true);
-    void invoke('openvino_retry').catch(() => {}).finally(choice.refresh);
-  };
+  // Native code forgets the last fallback on retry; the notice comes back
+  // when the next load falls back again (the passes' events refresh).
+  const retryGpu = () => { void invoke('openvino_retry').catch(() => {}).finally(choice.refresh); };
 
   const sizeOf = (bytes: number | null | undefined) => formatModelSize(bytes);
   const withSize = (label: string, bytes: number | null | undefined) => (sizeOf(bytes) ? `${label} · ${sizeOf(bytes)}` : label);
@@ -406,7 +407,7 @@ export function ForThisComputer({ choice, onParakeetInstalled, onModelsChanged, 
     );
   }
 
-  const note = parakeetInstalled ? npuNote(npu, !!gpu) : null;
+  const note = parakeetInstalled ? npuNote(npu, gpuBringsLibraries) : null;
 
   return (
     <div className="space-y-3">
@@ -479,14 +480,18 @@ export function ForThisComputer({ choice, onParakeetInstalled, onModelsChanged, 
           )}
           {errors.live && <p role="alert" className="mt-2 text-xs text-af-danger [overflow-wrap:anywhere]">{errors.live}</p>}
           {runtimeWanted && libraries.status === 'error' && (
-            <p role="alert" className="mt-2 text-xs text-af-danger [overflow-wrap:anywhere]">
-              {`Intel's libraries didn't download: ${libraries.error}`}
+            <p role="alert" className="mt-2 text-xs text-af-danger [overflow-wrap:anywhere]" title={intelError(libraries.error).detail ?? undefined}>
+              {`Intel's libraries didn't download: ${intelError(libraries.error).message}`}
             </p>
           )}
         </PairRow>
         {afterRow}
       </ul>
-      {errors.after && <p role="alert" className="px-1 text-xs text-af-danger [overflow-wrap:anywhere]">{errors.after}</p>}
+      {errors.after && (
+        <p role="alert" className="px-1 text-xs text-af-danger [overflow-wrap:anywhere]" title={intelError(errors.after).detail ?? undefined}>
+          {intelError(errors.after).message}
+        </p>
+      )}
       {offerBack && (
         <button type="button" onClick={offerBack.onClick} className="px-1 text-xs font-medium text-af-accent underline-offset-2 hover:underline">
           {offerBack.label}

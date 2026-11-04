@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { isVisibleParakeetModel } from '@/lib/parakeet';
 import { formatModelSize } from '@/lib/model-catalog';
 import { speechModelLabel } from '@/lib/speech-models';
+import { gpuVersionLabel, gpuVersionStandIn } from '@/lib/speech-choice';
 
 export interface RawModelInfo {
   name: string;
@@ -58,17 +59,18 @@ export function useTranscriptionModels(transcriptModelConfig: TranscriptModelCon
   const fetchModels = useCallback(async (preferredConfig?: TranscriptModelConfig) => {
     setLoadingModels(true);
     const allModels: ModelOption[] = [];
+    let whisperModels: RawModelInfo[] = [];
 
     // Fetch Whisper models
     try {
-      const whisperModels = await invoke<RawModelInfo[]>('whisper_get_available_models');
+      whisperModels = await invoke<RawModelInfo[]>('whisper_get_available_models');
       const availableWhisper = whisperModels
         .filter((m) => m.status === 'Available')
         .map((m) => ({
           provider: 'whisper' as const,
           name: m.name,
           // The Intel GPU version is named after the model it serves.
-          displayName: `${speechModelLabel('whisper', m.name, m.display_name)}${m.companion_of?.length ? ' · Intel GPU' : ''}`,
+          displayName: m.companion_of?.length ? gpuVersionLabel(m) : speechModelLabel('whisper', m.name, m.display_name),
           sizeLabel: formatModelSize(m.size_bytes),
         }));
       setHasWhisperModel(availableWhisper.length > 0);
@@ -96,12 +98,27 @@ export function useTranscriptionModels(transcriptModelConfig: TranscriptModelCon
       setHasParakeetModel(false);
     }
 
-    setAvailableModels(allModels);
-
     // Set default model based on user's saved configuration
     const effectiveConfig = preferredConfig || transcriptModelConfig;
     const configuredProvider = effectiveConfig?.provider || '';
     const configuredModel = effectiveConfig?.model || '';
+
+    // A saved Intel GPU version that is not installed (#88): preselect what
+    // a load of it runs, its regular copy; without one keep it, listed as
+    // not installed, so the pass says what to download instead of quietly
+    // running another model.
+    let standInKey: string | null = null;
+    const standIn = configuredProvider === 'localWhisper' || configuredProvider === 'whisper'
+      ? gpuVersionStandIn(whisperModels, configuredModel)
+      : null;
+    if (standIn?.copy && allModels.some((m) => m.provider === 'whisper' && m.name === standIn.copy)) {
+      standInKey = `whisper:${standIn.copy}`;
+    } else if (standIn) {
+      allModels.push({ provider: 'whisper', name: standIn.version.name, displayName: `${gpuVersionLabel(standIn.version)} (not installed)`, sizeLabel: '' });
+      standInKey = `whisper:${standIn.version.name}`;
+    }
+
+    setAvailableModels(allModels);
 
     // Try to match the configured model
     // Note: 'localWhisper' in config maps to 'whisper' provider in model list
@@ -118,6 +135,8 @@ export function useTranscriptionModels(transcriptModelConfig: TranscriptModelCon
       if (configuredMatch) {
         // Use the configured model if available
         setSelectedModelKey(`${configuredMatch.provider}:${configuredMatch.name}`);
+      } else if (standInKey) {
+        setSelectedModelKey(standInKey);
       } else if (configuredProviderMatch) {
         // Preserve the post-call provider when its exact model was removed.
         setSelectedModelKey(`${configuredProviderMatch.provider}:${configuredProviderMatch.name}`);

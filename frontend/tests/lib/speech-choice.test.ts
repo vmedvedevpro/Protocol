@@ -3,6 +3,8 @@ import {
   NPU_ABSENT,
   deviceOf,
   gpuFallback,
+  gpuVersionLabel,
+  gpuVersionStandIn,
   npuNote,
   npuOwnsParakeet,
   offerFor,
@@ -12,7 +14,7 @@ import {
   type ParakeetNpuStatus,
   type WhisperListed,
 } from '../../src/lib/speech-choice';
-import type { CompanionStatus, OpenVinoAvailability } from '../../src/lib/intel-gpu';
+import { intelError, type CompanionStatus, type OpenVinoAvailability } from '../../src/lib/intel-gpu';
 
 const MB = 1024 * 1024;
 const GPU_ID = 'large-v3-turbo-openvino-int8';
@@ -105,6 +107,8 @@ test('the selects badge the device each installed model runs on', () => {
   // A ggml model the Intel GPU version runs in place of (#79) runs there too.
   expect(deviceOf('whisper', COPY, running)).toBe('Intel GPU');
   expect(deviceOf('whisper', 'small', running)).toBeNull();
+  // The full model it is named after would read the same as it: only it has the badge.
+  expect(deviceOf('whisper', 'large-v3-turbo', running)).toBeNull();
   expect(deviceOf('parakeet', PARAKEET, running)).toBe('Intel NPU');
   expect(deviceOf('parakeet', 'parakeet-tdt-0.6b-v2-int8', running)).toBeNull();
 
@@ -178,4 +182,29 @@ test('the card copy follows the NPU state and sums only known sizes', () => {
   expect(sumBytes([640 * MB, 1082 * MB])).toBe(1722 * MB);
   expect(sumBytes([640 * MB, null])).toBeNull();
   expect(sumBytes([])).toBeNull();
+});
+
+test('a saved Intel GPU version that is gone stands in for the copy a load of it runs', () => {
+  // Missing: the recommended copy it serves, as speech_choice::regular_copy picks it.
+  expect(gpuVersionStandIn(whisper, GPU_ID)).toEqual({ version: whisper[2], copy: COPY });
+  const full = { name: 'large-v3-turbo', size_bytes: 1, status: 'Available' as const };
+  expect(gpuVersionStandIn([whisper[0], full, whisper[2]], GPU_ID)?.copy).toBe('large-v3-turbo');
+  // No copy of it (Small serves nothing): the load fails saying what to download.
+  expect(gpuVersionStandIn([whisper[0], whisper[2]], GPU_ID)?.copy).toBeNull();
+  // Installed, or not an Intel GPU version: nothing stands in.
+  expect(gpuVersionStandIn([{ ...whisper[2], status: 'Available' }], GPU_ID)).toBeNull();
+  expect(gpuVersionStandIn(whisper, COPY)).toBeNull();
+  expect(gpuVersionLabel(whisper[2])).toBe('Whisper · Large V3 Turbo · Intel GPU');
+});
+
+test("native errors of Intel's libraries read in device words", () => {
+  expect(intelError('Not enough free space for OpenVINO GenAI: it needs 254 MB, 100 MB are free')).toEqual({
+    message: 'Not enough free space: it needs 254 MB, 100 MB are free.',
+    detail: 'Not enough free space for OpenVINO GenAI: it needs 254 MB, 100 MB are free',
+  });
+  expect(intelError('The model list has no OpenVINO runtime for this computer.').message).toBe("Intel's libraries for this computer aren't available yet.");
+  expect(intelError('The model list offers OpenVINO GenAI 2027.1.0.0, which this version of Protocol cannot run. Update Protocol to use it.').message)
+    .toBe("This version of Protocol can't use the Intel libraries on offer. Update Protocol to use them.");
+  expect(intelError('Could not delete C:/data/models/openvino/whisper: access denied').message).not.toMatch(/openvino/i);
+  expect(intelError('Network error')).toEqual({ message: 'Network error', detail: null });
 });

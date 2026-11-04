@@ -80,9 +80,17 @@ let root: ReactTestRenderer;
 const onParakeetInstalled = mock(() => {});
 const onModelsChanged = mock(() => {});
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+const refresh = mock(() => {});
 const render = async (state: State, offerBack: any = null) => {
   await act(async () => {
-    root = create(<ForThisComputer choice={choiceOf(state)} onParakeetInstalled={onParakeetInstalled} onModelsChanged={onModelsChanged} offerBack={offerBack} />);
+    root = create(<ForThisComputer choice={{ ...choiceOf(state), refresh }} onParakeetInstalled={onParakeetInstalled} onModelsChanged={onModelsChanged} offerBack={offerBack} />);
+    await settle();
+  });
+};
+/** The statuses asked again: the same card with new ones. */
+const rerender = async (state: State) => {
+  await act(async () => {
+    root.update(<ForThisComputer choice={{ ...choiceOf(state), refresh }} onParakeetInstalled={onParakeetInstalled} onModelsChanged={onModelsChanged} offerBack={null} />);
     await settle();
   });
 };
@@ -99,7 +107,7 @@ beforeEach(() => {
   jobs = { whisper: { status: 'idle', progress: 0 }, nemotron: { status: 'idle', progress: 0 } };
   downloadResult = async () => {};
   runtimeResult = async () => {};
-  startDownload.mockClear(); uninstallModel.mockClear(); onParakeetInstalled.mockClear(); onModelsChanged.mockClear();
+  startDownload.mockClear(); uninstallModel.mockClear(); onParakeetInstalled.mockClear(); onModelsChanged.mockClear(); refresh.mockClear();
 });
 afterEach(async () => { await act(async () => root?.unmount()); });
 
@@ -227,12 +235,13 @@ test('the Compressed copy is said to stay only while it waits to retire', async 
 });
 
 test('N6: a failed NPU and a fallen-back Intel GPU version say what runs instead, with Try again', async () => {
-  await render({
+  const fellBack: State = {
     parakeet: 'Available', copy: 'Available', gpuEntry: 'Available',
     companion: companion({ installed: true, companionInstalled: true }),
     npu: { present: true, state: 'failed', active: false, reason: 'NPU compile failed' },
     fallbackReason: 'GPU compile failed',
-  });
+  };
+  await render(fellBack);
   expect(text()).toContain("The Intel NPU didn't start, so Parakeet runs on the processor.");
   expect(text()).toContain("The Intel GPU version didn't start, so Whisper uses this copy. Nothing to download.");
   // The copy that runs is the row, without badges.
@@ -245,8 +254,13 @@ test('N6: a failed NPU and a fallen-back Intel GPU version say what runs instead
   await act(async () => { tries[0].props.onClick(); tries[1].props.onClick(); await settle(); });
   expect(called('parakeet_npu_retry')).toHaveLength(1);
   expect(called('openvino_retry')).toHaveLength(1);
-  // A retry hides the Intel GPU notice until the next transcription tells.
+  expect(refresh).toHaveBeenCalled();
+  // Native code forgets the fallback on retry: the statuses asked again hide the notice…
+  await rerender({ ...fellBack, fallbackReason: null });
   expect(text()).not.toContain('so Whisper uses this copy');
+  // …and it comes back when the next transcription falls back again.
+  await rerender(fellBack);
+  expect(text()).toContain("The Intel GPU version didn't start, so Whisper uses this copy.");
 });
 
 test('a fallen-back Intel GPU version without a regular copy offers the standard version, keeping the choice', async () => {
@@ -259,6 +273,31 @@ test('a fallen-back Intel GPU version without a regular copy offers the standard
   // A plain download: the after-meeting choice stays on the Intel GPU version, which falls back to it.
   expect(called('whisper_download_model')[0].args).toEqual({ modelName: COPY, enablePostCall: false });
   expect(startDownload).not.toHaveBeenCalled();
+});
+
+test("an Intel GPU version installed before the NPU files came gets Intel's libraries as a download of their own", async () => {
+  // 0.5.0 installed the libraries without the NPU's files: #66 reads needs_runtime.
+  const npu = { present: true, state: 'needs_runtime', active: false, reason: null };
+  await render({ parakeet: 'Available', gpuEntry: 'Available', companion: companion({ installed: true, companionInstalled: true }), npu });
+  expect(text()).toContain("Runs on the Intel NPU once Intel's libraries are downloaded.");
+  expect(text()).not.toContain("Whisper's Intel GPU version is downloaded");
+  await click("Download Intel's libraries · 254 MB");
+  expect(called('openvino_runtime_download')).toHaveLength(1);
+});
+
+test('download and removal errors use device words, the original in a tooltip', async () => {
+  downloadResult = async () => { throw 'Not enough free space for OpenVINO GenAI: it needs 254 MB, 100 MB are free'; };
+  await render({ parakeet: 'Available' });
+  await click('Download · 1.1 GB');
+  const alert = root.root.find((node) => node.props?.role === 'alert');
+  expect(label(alert)).toBe('Not enough free space: it needs 254 MB, 100 MB are free.');
+  expect(alert.props.title).toContain('OpenVINO GenAI');
+  await act(async () => root.unmount());
+  downloadResult = async () => { throw 'The model list has no OpenVINO runtime for this computer.'; };
+  await render({ parakeet: 'Available' });
+  await click('Download · 1.1 GB');
+  expect(text()).toContain("Intel's libraries for this computer aren't available yet.");
+  expect(text().replace(/"title":"[^"]*"/g, '')).not.toMatch(/OpenVINO/);
 });
 
 test('one missing model gets its own button; a failed download says why', async () => {

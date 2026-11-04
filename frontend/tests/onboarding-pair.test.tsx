@@ -12,6 +12,7 @@ const PARAKEET = 'parakeet-tdt-0.6b-v3-int8';
 let commands: Array<{ command: string; args?: any }>;
 let availability: any;
 let npu: any;
+let modelsReady: Promise<void>;
 const goNext = mock(() => {});
 const startDownload = mock(() => {});
 
@@ -27,6 +28,7 @@ mock.module('@tauri-apps/api/core', () => ({ invoke: async (command: string, arg
   commands.push({ command, args });
   switch (command) {
     case 'whisper_get_available_models':
+      await modelsReady;
       return [
         { name: COPY, display_name: 'Large V3 Turbo Compressed', size_bytes: 547 * MB, status: 'Missing', recommended: true },
         { name: GPU_ID, display_name: 'Large V3 Turbo', size_bytes: 828 * MB, status: 'Missing', companion_of: ['large-v3-turbo', COPY] },
@@ -68,6 +70,7 @@ const continueSetup = () => act(async () => {
 
 beforeEach(() => {
   commands = [];
+  modelsReady = Promise.resolve();
   availability = { offer: true, gpu: 'Intel(R) Arc(TM) B390 GPU', reason: null, device: null, mismatch: null };
   npu = { present: true, state: 'needs_runtime', active: false, reason: null };
   goNext.mockClear(); startDownload.mockClear();
@@ -122,4 +125,19 @@ test('an NPU-only PC also downloads Intel\'s libraries for Parakeet', async () =
   expect(text()).toContain("With Intel's libraries for the NPU · 254 MB.");
   await continueSetup();
   expect(commands.filter((entry) => entry.command === 'openvino_runtime_download')).toHaveLength(1);
+});
+
+test("Let's Go waits for the pair: an early click cannot pick the wrong Whisper", async () => {
+  let ready: () => void = () => {};
+  modelsReady = new Promise((resolve) => { ready = resolve; });
+  await act(async () => { root = create(<SetupOverviewStep />); await settle(); });
+  const button = () => root.root.find((node) => node.type === 'button' && label(node) === "Let's Go");
+  expect(button().props.disabled).toBe(true);
+  await act(async () => { button().props.onClick(); await settle(); });
+  expect(startDownload).not.toHaveBeenCalled();
+  expect(commands.find((entry) => entry.command === 'openvino_download')).toBeUndefined();
+  await act(async () => { ready(); await settle(); await settle(); });
+  expect(button().props.disabled).toBe(false);
+  await continueSetup();
+  expect(commands.find((entry) => entry.command === 'openvino_download')?.args).toEqual({ id: GPU_ID, choose: true });
 });

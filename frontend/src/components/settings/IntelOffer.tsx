@@ -8,14 +8,13 @@
  * native code (`openvino_download` with `choose`), the NPU prepares itself
  * (#66). Not now is remembered per device (`lib/speech-choice.ts`).
  */
-import { useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { Cpu } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { formatModelSize } from '@/lib/model-catalog';
 import type { Offer } from '@/lib/speech-choice';
-import type { CompanionStatus } from '@/lib/intel-gpu';
+import { intelError, type CompanionStatus } from '@/lib/intel-gpu';
 import { CANCELLED, downloadIntelLibraries } from '@/hooks/useIntelLibraries';
 import { gpuInstalledNotice } from './ForThisComputer';
 
@@ -28,14 +27,21 @@ export interface IntelOfferProps {
   onNotNow: () => void;
   /** After Switch started: the card shows the progress from here on. */
   onSwitch: () => void;
+  /**
+   * The switch ended. Unless it installed, the offer comes back (it is
+   * unmounted meanwhile), with `error` when it failed rather than was
+   * cancelled.
+   */
+  onSettled: (installed: boolean, error: string | null) => void;
+  /** Why the last Switch failed, kept by the parent across the unmount. */
+  error: string | null;
 }
 
-export function IntelOffer({ offer, companionId, copy, onNotNow, onSwitch }: IntelOfferProps) {
-  const [error, setError] = useState<string | null>(null);
+export function IntelOffer({ offer, companionId, copy, onNotNow, onSwitch, onSettled, error }: IntelOfferProps) {
   const size = formatModelSize(offer.bytes);
+  const shown = error ? intelError(error) : null;
 
   const switchNow = () => {
-    setError(null);
     onSwitch();
     void (async () => {
       try {
@@ -44,16 +50,20 @@ export function IntelOffer({ offer, companionId, copy, onNotNow, onSwitch }: Int
           const status = await invoke<CompanionStatus | null>('openvino_status', { whisperModel: copy }).catch(() => null);
           const notice = gpuInstalledNotice(status);
           toast.success(notice.title, { description: notice.description });
-        } else if (await downloadIntelLibraries() === 'installed') {
-          // The card shows the progress, Cancel and a failure meanwhile.
-          toast.success("Intel's libraries are installed", { description: 'Parakeet gets ready for the Intel NPU once, then runs on it.' });
+          onSettled(true, null);
+        } else {
+          const outcome = await downloadIntelLibraries();
+          if (outcome === 'installed') {
+            toast.success("Intel's libraries are installed", { description: 'Parakeet gets ready for the Intel NPU once, then runs on it.' });
+          }
+          // Running elsewhere: the card follows it, and the offer stays away meanwhile.
+          onSettled(outcome !== 'cancelled', null);
         }
       } catch (failure) {
         const message = String(failure);
-        if (message !== CANCELLED) {
-          setError(message);
-          toast.error('The switch did not finish', { description: message });
-        }
+        const cancelled = message === CANCELLED;
+        if (!cancelled) toast.error('The switch did not finish', { description: intelError(message).message });
+        onSettled(false, cancelled ? null : message);
       }
     })();
   };
@@ -70,7 +80,11 @@ export function IntelOffer({ offer, companionId, copy, onNotNow, onSwitch }: Int
           <p className="mt-1 text-[13px] leading-relaxed text-af-text-3">
             {size ? `${offer.description} · ${size}` : offer.description}
           </p>
-          {error && <p role="alert" className="mt-1 text-xs text-af-danger [overflow-wrap:anywhere]">{error}</p>}
+          {shown && (
+            <p role="alert" className="mt-1 text-xs text-af-danger [overflow-wrap:anywhere]" title={shown.detail ?? undefined}>
+              {shown.message}
+            </p>
+          )}
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-1">

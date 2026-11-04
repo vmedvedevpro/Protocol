@@ -19,7 +19,7 @@ import { RowNote, SettingRow, SettingsGroup } from './settings/SettingsGroup';
 import type { RawModelInfo } from '@/hooks/useTranscriptionModels';
 import { getModelDisplayInfo } from '@/lib/parakeet';
 import { installedSpeechModels, speechModelLabel, speechModelLanguages, type InstalledSpeechModel, type SpeechEngine } from '@/lib/speech-models';
-import { deviceOf, npuOwnsParakeet, offerFor, readDismissed, writeDismissed, type Device } from '@/lib/speech-choice';
+import { deviceOf, gpuVersionLabel, gpuVersionStandIn, isGpuVersion, npuOwnsParakeet, offerFor, readDismissed, writeDismissed, type Device } from '@/lib/speech-choice';
 import { useLabs } from '@/hooks/useLabs';
 import { useSpeechChoice } from '@/hooks/useSpeechChoice';
 import { useIntelLibraries } from '@/hooks/useIntelLibraries';
@@ -60,9 +60,6 @@ const DEFAULT_POST_CALL_CONFIG: PostCallTranscriptConfig = {
 
 const keyOf = (provider: SpeechEngine, name: string) => `${provider}:${name}`;
 const labelOf = (model: InstalledModel) => speechModelLabel(model.provider, model.name, model.displayName);
-// A saved model that is not installed has no catalog name at hand; Parakeet's are known here.
-const missingLabel = (provider: SpeechEngine, name: string) =>
-    speechModelLabel(provider, name, provider === 'parakeet' ? getModelDisplayInfo(name)?.friendlyName : undefined);
 // The live select's entry that opens Speech models › All models.
 const ALL_MODELS = '__all-models';
 const AUTO_LANGUAGE_NAMES: Record<string, string> = {
@@ -78,6 +75,7 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
     const [allModelsOpen, setAllModelsOpen] = useState(false);
     const [dismissed, setDismissed] = useState<Device[]>(() => readDismissed());
     const [switching, setSwitching] = useState(false);
+    const [switchError, setSwitchError] = useState<string | null>(null);
     const [uiProvider, setUiProvider] = useState<TranscriptModelProps['provider']>(transcriptModelConfig.provider);
     const [installedModels, setInstalledModels] = useState<InstalledModel[]>([]);
     const [installedLoaded, setInstalledLoaded] = useState(false);
@@ -316,16 +314,29 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
     const liveKey = liveEngine ? keyOf(liveEngine, transcriptModelConfig.model) : '';
     const liveModel = installedModels.find((model) => keyOf(model.provider, model.name) === liveKey);
 
+    // A saved model that is not installed, by the name the lists give it
+    // (the Intel GPU version's entry stays listed when it is gone); Parakeet's
+    // names are known here.
+    const missingLabel = (provider: SpeechEngine, name: string) => {
+        const listed = provider === 'whisper' ? choice.whisper.find((model) => model.name === name) : undefined;
+        if (listed && isGpuVersion(listed)) return gpuVersionLabel(listed);
+        return speechModelLabel(provider, name, provider === 'parakeet' ? getModelDisplayInfo(name)?.friendlyName : listed?.display_name);
+    };
+
     // The model enhancement will actually run with, chosen the way
-    // PostCallProcessingWorker's resolveEnhancementModel chooses it.
+    // PostCallProcessingWorker's resolveEnhancementModel chooses it, and a
+    // missing Intel GPU version the way native code loads it.
     const followsLive = postCallConfig.provider === 'live';
     const afterEngine: SpeechEngine | null = followsLive ? liveEngine : postCallConfig.provider as SpeechEngine;
     const afterName = followsLive ? transcriptModelConfig.model : postCallConfig.model;
     const afterExact = afterEngine ? installedModels.find((model) => model.provider === afterEngine && model.name === afterName) : undefined;
+    const afterStandIn = afterEngine === 'whisper' && !afterExact ? gpuVersionStandIn(choice.whisper, afterName) : null;
     const afterModel = afterExact
-        ?? (afterEngine
-            ? installedModels.find((model) => model.provider === afterEngine)
-            : installedModels.find((model) => model.provider === 'parakeet') ?? installedModels[0]);
+        ?? (afterStandIn
+            ? installedModels.find((model) => model.provider === 'whisper' && model.name === afterStandIn.copy)
+            : afterEngine
+                ? installedModels.find((model) => model.provider === afterEngine)
+                : installedModels.find((model) => model.provider === 'parakeet') ?? installedModels[0]);
     const afterKey = followsLive ? 'live' : keyOf(postCallConfig.provider as SpeechEngine, postCallConfig.model);
 
     const usesWhisper = liveModel?.provider === 'whisper' || afterModel?.provider === 'whisper';
@@ -427,7 +438,11 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
     ) : postCallSaved ? (
         <RowNote tone="success" icon={Check}>Saved</RowNote>
     ) : !isLoadingPostCall && installedLoaded && installedModels.length > 0 ? (
-        !afterModel ? (
+        !afterModel && afterStandIn ? (
+            <RowNote tone="danger" icon={AlertTriangle}>
+                {`${gpuVersionLabel(afterStandIn.version)} is not installed, and no regular copy of it is, so transcripts can't be improved after meetings. Download it in Speech models, or choose another model.`}
+            </RowNote>
+        ) : !afterModel ? (
             <RowNote tone="danger" icon={AlertTriangle}>
                 {`No ${afterEngine === 'whisper' ? 'Whisper' : 'speech'} model is installed, so transcripts can't be improved after meetings. Choose another model.`}
             </RowNote>
@@ -625,7 +640,13 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
             companionId={choice.companion?.id ?? null}
             copy={choice.pair.copy}
             onNotNow={() => notNow(offer.devices)}
-            onSwitch={() => { setSwitching(true); scrollToModels(); }}
+            onSwitch={() => { setSwitching(true); setSwitchError(null); scrollToModels(); }}
+            onSettled={(installed, error) => {
+                if (installed) return;
+                setSwitching(false);
+                setSwitchError(error);
+            }}
+            error={switchError}
         />
     ) : null;
 

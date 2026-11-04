@@ -11,6 +11,8 @@ const PARAKEET = 'parakeet-tdt-0.6b-v3-int8';
 
 let commands: Array<{ command: string; args?: any }>;
 let installed: { parakeet: boolean; copy: boolean; gpu: boolean };
+let postCall: { provider: string; model: string };
+let gpuDownload: () => Promise<void>;
 let availability: any;
 let npu: any;
 let labs: Record<string, boolean>;
@@ -51,7 +53,8 @@ mock.module('@tauri-apps/api/core', () => ({ invoke: async (command: string, arg
     case 'parakeet_npu_status':
       if (!npu) throw new Error('unknown command parakeet_npu_status');
       return npu;
-    case 'api_get_post_call_transcript_config': return { provider: 'whisper', model: COPY };
+    case 'api_get_post_call_transcript_config': return postCall;
+    case 'openvino_download': return gpuDownload();
     case 'api_get_vocabulary': return { global: '', meeting: '' };
     case 'get_recording_preferences': return { real_time_transcription: false };
     case 'get_local_stack_status': return { whisper: { openvino: null } };
@@ -78,6 +81,8 @@ const click = (name: string) => act(async () => { button(name).props.onClick(); 
 const called = (command: string) => commands.filter((entry) => entry.command === command);
 
 beforeEach(() => {
+  postCall = { provider: 'whisper', model: COPY };
+  gpuDownload = async () => {};
   commands = [];
   installed = { parakeet: true, copy: true, gpu: false };
   availability = { offer: true, gpu: 'Intel(R) Arc(TM) B390 GPU', reason: null, device: null, mismatch: null };
@@ -172,4 +177,35 @@ test('the Labs GPU badge for Parakeet goes while the Intel NPU runs Parakeet', a
   npu = { present: true, state: 'failed', active: false, reason: 'x' };
   await render();
   expect(text()).toContain('GPU · Labs');
+});
+
+test('a failed or cancelled Switch brings the offer back, a failure with its reason in device words', async () => {
+  gpuDownload = async () => { throw 'Not enough free space for OpenVINO GenAI: it needs 254 MB, 100 MB are free'; };
+  await render();
+  await click('Switch');
+  const offer = root.root.find((node) => node.type === 'section' && node.props['aria-label'] === 'Intel GPU and NPU offer');
+  expect(label(offer)).toContain('Not enough free space: it needs 254 MB, 100 MB are free.');
+  expect(label(offer)).not.toContain('OpenVINO');
+  gpuDownload = async () => { throw 'The download was cancelled'; };
+  await click('Switch');
+  const back = root.root.find((node) => node.type === 'section' && node.props['aria-label'] === 'Intel GPU and NPU offer');
+  expect(back.findAll((node) => node.props?.role === 'alert')).toHaveLength(0);
+});
+
+/** The rendered text alone, without attribute values such as a select's value. */
+const shown = (node: any): string => (node == null ? '' : typeof node === 'string' ? node : Array.isArray(node) ? node.map(shown).join(' ') : shown(node.children));
+
+test('a chosen Intel GPU version that is gone shows what runs instead, by name', async () => {
+  // Its files are gone, the Compressed copy is installed: a load runs the copy.
+  postCall = { provider: 'whisper', model: GPU_ID };
+  await render();
+  expect(text()).toContain('Whisper · Large V3 Turbo · Intel GPU is not on this computer, so Whisper · Large V3 Turbo Compressed is used instead.');
+  expect(shown(root.toJSON())).not.toContain(GPU_ID);
+  await act(async () => root.unmount());
+
+  // Without a copy the pass fails, and Settings says so rather than naming another model.
+  installed = { parakeet: true, copy: false, gpu: false };
+  await render();
+  expect(text()).toContain("Whisper · Large V3 Turbo · Intel GPU is not installed, and no regular copy of it is, so transcripts can't be improved after meetings.");
+  expect(shown(root.toJSON())).not.toContain(GPU_ID);
 });
