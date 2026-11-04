@@ -4,10 +4,12 @@
 //!
 //! A companion is an `openvino-ir` catalog entry naming the ggml models it
 //! serves (`companion_of`) and its runtime (`runtime`, an entry of the
-//! catalog's `runtimes`, installed by `super::runtime`). It is never a model
-//! of its own: the Whisper list leaves it out (`super::usable`), and Settings
-//! offers it beside the model it serves, saying what is downloaded, from
-//! where and how big, so nothing is downloaded without the person asking.
+//! catalog's `runtimes`, installed by `super::runtime`). The ggml lists leave
+//! it out (`super::usable`); #88 lists the one that serves the Compressed
+//! copy as a Whisper model of its own, the Intel GPU version, chosen by its
+//! id (`crate::speech_choice`), and Settings offers it saying what is
+//! downloaded, from where and how big, so nothing is downloaded without the
+//! person asking.
 //!
 //! On disk a companion is `<models>/openvino/<id>/` with its `install.json`
 //! and a `.verified` marker beside each file. The download takes the same
@@ -23,7 +25,8 @@
 //! after another was loaded is used from the next start, and a version is
 //! removed only when this process has not loaded it: right after an install
 //! or a removal, and at the next start ([`prune_at_startup`]). The runtime
-//! goes with the last companion that needs it.
+//! goes with the last companion that needs it, unless Parakeet on the Intel
+//! NPU keeps it (#66: while Parakeet v3 is installed or downloading).
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

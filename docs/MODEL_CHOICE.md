@@ -111,7 +111,9 @@ Shown at the top of Settings › Transcription when at least one speech model is
 installed (a first run gets the card's Download both instead), the offer is
 not put off for every device it names, and this computer has an Intel GPU
 without the Intel GPU version (`gpuOffered`, not installed, not downloading)
-and/or an Intel NPU in `needs_runtime`. Titles: "Protocol can use your Intel
+and/or an Intel NPU in `needs_runtime` with Parakeet v3 installed (#66 reads
+`needs_runtime` before it looks at the model; without v3 the NPU runs
+nothing, and libraries got alone would go at the next start). Titles: "Protocol can use your Intel
 GPU and NPU", "… your Intel GPU", "… your Intel NPU". While Intel's libraries
 download alone the NPU is not offered. Switch runs
 `openvino_download { choose: true }` (it brings Intel's libraries, NPU files
@@ -176,7 +178,7 @@ transcribed a meeting." (during the download, and afterwards while
 | NPU `waiting` / `preparing` | a note; "Preparing · about 2 min" with an indeterminate bar | |
 | NPU `needs_runtime` | "Runs on the Intel NPU once Intel's libraries are downloaded.", their download with its bytes and Cancel, a failure under it (also with an Intel GPU version installed before the NPU files existed); with the Intel GPU version still to download the note says that download brings them | |
 | Installed (N4) | Installed, Remove | Installed, Remove; an update of Intel's libraries; "used after a restart" |
-| NPU `failed` (N6) | "The Intel NPU didn't start, so Parakeet runs on the processor." Try again (`parakeet_npu_retry`; `reason` in a tooltip) | |
+| NPU `failed` (N6) | "The Intel NPU didn't start, so Parakeet runs on the processor." Try again (`parakeet_npu_retry`; #66's `reason` goes to the log only, never the UI) | |
 | Intel GPU version fell back (N6) | | with a copy: the copy's row and "The Intel GPU version didn't start, so Whisper uses this copy. Nothing to download." Try again (`openvino_retry`); without: "… and no regular copy is installed …", Try again and "Download the standard version · size" (`whisper_download_model`, `enablePostCall: false`, so the choice stays) |
 
 "Fell back" is `CompanionStatus.stopped` (the crash guard), the last load's
@@ -244,16 +246,20 @@ are hidden while the NPU state is `preparing` or `ready`: the NPU wins (#66).
 
 ## Limits
 
-- Until #66 is merged its commands do not exist: the NPU reads as `absent`
-  and `openvino_runtime_download` fails. The NPU states are tested with mocks.
+- The NPU commands exist on Windows only: elsewhere a failing
+  `parakeet_npu_status` reads as `absent`. The NPU states are tested with
+  mocks of #66's commands and events; on this PC they are checked in the
+  real app.
 - The fallback reason lives in memory: after a restart the card shows a
   fallen-back Intel GPU version only once a load fails again in that run (the
   crash guard's `stopped` survives restarts).
 - A marker names its copy by size and modification time: a copy restored
   from a backup with its old time counts as the same copy.
-- Who keeps Intel's libraries is #66's rule: on a PC with an Intel NPU and
-  Parakeet v3 they stay when the Intel GPU version is removed, and
-  `openvino_status.removesRuntime` says so; the card's Remove size follows it.
+- Who keeps Intel's libraries is #66's rule: on a PC with an Intel NPU they
+  stay while Parakeet v3 is installed or downloading, also when the Intel GPU
+  version is removed, and `openvino_status.removesRuntime` says so; the
+  card's Remove size follows it. So the card offers them alone only with
+  Parakeet v3 installed, or with its download (Download both).
 - A download of Intel's libraries started before the window reloaded is
   followed by its progress events; if it then fails, only its original caller
   got the error, so the card shows it running until the window reloads again.
