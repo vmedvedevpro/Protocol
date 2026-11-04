@@ -808,6 +808,9 @@ pub fn run() {
             model_catalog::openvino::openvino_remove,
             #[cfg(windows)]
             model_catalog::openvino::openvino_retry,
+            // Parakeet on an Intel NPU: the runtime alone (#66)
+            #[cfg(windows)]
+            model_catalog::openvino::openvino_runtime_download,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

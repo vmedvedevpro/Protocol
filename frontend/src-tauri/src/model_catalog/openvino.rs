@@ -518,6 +518,88 @@ pub async fn openvino_download<R: Runtime>(app: AppHandle<R>, id: String) -> Res
     result.map_err(|error| error.to_string())
 }
 
+/// The progress of [`openvino_runtime_download`], payload [`Progress`] (the
+/// archive's bytes), at most every [`PROGRESS_INTERVAL`]. [`CHANGED_EVENT`]
+/// follows too, as for a companion's download.
+pub const RUNTIME_PROGRESS_EVENT: &str = "openvino-runtime-progress";
+
+/// Installs the catalog's runtime alone, for Parakeet on the Intel NPU on a
+/// PC that does not take the Intel GPU version of Whisper (#66), or adds to
+/// an installed version the files the catalog pins since (the NPU plugin and
+/// the ONNX frontend; `runtime::complete_into`). Resolves when it is
+/// installed and fails with the reason, or [`CANCELLED`] after
+/// `openvino_cancel` with the runtime's id (`openvino-genai`). Holds the busy
+/// registry for its lifetime.
+#[tauri::command]
+pub async fn openvino_runtime_download<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
+    let cancel = CancellationToken::new();
+    {
+        let mut downloads = downloads();
+        if downloads.contains_key(OPENVINO_GENAI) {
+            return Err("Intel's libraries are already downloading".to_string());
+        }
+        downloads.insert(OPENVINO_GENAI.to_string(), Running { cancel: cancel.clone(), progress: Progress::default() });
+    }
+    emit(&app);
+    let mut last = Instant::now() - PROGRESS_INTERVAL;
+    let offered = runtime_entry().ok_or_else(refusal);
+    let operations = OPERATIONS.lock().await;
+    let result = match &offered {
+        Ok(offered) => {
+            install_or_complete_runtime(&runtimes::Fetch::Vendor, &runtime_root(), offered, &cancel, |done, total| {
+                if last.elapsed() < PROGRESS_INTERVAL {
+                    return;
+                }
+                last = Instant::now();
+                let progress = Progress { done, total };
+                report(OPENVINO_GENAI, progress);
+                let _ = app.emit(RUNTIME_PROGRESS_EVENT, progress);
+                emit(&app);
+            })
+            .await
+        }
+        Err(reason) => Err(anyhow!("{reason}")),
+    };
+    if result.is_ok() {
+        prune_runtimes(&runtime_root(), true, runtime_entry().as_ref());
+    }
+    drop(operations);
+    downloads().remove(OPENVINO_GENAI);
+    match &result {
+        Ok(()) => log::info!("[openvino] the runtime is installed"),
+        Err(error) if error.to_string() == CANCELLED => log::info!("[openvino] the download of the runtime was cancelled"),
+        Err(error) => log::error!("[openvino] the download of the runtime failed: {error:#}"),
+    }
+    emit(&app);
+    result.map_err(|error| error.to_string())
+}
+
+/// Installs `offered`, or completes the installed version of it, under
+/// `root`. Callers hold [`OPERATIONS`].
+async fn install_or_complete_runtime(
+    fetch: &runtimes::Fetch,
+    root: &Path,
+    offered: &RuntimeEntry,
+    cancel: &CancellationToken,
+    progress: impl FnMut(u64, u64),
+) -> Result<()> {
+    let _busy = busy::hold(BusyReason::ModelDownload);
+    match runtimes::missing_files(&root.join(&offered.version), offered) {
+        Some(missing) if missing.is_empty() => Ok(()),
+        Some(missing) => {
+            let added: u64 = missing.iter().map(|file| file.size).sum();
+            ensure_room(root, offered.archive.size + added, &offered.name).await?;
+            log::info!("[openvino] adding {} files to {} {} from {}", missing.len(), offered.name, offered.version, host(&offered.archive.url));
+            runtimes::complete_into(fetch, root, offered, cancel, progress).await.map(drop)
+        }
+        None => {
+            ensure_room(root, offered.archive.size + offered.installed_size(), &offered.name).await?;
+            log::info!("[openvino] installing {} {} from {}", offered.name, offered.version, host(&offered.archive.url));
+            runtimes::install_into(fetch, root, offered, cancel, progress).await.map(drop)
+        }
+    }
+}
+
 /// Where an install puts things: the app's folders, or a test's.
 struct Place {
     models: PathBuf,
@@ -1003,6 +1085,35 @@ mod tests {
     async fn install_runtime(root: &Path, version: &str, salt: u8, api: u32) -> PathBuf {
         let entry = runtime_entry_served(version, salt, api).await;
         runtimes::install_into(&runtimes::Fetch::Local(reqwest::Client::new()), root, &entry, &CancellationToken::new(), |_, _| {}).await.unwrap()
+    }
+
+    /// The runtime alone (#66): installed when missing, completed when the
+    /// catalog pins more files of the installed version, else left alone.
+    #[tokio::test]
+    async fn the_runtime_alone_is_installed_or_completed_and_holds_the_busy_registry() {
+        let data = tempfile::tempdir().unwrap();
+        let root = data.path().join("runtimes");
+        let fetch = runtimes::Fetch::Local(reqwest::Client::new());
+        let old = runtime_entry_served("2026.4.1.0", 8, API_LEVEL).await;
+        let mut held = false;
+        install_or_complete_runtime(&fetch, &root, &old, &CancellationToken::new(), |_, _| {
+            held |= busy::current().contains(&BusyReason::ModelDownload);
+        })
+        .await
+        .unwrap();
+        assert!(held, "the download did not hold the busy registry");
+        assert_eq!(runtimes::installed_in(&root)[0].record.files.len(), 3);
+
+        let mut files = runtimes::testing::openvino_files(8);
+        files.push(("root/runtime/bin/openvino_intel_npu_plugin.dll", "openvino_intel_npu_plugin.dll", vec![8; 40]));
+        let borrowed: Vec<(&str, &str, &[u8])> = files.iter().map(|(path, name, content)| (*path, *name, content.as_slice())).collect();
+        let (bytes, mut more) = runtimes::testing::archive_and_entry("2026.4.1.0", &borrowed, "https://example.com/runtime.zip");
+        more.archive.url = runtimes::testing::serve(bytes).await;
+        install_or_complete_runtime(&fetch, &root, &more, &CancellationToken::new(), |_, _| {}).await.unwrap();
+        let installed = runtimes::installed_in(&root);
+        assert_eq!(installed.len(), 1);
+        assert_eq!(installed[0].record.files.len(), 4);
+        install_or_complete_runtime(&fetch, &root, &more, &CancellationToken::new(), |_, _| panic!("downloaded again")).await.unwrap();
     }
 
     #[tokio::test]
