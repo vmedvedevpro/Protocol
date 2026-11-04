@@ -57,6 +57,20 @@ to whisper.cpp on Vulkan: …`), Settings › Local stack shows it under Whisper
 and whisper.cpp loads. A failure inside a transcription call is returned to the
 caller like a whisper.cpp error; the call is not repeated on whisper.cpp.
 
+### Chosen as a model of its own (#88)
+
+Since #88 the companion is also a Whisper model id
+(`large-v3-turbo-openvino-int8`): Settings' For this computer card, the update
+offer and onboarding download it with `openvino_download { choose: true }`,
+which makes it the after-meeting model in native code, and `discover_models`
+lists it with `companion_of`. Loading that id runs the steps above on its
+companion; when they do not take it, a regular copy from `companion_of` runs
+on whisper.cpp, and without one the load fails with a message pointing at the
+standard version. A ggml id keeps the rule above (its companion runs in its
+place). The card replaces the separate Intel GPU row (`OpenVinoAcceleration.tsx`
+is gone) and shows no library or runtime names. See
+[MODEL_CHOICE.md](MODEL_CHOICE.md).
+
 Settings › Local stack shows `OpenVINO GPU` (the device name) in the Whisper
 row while the model runs on OpenVINO (`get_local_stack_status`,
 `whisper.openvino`). `get_openvino_availability` tells the model settings
@@ -241,11 +255,11 @@ any `Result`. While any of these steps runs, the app keeps
 `<data>/runtimes/openvino-genai.attempt` naming the steps running, one per
 line, and removes it when none runs. A marker found by the first such step of
 a process was left by one that died there: OpenVINO then stays off
-(whisper.cpp runs) and the Settings row says "Protocol closed unexpectedly the
-last time OpenVINO was …" with "Try OpenVINO again" (`openvino_retry`), which
-removes the marker and lets the next model load try. Meanwhile the row drops
-its "Used on the Intel GPU" tag, and a download that ends then says Whisper
-stays on Vulkan. Without it, a crash in
+(whisper.cpp runs) and the For this computer card says the Intel GPU version
+didn't start, with Try again (`openvino_retry`), which removes the marker,
+forgets the last load's fallback reason (`retry`) and lets the next model load
+try (#88; `CompanionStatus.stopped` keeps the technical text for the tooltip). Meanwhile the selects drop the "Intel GPU"
+badge. Without it, a crash in
 OpenVINO would repeat at every start. A process that ends on purpose while a
 step runs (Quit, `RunEvent::Exit`, or the updater closing the app to install)
 removes the marker first and writes none afterwards (`set_closing`), so
@@ -254,9 +268,9 @@ install turns the guard back on.
 
 ### Update and removal
 
-When the catalog pins another version for this build's level, the row offers
-it ("OpenVINO GenAI X is available · N MB to download", Update), as a model
-update is offered; the click is the same download. The new version installs
+When the catalog pins another version for this build's level, the card
+offers it ("An update to Intel's libraries is available · N MB", Update), as
+a model update is offered; the click is the same download, without `choose`. The new version installs
 beside the old one. If this process has not loaded the old one, it is removed
 at once and the next model load uses the new one; if it has, the row and the
 toast that ends the download (it reads the status again) say the new version
@@ -265,8 +279,9 @@ is used after a restart, and the old one is removed at the next start
 loads the runtime). A version the catalog moves back to (a rollback)
 is installed and used the same way.
 
-Remove in the row removes the companion, and with the last companion the
-runtime (a version this process loaded goes at the next start) and the model
+Remove in the card (`speech_choice_remove_gpu_version`, #88) first moves
+every choice of the Intel GPU version to a regular copy, then removes the
+companion, and with the last companion the runtime (a version this process loaded goes at the next start) and the model
 cache. At startup, a runtime no companion needs (none installed or begun) is
 removed too. On a PC with an Intel NPU where Parakeet v3 is installed or
 downloading, the NPU keeps the runtime (not the model cache): the row shows it
@@ -392,13 +407,12 @@ It is a separate download because GenAI cannot read ggml files.
   runtime can be installed; a removal that frees the runtime only when no
   other companion keeps it; a runtime awaiting its removal at the next start
   counted as gone, until a download of the companion keeps it.
-- Settings: `tests/model-catalog/openvino-acceleration.test.tsx` (the row's
-  text, sizes and licence link, the offer, progress in the download's own
-  bytes (also during an update and after the runtime part) and cancel, the device
-  and the mismatch, a removed runtime, an update and its restart note and toast, a
-  failure and a refusal, the crash note and its retry, libraries without the
-  model, offered for removal only when that removes them, and libraries a
-  restart removes shown as such with the model's size).
+- Settings: `tests/model-catalog/for-this-computer.test.tsx` (#88: sizes,
+  progress in the download's own bytes and cancel, an update of Intel's
+  libraries, a failure, the crash note and its retry, no technical words) and
+  the tests listed in [MODEL_CHOICE.md](MODEL_CHOICE.md#tests). The 0.5.0 row's
+  licence link, source host and "libraries without the model" line went with
+  the row.
 - Ignored, on the Intel GPU (`PROTOCOL_WHISPER_TEST_MODEL`,
   `OPENVINO_TEST_MODEL`, `MEASURE_OPENVINO_RUNTIME`, a 16 kHz WAV): the live
   state exists only while whisper.cpp holds the model (above).

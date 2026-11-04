@@ -14,6 +14,11 @@ import { OnboardingContainer } from '../OnboardingContainer';
 import { useOnboarding } from '@/contexts/OnboardingContext';
 import { OPTIONAL_WHISPER_MODEL, useOptionalModelDownloads } from '@/contexts/OptionalModelDownloadsContext';
 import { formatModelSize, useModelSize } from '@/lib/model-catalog';
+import { useSpeechChoice } from '@/hooks/useSpeechChoice';
+import { downloadIntelLibraries } from '@/hooks/useIntelLibraries';
+import { getModelDisplayInfo } from '@/lib/parakeet';
+import { speechModelName } from '@/lib/speech-models';
+import { DeviceBadge } from '@/components/settings/ForThisComputer';
 import {
   Tooltip,
   TooltipContent,
@@ -24,8 +29,24 @@ import {
 export function SetupOverviewStep() {
   const { goNext } = useOnboarding();
   const { jobs, startDownload } = useOptionalModelDownloads();
-  const whisperSize = formatModelSize(useModelSize('whisper', OPTIONAL_WHISPER_MODEL));
-  const [installWhisper, setInstallWhisper] = useState(false);
+  // The same pair as Settings' For this computer card (#88): Parakeet live,
+  // on the Intel NPU when there is one, and Whisper Large V3 Turbo after
+  // meetings, as its Intel GPU version on an Intel GPU.
+  const choice = useSpeechChoice();
+  const { pair, companion, npu } = choice;
+  const gpu = pair.after.gpu ? companion : null;
+  const copySize = useModelSize('whisper', OPTIONAL_WHISPER_MODEL);
+  const parakeetSize = formatModelSize(useModelSize('parakeet', pair.live.id));
+  const whisperSize = formatModelSize(gpu ? gpu.downloadSize : copySize);
+  const runtimeForNpu = !gpu && npu.present && npu.state === 'needs_runtime';
+  const runtimeSize = formatModelSize(runtimeForNpu ? companion?.runtime?.downloadSize : null);
+  const parakeetName = `Parakeet ${speechModelName('parakeet', pair.live.id, getModelDisplayInfo(pair.live.id)?.friendlyName)}`;
+  const gpuVersion = choice.devices.gpuVersion;
+  const whisperName = gpu
+    ? `Whisper ${gpuVersion ? speechModelName('whisper', gpuVersion.name, gpuVersion.display_name) : 'Large V3 Turbo'}`
+    : `Whisper ${speechModelName('whisper', pair.copy, choice.whisper.find((model) => model.name === pair.copy)?.display_name)}`;
+  const whisperInstalled = gpu ? gpu.installed : jobs.whisper.status === 'ready';
+  const [installWhisper, setInstallWhisper] = useState(true);
   const [installNemotron, setInstallNemotron] = useState(false);
   const [isMac, setIsMac] = useState(false);
   const [whisperBackend, setWhisperBackend] = useState<WhisperBackend | null | undefined>();
@@ -77,7 +98,20 @@ export function SetupOverviewStep() {
   ];
 
   const handleContinue = () => {
-    if (installWhisper) startDownload('whisper');
+    if (!choice.loaded) return;
+    // Native code makes either Whisper the after-meeting model when its
+    // download ends, whatever happens to this screen.
+    if (installWhisper && gpu && !gpu.installed && gpu.downloading === null) {
+      void invoke('openvino_download', { id: gpu.id, choose: true })
+        .catch((error) => console.error('Failed to download Whisper for the Intel GPU:', error));
+    } else if (installWhisper && !gpu) {
+      startDownload('whisper');
+    }
+    // Parakeet runs on the Intel NPU once Intel's libraries are on this computer.
+    if (runtimeForNpu) {
+      // Detached: the download step and Settings follow the shared job.
+      void downloadIntelLibraries().catch((error) => console.error("Failed to download Intel's libraries:", error));
+    }
     if (installNemotron) startDownload('nemotron');
     goNext();
   };
@@ -174,7 +208,7 @@ export function SetupOverviewStep() {
                 {accelerationLabel}
               </p>
               <p className="mt-1 text-xs leading-5 text-af-text-2">
-                {accelerationDescription} Live Parakeet uses the CPU by default; DirectML acceleration is optional in Labs.
+                {accelerationDescription} {pair.live.device === 'Intel NPU' ? 'Parakeet writes live text on the Intel NPU.' : 'Parakeet writes live text on the processor.'}
               </p>
             </div>
           </div>
@@ -232,17 +266,45 @@ export function SetupOverviewStep() {
         )}
 
         <div className="w-full max-w-md space-y-3 rounded-lg border border-af-border bg-af-panel p-4 text-af-text">
-          <h3 className="text-sm font-medium">Optional upgrades</h3>
-          <label className="flex cursor-pointer items-start gap-3 text-sm">
-            <Checkbox checked={installWhisper} onCheckedChange={checked => setInstallWhisper(checked === true)} className="mt-0.5" />
-            <span>Whisper for retranscription <span className="rounded-full bg-af-accent/10 px-1.5 py-0.5 text-[11px] font-medium text-af-accent">Recommended</span> <span className="text-af-text-3">{jobs.whisper.status === 'ready' ? '· Installed; enable it' : whisperSize && `· ${whisperSize}`}</span>
-              <span className="mt-0.5 block text-xs leading-5 text-af-text-2">Large V3 Turbo Compressed transcribes each recording again after the meeting, for a cleaner transcript. Parakeet still writes the live transcript.</span>
+          <div>
+            <h3 className="text-sm font-medium">For this computer</h3>
+            <p className="mt-0.5 text-xs leading-5 text-af-text-3">
+              Picked for your hardware: live text while you record, and a more accurate full transcript after each meeting.
+            </p>
+          </div>
+          <label className="flex items-start gap-3 text-sm">
+            <Checkbox checked disabled aria-label={`${parakeetName}, needed to record`} className="mt-0.5" />
+            <span>
+              <span className="inline-flex flex-wrap items-center gap-1.5">
+                {parakeetName}
+                {pair.live.device && <DeviceBadge device={pair.live.device} />}
+                <span className="text-af-text-3">{parakeetSize && `· ${parakeetSize}`}</span>
+              </span>
+              <span className="mt-0.5 block text-xs leading-5 text-af-text-2">
+                Writes the live transcript while you record. Needed to record.
+                {runtimeForNpu && ` With Intel's libraries for the NPU${runtimeSize ? ` · ${runtimeSize}` : ''}.`}
+              </span>
             </span>
           </label>
           <label className="flex cursor-pointer items-start gap-3 text-sm">
+            <Checkbox checked={installWhisper} onCheckedChange={checked => setInstallWhisper(checked === true)} className="mt-0.5" />
+            <span>
+              <span className="inline-flex flex-wrap items-center gap-1.5">
+                {whisperName}
+                {gpu && <DeviceBadge device="Intel GPU" />}
+                <span className="text-af-text-3">{whisperInstalled ? '· Installed' : whisperSize && `· ${whisperSize}`}</span>
+              </span>
+              <span className="mt-0.5 block text-xs leading-5 text-af-text-2">Transcribes each recording again after the meeting, for a cleaner transcript.</span>
+            </span>
+          </label>
+        </div>
+
+        <div className="w-full max-w-md space-y-3 rounded-lg border border-af-border bg-af-panel p-4 text-af-text">
+          <h3 className="text-sm font-medium">Optional upgrades</h3>
+          <label className="flex cursor-pointer items-start gap-3 text-sm">
             <Checkbox checked={installNemotron} onCheckedChange={checked => setInstallNemotron(checked === true)} className="mt-0.5" />
             <span>Nemotron for speaker identification <span className="rounded-full bg-af-accent/10 px-1.5 py-0.5 text-[11px] font-medium text-af-accent">Recommended</span> <span className="text-af-text-3">{jobs.nemotron.status === 'ready' ? '· Installed; enable it' : '· ~382 MB'}</span>
-              <span className="mt-0.5 block text-xs leading-5 text-af-text-2">Auto-detect speakers after recording. Windows supports DirectML GPU acceleration with CPU fallback.</span>
+              <span className="mt-0.5 block text-xs leading-5 text-af-text-2">Auto-detect speakers after recording. Uses the graphics card when it can, else the processor.</span>
             </span>
           </label>
           <p className="text-xs leading-5 text-af-text-3">Selected models download in the background and enable automatically when ready. You can finish setup immediately and track progress or retry in Settings.</p>
@@ -252,6 +314,8 @@ export function SetupOverviewStep() {
         <div className="w-full max-w-xs space-y-4">
           <Button
             onClick={handleContinue}
+            // What Whisper downloads depends on the pair, which loads first.
+            disabled={!choice.loaded}
             className="w-full h-11 bg-af-elevated hover:bg-af-elevated text-white"
           >
             Let's Go

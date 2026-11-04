@@ -327,8 +327,10 @@ fn discover_models_standalone() -> Result<Vec<ModelInfo>, String> {
             tier: entry.tier,
             recommended: entry.recommended,
             languages: entry.languages,
+            companion_of: Vec::new(),
         });
     }
+    models.extend(crate::speech_choice::listed());
 
     let downloaded_count = models
         .iter()

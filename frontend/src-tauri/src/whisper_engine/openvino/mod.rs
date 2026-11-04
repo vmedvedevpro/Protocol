@@ -239,10 +239,13 @@ fn stopped_in(guard: &Mutex<Guard>) -> Option<String> {
     guard.stopped.clone()
 }
 
-/// Lets OpenVINO run again after a crash stopped it.
+/// Lets OpenVINO run again after a crash stopped it, and forgets the last
+/// load's fallback: Settings shows one again only when a load falls back
+/// after this (#88's Try again).
 pub fn retry() {
     retry_in(&GUARD);
     DEVICE.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).take();
+    record(BackendStatus::default());
 }
 
 fn retry_in(guard: &Mutex<Guard>) {
@@ -594,6 +597,13 @@ pub fn backend_status() -> Option<BackendStatus> {
 
 fn record(status: BackendStatus) {
     *STATUS.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(status);
+}
+
+/// [`record`] for a load that does not go through
+/// [`WhisperEngine::load_openvino_companion`]: the Intel GPU version of
+/// Whisper as a model of its own (#88, `speech_choice`).
+pub(crate) fn record_status(status: BackendStatus) {
+    record(status);
 }
 
 /// The OpenVINO part of `get_local_stack_status`: the device the loaded

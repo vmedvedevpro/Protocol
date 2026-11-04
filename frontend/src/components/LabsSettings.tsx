@@ -15,6 +15,8 @@ import { Avatar } from '@/components/ui/avatar';
 import { Spinner } from '@/components/ui/spinner';
 import { usePlatform } from '@/hooks/usePlatform';
 import { useLabs } from '@/hooks/useLabs';
+import { useParakeetNpu } from '@/hooks/useSpeechChoice';
+import { npuOwnsParakeet } from '@/lib/speech-choice';
 import { useVoiceProfiles } from '@/hooks/useVoiceProfiles';
 import { setLabsFeature, syncLabsFromBackend, type LabsFeature } from '@/lib/labs-features';
 import { describeVoiceError, describeVoiceSource, forgetVoice } from '@/lib/voice-profiles';
@@ -205,6 +207,7 @@ function LearnedVoices() {
 export function LabsSettings() {
   const platform = usePlatform();
   const { labs } = useLabs();
+  const npu = useParakeetNpu();
   const [busy, setBusy] = useState<LabsFeature | null>(null);
 
   // Three switches live in Rust; show what it actually has.
@@ -231,7 +234,10 @@ export function LabsSettings() {
   return (
     <div className="space-y-6">
       {GROUPS.map((group) => {
-        const features = group.features.filter((feature) => !feature.windowsOnly || platform === 'windows');
+        // Parakeet on the GPU does nothing while the Intel NPU runs Parakeet or
+        // gets ready to (#66, #88), so it is not offered then.
+        const features = group.features.filter((feature) =>
+          (!feature.windowsOnly || platform === 'windows') && !(feature.key === 'parakeetGpu' && npuOwnsParakeet(npu)));
         if (features.length === 0) return null;
         return (
           <section key={group.title}>

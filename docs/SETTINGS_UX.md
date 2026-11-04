@@ -19,12 +19,17 @@ model, download and activation rules they call are documented in
 `TranscriptSettings.tsx` renders four groups; the Settings page passes
 `DiarizationSettings` in as `speakerSettings`, and the recorder's setup dialog
 (`app/_components/SettingsModal.tsx`) renders the same component without it.
-With no speech model installed the model lists come first.
+With no speech model installed the model lists come first. Above them, after
+an update, sits the offer to use this computer's Intel GPU and NPU
+(`settings/IntelOffer.tsx`, [MODEL_CHOICE.md](MODEL_CHOICE.md)).
 
 1. **Speech to text**
    - *During the meeting*: a picker of installed models
      (`installedSpeechModels` in `lib/speech-models.ts`: Parakeet first, never
-     Parakeet v2). Saves with `api_save_transcript_config` (`parakeet` or
+     Parakeet v2), grouped "On this computer" and "Not downloaded" (an entry
+     that opens All models). Each model carries the badge of its device
+     (`deviceOf`, [MODEL_CHOICE.md](MODEL_CHOICE.md#selects-n5)); Parakeet is
+     marked "recommended for live text". Saves with `api_save_transcript_config` (`parakeet` or
      `localWhisper`), then `onModelSelect` (the setup dialog closes on it).
      A saved model that is not installed shows as a disabled "(not installed)"
      item and a warning.
@@ -33,10 +38,8 @@ With no speech model installed the model lists come first.
      what enhancement will actually run, resolved the way
      `PostCallProcessingWorker`'s `resolveEnhancementModel` resolves it, and
      says when the saved model is missing and another one (or none) is used.
-     Without any Whisper model it offers the optional Whisper download
-     (`OptionalModelDownloadsContext.startDownload('whisper')`, which enables
-     it natively) and shows its progress (`aria-label="Whisper download progress"`).
-     When that download finished but could not become the after-meeting model
+     Downloads live in For this computer (below). When the optional Whisper
+     job finished but could not become the after-meeting model
      (`activation-error`), the row says so with Retry even though the model is
      now on disk, until After the meeting uses it.
    - *Meeting language*: `ConfigContext.selectedLanguage` (localStorage
@@ -50,8 +53,10 @@ With no speech model installed the model lists come first.
    is nested in another), Nemotron's download and progress, Remove (a
    confirmation, then `uninstall_optional_model`), the speech threshold, and a
    closed *Model files and credits* section that still renders its contents.
-4. **Speech models**: `ParakeetModelManager` and `ModelManager` (Whisper).
-   The Whisper list shows models on disk and the catalog's recommendation; the
+4. **Speech models**: the *For this computer* card
+   (`settings/ForThisComputer.tsx`, [MODEL_CHOICE.md](MODEL_CHOICE.md)), then
+   *All models*, collapsed: `ParakeetModelManager` and `ModelManager`
+   (Whisper; the Intel GPU version is not listed there). The Whisper list shows models on disk and the catalog's recommendation; the
    rest wait behind *N more models*, the basic tier first. Which list a row is
    in is settled when the models first load, so a row that starts downloading,
    fails or finishes keeps its place; with *more models* closed, such a row
@@ -64,8 +69,7 @@ With no speech model installed the model lists come first.
    `whisper_delete_corrupted_model`, after which `TranscriptSettings` moves
    *After the meeting* back to `live` and live Whisper to Parakeet.
    Downloading the optional Whisper model from its row (`startModelDownload`)
-   starts the same `startDownload('whisper')` job as the offer in *After the
-   meeting*, so there is one transfer and native code enables it; Cancel on the
+   starts the same `startDownload('whisper')` job as the card, so there is one transfer and native code enables it; Cancel on the
    row returns that job to idle rather than to an error.
 
 `OptionalModelDownloads` is no longer part of Settings; onboarding still shows
@@ -76,8 +80,8 @@ the same name as its menu item, and its model picker uses catalog names
 
 ## Tests
 
-- `tests/download-progress/settings.test.tsx`: background downloads before and
-  after activation, the pickers' saved values, the missing-model warning, the
+- `tests/download-progress/settings.test.tsx`: background downloads (in the
+  card) before and after activation, the pickers' saved values, the missing-model warning, the
   language row, which removal path each optional model takes, the Pyannote
   credits and the repair text.
 - `tests/model-catalog/whisper-manager.test.tsx`, `parakeet-manager.test.tsx`:
@@ -85,6 +89,8 @@ the same name as its menu item, and its model picker uses catalog names
   models first, Parakeet v2 marked *No longer offered*, in-use badges.
 - `tests/lib/speech-models.test.ts`: names, descriptions, languages and the
   picker list.
+- The card, the offer, the badges and the Labs rule: see
+  [MODEL_CHOICE.md](MODEL_CHOICE.md#tests).
 
 ## Browser preview
 
@@ -92,13 +98,17 @@ the same name as its menu item, and its model picker uses catalog names
 the default is onboarding's recommended setup (Parakeet live, Whisper Large V3
 Turbo Compressed after meetings), `?models=fresh` has no Whisper and
 `?models=none` no speech model, so recording opens the setup dialog. Downloads
-report progress like the native ones.
+report progress like the native ones. `src/dev/preview/intel.ts` adds the
+Intel hardware of [MODEL_CHOICE.md](MODEL_CHOICE.md): `?intel=gpu,npu`, `gpu`,
+`npu` or `none`; `?gpu=missing|installed|fallback|crash` for the Intel GPU
+version and `?npu=<state>` for #66's NPU. Without `?intel` the preview answers
+like a build without those commands.
 
 ## Limits
 
 - Checked in the browser preview, the frontend tests and a production build,
   not yet in the desktop app on Windows or macOS.
-- The pickers list installed models only; downloading happens in the lists
-  below them.
+- The pickers list installed models only; downloading happens in the card
+  and the lists below them.
 - A Whisper model removed outside Settings is noticed when the page next lists
   the models.

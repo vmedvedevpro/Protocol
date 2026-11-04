@@ -11,6 +11,7 @@
  * Turbo after calls.
  */
 import { emit } from '@tauri-apps/api/event';
+import { gpuVersionRow, handleIntelCommand, intelPreview, openvinoStack } from './intel';
 
 type Status = 'Available' | 'Missing' | { Downloading: number };
 
@@ -84,13 +85,16 @@ const catalogStatus = () => ({
 });
 
 function whisperModels() {
-  return WHISPER.map((model) => ({
-    ...model,
-    path: `C:/Users/preview/AppData/Local/vmedvedevpro/Protocol/data/models/ggml-${model.name}.bin`,
-    status: speech.whisper.get(model.name) ?? 'Missing',
-    recommended: model.recommended ?? false,
-    languages: ['*'],
-  }));
+  return [
+    ...WHISPER.map((model) => ({
+      ...model,
+      path: `C:/Users/preview/AppData/Local/vmedvedevpro/Protocol/data/models/ggml-${model.name}.bin`,
+      status: speech.whisper.get(model.name) ?? 'Missing',
+      recommended: model.recommended ?? false,
+      languages: ['*'],
+    })),
+    ...(intelPreview ? [gpuVersionRow()] : []),
+  ];
 }
 
 /** Streams progress events like the native download, then completes it. */
@@ -137,6 +141,12 @@ function cancel(kind: 'whisper' | 'parakeet', name: string) {
 
 /** The speech-model commands; `undefined` for any other command. */
 export function handleSpeechCommand(cmd: string, args: Record<string, any>): unknown {
+  // `choose` saves the after-meeting model the way speech_choice::chosen does.
+  const intel = handleIntelCommand(cmd, args, (id) => {
+    speech.postCall = { provider: 'whisper', model: id };
+    void emit('post-call-transcript-config-changed', null);
+  });
+  if (intel !== undefined) return intel;
   switch (cmd) {
     case 'whisper_init':
     case 'parakeet_init':
@@ -209,7 +219,7 @@ export function handleSpeechCommand(cmd: string, args: Record<string, any>): unk
         recording: false,
         sttBackend: 'vulkan',
         vulkan: true,
-        whisper: { loaded: false, model: null },
+        whisper: { loaded: false, model: null, openvino: openvinoStack() },
         parakeet: { loaded: true, model: PARAKEET.name, backend: 'CPU' },
         sttIdleUnloadSecs: 300,
         llmIdleUnloadSecs: 120,

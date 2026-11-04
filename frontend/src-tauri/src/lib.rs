@@ -63,6 +63,7 @@ pub mod model_integrity;
 pub mod parakeet_engine;
 pub mod paths;
 pub mod quit;
+pub mod speech_choice;
 pub mod state;
 pub mod summary;
 pub mod tray;
@@ -814,6 +815,10 @@ pub fn run() {
             model_catalog::openvino::openvino_cancel,
             #[cfg(windows)]
             model_catalog::openvino::openvino_remove,
+            #[cfg(windows)]
+            speech_choice::speech_choice_remove_gpu_version,
+            #[cfg(windows)]
+            speech_choice::speech_choice_copy_retires,
             #[cfg(windows)]
             model_catalog::openvino::openvino_retry,
             // Parakeet on an Intel NPU (#66): its status, the retry, and the runtime alone

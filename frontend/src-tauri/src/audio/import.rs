@@ -263,6 +263,8 @@ pub async fn start_import<R: Runtime>(
     IMPORT_CANCELLED.store(false, Ordering::SeqCst);
 
     let use_parakeet = provider.as_deref() == Some("parakeet");
+    // The model this pass was asked for, for the removal of the Compressed copy (#88).
+    let requested = if use_parakeet { None } else { model.clone() };
     let batch_lease = super::common::acquire_stt_batch_lease().await;
     let result = run_import(
         app.clone(),
@@ -273,6 +275,8 @@ pub async fn start_import<R: Runtime>(
         provider,
     )
     .await;
+    // Asked before the unload below: whether the Intel GPU version did the pass (#88).
+    let ran_on_gpu = !use_parakeet && result.is_ok() && crate::speech_choice::runs_on_gpu().await;
     drop(batch_lease);
 
     // Unload the engine after the batch job (success, failure, or cancellation)
@@ -303,6 +307,9 @@ pub async fn start_import<R: Runtime>(
         }
     }
 
+    // Without this import's own flag: the removal waits while another pass runs.
+    drop(_guard);
+    crate::speech_choice::after_post_meeting_pass(app.clone(), ran_on_gpu, requested);
     result
 }
 
@@ -810,7 +817,7 @@ async fn get_or_init_whisper<R: Runtime>(
 
                 e.load_model(&target_model)
                     .await
-                    .map_err(|e| anyhow!("Failed to load model '{}': {}", target_model, e))?;
+                    .map_err(|e| anyhow!("Failed to load model '{}': {}", crate::speech_choice::shown_name(&target_model), e))?;
             }
 
             Ok(e)

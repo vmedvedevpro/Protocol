@@ -459,9 +459,25 @@ updated native-activation note for locking, settings events, tests, and limits.
 
 The page is organized by meeting step: *During the meeting* and *After the
 meeting* pickers (live and post-call models), meeting language, faster live
-text, vocabulary, Speakers, and the Parakeet and Whisper model lists. The
-optional Whisper and Nemotron downloads live on the steps that use them. Owners,
-data flow, tests and limits are in [SETTINGS_UX.md](SETTINGS_UX.md).
+text, vocabulary, Speakers, and Speech models: the *For this computer* card,
+then the Parakeet and Whisper lists under a collapsed *All models*. Nemotron's
+download lives on Speakers. Owners, data flow, tests and limits are in
+[SETTINGS_UX.md](SETTINGS_UX.md).
+
+### Speech models for this computer (#88)
+
+Protocol picks one pair per computer: Parakeet live (on the Intel NPU, #66)
+and Whisper Large V3 Turbo after meetings (its Intel GPU version on an Intel
+GPU, else the Compressed copy). `lib/speech-choice.ts` decides the pair, the
+device badges and the update offer for Settings and onboarding;
+`speech_choice.rs` owns what must outlive the WebView: the Intel GPU version
+as a model id of its own with its fallback to a regular copy, the choice made
+by `openvino_download { choose }`, and the removal of the Compressed copy after
+the Intel GPU version's first successful post-meeting pass. Owners, the
+offer's conditions, the removal rule, the card's states and the tests are in
+[MODEL_CHOICE.md](MODEL_CHOICE.md); the contract with #66 is
+`ParakeetNpuStatus` (`parakeet_npu_status`, `parakeet-npu-status`,
+`parakeet_npu_retry`, `openvino_runtime_download`).
 
 ### Model catalog and model updates (#50)
 
@@ -904,8 +920,12 @@ installed and the GPU whisper.cpp would use is an Intel GPU OpenVINO lists
   `prune_at_startup` in `lib.rs`; all under one lock, `OPERATIONS`), the
   retry after a crash (`openvino_retry`), and `installed_companion` and
   `runtime_to_load`, which the engine asks; Settings offers the download
-  under the Whisper model (`OpenVinoAcceleration.tsx` in
-  `TranscriptSettings.tsx`).
+  in the For this computer card (`settings/ForThisComputer.tsx`, #88).
+- #88: the companion is also a Whisper model of its own,
+  `large-v3-turbo-openvino-int8`, listed by `discover_models`
+  (`speech_choice::listed`) and loaded by `WhisperEngine::load_gpu_version`,
+  which falls back to a regular copy from `companion_of` or fails with a
+  message; `openvino_download` takes `choose` ([MODEL_CHOICE.md](MODEL_CHOICE.md)).
 - Busy registry: the download holds `BusyReason::ModelDownload`, compiling the
   model `BusyReason::ModelCompile`.
 - Settings: Local stack shows the OpenVINO device or the fallback reason

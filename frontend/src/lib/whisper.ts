@@ -13,6 +13,8 @@ export interface ModelInfo {
   tier?: 'basic' | 'advanced' | null;
   recommended?: boolean;
   languages?: string[];
+  /** The Intel GPU version of Whisper (#88): the ggml models it serves. */
+  companion_of?: string[];
 }
 
 export type ModelAccuracy = 'High' | 'Good' | 'Decent';
@@ -183,17 +185,6 @@ export function groupModelsByBase(models: ModelInfo[]): Record<string, ModelInfo
   return grouped;
 }
 
-export function getRecommendedModel(systemSpecs?: { ram: number; cores: number }): string {
-  if (!systemSpecs) return 'medium-q5_0'; // Default to balanced quantized model
-
-  if (systemSpecs.ram >= 8000 && systemSpecs.cores >= 8) {
-    return 'large-v3'; // High-end system
-  } else if (systemSpecs.ram >= 4000 && systemSpecs.cores >= 4) {
-    return 'medium'; // Mid-range system
-  }
-  return 'small'; // Lower-spec system
-}
-
 // Tauri command wrappers for whisper-rs backend
 import { invoke } from '@tauri-apps/api/core';
 
@@ -202,8 +193,13 @@ export class WhisperAPI {
     await invoke('whisper_init');
   }
 
+  /**
+   * The ggml models. The Intel GPU version, which the native list also has,
+   * is downloaded and removed in Settings' For this computer card (#88).
+   */
   static async getAvailableModels(): Promise<ModelInfo[]> {
-    return await invoke('whisper_get_available_models');
+    const models = await invoke<ModelInfo[]>('whisper_get_available_models');
+    return models.filter((model) => !model.companion_of?.length);
   }
 
   static async loadModel(modelName: string): Promise<void> {

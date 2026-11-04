@@ -117,8 +117,11 @@ SelectLabel.displayName = SelectPrimitive.Label.displayName
 
 const SelectItem = React.forwardRef<
   React.ElementRef<typeof SelectPrimitive.Item>,
-  React.ComponentPropsWithoutRef<typeof SelectPrimitive.Item>
->(({ className, children, ...props }, ref) => (
+  React.ComponentPropsWithoutRef<typeof SelectPrimitive.Item> & {
+    /** A second line in the list only; the trigger shows the first. */
+    hint?: React.ReactNode
+  }
+>(({ className, children, hint, ...props }, ref) => (
   <SelectPrimitive.Item
     ref={ref}
     className={cn(
@@ -134,7 +137,14 @@ const SelectItem = React.forwardRef<
         <Check className="h-4 w-4 text-af-accent" />
       </SelectPrimitive.ItemIndicator>
     </span>
-    <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>
+    {hint ? (
+      <span className="flex min-w-0 flex-col">
+        <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>
+        <span className="text-[11px] text-af-text-4">{hint}</span>
+      </span>
+    ) : (
+      <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>
+    )}
   </SelectPrimitive.Item>
 ))
 SelectItem.displayName = SelectPrimitive.Item.displayName
