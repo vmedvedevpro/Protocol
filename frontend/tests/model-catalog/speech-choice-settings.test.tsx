@@ -13,6 +13,7 @@ let commands: Array<{ command: string; args?: any }>;
 let installed: { parakeet: boolean; copy: boolean; gpu: boolean };
 let postCall: { provider: string; model: string };
 let gpuDownload: () => Promise<void>;
+let choiceReady: Promise<void>;
 let availability: any;
 let npu: any;
 let labs: Record<string, boolean>;
@@ -48,7 +49,7 @@ mock.module('@tauri-apps/api/core', () => ({ invoke: async (command: string, arg
       ];
     case 'parakeet_get_available_models':
       return [{ name: PARAKEET, display_name: 'Lightning', size_bytes: 640 * MB, status: installed.parakeet ? 'Available' : 'Missing', recommended: true }];
-    case 'get_openvino_availability': return availability;
+    case 'get_openvino_availability': await choiceReady; return availability;
     case 'openvino_status': return companion();
     case 'parakeet_npu_status':
       if (!npu) throw new Error('unknown command parakeet_npu_status');
@@ -83,6 +84,7 @@ const called = (command: string) => commands.filter((entry) => entry.command ===
 beforeEach(() => {
   postCall = { provider: 'whisper', model: COPY };
   gpuDownload = async () => {};
+  choiceReady = Promise.resolve();
   commands = [];
   installed = { parakeet: true, copy: true, gpu: false };
   availability = { offer: true, gpu: 'Intel(R) Arc(TM) B390 GPU', reason: null, device: null, mismatch: null };
@@ -207,5 +209,16 @@ test('a chosen Intel GPU version that is gone shows what runs instead, by name',
   installed = { parakeet: true, copy: false, gpu: false };
   await render();
   expect(text()).toContain("Whisper · Large V3 Turbo · Intel GPU is not installed, and no regular copy of it is, so transcripts can't be improved after meetings.");
+  expect(shown(root.toJSON())).not.toContain(GPU_ID);
+});
+
+test('before the speech choice loads, a gone Intel GPU version is named from the installed list, never by its id', async () => {
+  let ready: () => void = () => {};
+  choiceReady = new Promise((resolve) => { ready = resolve; });
+  postCall = { provider: 'whisper', model: GPU_ID };
+  await render();
+  expect(shown(root.toJSON())).not.toContain(GPU_ID);
+  expect(text()).toContain('Whisper · Large V3 Turbo · Intel GPU is not on this computer, so Whisper · Large V3 Turbo Compressed is used instead.');
+  await act(async () => { ready(); await settle(); await settle(); });
   expect(shown(root.toJSON())).not.toContain(GPU_ID);
 });

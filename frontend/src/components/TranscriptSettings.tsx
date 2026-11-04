@@ -78,6 +78,10 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
     const [switchError, setSwitchError] = useState<string | null>(null);
     const [uiProvider, setUiProvider] = useState<TranscriptModelProps['provider']>(transcriptModelConfig.provider);
     const [installedModels, setInstalledModels] = useState<InstalledModel[]>([]);
+    // The same fetch's Whisper list with the models that are not installed:
+    // it names a missing saved model and what stands in for it, together
+    // with the installed ones (useSpeechChoice loads apart, later or sooner).
+    const [whisperListed, setWhisperListed] = useState<RawModelInfo[]>([]);
     const [installedLoaded, setInstalledLoaded] = useState(false);
     const [isSavingLive, setIsSavingLive] = useState(false);
     const [postCallConfig, setPostCallConfig] = useState<PostCallTranscriptConfig>(DEFAULT_POST_CALL_CONFIG);
@@ -146,6 +150,7 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
             invoke<RawModelInfo[]>('parakeet_get_available_models').catch(() => []),
         ]);
         setInstalledModels(installedSpeechModels(whisperModels, parakeetModels));
+        setWhisperListed(whisperModels);
         setInstalledLoaded(true);
     }, []);
 
@@ -316,9 +321,10 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
 
     // A saved model that is not installed, by the name the lists give it
     // (the Intel GPU version's entry stays listed when it is gone); Parakeet's
-    // names are known here.
+    // names are known here. Offered only once the lists are in, so the id
+    // never shows meanwhile.
     const missingLabel = (provider: SpeechEngine, name: string) => {
-        const listed = provider === 'whisper' ? choice.whisper.find((model) => model.name === name) : undefined;
+        const listed = provider === 'whisper' ? whisperListed.find((model) => model.name === name) : undefined;
         if (listed && isGpuVersion(listed)) return gpuVersionLabel(listed);
         return speechModelLabel(provider, name, provider === 'parakeet' ? getModelDisplayInfo(name)?.friendlyName : listed?.display_name);
     };
@@ -330,7 +336,7 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
     const afterEngine: SpeechEngine | null = followsLive ? liveEngine : postCallConfig.provider as SpeechEngine;
     const afterName = followsLive ? transcriptModelConfig.model : postCallConfig.model;
     const afterExact = afterEngine ? installedModels.find((model) => model.provider === afterEngine && model.name === afterName) : undefined;
-    const afterStandIn = afterEngine === 'whisper' && !afterExact ? gpuVersionStandIn(choice.whisper, afterName) : null;
+    const afterStandIn = afterEngine === 'whisper' && !afterExact ? gpuVersionStandIn(whisperListed, afterName) : null;
     const afterModel = afterExact
         ?? (afterStandIn
             ? installedModels.find((model) => model.provider === 'whisper' && model.name === afterStandIn.copy)
@@ -485,7 +491,7 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
                         <SelectContent>
                             <SelectGroup>
                                 <SelectLabel>On this computer</SelectLabel>
-                                {modelItems(liveEngine && liveKey && !liveModel ? { key: liveKey, label: missingLabel(liveEngine, transcriptModelConfig.model) } : undefined, liveHint)}
+                                {modelItems(installedLoaded && liveEngine && liveKey && !liveModel ? { key: liveKey, label: missingLabel(liveEngine, transcriptModelConfig.model) } : undefined, liveHint)}
                             </SelectGroup>
                             <SelectGroup>
                                 <SelectLabel>Not downloaded</SelectLabel>
@@ -517,13 +523,13 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
                 title="After the meeting"
                 description="When a recording is saved, Protocol transcribes it again in full for a cleaner transcript. To redo one meeting, use Enhance transcript in its ··· menu."
                 control={
-                    <Select value={afterKey} onValueChange={chooseAfter} disabled={isLoadingPostCall || isSavingPostCall || installedModels.length === 0} name="after-meeting-model">
+                    <Select value={followsLive || installedLoaded ? afterKey : ''} onValueChange={chooseAfter} disabled={isLoadingPostCall || isSavingPostCall || installedModels.length === 0} name="after-meeting-model">
                         <SelectTrigger className="w-80 max-w-full" aria-label="Model after the meeting">
-                            <SelectValue />
+                            <SelectValue placeholder="Loading…" />
                         </SelectTrigger>
                         <SelectContent>
                             <SelectItem value="live">Same as during the meeting</SelectItem>
-                            {modelItems(!followsLive && !afterExact ? { key: afterKey, label: missingLabel(postCallConfig.provider as SpeechEngine, postCallConfig.model) } : undefined)}
+                            {modelItems(installedLoaded && !followsLive && !afterExact ? { key: afterKey, label: missingLabel(postCallConfig.provider as SpeechEngine, postCallConfig.model) } : undefined)}
                         </SelectContent>
                     </Select>
                 }

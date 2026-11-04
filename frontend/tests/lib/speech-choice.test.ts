@@ -15,6 +15,7 @@ import {
   type WhisperListed,
 } from '../../src/lib/speech-choice';
 import { intelError, type CompanionStatus, type OpenVinoAvailability } from '../../src/lib/intel-gpu';
+import { installedSpeechModels, speechModelLabel } from '../../src/lib/speech-models';
 
 const MB = 1024 * 1024;
 const GPU_ID = 'large-v3-turbo-openvino-int8';
@@ -107,8 +108,8 @@ test('the selects badge the device each installed model runs on', () => {
   // A ggml model the Intel GPU version runs in place of (#79) runs there too.
   expect(deviceOf('whisper', COPY, running)).toBe('Intel GPU');
   expect(deviceOf('whisper', 'small', running)).toBeNull();
-  // The full model it is named after would read the same as it: only it has the badge.
-  expect(deviceOf('whisper', 'large-v3-turbo', running)).toBeNull();
+  // The full model it is named after runs there too when chosen: it keeps the badge.
+  expect(deviceOf('whisper', 'large-v3-turbo', running)).toBe('Intel GPU');
   expect(deviceOf('parakeet', PARAKEET, running)).toBe('Intel NPU');
   expect(deviceOf('parakeet', 'parakeet-tdt-0.6b-v2-int8', running)).toBeNull();
 
@@ -195,6 +196,14 @@ test('a saved Intel GPU version that is gone stands in for the copy a load of it
   expect(gpuVersionStandIn([{ ...whisper[2], status: 'Available' }], GPU_ID)).toBeNull();
   expect(gpuVersionStandIn(whisper, COPY)).toBeNull();
   expect(gpuVersionLabel(whisper[2])).toBe('Whisper · Large V3 Turbo · Intel GPU');
+});
+
+test('the selects tell the Intel GPU version from the models it runs in place of by name', () => {
+  const full = { name: 'large-v3-turbo', display_name: 'Large V3 Turbo', size_bytes: 1, status: 'Available' };
+  const listed = [full, { ...whisper[1], display_name: 'Large V3 Turbo Compressed' }, { ...whisper[2], status: 'Available' }];
+  const labels = installedSpeechModels(listed as any, []).map((model) => speechModelLabel(model.provider, model.name, model.displayName));
+  expect(labels).toEqual(['Whisper · Large V3 Turbo', 'Whisper · Large V3 Turbo Compressed', 'Whisper · Large V3 Turbo · Intel GPU']);
+  expect(labels[2]).toBe(gpuVersionLabel(whisper[2]));
 });
 
 test("native errors of Intel's libraries read in device words", () => {

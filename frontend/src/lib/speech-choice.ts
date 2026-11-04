@@ -18,7 +18,7 @@
  */
 import type { RawModelInfo } from '@/hooks/useTranscriptionModels';
 import type { CompanionStatus, OpenVinoAvailability } from '@/lib/intel-gpu';
-import { speechModelLabel } from '@/lib/speech-models';
+import { gpuVersionLabel } from '@/lib/speech-models';
 
 /** `parakeet_npu_status` (the #66 contract, `050r2-npu-contract.md`). */
 export type NpuState = 'absent' | 'needs_runtime' | 'needs_model' | 'waiting' | 'preparing' | 'ready' | 'failed';
@@ -53,9 +53,7 @@ export type ParakeetListed = RawModelInfo & { recommended?: boolean };
 
 export const isGpuVersion = (model: { companion_of?: string[] } | undefined | null) => !!model?.companion_of?.length;
 
-/** The Intel GPU version's name: after the model it serves, with its device. */
-export const gpuVersionLabel = (version: { name: string; display_name?: string }) =>
-  `${speechModelLabel('whisper', version.name, version.display_name)} · Intel GPU`;
+export { gpuVersionLabel };
 
 type Listed = { name: string; status: unknown; recommended?: boolean; companion_of?: string[] };
 
@@ -134,9 +132,9 @@ export interface DeviceContext {
  * the Intel GPU version (and a ggml model it runs in place of, #79) on the
  * Intel GPU unless it fell back; Parakeet v3 on the Intel NPU once
  * prepared. whisper.cpp on Vulkan or the processor gets no badge: "Intel
- * GPU" names the Intel GPU version. The ggml model the Intel GPU version is
- * named after ("Large V3 Turbo") goes without it, or the two would read the
- * same in a select.
+ * GPU" names the Intel GPU version. The ggml models it runs in place of
+ * (#79) have it too, the full one it is named after included: the names
+ * tell them apart (`gpuVersionLabel`).
  */
 export function deviceOf(engine: 'whisper' | 'parakeet', name: string, context: DeviceContext): Device | null {
   if (engine === 'parakeet') {
@@ -145,7 +143,6 @@ export function deviceOf(engine: 'whisper' | 'parakeet', name: string, context: 
   const version = context.gpuVersion;
   if (!version || version.status !== 'Available' || context.gpuFallback) return null;
   if (name === version.name) return 'Intel GPU';
-  if (name === version.companion_of?.[0]) return null;
   return version.companion_of?.includes(name) ? 'Intel GPU' : null;
 }
 

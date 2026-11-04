@@ -31,6 +31,14 @@ export function speechModelName(engine: SpeechEngine, id: string, displayName?: 
   return name.replace(prefix, '') || name;
 }
 
+/**
+ * Whisper's Intel GPU version (#88): named after the model it serves, with
+ * its device, so it reads apart from that model, which the Intel GPU
+ * version can also run in place of (#79) and which then has the same badge.
+ */
+export const gpuVersionLabel = (version: { name: string; display_name?: string }) =>
+  `${speechModelLabel('whisper', version.name, version.display_name)} · Intel GPU`;
+
 /** "Whisper · Large V3 Turbo": the engine and model, for pickers that mix both engines. */
 export function speechModelLabel(engine: SpeechEngine, id: string, displayName?: string | null): string {
   return `${ENGINE_NAMES[engine]} · ${speechModelName(engine, id, displayName)}`;
@@ -56,7 +64,10 @@ export function installedSpeechModels(whisper: RawModelInfo[], parakeet: RawMode
   const pick = (provider: SpeechEngine) => (model: RawModelInfo): InstalledSpeechModel => ({
     provider,
     name: model.name,
-    displayName: model.display_name,
+    // speechModelLabel then reads as gpuVersionLabel.
+    displayName: model.companion_of?.length
+      ? `${speechModelName('whisper', model.name, model.display_name)} · Intel GPU`
+      : model.display_name,
     languages: model.languages,
   });
   return [
