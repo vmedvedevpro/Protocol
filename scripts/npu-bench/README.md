@@ -25,6 +25,8 @@ samples and `measure.py score` compares them side by side.
 | `chunking.py` | (#80) Static-shape windows over a stretch of speech (right context from the next piece, or overlapping windows started in a pause) and the merge of their words; `parakeet_ort.py --chunking` uses it. |
 | `whisper_meeting.py` | (#80 round 2) The Whisper meeting: OpenVINO GenAI transcribes the fixture's live pieces at their pace while `paced_meeting` in labels mode runs live Nemotron on the same clock. |
 | `fixtures_r2.py` | (#80 round 2) Accuracy fixtures in the kit's format: a whole AMI meeting (headset mix or distant microphone) and Golos farfield read commands, with their sources and hashes. |
+| `score_r2.py` | (#80 round 2) Scores Whisper against Parakeet on every accuracy file with the kit, with a filler-free WER for AMI and where the deleted words lay against the kept pieces; `--batch` scores the batch cells' runs against fleurs-ru. |
+| `ami_overlap.py` | (#80 round 2) Splits the AMI deletions into words outside every kept piece, fillers, overlapped speech (another speaker's reference row covers the word) and one speaker. |
 
 ## Setup
 
@@ -145,4 +147,11 @@ py -3.12 scripts/npu-bench/fixtures_r2.py golos --minutes 15 --into .measure/fix
 ```
 
 then the kit on each file for the product's pieces, `whisper_heard` on its `post-meeting.json`, and one pass of
-each engine (`whisper_ov.py --reps 1`, `parakeet_ort.py --reps 1`) scored with `measure.py score`.
+each engine (`whisper_ov.py --reps 1`, `parakeet_ort.py --reps 1`) scored with `measure.py score`, or all of them at
+once (the scoring needs the kit's `jiwer`):
+
+```sh
+python scripts/npu-bench/score_r2.py --runs .measure/runs/80/r2-acc --out .measure/runs/80/r2-acc/scores.json
+python scripts/npu-bench/score_r2.py --batch .measure/runs/80/r2-wb .measure/runs/80/r2-pb --out .measure/runs/80/r2-batch-wer.json
+python scripts/npu-bench/ami_overlap.py --runs .measure/runs/80/r2-acc
+```
