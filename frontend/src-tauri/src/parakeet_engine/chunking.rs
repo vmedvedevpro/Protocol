@@ -23,7 +23,9 @@
 //! - Two calls are joined on an anchor: a word both decoded the same, at most
 //!   [`ANCHOR_MS`] apart, the one nearest the middle of the overlap; without
 //!   one, each keeps the words that start on its side of the middle
-//!   ([`merge`]).
+//!   ([`merge`]). Either way a call's word goes only for a word the other
+//!   call decoded in its place: TDT also skips seconds of speech at a
+//!   window's edge, and a word only one call heard stays wherever it is.
 //! - Each kept word goes to the piece it starts in ([`assign`]), so the rows
 //!   stay the VAD's pieces.
 //!
@@ -65,17 +67,20 @@ const RETRY_SHIFT_MS: f64 = 500.0;
 const FRAME_MS: f64 = 20.0;
 const SAMPLES_PER_MS: f64 = 16.0;
 
-/// One decoded word: its first token's encoder frame in meeting time, and its
-/// text with the leading space of a SentencePiece word start.
+/// One decoded word: its first token's encoder frame in meeting time, the
+/// end of its last token's frame, and its text with the leading space of a
+/// SentencePiece word start.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Word {
     pub start_ms: f64,
+    pub end_ms: f64,
     pub text: String,
 }
 
 impl Word {
+    /// A word known only by its start (#80's recorded words, tests).
     pub fn new(start_ms: f64, text: &str) -> Self {
-        Self { start_ms, text: text.to_string() }
+        Self { start_ms, end_ms: start_ms, text: text.to_string() }
     }
 }
 
@@ -96,9 +101,13 @@ pub struct Window {
 pub fn words(tokens: &[String], frames: &[usize], offset_ms: f64) -> Vec<Word> {
     let mut out: Vec<Word> = Vec::new();
     for (token, frame) in tokens.iter().zip(frames) {
+        let end_ms = offset_ms + (*frame + 1) as f64 * ENCODER_FRAME_MS;
         match out.last_mut() {
-            Some(word) if !token.starts_with(' ') => word.text.push_str(token),
-            _ => out.push(Word { start_ms: offset_ms + *frame as f64 * ENCODER_FRAME_MS, text: token.clone() }),
+            Some(word) if !token.starts_with(' ') => {
+                word.text.push_str(token);
+                word.end_ms = end_ms;
+            }
+            _ => out.push(Word { start_ms: offset_ms + *frame as f64 * ENCODER_FRAME_MS, end_ms, text: token.clone() }),
         }
     }
     out
@@ -286,7 +295,7 @@ fn same(a: &str, b: &str) -> bool {
 /// word both decoded the same nearest the middle of the overlap. `out` is
 /// searched back to the later window's start, `current` up to the earlier
 /// window's end; `skip_before` leaves out the words of `out` before it.
-fn anchor(out: &[Word], current: &[Word], window_start: f64, previous_end: f64, skip_before: usize) -> Option<(usize, usize)> {
+pub(crate) fn anchor(out: &[Word], current: &[Word], window_start: f64, previous_end: f64, skip_before: usize) -> Option<(usize, usize)> {
     let middle = (window_start + previous_end) / 2.0;
     let mut best: Option<(f64, usize, usize)> = None;
     for i in (0..out.len()).rev() {
@@ -311,10 +320,34 @@ fn anchor(out: &[Word], current: &[Word], window_start: f64, previous_end: f64, 
     best.map(|(_, i, j)| (i, j))
 }
 
+/// Whether `others` decoded a word in the place of `word`: one that starts
+/// within [`ANCHOR_MS`] of it (two calls time the same word that close), or
+/// whose tokens' frames overlap its own (the same sound cut into words
+/// differently, as when a window starts inside a word).
+fn heard_there<'a>(word: &Word, others: impl IntoIterator<Item = &'a Word>) -> bool {
+    others
+        .into_iter()
+        .any(|other| (other.start_ms - word.start_ms).abs() <= ANCHOR_MS || (other.start_ms < word.end_ms && word.start_ms < other.end_ms))
+}
+
+/// Puts each of `words` into `into` (in time order) at its start.
+fn insert_by_time(into: &mut Vec<Word>, words: impl IntoIterator<Item = Word>) {
+    for word in words {
+        let at = into.partition_point(|other| other.start_ms <= word.start_ms);
+        into.insert(at, word);
+    }
+}
+
 /// The words of all calls (`decoded[k]` from `windows[k]`), joined at each
 /// junction of a stretch's neighbouring calls: on an anchor the earlier
 /// call's words run up to and including it and the later call's after it;
 /// without one each keeps the words on its side of the middle.
+///
+/// A word the junction gives to the other call's side stays when that call
+/// decoded no word in its place. TDT now and then emits nothing for seconds
+/// of speech near a window's edge (#66: 3-4 s at the start of a window and of
+/// its retry, 2.5 s at the end of another), and the middle would otherwise
+/// trade the only call that heard those words for the one that heard nothing.
 pub fn merge(windows: &[Window], decoded: &[Vec<Word>]) -> Vec<Word> {
     let mut out: Vec<Word> = Vec::new();
     let mut previous: Option<Window> = None;
@@ -324,17 +357,25 @@ pub fn merge(windows: &[Window], decoded: &[Vec<Word>]) -> Vec<Word> {
             previous = Some(*window);
             continue;
         };
-        match anchor(&out, current, window.start_ms, earlier.end_ms, 0) {
-            Some((i, j)) => {
-                out.truncate(i + 1);
-                out.extend(current[j + 1..].iter().cloned());
-            }
+        // The earlier call's words this junction drops, and the later
+        // call's first word it keeps (an anchor's twin goes).
+        let (dropped, from) = match anchor(&out, current, window.start_ms, earlier.end_ms, 0) {
+            Some((i, j)) => (out.split_off(i + 1), j + 1),
             None => {
                 let middle = (window.start_ms + earlier.end_ms) / 2.0;
-                out.retain(|word| word.start_ms < middle);
-                out.extend(current.iter().filter(|word| word.start_ms >= middle).cloned());
+                let (kept, dropped): (Vec<Word>, Vec<Word>) = std::mem::take(&mut out).into_iter().partition(|word| word.start_ms < middle);
+                out = kept;
+                (dropped, current.partition_point(|word| word.start_ms < middle))
             }
-        }
+        };
+        // No word lasts longer than its window: words that start earlier
+        // cannot reach the later call's.
+        let reach = window.start_ms - WINDOW_MS - ANCHOR_MS;
+        let earlier_words = || out.iter().rev().take_while(move |word| word.start_ms >= reach).chain(&dropped);
+        let back: Vec<Word> = current[..from].iter().filter(|word| !heard_there(word, earlier_words())).cloned().collect();
+        let stays: Vec<Word> = dropped.iter().filter(|word| !heard_there(word, current)).cloned().collect();
+        out.extend(current[from..].iter().cloned());
+        insert_by_time(&mut out, stays.into_iter().chain(back));
         previous = Some(*window);
     }
     out
@@ -429,32 +470,30 @@ impl LiveStretch {
     /// Joins `new`, decoded from `window`, to the pending words by
     /// [`merge`]'s rule, except that shown words stay: an anchor may not
     /// drop them, and without one the new call's words start after the last
-    /// shown word. With `held` (the pending words are the previous piece's
-    /// last second), a call that decoded nothing where they are keeps them:
-    /// TDT skipped that span, as the retry's rule assumes.
-    fn join(&mut self, new: Vec<Word>, window: (f64, f64), previous_end: f64, held: bool) {
+    /// shown word. As in [`merge`], a word goes only for a word the other
+    /// call decoded in its place: pending words (held at a cap cut, too) the
+    /// new call decoded nothing for stay, and so do the new call's words
+    /// after the last shown one that the earlier calls decoded nothing for.
+    fn join(&mut self, new: Vec<Word>, window: (f64, f64), previous_end: f64) {
         let fixed = self.shown.len();
-        let combined: Vec<Word> = self.shown.iter().chain(&self.pending).cloned().collect();
-        if let Some((i, j)) = anchor(&combined, &new, window.0, previous_end, fixed.saturating_sub(1)) {
-            let mut kept: Vec<Word> = combined[..=i].to_vec();
-            kept.extend(new[j + 1..].iter().cloned());
-            self.pending = kept.split_off(fixed.min(kept.len()));
-            return;
-        }
-        let middle = (window.0 + previous_end) / 2.0;
         let last_shown = self.shown.last().map_or(f64::NEG_INFINITY, |word| word.start_ms);
-        let dropped = self.pending.iter().find(|word| word.start_ms >= middle).map(|word| word.start_ms);
-        if let (true, Some(from)) = (held, dropped) {
-            if !new.iter().any(|word| word.start_ms >= from && word.start_ms <= previous_end) {
-                let last_kept = self.pending.last().map_or(last_shown, |word| word.start_ms);
-                let after = middle.max(last_kept + NEW_AFTER_MS);
-                self.pending.extend(new.into_iter().filter(|word| word.start_ms >= after));
-                return;
+        let combined: Vec<Word> = self.shown.iter().chain(&self.pending).cloned().collect();
+        // The pending words kept and dropped, and the new call's first word
+        // kept (an anchor's twin goes).
+        let (mut pending, dropped, from) = match anchor(&combined, &new, window.0, previous_end, fixed.saturating_sub(1)) {
+            Some((i, j)) => (combined[fixed.min(i + 1)..=i].to_vec(), combined[i + 1..].to_vec(), j + 1),
+            None => {
+                let middle = (window.0 + previous_end) / 2.0;
+                let (kept, dropped): (Vec<Word>, Vec<Word>) = std::mem::take(&mut self.pending).into_iter().partition(|word| word.start_ms < middle);
+                (kept, dropped, new.partition_point(|word| word.start_ms < middle.max(last_shown + NEW_AFTER_MS)))
             }
-        }
-        let after = middle.max(last_shown + NEW_AFTER_MS);
-        self.pending.retain(|word| word.start_ms < middle);
-        self.pending.extend(new.into_iter().filter(|word| word.start_ms >= after));
+        };
+        let back: Vec<Word> =
+            new[..from].iter().filter(|word| word.start_ms > last_shown && !heard_there(word, &combined)).cloned().collect();
+        let stays: Vec<Word> = dropped.into_iter().filter(|word| !heard_there(word, &new)).collect();
+        pending.extend(new[from..].iter().cloned());
+        insert_by_time(&mut pending, stays.into_iter().chain(back));
+        self.pending = pending;
     }
 }
 
@@ -502,16 +541,14 @@ impl Live {
         let Some(stretch) = self.stretch.as_mut() else { return Ok(shown) };
         stretch.audio.push(start_ms, samples);
         stretch.end_ms = stretch.audio.end_ms();
-        let mut held = !stretch.pending.is_empty();
         for (start, end) in stretch.plan_new() {
             let audio = &stretch.audio;
             let mut call = |from: f64, to: f64| decode(&audio.slice(from, to), from);
             let (window, found) = decode_with_retry(start, end, stretch.end_ms, &mut call)?;
             match stretch.last {
                 None => stretch.pending = found,
-                Some((_, previous_end)) => stretch.join(found, window, previous_end, held),
+                Some((_, previous_end)) => stretch.join(found, window, previous_end),
             }
-            held = false;
             stretch.last = Some(window);
         }
         let hold_from = if capped { stretch.end_ms - HOLD_MS } else { f64::INFINITY };
@@ -584,6 +621,16 @@ mod tests {
         words.iter().map(|word| word.text.trim()).collect()
     }
 
+    /// A word from `start_ms` to `end_ms`.
+    fn spanning(start_ms: f64, end_ms: f64, text: &str) -> Word {
+        Word { start_ms, end_ms, text: text.to_string() }
+    }
+
+    /// Words of a call, each spanning 200 ms.
+    fn call(words: &[(f64, &str)]) -> Vec<Word> {
+        words.iter().map(|&(at, text)| spanning(at, at + 200.0, &format!(" {text}"))).collect()
+    }
+
     #[cfg(windows)]
     #[test]
     fn a_window_is_the_npus_input_shape() {
@@ -594,10 +641,11 @@ mod tests {
     fn words_start_at_a_space_and_take_their_first_tokens_frame() {
         let tokens: Vec<String> = [" при", "вет", ",", " мир", "."].iter().map(|token| token.to_string()).collect();
         let found = words(&tokens, &[1, 2, 3, 10, 11], 1000.0);
-        assert_eq!(found, vec![Word::new(1080.0, " привет,"), Word::new(1800.0, " мир.")]);
+        // A word ends with its last token's frame.
+        assert_eq!(found, vec![spanning(1080.0, 1320.0, " привет,"), spanning(1800.0, 1960.0, " мир.")]);
         assert_eq!(text(&found), "привет, мир.");
         // A call whose first token continues a word still starts one.
-        assert_eq!(words(&tokens[1..2], &[0], 0.0), vec![Word::new(0.0, "вет")]);
+        assert_eq!(words(&tokens[1..2], &[0], 0.0), vec![spanning(0.0, 80.0, "вет")]);
     }
 
     #[test]
@@ -682,12 +730,67 @@ mod tests {
         assert_eq!(texts(&merge(&windows, &decoded)), vec!["ноль", "один", "два", "три", "четыре"]);
 
         // An equal word farther apart than ANCHOR_MS is another occurrence:
-        // no anchor, so each call keeps its side of the middle.
+        // no anchor, so each call keeps its side of the middle. The later
+        // call's "да" overlaps the earlier one's "нет", so it goes.
         let decoded = vec![
-            vec![Word::new(3600.0, " да"), Word::new(4500.0, " нет")],
-            vec![Word::new(4100.0, " да"), Word::new(5000.0, " нет"), Word::new(6000.0, " ещё")],
+            vec![spanning(3600.0, 3900.0, " да"), spanning(4300.0, 4600.0, " нет")],
+            vec![spanning(4100.0, 4400.0, " да"), spanning(5000.0, 5300.0, " нет"), spanning(6000.0, 6300.0, " ещё")],
         ];
         assert_eq!(texts(&merge(&windows, &decoded)), vec!["да", "нет", "нет", "ещё"]);
+    }
+
+    #[test]
+    fn a_word_only_one_call_decoded_stays_on_either_side_of_the_middle() {
+        // #66's QA meeting: the later window (and its retry) decoded nothing
+        // for its first 3.4 s, so no anchor; the middle is at 8485 ms, and
+        // the earlier call's words after it stay.
+        let windows = [
+            Window { start_ms: 3700.0, end_ms: 9770.0, stretch: 0, first: true },
+            Window { start_ms: 7200.0, end_ms: 13_270.0, stretch: 0, first: false },
+        ];
+        let decoded = vec![
+            call(&[(7780.0, "the"), (7860.0, "budget,"), (8340.0, "and"), (8500.0, "the"), (8660.0, "vendor"), (9060.0, "choice.")]),
+            call(&[(10_640.0, "Morning"), (11_200.0, "Maria."), (12_320.0, "First.")]),
+        ];
+        assert_eq!(text(&merge(&windows, &decoded)), "the budget, and the vendor choice. Morning Maria. First.");
+
+        // The earlier call decoded nothing after 33 s, 2.5 s before its end;
+        // the later call's words before the middle (34 555 ms) stay.
+        let windows = [
+            Window { start_ms: 29_520.0, end_ms: 35_590.0, stretch: 0, first: true },
+            Window { start_ms: 33_520.0, end_ms: 39_590.0, stretch: 0, first: false },
+        ];
+        let decoded = vec![
+            call(&[(31_520.0, "$45,000"), (33_040.0, "budget.")]),
+            call(&[(34_000.0, "The"), (34_240.0, "remaining"), (34_800.0, "13,000"), (35_760.0, "covers")]),
+        ];
+        assert_eq!(text(&merge(&windows, &decoded)), "$45,000 budget. The remaining 13,000 covers");
+
+        // On an anchor too: the later call skipped the words after it.
+        let windows = [
+            Window { start_ms: 0.0, end_ms: 6000.0, stretch: 0, first: true },
+            Window { start_ms: 3500.0, end_ms: 9500.0, stretch: 0, first: false },
+        ];
+        let decoded = vec![
+            call(&[(3800.0, "раз"), (4700.0, "два"), (5200.0, "три"), (5600.0, "четыре")]),
+            call(&[(3850.0, "раз"), (4750.0, "два"), (7000.0, "пять")]),
+        ];
+        assert_eq!(text(&merge(&windows, &decoded)), "раз два три четыре пять");
+    }
+
+    #[test]
+    fn a_word_goes_where_the_other_call_decoded_one_in_its_place() {
+        let windows = [
+            Window { start_ms: 100_320.0, end_ms: 106_390.0, stretch: 0, first: true },
+            Window { start_ms: 103_500.0, end_ms: 109_570.0, stretch: 0, first: false },
+        ];
+        // The later window starts inside "Тимбукту" and splits it; its
+        // "букту" starts 380 ms after the earlier word but inside it.
+        let decoded = vec![
+            vec![spanning(102_560.0, 103_360.0, " недоступностью,"), spanning(103_520.0, 104_400.0, " Тимбукту"), spanning(104_640.0, 104_880.0, " стал")],
+            vec![spanning(103_500.0, 103_740.0, " Тим"), spanning(103_900.0, 104_400.0, " букту"), spanning(104_700.0, 104_940.0, " стал"), spanning(105_020.0, 105_600.0, " метафорой")],
+        ];
+        assert_eq!(text(&merge(&windows, &decoded)), "недоступностью, Тимбукту стал метафорой");
     }
 
     #[test]
@@ -781,6 +884,26 @@ mod tests {
             })
             .unwrap();
         assert_eq!(texts(&second), vec!["трина", "пять"]);
+    }
+
+    #[test]
+    fn a_live_call_that_skipped_words_keeps_the_earlier_calls_there() {
+        // The second piece gets two windows, 3-9.07 s and 5.93-12 s; the
+        // later one decoded nothing before 10 s, so the earlier one's words
+        // after their middle (7.5 s) stay.
+        let sound = audio(0.0, 12_000.0, &[]);
+        let mut decode = |_: &[f32], offset: f64| -> Result<Vec<Word>, ()> {
+            Ok(match offset as i64 {
+                0 => call(&[(500.0, "a"), (2000.0, "b"), (3500.0, "c"), (5000.0, "d")]),
+                3000 => call(&[(3500.0, "c"), (5000.0, "d"), (6500.0, "e"), (8000.0, "f"), (8800.0, "g")]),
+                _ => call(&[(10_000.0, "h"), (11_000.0, "i"), (11_500.0, "j"), (11_800.0, "k")]),
+            })
+        };
+        let mut live = Live::default();
+        let first = live.piece(0.0, &sound.slice(0.0, 6000.0), false, &mut decode).unwrap();
+        assert_eq!(texts(&first), vec!["a", "b", "c", "d"]);
+        let second = live.piece(6000.0, &sound.slice(6000.0, 12_000.0), false, &mut decode).unwrap();
+        assert_eq!(texts(&second), vec!["e", "f", "g", "h", "i", "j", "k"]);
     }
 
     #[test]
