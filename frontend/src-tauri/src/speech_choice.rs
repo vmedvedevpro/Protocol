@@ -25,9 +25,10 @@
 //!   companion's folder records the first condition. It names the copy's
 //!   file as it was then (size and modification time): a copy removed and
 //!   downloaded again later (the card offers one after a failure) is another
-//!   file, so a marker never outlives the copy it was written for. It is
-//!   removed before the copy, so the rule fires once, and a crash in between
-//!   leaves the copy rather than a marker.
+//!   file, so a marker that outlived its copy never removes another one; the
+//!   next pass removes it. It is written whole (renamed into place), removed
+//!   before the copy, so the rule fires once, and a crash in between leaves
+//!   the copy rather than a marker.
 
 #[cfg(windows)]
 use std::path::{Path, PathBuf};
@@ -57,6 +58,10 @@ pub const COMPRESSED_COPY: &str = crate::optional_models::WHISPER_MODEL;
 /// has transcribed a meeting. Holds [`marker_text`] of that copy; removed
 /// with the companion's folder, and as soon as it names another file.
 pub const CHOSEN_MARKER: &str = ".replaces-compressed";
+/// Where [`write_marker`] writes [`CHOSEN_MARKER`] before renaming it into
+/// place. Never read: a crash can leave it, and the next write replaces it.
+#[cfg(windows)]
+const PARTIAL_MARKER: &str = ".replaces-compressed.partial";
 
 /// The file of a copy as a marker names it: its size and modification time.
 /// A download writes a new file, so a copy removed and downloaded again has
@@ -302,23 +307,29 @@ pub fn after_post_meeting_pass<R: Runtime>(app: AppHandle<R>, ran_on_gpu: bool, 
 }
 
 /// Leaves [`CHOSEN_MARKER`] in the companion folder `dir`, naming the copy
-/// at `copy` as it is now.
+/// at `copy` as it is now. It is written beside it and renamed into place:
+/// the card's status check and a pass read it without a lock (`chosen`
+/// runs after the download announced the companion, and the card refreshes
+/// on that), and must find no marker or a whole one, never a part of the
+/// text that would read as a marker for another copy.
 #[cfg(windows)]
 fn write_marker(dir: &Path, copy: &Path) -> std::io::Result<()> {
     let file = copy_file(copy).ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "the copy is not on disk"))?;
-    std::fs::write(dir.join(CHOSEN_MARKER), marker_text(&file))
+    let partial = dir.join(PARTIAL_MARKER);
+    std::fs::write(&partial, marker_text(&file))?;
+    std::fs::rename(&partial, dir.join(CHOSEN_MARKER))
 }
 
 /// For Settings: whether the Compressed copy waits to retire after the
-/// Intel GPU version's first meeting. Also drops a marker whose copy is gone
-/// or was replaced.
+/// Intel GPU version's first meeting. It only reads; a marker that outlived
+/// its copy is removed by the next pass ([`retire`]).
 #[cfg(windows)]
 #[tauri::command]
 pub fn speech_choice_copy_retires() -> bool {
     let copy = model_catalog::entry(Engine::Whisper, COMPRESSED_COPY)
         .map(|entry| crate::paths::models_dir().join(&entry.single_file().name))
         .filter(|path| path.is_file());
-    !current_markers(&marker_dirs(), copy.as_deref()).is_empty()
+    !read_markers(&marker_dirs(), copy.as_deref()).current.is_empty()
 }
 
 /// The folders of the companions that serve the Compressed copy, where
@@ -332,26 +343,33 @@ fn marker_dirs() -> Vec<PathBuf> {
         .collect()
 }
 
-/// The markers in `dirs` that name the copy at `copy` as it is now. The
-/// others outlived the copy they were written for (removed in All models,
-/// downloaded again, or gone in a crash) and are removed here.
+/// The markers in some companion folders, sorted by what they say about the
+/// installed copy.
 #[cfg(windows)]
-fn current_markers(dirs: &[PathBuf], copy: Option<&Path>) -> Vec<PathBuf> {
+#[derive(Debug, Default)]
+struct Markers {
+    /// Name the copy as it is now.
+    current: Vec<PathBuf>,
+    /// Read whole, and name another file or no copy is installed: they
+    /// outlived the copy they were written for (removed in All models,
+    /// downloaded again, or gone in a crash).
+    stale: Vec<PathBuf>,
+}
+
+/// Reads the markers in `dirs` against the copy at `copy`. One that cannot
+/// be read is neither: it does not retire the copy, and it is not removed.
+#[cfg(windows)]
+fn read_markers(dirs: &[PathBuf], copy: Option<&Path>) -> Markers {
     let expected = copy.and_then(copy_file).map(|file| marker_text(&file));
-    let mut current = Vec::new();
+    let mut markers = Markers::default();
     for marker in dirs.iter().map(|dir| dir.join(CHOSEN_MARKER)).filter(|marker| marker.is_file()) {
-        let names_copy = expected
-            .as_deref()
-            .is_some_and(|expected| std::fs::read_to_string(&marker).is_ok_and(|text| text == expected));
-        if names_copy {
-            current.push(marker);
-        } else if let Err(error) = std::fs::remove_file(&marker) {
-            log::warn!("[speech-choice] could not remove {}, which names no installed copy: {error}", marker.display());
-        } else {
-            log::info!("[speech-choice] removed {}: the copy it was written for is gone", marker.display());
+        match std::fs::read_to_string(&marker) {
+            Ok(text) if expected.as_deref() == Some(text.as_str()) => markers.current.push(marker),
+            Ok(_) => markers.stale.push(marker),
+            Err(error) => log::warn!("[speech-choice] could not read {}: {error}", marker.display()),
         }
     }
-    current
+    markers
 }
 
 /// What [`retire`] cannot read from disk or from the settings.
@@ -376,7 +394,15 @@ where
     F: FnOnce() -> Fut,
     Fut: std::future::Future<Output = Result<()>>,
 {
-    let markers = current_markers(marker_dirs, copy);
+    let Markers { current: markers, stale } = read_markers(marker_dirs, copy);
+    // Only a pass removes them, under the optional Whisper operation; the
+    // card's check only reads.
+    for marker in &stale {
+        match std::fs::remove_file(marker) {
+            Ok(()) => log::info!("[speech-choice] removed {}: the copy it was written for is gone", marker.display()),
+            Err(error) => log::warn!("[speech-choice] could not remove {}, which names no installed copy: {error}", marker.display()),
+        }
+    }
     if markers.is_empty() {
         return Ok(false);
     }
@@ -751,6 +777,12 @@ mod tests {
             write_marker(&self.companion, &self.copy).unwrap();
         }
 
+        /// The markers Settings' check counts (`speech_choice_copy_retires`).
+        fn waiting(&self) -> Vec<PathBuf> {
+            let copy = self.copy.is_file().then(|| self.copy.clone());
+            read_markers(&[self.companion.clone()], copy.as_deref()).current
+        }
+
         /// A pass on the Intel GPU ended: the retirement as `retire_copy`
         /// runs it, the copy's removal as `delete_model` does it.
         async fn pass(&self, pool: &sqlx::SqlitePool, facts: PassFacts<'_>) -> Result<bool> {
@@ -784,7 +816,7 @@ mod tests {
         choose_in(&pool, &version(), &disk.companion, Some(&disk.copy)).await.unwrap();
         let saved = SettingsRepository::get_post_call_transcript_config(&pool).await.unwrap();
         assert_eq!(saved, Some(("whisper".to_string(), GPU.to_string())));
-        assert_eq!(current_markers(&[disk.companion.clone()], Some(disk.copy.as_path())), vec![disk.marker()]);
+        assert_eq!(disk.waiting(), vec![disk.marker()]);
         // The live choice is not touched.
         let live = SettingsRepository::get_transcript_config(&pool).await.unwrap().unwrap();
         assert_eq!((live.provider.as_str(), live.model.as_str()), PARAKEET);
@@ -833,13 +865,56 @@ mod tests {
         assert!(!disk.pass(&pool, PassFacts::default()).await.unwrap());
         assert!(disk.copy.exists());
 
-        // Settings asking whether the copy waits to retire also drops it.
+        // Settings asking whether the copy waits to retire: such a marker
+        // counts for nothing there, and only the next pass removes it.
         let disk = Disk::new();
         disk.choose();
-        assert_eq!(current_markers(&[disk.companion.clone()], Some(disk.copy.as_path())), vec![disk.marker()]);
+        assert_eq!(disk.waiting(), vec![disk.marker()]);
         disk.download_copy();
-        assert!(current_markers(&[disk.companion.clone()], Some(disk.copy.as_path())).is_empty());
+        assert!(disk.waiting().is_empty());
+        assert!(disk.marker().exists(), "the card's check only reads");
+        assert!(!disk.pass(&pool, PassFacts::default()).await.unwrap());
         assert!(!disk.marker().exists());
+        assert!(disk.copy.exists());
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn a_marker_is_read_whole_or_left_alone() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let pool = choices(PARAKEET, ("whisper", GPU)).await;
+        let disk = Disk::new();
+        disk.choose();
+        assert!(!disk.companion.join(PARTIAL_MARKER).exists(), "written beside it and renamed into place");
+        assert_eq!(std::fs::read_to_string(disk.marker()).unwrap(), marker_text(&copy_file(&disk.copy).unwrap()));
+
+        // A reader holding the marker (as the card's check opens it) does
+        // not stop a new switch from replacing it.
+        {
+            let _reader = std::fs::File::open(disk.marker()).unwrap();
+            disk.choose();
+        }
+
+        // A marker that cannot be read, as one held open without sharing:
+        // it neither retires the copy nor is removed.
+        {
+            let _held = std::fs::File::options().read(true).share_mode(0).open(disk.marker()).unwrap();
+            assert!(disk.waiting().is_empty());
+            assert!(!disk.pass(&pool, PassFacts::default()).await.unwrap());
+        }
+        assert!(disk.marker().exists());
+        assert!(disk.copy.exists());
+
+        // A part of a write a crash left beside it is never read as a marker.
+        let disk = Disk::new();
+        std::fs::write(disk.companion.join(PARTIAL_MARKER), &marker_text(&copy_file(&disk.copy).unwrap())[..5]).unwrap();
+        assert!(disk.waiting().is_empty());
+        assert!(!disk.pass(&pool, PassFacts::default()).await.unwrap());
+        assert!(disk.copy.exists());
+        disk.choose();
+        assert!(!disk.companion.join(PARTIAL_MARKER).exists());
+        assert!(disk.pass(&pool, PassFacts::default()).await.unwrap());
+        assert!(!disk.copy.exists());
     }
 
     #[cfg(windows)]
