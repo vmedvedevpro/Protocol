@@ -711,6 +711,19 @@ impl ParakeetModel {
         Ok(results)
     }
 
+    /// Greedy TDT decoding of the first `frames` frames of one encoder output
+    /// ([1, frames, 1024], as [`Self::encode`] returns it), for an encoder
+    /// that runs outside this model (the NPU, #66).
+    pub(crate) fn decode_encoded(
+        &mut self,
+        encoder_out: &ArrayViewD<f32>,
+        frames: usize,
+    ) -> Result<TimestampedResult, ParakeetError> {
+        let encodings = encoder_out.index_axis(ndarray::Axis(0), 0);
+        let (tokens, timestamps) = self.decode_sequence(&encodings, frames)?;
+        Ok(self.decode_tokens(tokens, timestamps))
+    }
+
     fn decode_sequence(
         &mut self,
         encodings: &ArrayViewD<f32>, // [time_steps, 1024]

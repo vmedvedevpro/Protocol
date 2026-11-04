@@ -22,6 +22,8 @@ pub mod labs;
 pub mod model;
 pub mod commands;
 mod download_response;
+#[cfg(windows)]
+pub mod npu;
 
 pub use parakeet_engine::{ParakeetEngine, ParakeetEngineError, QuantizationType, ModelInfo, ModelStatus, DownloadProgress};
 pub use model::{ParakeetModel, ParakeetError, TimestampedResult};
