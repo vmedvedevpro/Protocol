@@ -170,6 +170,13 @@ fn read_wav(path: &std::path::Path) -> Vec<f32> {
 /// (`--chunking overlap --hop-s 3.5 --snap-s 0.5 --retry-words-per-s 0.5`)
 /// on `MEASURE_AUDIO` (a 16 kHz mono WAV), kept under `.measure/`: it holds
 /// the pieces, each window with its words, the retries and the texts.
+///
+/// The port's junctions also keep a word the other call decoded none in
+/// place of, which `chunking.py` drops: each piece's `chunking.py` text must
+/// be its text with words left out, and the test prints the words only the
+/// port kept. #80 recorded only each word's start, so a word the other call
+/// split or joined differently, which the product's token frames catch, can
+/// show up here too.
 #[test]
 #[ignore = "needs CHUNKING_RUN and MEASURE_AUDIO (kit fixtures under .measure/)"]
 fn chunking_matches_feed_b() {
@@ -225,15 +232,39 @@ fn chunking_matches_feed_b() {
         .collect();
     let texts = assign(&pieces, &merge(&windows, &decoded));
     let expected: Vec<String> = kept.iter().map(|piece| piece["rows"].get(0).and_then(|row| row["text"].as_str()).unwrap_or("").to_string()).collect();
-    let mut differ = 0;
+    let (mut differ, mut extra, mut not_contained) = (0, 0, 0);
     for (index, (ours, theirs)) in texts.iter().zip(&expected).enumerate() {
-        if ours != theirs {
-            differ += 1;
-            println!("piece {index} at {:.0} ms:\n  port       {ours}\n  chunking.py {theirs}", pieces[index].0);
+        if ours == theirs {
+            continue;
         }
+        differ += 1;
+        // `theirs` must be `ours` with words left out; what is left over is
+        // the words only the port kept.
+        let mut left: Vec<&str> = Vec::new();
+        let mut wanted = theirs.split_whitespace().peekable();
+        for word in ours.split_whitespace() {
+            if wanted.peek() == Some(&word) {
+                wanted.next();
+            } else {
+                left.push(word);
+            }
+        }
+        let contained = wanted.peek().is_none();
+        not_contained += usize::from(!contained);
+        extra += left.len();
+        println!(
+            "piece {index} at {:.0} ms{}: only the port kept {left:?}\n  port        {ours}\n  chunking.py {theirs}",
+            pieces[index].0,
+            if contained { "" } else { " (chunking.py has words the port dropped)" }
+        );
     }
-    println!("{} pieces, {} windows, {} retries; {differ} texts differ", pieces.len(), windows.len(), retried.len());
-    assert_eq!(differ, 0);
+    println!(
+        "{} pieces, {} windows, {} retries; {differ} texts differ, {extra} words only the port kept",
+        pieces.len(),
+        windows.len(),
+        retried.len()
+    );
+    assert_eq!(not_contained, 0, "texts where chunking.py kept words the port dropped");
 }
 
 /// Risk 2 of #66, the way an app that ran Whisper on the GPU meets it: the
@@ -295,4 +326,108 @@ async fn a_runtime_completed_while_loaded_runs_the_npu() {
     let (_, frames) = encoder.encode(&silence.view(), FRAMES as i64).expect("an inference on the NPU");
     println!("an inference on the NPU gave {frames} frames");
     assert!(frames > 0);
+}
+
+/// Feed B on one recording, traced: the pieces the post-meeting pass cuts
+/// (the Parakeet cap), each stretch's windows, every encoder call with its
+/// words and the retry's choice, and at each junction the anchor or the
+/// midpoint with the words each call lost there; then each piece's text, and
+/// with `TRACE_CPU` the processor's piece-by-piece text beside it.
+/// `MEASURE_PARAKEET_NPU` and `MEASURE_OPENVINO_RUNTIME` as for the kit.
+#[test]
+#[ignore = "needs MEASURE_AUDIO, MEASURE_PARAKEET_MODEL, MEASURE_PARAKEET_NPU, MEASURE_OPENVINO_RUNTIME and an Intel NPU"]
+fn window_trace() {
+    use crate::audio::post_meeting::skip_reason;
+    use crate::parakeet_engine::chunking::{self, anchor, decode_with_retry, merge, plan, StretchAudio, Word};
+    let model_dir = PathBuf::from(std::env::var_os("MEASURE_PARAKEET_MODEL").expect("MEASURE_PARAKEET_MODEL"));
+    let audio_path = PathBuf::from(std::env::var_os("MEASURE_AUDIO").expect("MEASURE_AUDIO"));
+    let cache = PathBuf::from(std::env::var_os("MEASURE_PARAKEET_NPU").expect("MEASURE_PARAKEET_NPU"));
+    let npu = crate::parakeet_engine::npu::state::encoder_for_kit(&model_dir, &cache).expect("the NPU encoder");
+    let mut model = ParakeetModel::new_with_npu(&model_dir, npu).expect("Parakeet on the NPU");
+    let tracks = tracks::load(&audio_path).expect("read the recording");
+    let cut = tracks::cut(&tracks, crate::audio::post_meeting::vad_cap(true)).expect("VAD");
+    let fmt = |words: &[Word]| words.iter().map(|word| format!("{:.0}{}", word.start_ms, word.text)).collect::<Vec<_>>().join(" |");
+    let mut kept: Vec<(f64, f64, Vec<f32>)> = Vec::new();
+    for (piece, _) in &cut.pieces {
+        match skip_reason(&piece.samples) {
+            Some(reason) => println!("piece {:.0}-{:.0} skipped ({reason})", piece.start_timestamp_ms, piece.end_timestamp_ms),
+            None => kept.push((piece.start_timestamp_ms, piece.end_timestamp_ms, piece.samples.clone())),
+        }
+    }
+    let spans: Vec<(f64, f64)> = kept.iter().map(|(start, end, _)| (*start, *end)).collect();
+    println!("{} pieces: {:?}", spans.len(), spans.iter().map(|(a, b)| format!("{a:.0}-{b:.0}")).collect::<Vec<_>>());
+    let mut texts = Vec::new();
+    for (index, (stretch_start, stretch_end)) in chunking::stretches(&spans).into_iter().enumerate() {
+        let members: Vec<usize> = (0..spans.len()).filter(|&i| spans[i].0 >= stretch_start && spans[i].1 <= stretch_end).collect();
+        let mut audio = StretchAudio::default();
+        for &member in &members {
+            audio.push(kept[member].0, &kept[member].2);
+        }
+        let pieces: Vec<(f64, f64)> = members.iter().map(|&member| spans[member]).collect();
+        let mut windows = plan(&pieces, &audio);
+        println!("\n== stretch {index}: {stretch_start:.0}-{stretch_end:.0}, pieces {members:?}, {} windows", windows.len());
+        let mut decoded: Vec<Vec<Word>> = Vec::new();
+        for (k, window) in windows.iter_mut().enumerate() {
+            let mut calls: Vec<(f64, f64, Vec<Word>)> = Vec::new();
+            let mut call = |start: f64, end: f64| -> Result<Vec<Word>, crate::parakeet_engine::model::ParakeetError> {
+                let words = model.window_words(&audio.slice(start, end), start, None)?;
+                calls.push((start, end, words.clone()));
+                Ok(words)
+            };
+            let ((start, end), found) = decode_with_retry(window.start_ms, window.end_ms, stretch_end, &mut call).expect("decode");
+            for (from, to, words) in &calls {
+                println!("window {k} call {from:.0}-{to:.0} ({} words): {}", words.len(), fmt(words));
+            }
+            if calls.len() > 1 {
+                println!("window {k} retry kept {start:.0}-{end:.0}");
+            }
+            window.start_ms = start;
+            window.end_ms = end;
+            decoded.push(found);
+        }
+        for k in 1..windows.len() {
+            let before = merge(&windows[..k], &decoded[..k]);
+            let after = merge(&windows[..=k], &decoded[..=k]);
+            let (start, previous_end) = (windows[k].start_ms, windows[k - 1].end_ms);
+            let middle = (start + previous_end) / 2.0;
+            // The words the anchor or the middle gives to the other call's side.
+            let (how, sided): (String, Vec<Word>) = match anchor(&before, &decoded[k], start, previous_end, 0) {
+                Some((i, j)) => (
+                    format!("anchor out {:.0}{} = call {:.0}{}", before[i].start_ms, before[i].text, decoded[k][j].start_ms, decoded[k][j].text),
+                    before[i + 1..].iter().chain(&decoded[k][..j]).cloned().collect(),
+                ),
+                None => (
+                    "midpoint".to_string(),
+                    before.iter().filter(|word| word.start_ms >= middle).chain(decoded[k].iter().filter(|word| word.start_ms < middle)).cloned().collect(),
+                ),
+            };
+            // A word both calls timed alike is the other call's own, not one that stayed.
+            let stayed: Vec<Word> =
+                sided.iter().filter(|word| after.contains(word) && !(before.contains(word) && decoded[k].contains(word))).cloned().collect();
+            let lost_out: Vec<Word> = before.iter().filter(|word| !after.contains(word)).cloned().collect();
+            let lost_new: Vec<Word> = decoded[k].iter().filter(|word| !after.contains(word)).cloned().collect();
+            println!(
+                "junction {}|{k}: overlap {start:.0}-{previous_end:.0}, middle {middle:.0}, {how}\n  earlier lost: {}\n  later lost:   {}\n  stayed (no word in their place): {}",
+                k - 1,
+                fmt(&lost_out),
+                fmt(&lost_new),
+                fmt(&stayed)
+            );
+        }
+        let merged = merge(&windows, &decoded);
+        for (piece, text) in pieces.iter().zip(chunking::assign(&pieces, &merged)) {
+            texts.push((piece.0, text));
+        }
+    }
+    let cpu = std::env::var_os("TRACE_CPU").map(|_| {
+        let mut cpu = ParakeetModel::new(&model_dir, true).expect("CPU Parakeet");
+        kept.iter().map(|(_, _, samples)| cpu.transcribe_samples(samples.clone(), None).expect("CPU").text).collect::<Vec<_>>()
+    });
+    println!();
+    for (index, (start, text)) in texts.iter().enumerate() {
+        println!("{start:8.0} NPU {text}");
+        if let Some(cpu) = &cpu {
+            println!("         CPU {}", cpu[index]);
+        }
+    }
 }
