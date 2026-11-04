@@ -491,6 +491,14 @@ pub fn run() {
                 }
             });
 
+            // Parakeet on the Intel NPU: its status event, and the one-time
+            // preparation when it is due (#66).
+            #[cfg(windows)]
+            {
+                parakeet_engine::npu::state::set_app(_app.handle().clone());
+                parakeet_engine::npu::state::kick();
+            }
+
             // Initialize ModelManager for summary engine (async, non-blocking)
             let app_handle_for_model_manager = _app.handle().clone();
             tauri::async_runtime::spawn(async move {
@@ -808,7 +816,11 @@ pub fn run() {
             model_catalog::openvino::openvino_remove,
             #[cfg(windows)]
             model_catalog::openvino::openvino_retry,
-            // Parakeet on an Intel NPU: the runtime alone (#66)
+            // Parakeet on an Intel NPU (#66): its status, the retry, and the runtime alone
+            #[cfg(windows)]
+            parakeet_engine::npu::state::parakeet_npu_status,
+            #[cfg(windows)]
+            parakeet_engine::npu::state::parakeet_npu_retry,
             #[cfg(windows)]
             model_catalog::openvino::openvino_runtime_download,
         ])
@@ -836,6 +848,8 @@ pub fn run() {
                     // An OpenVINO compile this exit cuts short is not a crash.
                     #[cfg(windows)]
                     whisper_engine::openvino::set_closing(true);
+                    #[cfg(windows)]
+                    parakeet_engine::npu::guard::set_closing(true);
                     tauri::async_runtime::block_on(async {
                         // Clean up database connection and checkpoint WAL
                         if let Some(app_state) = _app_handle.try_state::<state::AppState>() {

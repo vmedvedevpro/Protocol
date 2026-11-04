@@ -234,10 +234,12 @@ static OPERATIONS: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 pub fn prune_at_startup() {
     // Nothing else runs this early; if something does, it prunes itself.
     let Ok(_operations) = OPERATIONS.try_lock() else { return };
-    let wanted = any_companion_in(&crate::paths::models_dir(), &super::companions());
+    // Parakeet on the NPU keeps the runtime too (#66).
+    let wanted = any_companion_in(&crate::paths::models_dir(), &super::companions()) || crate::parakeet_engine::npu::state::keeps_runtime();
     prune_runtimes(&runtime_root(), wanted, runtime_entry().as_ref());
     if !wanted {
         crate::whisper_engine::openvino::remove_cache();
+        crate::parakeet_engine::npu::state::runtime_removed();
     }
 }
 
@@ -456,6 +458,7 @@ pub async fn openvino_status<R: Runtime>(app: AppHandle<R>, whisper_model: Strin
     let models = crate::paths::models_dir();
     let mut status = status_in(&models, &runtime_root(), &entry, runtime_entry().as_ref(), loaded.as_deref(), &super::companions());
     status.stopped = crate::whisper_engine::openvino::stopped();
+    status.removes_runtime &= !crate::parakeet_engine::npu::state::keeps_runtime();
     if status.size.is_none() {
         tauri::async_runtime::spawn(async move {
             if sizes::fill(&huggingface::client(), huggingface::HUB, &[entry]).await {
@@ -510,6 +513,7 @@ pub async fn openvino_download<R: Runtime>(app: AppHandle<R>, id: String) -> Res
         Ok(()) => {
             log::info!("[openvino] {} and its runtime are installed", entry.id);
             unload_engines_if_idle().await;
+            crate::parakeet_engine::npu::state::changed();
         }
         Err(error) if error.to_string() == CANCELLED => log::info!("[openvino] the download of {} was cancelled", entry.id),
         Err(error) => log::error!("[openvino] the download of {} failed: {error:#}", entry.id),
@@ -566,7 +570,10 @@ pub async fn openvino_runtime_download<R: Runtime>(app: AppHandle<R>) -> Result<
     drop(operations);
     downloads().remove(OPENVINO_GENAI);
     match &result {
-        Ok(()) => log::info!("[openvino] the runtime is installed"),
+        Ok(()) => {
+            log::info!("[openvino] the runtime is installed");
+            crate::parakeet_engine::npu::state::changed();
+        }
         Err(error) if error.to_string() == CANCELLED => log::info!("[openvino] the download of the runtime was cancelled"),
         Err(error) => log::error!("[openvino] the download of the runtime failed: {error:#}"),
     }
@@ -723,9 +730,10 @@ pub async fn openvino_remove<R: Runtime>(app: AppHandle<R>, id: String) -> Resul
         crate::audio::common::unload_both_stt_engines().await;
         let models = crate::paths::models_dir();
         remove_in(&models, &entry).map_err(|error| error.to_string())?;
-        if !any_companion_in(&models, &super::companions()) {
+        if !any_companion_in(&models, &super::companions()) && !crate::parakeet_engine::npu::state::keeps_runtime() {
             prune_runtimes(&runtime_root(), false, None);
             crate::whisper_engine::openvino::remove_cache();
+            crate::parakeet_engine::npu::state::runtime_removed();
         }
     }
     log::info!("[openvino] {} removed", entry.id);

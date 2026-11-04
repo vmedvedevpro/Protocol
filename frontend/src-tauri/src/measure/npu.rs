@@ -236,3 +236,63 @@ fn chunking_matches_feed_b() {
     assert_eq!(differ, 0);
 }
 
+/// Risk 2 of #66, the way an app that ran Whisper on the GPU meets it: the
+/// catalog's runtime installed from a local copy of Intel's archive
+/// (`NPU_TEST_ARCHIVE`) into `NPU_TEST_RUNTIME_ROOT` as 0.5.0's catalog pins
+/// it, without the NPU files; OpenVINO's C API loaded from it in this
+/// process, finding neither the NPU nor the ONNX frontend; then the version
+/// completed in place (`runtime::complete_into`) while the libraries stay
+/// loaded, and a fresh core must read the encoder and run it on the NPU. The
+/// install goes through the app's checks (pins, Intel's signature, record),
+/// so the folder then serves the kit as `MEASURE_OPENVINO_RUNTIME`.
+#[tokio::test]
+#[ignore = "needs NPU_TEST_ARCHIVE, NPU_TEST_RUNTIME_ROOT, NPU_TEST_CACHE, MEASURE_PARAKEET_MODEL and an Intel NPU"]
+async fn a_runtime_completed_while_loaded_runs_the_npu() {
+    use crate::model_catalog::runtime::{self, testing, Fetch};
+    use crate::parakeet_engine::npu::state::RUNTIME_FILES;
+    let archive = std::fs::read(std::env::var_os("NPU_TEST_ARCHIVE").expect("NPU_TEST_ARCHIVE")).expect("read the archive");
+    let root = PathBuf::from(std::env::var_os("NPU_TEST_RUNTIME_ROOT").expect("NPU_TEST_RUNTIME_ROOT"));
+    let cache = PathBuf::from(std::env::var_os("NPU_TEST_CACHE").expect("NPU_TEST_CACHE"));
+    let model_dir = PathBuf::from(std::env::var_os("MEASURE_PARAKEET_MODEL").expect("MEASURE_PARAKEET_MODEL"));
+    let full = crate::model_catalog::openvino::runtime_entry().expect("the catalog's runtime");
+    let mut partial = full.clone();
+    partial.files.retain(|file| !RUNTIME_FILES.contains(&file.name.as_str()));
+    assert_eq!(partial.files.len() + 2, full.files.len());
+
+    let _ = std::fs::remove_dir_all(&root);
+    let fetch = Fetch::LocalSigned(reqwest::Client::new(), "Intel Corporation");
+    partial.archive.url = testing::serve(archive.clone()).await;
+    let started = Instant::now();
+    let dir = runtime::install_into(&fetch, &root, &partial, &tokio_util::sync::CancellationToken::new(), |_, _| {}).await.expect("install");
+    println!("installed {} without the NPU files in {:.1} s", dir.display(), started.elapsed().as_secs_f64());
+    assert_eq!(runtime::missing_files(&dir, &full).map(|files| files.len()), Some(2));
+
+    let api: &'static OpenVino = Box::leak(Box::new(OpenVino::load(&dir).expect("load openvino_c.dll")));
+    let core = api.core().expect("core");
+    let before = core.property("NPU", "AVAILABLE_DEVICES");
+    let read_before = core.read_model(&model_dir.join("encoder-model.int8.onnx")).err().map(|error| error.to_string());
+    println!("before: NPU devices {before:?}; reading the ONNX encoder: {read_before:?}");
+    assert!(before.is_none() && read_before.is_some(), "the runtime found the NPU files before they were installed");
+    drop(core);
+
+    let mut completed = full.clone();
+    completed.archive.url = testing::serve(archive).await;
+    let started = Instant::now();
+    runtime::complete_into(&fetch, &root, &completed, &tokio_util::sync::CancellationToken::new(), |_, _| {}).await.expect("complete");
+    println!("completed in {:.1} s", started.elapsed().as_secs_f64());
+    assert_eq!(runtime::missing_files(&dir, &full).map(|files| files.len()), Some(0));
+
+    let core = api.core().expect("a fresh core");
+    let after = core.property("NPU", "AVAILABLE_DEVICES");
+    println!("after: NPU devices {after:?}, driver {:?}", core.property("NPU", "NPU_DRIVER_VERSION"));
+    assert!(after.is_some_and(|devices| !devices.trim().is_empty()), "a fresh core does not find the NPU plugin");
+    drop(core);
+    std::fs::create_dir_all(&cache).unwrap();
+    let started = Instant::now();
+    let mut encoder = NpuEncoder::compile(api, &model_dir.join("encoder-model.int8.onnx"), Some(&cache)).expect("compile for the NPU");
+    println!("compiled in {:.1} s, cache {:.0} MB", started.elapsed().as_secs_f64(), folder_bytes(&cache) as f64 / 1e6);
+    let silence = Array3::<f32>::zeros((1, 128, FRAMES));
+    let (_, frames) = encoder.encode(&silence.view(), FRAMES as i64).expect("an inference on the NPU");
+    println!("an inference on the NPU gave {frames} frames");
+    assert!(frames > 0);
+}

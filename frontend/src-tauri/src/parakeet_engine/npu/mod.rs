@@ -7,7 +7,12 @@
 //! `length`, so the encoder masks the padding; only `encoded_lengths` output
 //! frames are decoded. #80 measured this shape and feed on the device.
 
+mod detect;
+pub mod guard;
 pub mod openvino;
+pub mod state;
+
+pub use detect::present;
 
 use std::path::Path;
 
@@ -33,6 +38,11 @@ pub struct NpuEncoder {
     _core: Core,
 }
 
+// SAFETY: nothing reachable through `&NpuEncoder` touches the request; only
+// `encode(&mut self)` does. `ParakeetModel` must be `Sync` to sit behind the
+// engine's `RwLock`.
+unsafe impl Sync for NpuEncoder {}
+
 impl NpuEncoder {
     /// Reads `encoder` (the ONNX file), gives it the static shape and compiles
     /// it for the NPU, with OpenVINO's compile cache in `cache` when given.
@@ -42,7 +52,11 @@ impl NpuEncoder {
         let mut model = core.read_model(encoder)?;
         model.reshape(&[("audio_signal", &[1, FEATURES as i64, FRAMES as i64]), ("length", &[1])])?;
         let cache = cache.map(|cache| cache.to_string_lossy().into_owned());
-        let properties: Vec<(&str, &str)> = cache.iter().map(|cache| ("CACHE_DIR", cache.as_str())).collect();
+        // The NPU driver's compiler, as #66 qualified it: the runtime has no
+        // compiler of its own (the plugin's is 100 MB more), and an old driver
+        // that cannot compile fails here with its reason.
+        let mut properties: Vec<(&str, &str)> = vec![("NPU_COMPILER_TYPE", "DRIVER")];
+        properties.extend(cache.iter().map(|cache| ("CACHE_DIR", cache.as_str())));
         let compiled = core.compile(&model, DEVICE, &properties)?;
         drop(model);
         let request = compiled.infer_request()?;
