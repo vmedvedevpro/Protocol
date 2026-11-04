@@ -146,6 +146,8 @@ export interface OfferInputs {
   npu: ParakeetNpuStatus;
   /** The devices offered when the person chose Not now. */
   dismissed: Device[];
+  /** Intel's libraries are downloading alone (`useIntelLibraries`): the NPU is on its way. */
+  librariesDownloading?: boolean;
 }
 
 /**
@@ -154,10 +156,10 @@ export interface OfferInputs {
  * Intel GPU version of Whisper, or an Intel NPU without Intel's libraries.
  * Not now hides it until a device it did not offer then becomes one to offer.
  */
-export function offerFor({ installedAny, availability, companion, npu, dismissed }: OfferInputs): Offer | null {
+export function offerFor({ installedAny, availability, companion, npu, dismissed, librariesDownloading = false }: OfferInputs): Offer | null {
   if (!installedAny) return null;
   const gpu = gpuOffered(availability, companion) && !companion!.installed && companion!.downloading === null;
-  const npuWanted = npu.present && npu.state === 'needs_runtime';
+  const npuWanted = npu.present && npu.state === 'needs_runtime' && !librariesDownloading;
   const devices: Device[] = [...(gpu ? ['Intel GPU' as const] : []), ...(npuWanted ? ['Intel NPU' as const] : [])];
   if (devices.length === 0 || devices.every((device) => dismissed.includes(device))) return null;
   const both = gpu && npuWanted;
@@ -211,15 +213,21 @@ export function parakeetLine(npu: ParakeetNpuStatus, catalogDescription: string)
   return catalogDescription;
 }
 
-/** What the NPU's state adds under Parakeet in the card, if anything. */
-export function npuNote(npu: ParakeetNpuStatus): string | null {
+/**
+ * What the NPU's state adds under Parakeet in the card, if anything.
+ * `withWhisper`: Intel's libraries come with Whisper's Intel GPU version, so
+ * the card has no download of their own to point at.
+ */
+export function npuNote(npu: ParakeetNpuStatus, withWhisper = false): string | null {
   switch (npu.state) {
     case 'preparing':
       return 'Getting ready for the Intel NPU, once. Live text keeps working meanwhile.';
     case 'waiting':
       return 'Gets ready for the Intel NPU once the recording or transcription has finished. Live text keeps working meanwhile.';
     case 'needs_runtime':
-      return "Runs on the Intel NPU once Intel's libraries are downloaded.";
+      return withWhisper
+        ? "Runs on the Intel NPU once Whisper's Intel GPU version is downloaded: it brings Intel's libraries."
+        : "Runs on the Intel NPU once Intel's libraries are downloaded.";
     default:
       return null;
   }

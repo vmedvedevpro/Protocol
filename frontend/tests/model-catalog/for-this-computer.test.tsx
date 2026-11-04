@@ -10,9 +10,15 @@ let toasts: string[];
 const startDownload = mock(() => {});
 const uninstallModel = mock(() => {});
 let downloadResult: () => Promise<void>;
+let runtimeResult: () => Promise<void>;
+const listeners = new Map<string, Array<(event: { payload: any }) => void>>();
+const fire = (name: string, payload: any) => act(async () => { for (const handler of listeners.get(name) ?? []) handler({ payload }); });
 
 mock.module('sonner', () => ({ toast: { success: (title: string) => { toasts.push(title); }, error: (title: string) => { toasts.push(title); } } }));
-mock.module('@tauri-apps/api/event', () => ({ listen: async () => () => {} }));
+mock.module('@tauri-apps/api/event', () => ({ listen: async (name: string, handler: (event: { payload: any }) => void) => {
+  listeners.set(name, [...(listeners.get(name) ?? []), handler]);
+  return () => listeners.set(name, (listeners.get(name) ?? []).filter((entry) => entry !== handler));
+} }));
 mock.module('@/contexts/OptionalModelDownloadsContext', () => ({
   OPTIONAL_WHISPER_MODEL: 'large-v3-turbo-q5_0',
   useOptionalModelDownloads: () => ({ jobs, startDownload, uninstallModel }),
@@ -20,11 +26,14 @@ mock.module('@/contexts/OptionalModelDownloadsContext', () => ({
 mock.module('@tauri-apps/api/core', () => ({ invoke: async (command: string, args?: any) => {
   commands.push({ command, args });
   if (command === 'openvino_download') return downloadResult();
+  if (command === 'openvino_runtime_download') return runtimeResult();
   if (command === 'openvino_status') return null;
   return undefined;
 } }));
 
 const { ForThisComputer } = await import('../../src/components/settings/ForThisComputer');
+const { IntelGpuDownload } = await import('../../src/components/settings/IntelGpuDownload');
+const { downloadIntelLibraries } = await import('../../src/hooks/useIntelLibraries');
 const { recommendedPair, gpuFallback, NPU_ABSENT } = await import('../../src/lib/speech-choice');
 
 const MB = 1024 * 1024;
@@ -89,6 +98,7 @@ beforeEach(() => {
   toasts = [];
   jobs = { whisper: { status: 'idle', progress: 0 }, nemotron: { status: 'idle', progress: 0 } };
   downloadResult = async () => {};
+  runtimeResult = async () => {};
   startDownload.mockClear(); uninstallModel.mockClear(); onParakeetInstalled.mockClear(); onModelsChanged.mockClear();
 });
 afterEach(async () => { await act(async () => root?.unmount()); });
@@ -135,6 +145,43 @@ test('an NPU-only PC downloads Intel\'s libraries with the pair, and offers them
   expect(text()).toContain("Runs on the Intel NPU once Intel's libraries are downloaded.");
   await click("Download Intel's libraries · 254 MB");
   expect(called('openvino_runtime_download')).toHaveLength(1);
+});
+
+test("Intel's libraries alone show their bytes with Cancel, keep a failure, and follow a download already running", async () => {
+  const npu = { present: true, state: 'needs_runtime', active: false, reason: null };
+  const installed = { availability: otherGpu, npu, parakeet: 'Available', copy: 'Available' };
+  let finish: (error?: string) => void = () => {};
+  runtimeResult = () => new Promise<void>((resolve, reject) => { finish = (error) => (error ? reject(error) : resolve()); });
+  await render(installed);
+  await click("Download Intel's libraries · 254 MB");
+  expect(text()).toContain("Downloading Intel's libraries…");
+  await fire('openvino-runtime-progress', { done: 100 * MB, total: 254 * MB });
+  expect(text()).toContain("Intel's libraries · 100 MB of 254 MB");
+  await act(async () => { root.root.findByProps({ 'aria-label': "Cancel downloading Intel's libraries" }).props.onClick(); await settle(); });
+  expect(called('openvino_cancel')[0].args).toEqual({ id: 'openvino-genai' });
+  await act(async () => { finish('The download was cancelled'); await settle(); });
+  expect(text()).not.toContain('MB of 254 MB');
+  expect(root.root.findAll((node) => node.props?.role === 'alert')).toHaveLength(0);
+  // The same events also come from an Intel GPU download: they start no job here.
+  await fire('openvino-runtime-progress', { done: 10 * MB, total: 254 * MB });
+  expect(text()).not.toContain('10 MB of 254 MB');
+
+  // A failure stays with the job until the next try.
+  runtimeResult = async () => { throw 'Not enough space'; };
+  await click("Download Intel's libraries · 254 MB");
+  expect(text()).toContain("Intel's libraries didn't download: Not enough space");
+  await act(async () => root.unmount());
+  await render(installed);
+  expect(text()).toContain("Intel's libraries didn't download: Not enough space");
+
+  // Started before a reload: the card follows it until the NPU leaves needs_runtime.
+  runtimeResult = async () => { throw "Intel's libraries are already downloading"; };
+  await click("Download Intel's libraries · 254 MB");
+  expect(text()).not.toContain("didn't download");
+  await fire('openvino-runtime-progress', { done: 200 * MB, total: 254 * MB });
+  expect(text()).toContain("Intel's libraries · 200 MB of 254 MB");
+  await fire('parakeet-npu-status', { present: true, state: 'preparing', active: false, reason: null });
+  expect(text()).not.toContain('MB of 254 MB');
 });
 
 test('N3: switching shows the download in its own bytes with Cancel, and the NPU preparing once', async () => {
@@ -254,4 +301,31 @@ test('no UI word names the libraries or the runtimes', async () => {
     expect(visible).not.toMatch(/OpenVINO|DirectML|ONNX|Vulkan|runtime|plugin/i);
     await act(async () => root.unmount());
   }
+});
+
+test("onboarding's download step follows the Intel GPU version, or Intel's libraries on an NPU-only PC", async () => {
+  await act(async () => {
+    root = create(<IntelGpuDownload choice={choiceOf({ companion: companion({ downloading: 25, progress: { done: 250 * MB, total: 1000 * MB } }) })} />);
+    await settle();
+  });
+  expect(text()).toContain('Whisper Large V3 Turbo');
+  expect(text()).toContain('Downloading · 250 MB of 1000 MB');
+  await act(async () => root.unmount());
+
+  let finish: () => void = () => {};
+  runtimeResult = () => new Promise<void>((resolve) => { finish = resolve; });
+  const npu = { present: true, state: 'needs_runtime', active: false, reason: null };
+  await act(async () => {
+    root = create(<IntelGpuDownload choice={choiceOf({ availability: otherGpu, npu })} />);
+    await settle();
+  });
+  expect(root.toJSON()).toBeNull();
+  // Setup starts it detached; the step shows it from the shared job.
+  let started: Promise<string> = Promise.resolve('');
+  await act(async () => { started = downloadIntelLibraries(); await settle(); });
+  await fire('openvino-runtime-progress', { done: 127 * MB, total: 254 * MB });
+  expect(text()).toContain("Intel's libraries for the NPU");
+  expect(text()).toContain('Downloading · 127 MB of 254 MB');
+  await act(async () => { finish(); await started; await settle(); });
+  expect(root.toJSON()).toBeNull();
 });

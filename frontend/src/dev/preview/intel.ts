@@ -116,6 +116,30 @@ function download(onDone: () => void): Promise<null> {
 }
 let cancelDownload: (() => void) | null = null;
 
+/** `openvino_runtime_download` (#66's contract): archive bytes twice a second, then the NPU prepares. */
+function downloadRuntime(): Promise<null> {
+  if (cancelRuntime) return Promise.reject("Intel's libraries are already downloading");
+  return new Promise((resolve, reject) => {
+    let done = 0;
+    const timer = setInterval(() => {
+      done = Math.min(RUNTIME_BYTES, done + RUNTIME_BYTES / 12);
+      void emit('openvino-runtime-progress', { done, total: RUNTIME_BYTES });
+      if (done < RUNTIME_BYTES) return;
+      clearInterval(timer);
+      cancelRuntime = null;
+      state.runtimeInstalled = true;
+      void emit('parakeet-npu-status', npuStatus());
+      resolve(null);
+    }, 500);
+    cancelRuntime = () => {
+      clearInterval(timer);
+      cancelRuntime = null;
+      reject('The download was cancelled');
+    };
+  });
+}
+let cancelRuntime: (() => void) | null = null;
+
 /** The Intel commands; `undefined` for any other command (or without `?intel`). */
 export function handleIntelCommand(cmd: string, args: Record<string, any>, choose: (id: string) => void): unknown {
   if (!intelPreview) return undefined;
@@ -134,7 +158,8 @@ export function handleIntelCommand(cmd: string, args: Record<string, any>, choos
         }
       });
     case 'openvino_cancel':
-      cancelDownload?.();
+      if (args.id === 'openvino-genai') cancelRuntime?.();
+      else cancelDownload?.();
       return null;
     case 'openvino_retry':
       state.stopped = null;
@@ -154,11 +179,7 @@ export function handleIntelCommand(cmd: string, args: Record<string, any>, choos
       void emit('parakeet-npu-status', npuStatus());
       return npuStatus();
     case 'openvino_runtime_download':
-      return new Promise((resolve) => setTimeout(() => {
-        state.runtimeInstalled = true;
-        void emit('parakeet-npu-status', npuStatus());
-        resolve(null);
-      }, 3000));
+      return downloadRuntime();
     default:
       return undefined;
   }

@@ -141,7 +141,11 @@ function cancel(kind: 'whisper' | 'parakeet', name: string) {
 
 /** The speech-model commands; `undefined` for any other command. */
 export function handleSpeechCommand(cmd: string, args: Record<string, any>): unknown {
-  const intel = handleIntelCommand(cmd, args, (id) => { speech.postCall = { provider: 'whisper', model: id }; });
+  // `choose` saves the after-meeting model the way speech_choice::chosen does.
+  const intel = handleIntelCommand(cmd, args, (id) => {
+    speech.postCall = { provider: 'whisper', model: id };
+    void emit('post-call-transcript-config-changed', null);
+  });
   if (intel !== undefined) return intel;
   switch (cmd) {
     case 'whisper_init':

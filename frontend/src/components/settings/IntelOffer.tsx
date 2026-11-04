@@ -16,9 +16,8 @@ import { Button } from '@/components/ui/button';
 import { formatModelSize } from '@/lib/model-catalog';
 import type { Offer } from '@/lib/speech-choice';
 import type { CompanionStatus } from '@/lib/intel-gpu';
+import { CANCELLED, downloadIntelLibraries } from '@/hooks/useIntelLibraries';
 import { gpuInstalledNotice } from './ForThisComputer';
-
-const CANCELLED = 'The download was cancelled';
 
 export interface IntelOfferProps {
   offer: Offer;
@@ -45,8 +44,8 @@ export function IntelOffer({ offer, companionId, copy, onNotNow, onSwitch }: Int
           const status = await invoke<CompanionStatus | null>('openvino_status', { whisperModel: copy }).catch(() => null);
           const notice = gpuInstalledNotice(status);
           toast.success(notice.title, { description: notice.description });
-        } else {
-          await invoke('openvino_runtime_download');
+        } else if (await downloadIntelLibraries() === 'installed') {
+          // The card shows the progress, Cancel and a failure meanwhile.
           toast.success("Intel's libraries are installed", { description: 'Parakeet gets ready for the Intel NPU once, then runs on it.' });
         }
       } catch (failure) {

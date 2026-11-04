@@ -15,6 +15,7 @@ import { useOnboarding } from '@/contexts/OnboardingContext';
 import { OPTIONAL_WHISPER_MODEL, useOptionalModelDownloads } from '@/contexts/OptionalModelDownloadsContext';
 import { formatModelSize, useModelSize } from '@/lib/model-catalog';
 import { useSpeechChoice } from '@/hooks/useSpeechChoice';
+import { downloadIntelLibraries } from '@/hooks/useIntelLibraries';
 import { getModelDisplayInfo } from '@/lib/parakeet';
 import { speechModelName } from '@/lib/speech-models';
 import { DeviceBadge } from '@/components/settings/ForThisComputer';
@@ -107,7 +108,8 @@ export function SetupOverviewStep() {
     }
     // Parakeet runs on the Intel NPU once Intel's libraries are on this computer.
     if (runtimeForNpu) {
-      void invoke('openvino_runtime_download').catch((error) => console.error("Failed to download Intel's libraries:", error));
+      // Detached: the download step and Settings follow the shared job.
+      void downloadIntelLibraries().catch((error) => console.error("Failed to download Intel's libraries:", error));
     }
     if (installNemotron) startDownload('nemotron');
     goNext();

@@ -16,7 +16,8 @@ size comes from the catalog through native code.
 | `frontend/src/hooks/useSpeechChoice.ts` | Gathers the inputs: `whisper_get_available_models`, `parakeet_get_available_models`, `get_openvino_availability`, `openvino_status` of the recommended Whisper model, `parakeet_npu_status` (and its event), `get_local_stack_status` (the last fallback reason) and `speech_choice_copy_retires`. A failing command reads as nothing there. `useParakeetNpu` is the NPU state alone (Labs). |
 | `frontend/src/components/settings/ForThisComputer.tsx` | Settings › Transcription › Speech models › For this computer (mockups N1, N3, N4, N6, N7). |
 | `frontend/src/components/settings/IntelOffer.tsx` | The offer after an update (N2), above Speech to text. |
-| `frontend/src/components/settings/IntelGpuDownload.tsx` | Onboarding's progress row for the Intel GPU version. |
+| `frontend/src/hooks/useIntelLibraries.ts` | Intel's libraries downloaded alone for an NPU (`openvino_runtime_download`): one job per WebView that the card, the offer and onboarding share, with its progress (`openvino-runtime-progress`), Cancel (`openvino_cancel` of `openvino-genai`) and a failure that stays until the next try. A second call while one runs (also one started before a reload) follows it until the NPU leaves `needs_runtime`. |
+| `frontend/src/components/settings/IntelGpuDownload.tsx` | Onboarding's progress row for the Intel GPU version, or Intel's libraries on an NPU-only PC. |
 | `frontend/src-tauri/src/speech_choice.rs` | The native half: the Intel GPU version as a model of its own, `chosen` (after `openvino_download` with `choose`), the Compressed copy's removal, `speech_choice_remove_gpu_version`, `speech_choice_copy_retires`. |
 
 Why the pair is decided in the WebView: every input is already a command the
@@ -89,7 +90,8 @@ installed (a first run gets the card's Download both instead), the offer is
 not put off for every device it names, and this computer has an Intel GPU
 without the Intel GPU version (`gpuOffered`, not installed, not downloading)
 and/or an Intel NPU in `needs_runtime`. Titles: "Protocol can use your Intel
-GPU and NPU", "… your Intel GPU", "… your Intel NPU". Switch runs
+GPU and NPU", "… your Intel GPU", "… your Intel NPU". While Intel's libraries
+download alone the NPU is not offered. Switch runs
 `openvino_download { choose: true }` (it brings Intel's libraries, NPU files
 included) or, for the NPU alone, `openvino_runtime_download`. Not now stores
 the devices it named in `localStorage` (`meetily-intel-offer-dismissed`): the
@@ -127,7 +129,7 @@ transcribed a meeting." (during the download, and afterwards while
 | Nothing installed (N1, N7) | — | — ; the header's "Download both · size" downloads both (on an NPU-only PC also Intel's libraries); one missing model gets its own "Download · size" |
 | Downloading (N3) | progress with Cancel | progress in the download's own bytes (`CompanionStatus.progress`) with Cancel; "The Compressed copy stays…" when the copy is installed |
 | NPU `waiting` / `preparing` | a note; "Preparing · about 2 min" with an indeterminate bar | |
-| NPU `needs_runtime` | "Runs on the Intel NPU once Intel's libraries are downloaded." and a download of them | |
+| NPU `needs_runtime` | NPU-only: "Runs on the Intel NPU once Intel's libraries are downloaded.", their download with its bytes and Cancel, a failure under it; with the Intel GPU version on offer the note says that download brings them | |
 | Installed (N4) | Installed, Remove | Installed, Remove; an update of Intel's libraries; "used after a restart" |
 | NPU `failed` (N6) | "The Intel NPU didn't start, so Parakeet runs on the processor." Try again (`parakeet_npu_retry`; `reason` in a tooltip) | |
 | Intel GPU version fell back (N6) | | with a copy: the copy's row and "The Intel GPU version didn't start, so Whisper uses this copy. Nothing to download." Try again (`openvino_retry`); without: "… and no regular copy is installed …", Try again and "Download the standard version · size" (`whisper_download_model`, `enablePostCall: false`, so the choice stays) |
@@ -159,7 +161,8 @@ are hidden while the NPU state is `preparing` or `ready`: the NPU wins (#66).
   and fallbacks; the offer's conditions, titles and sizes, Not now per device;
   the Labs rule; the card's copy.
 - `tests/model-catalog/for-this-computer.test.tsx`: N1, N7, an NPU-only PC,
-  N3, N4, the copy note only while it waits to retire, N6 with Try again, no
+  Intel's libraries alone (bytes, Cancel, a kept failure, a download already
+  running, onboarding's row), N3, N4, the copy note only while it waits to retire, N6 with Try again, no
   copy and the standard version, single downloads and failures, the library
   update, the way back to the offer, and no technical words in the UI.
 - `tests/model-catalog/speech-choice-settings.test.tsx`: the offer in
@@ -178,9 +181,12 @@ are hidden while the NPU state is `preparing` or `ready`: the NPU wins (#66).
 - The fallback reason lives in memory: after a restart the card shows a
   fallen-back Intel GPU version only once a load fails again in that run (the
   crash guard's `stopped` survives restarts).
-- Removing the Intel GPU version removes Intel's libraries with the last
-  companion (`openvino_remove`), which the NPU uses too; #66 decides whether
-  the NPU keeps them.
+- Who keeps Intel's libraries is #66's rule: on a PC with an Intel NPU and
+  Parakeet v3 they stay when the Intel GPU version is removed, and
+  `openvino_status.removesRuntime` says so; the card's Remove size follows it.
+- A download of Intel's libraries started before the window reloaded is
+  followed by its progress events; if it then fails, only its original caller
+  got the error, so the card shows it running until the window reloads again.
 - The Radix select menus render in a portal, which the component tests cannot
   open: the badges and hints in the menus are covered by the `deviceOf` tests
   and the real-app check.

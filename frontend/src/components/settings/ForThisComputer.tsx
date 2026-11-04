@@ -26,10 +26,8 @@ import { getModelDisplayInfo } from '@/lib/parakeet';
 import { npuNote, parakeetLine, sumBytes, type Device } from '@/lib/speech-choice';
 import { speechModelDescription, speechModelLanguages, speechModelName } from '@/lib/speech-models';
 import type { SpeechChoice } from '@/hooks/useSpeechChoice';
+import { CANCELLED, cancelIntelLibraries, dismissIntelLibrariesError, downloadIntelLibraries, useIntelLibraries } from '@/hooks/useIntelLibraries';
 import { runtimeUpdate, type CompanionStatus } from '@/lib/intel-gpu';
-
-// The native message of a cancelled Intel GPU download (model_catalog/runtime.rs).
-const CANCELLED = 'The download was cancelled';
 
 export function DeviceBadge({ device }: { device: Device }) {
   const Icon = device === 'Intel NPU' ? Share2 : Cpu;
@@ -172,8 +170,8 @@ export interface ForThisComputerProps {
 
 export function ForThisComputer({ choice, onParakeetInstalled, onModelsChanged, offerBack }: ForThisComputerProps) {
   const { jobs, startDownload, uninstallModel } = useOptionalModelDownloads();
-  const [errors, setErrors] = useState<{ live?: string; after?: string; runtime?: string }>({});
-  const [runtimeDownloading, setRuntimeDownloading] = useState(false);
+  const [errors, setErrors] = useState<{ live?: string; after?: string }>({});
+  const libraries = useIntelLibraries();
   const [gpuRetried, setGpuRetried] = useState(false);
   const { pair, companion, npu } = choice;
 
@@ -242,19 +240,13 @@ export function ForThisComputer({ choice, onParakeetInstalled, onModelsChanged, 
 
   // The NPU alone needs Intel's libraries; with the Intel GPU version they come with it.
   const runtimeWanted = npu.present && npu.state === 'needs_runtime' && !gpu;
+  // The job is shared with the offer and onboarding (`useIntelLibraries`),
+  // which keeps a failure; this only asks the statuses again.
   const downloadRuntime = async () => {
-    setErrors((previous) => ({ ...previous, runtime: undefined }));
-    setRuntimeDownloading(true);
-    try {
-      await invoke('openvino_runtime_download');
-    } catch (error) {
-      const message = String(error);
-      if (message !== CANCELLED) setErrors((previous) => ({ ...previous, runtime: message }));
-    } finally {
-      setRuntimeDownloading(false);
-      choice.refresh();
-    }
+    await downloadIntelLibraries().catch(() => {});
+    choice.refresh();
   };
+  const runtimeProgress = libraries.status === 'downloading' ? libraries : null;
 
   // The regular copy as the after-meeting model (N7): the optional Whisper job
   // makes it that natively. As the fallback of the Intel GPU version (N6) it
@@ -414,7 +406,7 @@ export function ForThisComputer({ choice, onParakeetInstalled, onModelsChanged, 
     );
   }
 
-  const note = parakeetInstalled ? npuNote(npu) : null;
+  const note = parakeetInstalled ? npuNote(npu, !!gpu) : null;
 
   return (
     <div className="space-y-3">
@@ -447,16 +439,37 @@ export function ForThisComputer({ choice, onParakeetInstalled, onModelsChanged, 
           removeSize={sizeOf(parakeetSize)}
         >
           {note && liveState.kind !== 'preparing' && <p className="mt-1 text-xs text-af-text-3">{note}</p>}
-          {runtimeWanted && parakeetInstalled && !both && (
+          {runtimeWanted && runtimeProgress && (
+            <div className="mt-2 flex items-center gap-3">
+              <div className="min-w-0 flex-1 space-y-1">
+                <Progress
+                  value={runtimeProgress.total > 0 ? (runtimeProgress.done / runtimeProgress.total) * 100 : 0}
+                  aria-label="Downloading Intel's libraries"
+                />
+                <p className="text-xs tabular-nums text-af-text-3">
+                  {runtimeProgress.total > 0
+                    ? `Intel's libraries · ${formatModelSize(runtimeProgress.done) || '0 MB'} of ${formatModelSize(runtimeProgress.total)}`
+                    : "Downloading Intel's libraries…"}
+                </p>
+              </div>
+              <Button variant="ghost" size="xs" onClick={cancelIntelLibraries} aria-label="Cancel downloading Intel's libraries">
+                Cancel
+              </Button>
+            </div>
+          )}
+          {runtimeWanted && parakeetInstalled && !both && !runtimeProgress && (
             <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-af-text-3">
-              {runtimeDownloading ? (
-                <span>Downloading Intel&apos;s libraries…</span>
-              ) : (
-                <Button variant="secondary" size="xs" onClick={() => void downloadRuntime()}>
-                  <Download />
-                  {withSize("Download Intel's libraries", runtimeBytes)}
-                </Button>
-              )}
+              <Button
+                variant="secondary"
+                size="xs"
+                onClick={() => {
+                  dismissIntelLibrariesError();
+                  void downloadRuntime();
+                }}
+              >
+                <Download />
+                {withSize("Download Intel's libraries", runtimeBytes)}
+              </Button>
             </div>
           )}
           {npuFailed && (
@@ -465,7 +478,11 @@ export function ForThisComputer({ choice, onParakeetInstalled, onModelsChanged, 
             </Notice>
           )}
           {errors.live && <p role="alert" className="mt-2 text-xs text-af-danger [overflow-wrap:anywhere]">{errors.live}</p>}
-          {errors.runtime && <p role="alert" className="mt-2 text-xs text-af-danger [overflow-wrap:anywhere]">{errors.runtime}</p>}
+          {runtimeWanted && libraries.status === 'error' && (
+            <p role="alert" className="mt-2 text-xs text-af-danger [overflow-wrap:anywhere]">
+              {`Intel's libraries didn't download: ${libraries.error}`}
+            </p>
+          )}
         </PairRow>
         {afterRow}
       </ul>

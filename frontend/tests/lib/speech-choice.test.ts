@@ -146,6 +146,7 @@ test('the offer shows only after an update, and only for what is missing', () =>
   }
   // A download that runs is shown in the card.
   expect(offerFor({ ...base, companion: companion({ downloading: 40 }), npu: NPU_ABSENT })).toBeNull();
+  expect(offerFor({ ...base, availability: otherGpu, librariesDownloading: true })).toBeNull();
   // Neither device.
   expect(offerFor({ ...base, availability: otherGpu, npu: NPU_ABSENT })).toBeNull();
 });
@@ -172,6 +173,8 @@ test('the card copy follows the NPU state and sums only known sizes', () => {
   expect(parakeetLine(NPU_ABSENT, 'Real time · Best for speed')).toBe('Real time · Best for speed');
   expect(npuNote(npu('preparing'))).toBe('Getting ready for the Intel NPU, once. Live text keeps working meanwhile.');
   expect(npuNote(npu('ready'))).toBeNull();
+  expect(npuNote(npu('needs_runtime'))).toBe("Runs on the Intel NPU once Intel's libraries are downloaded.");
+  expect(npuNote(npu('needs_runtime'), true)).toContain("once Whisper's Intel GPU version is downloaded");
   expect(sumBytes([640 * MB, 1082 * MB])).toBe(1722 * MB);
   expect(sumBytes([640 * MB, null])).toBeNull();
   expect(sumBytes([])).toBeNull();

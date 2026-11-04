@@ -22,6 +22,7 @@ import { installedSpeechModels, speechModelLabel, speechModelLanguages, type Ins
 import { deviceOf, npuOwnsParakeet, offerFor, readDismissed, writeDismissed, type Device } from '@/lib/speech-choice';
 import { useLabs } from '@/hooks/useLabs';
 import { useSpeechChoice } from '@/hooks/useSpeechChoice';
+import { useIntelLibraries } from '@/hooks/useIntelLibraries';
 
 export interface TranscriptModelProps {
     provider: 'localWhisper' | 'parakeet' | 'deepgram' | 'elevenLabs' | 'groq' | 'openai';
@@ -73,6 +74,7 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
     const { jobs, startDownload, uninstallModel } = useOptionalModelDownloads();
     const whisperJob = jobs.whisper;
     const choice = useSpeechChoice();
+    const libraries = useIntelLibraries();
     const [allModelsOpen, setAllModelsOpen] = useState(false);
     const [dismissed, setDismissed] = useState<Device[]>(() => readDismissed());
     const [switching, setSwitching] = useState(false);
@@ -419,6 +421,30 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
     // the model is on disk, After the meeting could not be set to it.
     const whisperActivationFailed = whisperJob.status === 'activation-error'
         && !(postCallConfig.provider === 'whisper' && postCallConfig.model === OPTIONAL_WHISPER_MODEL);
+    // What runs after meetings, when it needs saying (a missing or replaced model, Labs).
+    const afterNote = postCallError ? (
+        <RowNote tone="danger" icon={AlertTriangle}>{postCallError}</RowNote>
+    ) : postCallSaved ? (
+        <RowNote tone="success" icon={Check}>Saved</RowNote>
+    ) : !isLoadingPostCall && installedLoaded && installedModels.length > 0 ? (
+        !afterModel ? (
+            <RowNote tone="danger" icon={AlertTriangle}>
+                {`No ${afterEngine === 'whisper' ? 'Whisper' : 'speech'} model is installed, so transcripts can't be improved after meetings. Choose another model.`}
+            </RowNote>
+        ) : !afterExact && !followsLive ? (
+            <RowNote tone="warning" icon={AlertTriangle}>
+                {`${missingLabel(postCallConfig.provider as SpeechEngine, postCallConfig.model)} is not on this computer, so ${labelOf(afterModel)} is used instead.`}
+            </RowNote>
+        ) : followsLive ? (
+            <RowNote>
+                <span>{`Uses ${labelOf(afterModel)}.`}</span>
+                {labsBadge(afterModel.provider)}
+            </RowNote>
+        ) : labsBadge(afterModel.provider) ? (
+            <RowNote>{labsBadge(afterModel.provider)}</RowNote>
+        ) : null
+    ) : null;
+
     const whisperOffer = whisperActivationFailed ? (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-af-danger/30 bg-af-danger/[0.06] px-3.5 py-3">
             <p role="alert" className="min-w-0 flex-1 basis-60 text-xs text-af-danger [overflow-wrap:anywhere]">
@@ -487,31 +513,12 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
                     </Select>
                 }
             >
-                <div className="space-y-2.5">
-                    {postCallError ? (
-                        <RowNote tone="danger" icon={AlertTriangle}>{postCallError}</RowNote>
-                    ) : postCallSaved ? (
-                        <RowNote tone="success" icon={Check}>Saved</RowNote>
-                    ) : !isLoadingPostCall && installedLoaded && installedModels.length > 0 ? (
-                        !afterModel ? (
-                            <RowNote tone="danger" icon={AlertTriangle}>
-                                {`No ${afterEngine === 'whisper' ? 'Whisper' : 'speech'} model is installed, so transcripts can't be improved after meetings. Choose another model.`}
-                            </RowNote>
-                        ) : !afterExact && !followsLive ? (
-                            <RowNote tone="warning" icon={AlertTriangle}>
-                                {`${missingLabel(postCallConfig.provider as SpeechEngine, postCallConfig.model)} is not on this computer, so ${labelOf(afterModel)} is used instead.`}
-                            </RowNote>
-                        ) : followsLive ? (
-                            <RowNote>
-                                <span>{`Uses ${labelOf(afterModel)}.`}</span>
-                                {labsBadge(afterModel.provider)}
-                            </RowNote>
-                        ) : labsBadge(afterModel.provider) ? (
-                            <RowNote>{labsBadge(afterModel.provider)}</RowNote>
-                        ) : null
-                    ) : null}
-                    {whisperOffer}
-                </div>
+                {(afterNote || whisperOffer) && (
+                    <div className="space-y-2.5">
+                        {afterNote}
+                        {whisperOffer}
+                    </div>
+                )}
             </SettingRow>
 
             {language && (
@@ -603,6 +610,7 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
         availability: choice.availability,
         companion: choice.companion,
         npu: choice.npu,
+        librariesDownloading: libraries.status === 'downloading',
     };
     const offer = choice.loaded && !switching ? offerFor({ ...offerInputs, dismissed }) : null;
     const putOff = choice.loaded && !switching && !offer ? offerFor({ ...offerInputs, dismissed: [] }) : null;
