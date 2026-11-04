@@ -470,9 +470,11 @@ pub async fn openvino_status<R: Runtime>(app: AppHandle<R>, whisper_model: Strin
 /// version, then the companion. Resolves when both are installed, one fails
 /// or the download is cancelled; progress follows as [`CHANGED_EVENT`]. Also
 /// installs a newer runtime the catalog pins (an update). Holds the busy
-/// registry for its lifetime, like every model download.
+/// registry for its lifetime, like every model download. With `choose`
+/// (#88) a download that ends installed also makes the companion the
+/// after-meeting model (`crate::speech_choice::chosen`).
 #[tauri::command]
-pub async fn openvino_download<R: Runtime>(app: AppHandle<R>, id: String) -> Result<(), String> {
+pub async fn openvino_download<R: Runtime>(app: AppHandle<R>, id: String, choose: Option<bool>) -> Result<(), String> {
     let entry = companion(&id).ok_or_else(|| format!("{id} is not in the model list"))?;
     let cancel = CancellationToken::new();
     {
@@ -515,7 +517,11 @@ pub async fn openvino_download<R: Runtime>(app: AppHandle<R>, id: String) -> Res
         Err(error) => log::error!("[openvino] the download of {} failed: {error:#}", entry.id),
     }
     emit(&app);
-    result.map_err(|error| error.to_string())
+    result.map_err(|error| error.to_string())?;
+    if choose.unwrap_or(false) {
+        crate::speech_choice::chosen(&app, &entry).await?;
+    }
+    Ok(())
 }
 
 /// Where an install puts things: the app's folders, or a test's.

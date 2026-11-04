@@ -114,10 +114,13 @@ async fn start_retranscription<R: Runtime>(
         vocabulary,
     )
     .await;
+    // Asked before the unload below: whether the Intel GPU version did the pass (#88).
+    let ran_on_gpu = !use_parakeet && result.is_ok() && crate::speech_choice::runs_on_gpu().await;
     drop(batch_lease);
 
     // Unload the engine after the batch job (success, failure, or cancellation)
     super::common::unload_engine_after_batch(use_parakeet).await;
+    crate::speech_choice::after_post_meeting_pass(app.clone(), ran_on_gpu);
 
     // Guard will automatically clear flag on drop
     // No need for manual: RETRANSCRIPTION_IN_PROGRESS.store(false, Ordering::SeqCst);

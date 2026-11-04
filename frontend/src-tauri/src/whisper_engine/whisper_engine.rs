@@ -65,6 +65,10 @@ pub struct ModelInfo {
     pub recommended: bool,
     #[serde(default)]
     pub languages: Vec<String>,
+    /// The Intel GPU version of Whisper (#88, `crate::speech_choice`): the
+    /// ggml models it serves. Empty for every ggml model.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub companion_of: Vec<String>,
 }
 
 pub struct WhisperEngine {
@@ -340,10 +344,12 @@ impl WhisperEngine {
                 tier: entry.tier.clone(),
                 recommended: entry.recommended,
                 languages: entry.languages.clone(),
+                companion_of: Vec::new(),
             };
             
             models.push(model_info);
         }
+        models.extend(crate::speech_choice::listed());
         
         // Update internal cache
         let mut available_models = self.available_models.write().await;
@@ -388,6 +394,67 @@ impl WhisperEngine {
     }
 
     pub async fn load_model(&self, model_name: &str) -> Result<()> {
+        // The Intel GPU version is chosen by its own id (#88); it has no ggml
+        // file to verify.
+        if let Some(version) = crate::speech_choice::gpu_version(model_name) {
+            return self.load_gpu_version(&version).await;
+        }
+        self.load_ggml(model_name, true).await
+    }
+
+    /// Loads the Intel GPU version `version` on OpenVINO, else a regular copy
+    /// it serves on whisper.cpp (`speech_choice::regular_copy`), else fails
+    /// with `speech_choice::no_copy_message`. The engine then names the
+    /// version as its model either way, so the next load of it is a no-op
+    /// until an unload; a retry (`openvino_retry`) unloads first.
+    async fn load_gpu_version(&self, version: &model_catalog::schema::Entry) -> Result<()> {
+        let id = version.id.as_str();
+        if self.current_model.read().await.as_deref() == Some(id) {
+            log::info!("Model {} is already loaded, skipping reload", id);
+            return Ok(());
+        }
+        self.unload_model().await;
+        #[cfg(windows)]
+        let reason = match crate::speech_choice::installed(version) {
+            Some(companion) if super::openvino::is_model_dir(&companion.dir) => {
+                if self.try_openvino(&companion.dir, &companion.commit).await {
+                    self.release_whisper_cpp().await;
+                    *self.current_model.write().await = Some(id.to_string());
+                    log::info!("Successfully loaded model: {id} on OpenVINO ({})", companion.dir.display());
+                    return Ok(());
+                }
+                super::openvino::backend_status()
+                    .and_then(|status| status.fallback_reason)
+                    .unwrap_or_else(|| "Protocol found no Intel GPU it can run on".to_string())
+            }
+            _ => "it is not installed".to_string(),
+        };
+        #[cfg(not(windows))]
+        let reason = "it runs only on Windows".to_string();
+        if self.available_models.read().await.is_empty() {
+            self.discover_models().await?;
+        }
+        let installed: Vec<String> = self
+            .available_models
+            .read()
+            .await
+            .values()
+            .filter(|model| model.companion_of.is_empty() && matches!(model.status, ModelStatus::Available))
+            .map(|model| model.name.clone())
+            .collect();
+        let Some(copy) = crate::speech_choice::regular_copy(version, |name| installed.iter().any(|model| model == name)) else {
+            log::error!("The Intel GPU version {id} did not start ({reason}), and no regular copy is installed");
+            return Err(anyhow!(crate::speech_choice::no_copy_message(&reason)));
+        };
+        log::warn!("The Intel GPU version {id} did not start ({reason}); Whisper runs the regular copy {copy}");
+        self.load_ggml(&copy, false).await?;
+        *self.current_model.write().await = Some(id.to_string());
+        Ok(())
+    }
+
+    /// Loads the ggml model `model_name`; with `companion_in_place`, its
+    /// installed OpenVINO companion runs instead (#79).
+    async fn load_ggml(&self, model_name: &str, companion_in_place: bool) -> Result<()> {
         self.verify_before_load(model_name).await?;
         let models = self.available_models.read().await;
         let model_info = models.get(model_name)
@@ -410,7 +477,7 @@ impl WhisperEngine {
                 log::info!("Loading model: {}", model_name);
 
                 #[cfg(windows)]
-                if self.load_openvino_companion(model_name).await {
+                if companion_in_place && self.load_openvino_companion(model_name).await {
                     self.release_whisper_cpp().await;
                     *self.current_model.write().await = Some(model_name.to_string());
                     return Ok(());
