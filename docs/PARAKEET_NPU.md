@@ -43,7 +43,25 @@ So the NPU path never decodes piece by piece (`chunking.rs`, a port of #80's
   0.5 s later (earlier at the stretch's end); the call with more words stays.
 - Neighbouring calls join on an anchor (the same word, at most 320 ms apart, the
   one nearest the middle of the overlap), else at the middle.
+- Either way a junction drops a call's word only for a word the other call
+  decoded in its place: one that starts within 320 ms of it, or whose tokens'
+  frames overlap its own (a word split or joined differently, as when a window
+  starts inside it). A word carries its first token's frame and the end of its
+  last one's for that.
 - Each word goes to the piece it starts in, so the rows stay the VAD's pieces.
+
+**Why a junction keeps a word only one call heard.** TDT now and then emits
+nothing for seconds of speech near a window's edge, and the retry does not
+always help: on #66's QA meeting the window after "the budget, and the vendor
+choice" decoded nothing for its first 3.4 s, its retry 0.5 s later too, and
+two other windows decoded nothing for the last 2.5 s and the first 3.7 s. With
+no word on that side of the overlap there was no anchor, and the middle gave
+the span to the call that had heard nothing: "the vendor choice", "The
+remaining" and "One risk" were lost although the neighbouring call had them.
+`chunking.py` has the same rule and loses the same words wherever its decoder
+skips (two of the three there; its ONNX Runtime encoder decoded the third).
+`measure::npu::window_trace` prints every call's words and each junction's
+choice on a recording, for such cases.
 
 A stretch's audio is its pieces' samples end to end (gaps of up to 50 ms
 filled with zeros); a retry that reaches before the stretch's start reads
@@ -52,8 +70,11 @@ pieces are the audio it has.
 
 The ignored `measure::npu::chunking_matches_feed_b` checks the port against
 #80's recorded runs: the windows it plans (with the snap and the retries' layout)
-and the texts its merge and assign give from #80's decoded words are identical on
-all six kit files.
+are identical on all six kit files, and so are the texts its merge and assign
+give from #80's decoded words, but for the words only the port keeps (above):
+each piece's `chunking.py` text is its text with words left out (4, 33, 160,
+92, 10 and 42 words on the six files; #80 recorded only each word's start, so
+these include words the token frames would match).
 
 ### After a meeting
 
@@ -75,8 +96,10 @@ word; without one, new words start 200 ms after it). When the VAD cut the piece
 at its cap (`SpeechSegment::capped`, carried by `AudioChunk::capped`), the
 speech goes on and its rest comes as the next piece of the same source, so the
 words of the piece's last second wait for that piece's call, which hears them
-with context on both sides. If that call decodes nothing where the held words
-are, they stay. Held words are shown with the next piece's row.
+with context on both sides. As at any junction, held words that call decoded
+nothing in place of stay, and so do its words after the last shown one that
+the earlier calls decoded nothing in place of. Held words are shown with the
+next piece's row.
 
 The rest usually comes: after the cap cut the VAD keeps the speech and sends it
 at its next pause (800 ms of redemption) or its next cap, also when the source
@@ -209,7 +232,8 @@ Whisper's cache prune leaves the `parakeet-npu` folder alone.
 ## Tests
 
 - Unit: `chunking` (words, stretches, the plan and its snap, the retry, the
-  anchor merge, assign, the stretch audio, the live hold and its rules, flush
+  anchor merge, the words a junction keeps when the other call decoded none in
+  their place, after a meeting and live, assign, the stretch audio, the live hold and its rules, flush
   and release, bounded live state), `parakeet_live` (the bounded wait, the row
   before an unrelated piece, the end of the recording and the labels),
   `post_meeting` (each piece's stretch found once), `npu::state` (states,
@@ -220,8 +244,10 @@ Whisper's cache prune leaves the `parakeet-npu` folder alone.
   registry, the status with the NPU's keeper), Whisper's cache prune sparing
   the NPU folder.
 - Ignored, with fixtures under `.measure/` and an NPU: the parity test above,
-  the in-process completion test, and `npu_encoder_smoke` (NPU against the CPU
-  encoder on the padded input).
+  the in-process completion test, `npu_encoder_smoke` (NPU against the CPU
+  encoder on the padded input), and `window_trace` (every call's words and each
+  junction's choice on a recording, `MEASURE_AUDIO`, with `TRACE_CPU` the
+  processor's piece-by-piece text beside each piece).
 - The kit: `MEASURE_SETTINGS=parakeet` (post-meeting) and `parakeet-live`, with
   `MEASURE_PARAKEET_NPU` and `MEASURE_OPENVINO_RUNTIME`
   ([MEASURING_TRANSCRIPTION.md](MEASURING_TRANSCRIPTION.md)).
@@ -238,6 +264,10 @@ Whisper's cache prune leaves the `parakeet-npu` folder alone.
   continuation was lost, in a row of its own once the recording is 8 s past it.
 - A word up to about 1.5 s before a cap cut can come out wrong and is shown
   before the next call hears it right: the hold covers the last second only.
+- A word two windows decoded differently, timed more than 320 ms apart and
+  without overlapping token frames, is kept from both: a junction prefers a
+  doubled word to a lost one. On the kit's six files the rule changed texts
+  only by adding words, after a meeting and live.
 - A compile that started before a recording runs through it.
 - A failed inference keeps the NPU off at later starts until a retry or a new
   driver or runtime.
