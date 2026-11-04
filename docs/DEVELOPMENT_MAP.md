@@ -935,14 +935,17 @@ before changing it.
   variant, which holds a capped piece's last second for the next piece.
 - The paths: `Pass::windows_over` (import and retranscription) decodes each
   stretch whole on the NPU; the live worker keeps a `chunking::Live` per
-  source and passes the VAD's cap flag (`SpeechSegment::capped`,
-  `AudioChunk::capped`); `ParakeetModel` keeps the NPU encoder and builds its
-  CPU encoder only on a fallback. The processor and Labs paths are unchanged.
+  source (`audio/transcription/parakeet_live.rs`, which also shows held words
+  whose continuation was lost as rows of their own) and passes the VAD's cap
+  flag (`SpeechSegment::capped`, `AudioChunk::capped`); `ParakeetModel` keeps
+  the NPU encoder and builds its CPU encoder only on a fallback. The processor
+  and Labs paths are unchanged.
 - The runtime: the catalog pins the NPU plugin and the ONNX frontend;
   `runtime::complete_into` adds them to an older install of the same version
   while it is loaded, and `openvino_runtime_download` installs or completes the
-  runtime alone. On a PC with an NPU and v3 the runtime stays without a Whisper
-  companion; removing v3 or the runtime removes the NPU cache.
+  runtime alone. On a PC with an NPU the runtime stays without a Whisper
+  companion while v3 is installed or the runtime was downloaded for the NPU;
+  removing v3 or the runtime removes the NPU cache.
 
 ### Windows installer
 
