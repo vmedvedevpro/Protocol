@@ -23,9 +23,10 @@
 //! - Two calls are joined on an anchor: a word both decoded the same, at most
 //!   [`ANCHOR_MS`] apart, the one nearest the middle of the overlap; without
 //!   one, each keeps the words that start on its side of the middle
-//!   ([`merge`]). Either way a call's word goes only for a word the other
-//!   call decoded in its place: TDT also skips seconds of speech at a
-//!   window's edge, and a word only one call heard stays wherever it is.
+//!   ([`merge`]). Either way a call's word goes only when the other call
+//!   has a word starting within [`ANCHOR_MS`] of it or overlapping its
+//!   tokens' frames: TDT also skips seconds of speech at a window's edge,
+//!   and words in a span the other call left empty stay.
 //! - Each kept word goes to the piece it starts in ([`assign`]), so the rows
 //!   stay the VAD's pieces.
 //!
@@ -344,10 +345,16 @@ fn insert_by_time(into: &mut Vec<Word>, words: impl IntoIterator<Item = Word>) {
 /// without one each keeps the words on its side of the middle.
 ///
 /// A word the junction gives to the other call's side stays when that call
-/// decoded no word in its place. TDT now and then emits nothing for seconds
+/// has no word in its place ([`heard_there`]): an earlier call's word
+/// against the later call's kept words, a later call's word against all of
+/// the earlier call's, so of two spellings of one word on either side of the
+/// middle the earlier one stays. TDT now and then emits nothing for seconds
 /// of speech near a window's edge (#66: 3-4 s at the start of a window and of
 /// its retry, 2.5 s at the end of another), and the middle would otherwise
 /// trade the only call that heard those words for the one that heard nothing.
+/// A word the other call has any word near (within [`ANCHOR_MS`]) still
+/// goes, and one word both calls decoded but timed farther apart than that
+/// without overlapping frames stays twice.
 pub fn merge(windows: &[Window], decoded: &[Vec<Word>]) -> Vec<Word> {
     let mut out: Vec<Word> = Vec::new();
     let mut previous: Option<Window> = None;
@@ -373,7 +380,7 @@ pub fn merge(windows: &[Window], decoded: &[Vec<Word>]) -> Vec<Word> {
         let reach = window.start_ms - WINDOW_MS - ANCHOR_MS;
         let earlier_words = || out.iter().rev().take_while(move |word| word.start_ms >= reach).chain(&dropped);
         let back: Vec<Word> = current[..from].iter().filter(|word| !heard_there(word, earlier_words())).cloned().collect();
-        let stays: Vec<Word> = dropped.iter().filter(|word| !heard_there(word, current)).cloned().collect();
+        let stays: Vec<Word> = dropped.iter().filter(|word| !heard_there(word, &current[from..])).cloned().collect();
         out.extend(current[from..].iter().cloned());
         insert_by_time(&mut out, stays.into_iter().chain(back));
         previous = Some(*window);
@@ -471,9 +478,9 @@ impl LiveStretch {
     /// [`merge`]'s rule, except that shown words stay: an anchor may not
     /// drop them, and without one the new call's words start after the last
     /// shown word. As in [`merge`], a word goes only for a word the other
-    /// call decoded in its place: pending words (held at a cap cut, too) the
-    /// new call decoded nothing for stay, and so do the new call's words
-    /// after the last shown one that the earlier calls decoded nothing for.
+    /// call has in its place: pending words (held at a cap cut, too) with no
+    /// kept word of the new call there stay, and so do the new call's words
+    /// after the last shown one with no word of the earlier calls there.
     fn join(&mut self, new: Vec<Word>, window: (f64, f64), previous_end: f64) {
         let fixed = self.shown.len();
         let last_shown = self.shown.last().map_or(f64::NEG_INFINITY, |word| word.start_ms);
@@ -490,7 +497,7 @@ impl LiveStretch {
         };
         let back: Vec<Word> =
             new[..from].iter().filter(|word| word.start_ms > last_shown && !heard_there(word, &combined)).cloned().collect();
-        let stays: Vec<Word> = dropped.into_iter().filter(|word| !heard_there(word, &new)).collect();
+        let stays: Vec<Word> = dropped.into_iter().filter(|word| !heard_there(word, &new[from..])).collect();
         pending.extend(new[from..].iter().cloned());
         insert_by_time(&mut pending, stays.into_iter().chain(back));
         self.pending = pending;
@@ -731,12 +738,47 @@ mod tests {
 
         // An equal word farther apart than ANCHOR_MS is another occurrence:
         // no anchor, so each call keeps its side of the middle. The later
-        // call's "да" overlaps the earlier one's "нет", so it goes.
+        // call's "да" (4.1 s) is 500 and 400 ms from the earlier call's
+        // words, so to the rule it is a word the earlier call did not
+        // decode, and it stays as well.
         let decoded = vec![
-            vec![spanning(3600.0, 3900.0, " да"), spanning(4300.0, 4600.0, " нет")],
-            vec![spanning(4100.0, 4400.0, " да"), spanning(5000.0, 5300.0, " нет"), spanning(6000.0, 6300.0, " ещё")],
+            vec![Word::new(3600.0, " да"), Word::new(4500.0, " нет")],
+            vec![Word::new(4100.0, " да"), Word::new(5000.0, " нет"), Word::new(6000.0, " ещё")],
         ];
-        assert_eq!(texts(&merge(&windows, &decoded)), vec!["да", "нет", "нет", "ещё"]);
+        assert_eq!(texts(&merge(&windows, &decoded)), vec!["да", "да", "нет", "нет", "ещё"]);
+    }
+
+    #[test]
+    fn of_two_spellings_on_either_side_of_the_middle_one_stays() {
+        let windows = [
+            Window { start_ms: 0.0, end_ms: 6000.0, stretch: 0, first: true },
+            Window { start_ms: 3500.0, end_ms: 9500.0, stretch: 0, first: false },
+        ];
+        // Middle 4750 ms. The earlier call heard "Contoso" just after it,
+        // the later call "Kontoso" just before it: each is on the other's
+        // side. The earlier one is weighed against the later call's kept
+        // words only, so it stays; the later one meets it and goes.
+        let decoded = vec![
+            vec![spanning(3600.0, 3840.0, " chose"), spanning(4850.0, 5100.0, " Contoso")],
+            vec![spanning(4650.0, 4900.0, " Kontoso"), spanning(5600.0, 5840.0, " today")],
+        ];
+        assert_eq!(text(&merge(&windows, &decoded)), "chose Contoso today");
+    }
+
+    #[test]
+    fn a_one_token_word_timed_over_anchor_ms_late_at_a_window_start_stays_twice() {
+        // The later window starts at 3.6 s and times the earlier call's
+        // "два" (3.70 s) 340 ms late, one token each: neither an anchor nor
+        // a word in its place, so both copies stay (the rule's limit).
+        let windows = [
+            Window { start_ms: 0.0, end_ms: 6000.0, stretch: 0, first: true },
+            Window { start_ms: 3600.0, end_ms: 9600.0, stretch: 0, first: false },
+        ];
+        let decoded = vec![
+            vec![spanning(3000.0, 3080.0, " раз"), spanning(3700.0, 3780.0, " два")],
+            vec![spanning(4040.0, 4120.0, " два"), spanning(5200.0, 5280.0, " три")],
+        ];
+        assert_eq!(text(&merge(&windows, &decoded)), "раз два два три");
     }
 
     #[test]

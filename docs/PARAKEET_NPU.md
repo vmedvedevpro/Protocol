@@ -43,11 +43,15 @@ So the NPU path never decodes piece by piece (`chunking.rs`, a port of #80's
   0.5 s later (earlier at the stretch's end); the call with more words stays.
 - Neighbouring calls join on an anchor (the same word, at most 320 ms apart, the
   one nearest the middle of the overlap), else at the middle.
-- Either way a junction drops a call's word only for a word the other call
-  decoded in its place: one that starts within 320 ms of it, or whose tokens'
+- Either way a junction drops a call's word only when the other call has a
+  word in its place: any word that starts within 320 ms of it, or whose tokens'
   frames overlap its own (a word split or joined differently, as when a window
   starts inside it). A word carries its first token's frame and the end of its
-  last one's for that.
+  last one's for that. So words in a span the other call left empty stay; a
+  word the other call has some different word near still goes. An earlier
+  call's word is weighed against the later call's kept words, a later call's
+  against all of the earlier call's, so of two spellings of one word on either
+  side of the middle the earlier one stays.
 - Each word goes to the piece it starts in, so the rows stay the VAD's pieces.
 
 **Why a junction keeps a word only one call heard.** TDT now and then emits
@@ -96,9 +100,9 @@ word; without one, new words start 200 ms after it). When the VAD cut the piece
 at its cap (`SpeechSegment::capped`, carried by `AudioChunk::capped`), the
 speech goes on and its rest comes as the next piece of the same source, so the
 words of the piece's last second wait for that piece's call, which hears them
-with context on both sides. As at any junction, held words that call decoded
-nothing in place of stay, and so do its words after the last shown one that
-the earlier calls decoded nothing in place of. Held words are shown with the
+with context on both sides. As at any junction, held words with no kept word
+of that call in their place stay, and so do its words after the last shown one
+with no word of the earlier calls in their place. Held words are shown with the
 next piece's row.
 
 The rest usually comes: after the cap cut the VAD keeps the speech and sends it
@@ -264,10 +268,13 @@ Whisper's cache prune leaves the `parakeet-npu` folder alone.
   continuation was lost, in a row of its own once the recording is 8 s past it.
 - A word up to about 1.5 s before a cap cut can come out wrong and is shown
   before the next call hears it right: the hold covers the last second only.
-- A word two windows decoded differently, timed more than 320 ms apart and
-  without overlapping token frames, is kept from both: a junction prefers a
-  doubled word to a lost one. On the kit's six files the rule changed texts
-  only by adding words, after a meeting and live.
+- One word two windows timed more than 320 ms apart without overlapping token
+  frames is two words to the rule and stays twice, for instance a one-token
+  word that a window starting just before it times 340 ms late: a junction
+  prefers a doubled word to a lost one. On the kit's six files the rule changed
+  texts only by adding words, after a meeting and live; a few of them double
+  their neighbour (live "And And" on `ami-es2004a-mix`, where two windows time
+  that "And" 295 ms apart, is probably such a junction duplicate).
 - A compile that started before a recording runs through it.
 - A failed inference keeps the NPU off at later starts until a retry or a new
   driver or runtime.
