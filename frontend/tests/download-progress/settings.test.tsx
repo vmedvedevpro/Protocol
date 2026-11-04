@@ -50,6 +50,11 @@ function App() {
   );
 }
 const text = () => JSON.stringify(root.toJSON());
+const label = (node: any): string => node.children.map((child: any) => (typeof child === 'string' ? child : label(child))).join('');
+// Speech models › All models is collapsed until opened.
+const openAllModels = () => act(async () => {
+  root.root.find((node) => node.type === 'button' && label(node) === 'All models').props.onClick();
+});
 // The Radix Select root carries the picker's value; its options render only while open.
 const picker = (name: string) => root.root.findAllByProps({ name })[0];
 beforeEach(() => {
@@ -68,7 +73,8 @@ test('Settings shows both background downloads before they are selected and refr
   jobs.whisper = { status: 'downloading', progress: 64 };
   jobs.nemotron = { status: 'downloading', progress: 37, file: 'nemotron3_diar_v3.onnx', downloadedBytes: 1048576, totalBytes: 2097152 };
   await act(async () => { root = create(<App />); });
-  expect(root.root.findByProps({ 'aria-label': 'Whisper download progress' }).props['aria-valuenow']).toBe(64);
+  // The Compressed copy is this computer's after-meeting model (no Intel GPU here): its row in the card shows the job.
+  expect(root.root.findAll((node) => node.props['aria-label'] === 'Downloading Whisper Large V3 Turbo Compressed')[0].props.value).toBe(64);
   expect(root.root.findByProps({ 'aria-label': 'Nemotron download progress' }).props['aria-valuenow']).toBe(37);
   expect(text()).toContain('Current file: ');
   expect(text()).not.toContain('Get a cleaner transcript with Whisper');
@@ -95,7 +101,6 @@ test('a Whisper download that could not become the after-meeting model says so a
   await act(async () => { root = create(<App />); });
   expect(text()).toContain('Whisper Large V3 Turbo Compressed downloaded, but Protocol could not switch to it.');
   expect(text()).toContain('disk full');
-  const label = (node: any): string => node.children.map((child: any) => (typeof child === 'string' ? child : label(child))).join('');
   const retry = root.root.find((node) => node.type === 'button' && label(node) === 'Retry');
   await act(async () => retry.props.onClick());
   expect(startDownload).toHaveBeenCalledWith('whisper');
@@ -111,6 +116,7 @@ test('removing an optional model targets only that model', async () => {
   jobs.whisper = { status: 'ready', progress: 100, enabled: true };
   jobs.nemotron = { status: 'ready', progress: 100, enabled: true };
   await act(async () => { root = create(<App />); });
+  await openAllModels();
   // The optional Whisper model is uninstalled natively; other Whisper models
   // are removed by the model list itself.
   expect(whisperManagerProps.removeModel('small')).toBe(false);
@@ -124,7 +130,7 @@ test('removing an optional model targets only that model', async () => {
   expect(startDownload).toHaveBeenCalledWith('whisper');
   // Nemotron's Remove asks first; confirming uninstalls Nemotron only.
   await act(async () => root.root.findByProps({ 'aria-label': 'Remove NVIDIA Nemotron' }).props.onClick());
-  await act(async () => root.root.findByType(ConfirmDialog).props.onConfirm());
+  await act(async () => root.root.findAllByType(ConfirmDialog).find((dialog) => dialog.props.open)!.props.onConfirm());
   expect(uninstallModel).toHaveBeenLastCalledWith('nemotron');
   expect(uninstallModel).toHaveBeenCalledTimes(2);
 });
@@ -134,10 +140,13 @@ test('the pickers show what runs during and after meetings, and say when a choic
   expect(picker('live-model').props.value).toBe('parakeet:parakeet-tdt-0.6b-v3-int8');
   expect(picker('after-meeting-model').props.value).toBe('live');
   expect(text()).toContain('Uses Parakeet · Lightning.');
-  // Without Whisper, the after-meeting step offers the recommended download,
-  // by its catalog name: the full Large V3 Turbo is another model.
-  expect(text()).toContain('Get a cleaner transcript with Whisper');
-  expect(text()).toContain('Whisper Large V3 Turbo Compressed is slower than Parakeet');
+  // Without Whisper, For this computer offers the recommended copy by its
+  // catalog name (the full Large V3 Turbo is another model); the
+  // after-meeting step no longer has its own offer.
+  expect(text()).not.toContain('Get a cleaner transcript with Whisper');
+  expect(text()).toContain('Whisper Large V3 Turbo Compressed');
+  const card = root.root.find((node) => node.type === 'ul' && node.props['aria-label'] === 'For this computer');
+  expect(card.findAll((node) => node.type === 'button' && label(node) === 'Download')).toHaveLength(1);
   await act(async () => picker('meeting-language').props.onValueChange('de'));
   expect(setLanguage).toHaveBeenCalledWith('de');
 

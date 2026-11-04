@@ -1,26 +1,27 @@
 import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { AlertTriangle, AudioLines, BookOpen, Check, Download, Globe, Radio, Zap } from 'lucide-react';
+import { AlertTriangle, AudioLines, BookOpen, Check, ChevronRight, Globe, Radio, Zap } from 'lucide-react';
 import { toast } from 'sonner';
 import { OPTIONAL_MODEL_PREFERENCES_CHANGED } from '@/lib/optional-model-activation';
 import { OPTIONAL_WHISPER_MODEL, useOptionalModelDownloads } from '@/contexts/OptionalModelDownloadsContext';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
-import { Spinner } from './ui/spinner';
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from './ui/select';
 import { Switch } from './ui/switch';
 import { Textarea } from './ui/textarea';
 import { RecordingPreferences } from './RecordingSettings';
 import { ModelManager } from './WhisperModelManager';
 import { ParakeetModelManager } from './ParakeetModelManager';
-import { OpenVinoAcceleration } from './OpenVinoAcceleration';
+import { DeviceBadge, ForThisComputer } from './settings/ForThisComputer';
+import { IntelOffer } from './settings/IntelOffer';
 import { LANGUAGES } from './LanguageSelection';
 import { RowNote, SettingRow, SettingsGroup } from './settings/SettingsGroup';
 import type { RawModelInfo } from '@/hooks/useTranscriptionModels';
-import { formatModelSize, useModelSize } from '@/lib/model-catalog';
 import { getModelDisplayInfo } from '@/lib/parakeet';
-import { installedSpeechModels, speechModelLabel, speechModelLanguages, speechModelName, type InstalledSpeechModel, type SpeechEngine } from '@/lib/speech-models';
+import { installedSpeechModels, speechModelLabel, speechModelLanguages, type InstalledSpeechModel, type SpeechEngine } from '@/lib/speech-models';
+import { deviceOf, npuOwnsParakeet, offerFor, readDismissed, writeDismissed, type Device } from '@/lib/speech-choice';
 import { useLabs } from '@/hooks/useLabs';
+import { useSpeechChoice } from '@/hooks/useSpeechChoice';
 
 export interface TranscriptModelProps {
     provider: 'localWhisper' | 'parakeet' | 'deepgram' | 'elevenLabs' | 'groq' | 'openai';
@@ -61,6 +62,8 @@ const labelOf = (model: InstalledModel) => speechModelLabel(model.provider, mode
 // A saved model that is not installed has no catalog name at hand; Parakeet's are known here.
 const missingLabel = (provider: SpeechEngine, name: string) =>
     speechModelLabel(provider, name, provider === 'parakeet' ? getModelDisplayInfo(name)?.friendlyName : undefined);
+// The live select's entry that opens Speech models › All models.
+const ALL_MODELS = '__all-models';
 const AUTO_LANGUAGE_NAMES: Record<string, string> = {
     auto: 'Detect automatically',
     'auto-translate': 'Detect and translate to English',
@@ -69,14 +72,13 @@ const AUTO_LANGUAGE_NAMES: Record<string, string> = {
 export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelConfig, onModelSelect, language, speakerSettings }: TranscriptSettingsProps) {
     const { jobs, startDownload, uninstallModel } = useOptionalModelDownloads();
     const whisperJob = jobs.whisper;
-    const isWhisperDownloading = whisperJob.status === 'downloading' || whisperJob.status === 'activating';
-    const optionalWhisperSize = formatModelSize(useModelSize('whisper', OPTIONAL_WHISPER_MODEL));
+    const choice = useSpeechChoice();
+    const [allModelsOpen, setAllModelsOpen] = useState(false);
+    const [dismissed, setDismissed] = useState<Device[]>(() => readDismissed());
+    const [switching, setSwitching] = useState(false);
     const [uiProvider, setUiProvider] = useState<TranscriptModelProps['provider']>(transcriptModelConfig.provider);
     const [installedModels, setInstalledModels] = useState<InstalledModel[]>([]);
     const [installedLoaded, setInstalledLoaded] = useState(false);
-    // The catalog's name for the model the Whisper offer downloads; the full
-    // Large V3 Turbo is a different, larger model.
-    const [optionalWhisperName, setOptionalWhisperName] = useState<string | null>(null);
     const [isSavingLive, setIsSavingLive] = useState(false);
     const [postCallConfig, setPostCallConfig] = useState<PostCallTranscriptConfig>(DEFAULT_POST_CALL_CONFIG);
     const [isLoadingPostCall, setIsLoadingPostCall] = useState(true);
@@ -97,6 +99,7 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
     const postCallRevisionRef = useRef(0);
     const afterMeetingRef = useRef<HTMLDivElement>(null);
     const modelsRef = useRef<HTMLElement>(null);
+    const allModelsRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
         let disposed = false;
@@ -143,8 +146,6 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
             invoke<RawModelInfo[]>('parakeet_get_available_models').catch(() => []),
         ]);
         setInstalledModels(installedSpeechModels(whisperModels, parakeetModels));
-        const optionalWhisper = whisperModels.find((model) => model.name === OPTIONAL_WHISPER_MODEL);
-        if (optionalWhisper?.display_name) setOptionalWhisperName(speechModelName('whisper', optionalWhisper.name, optionalWhisper.display_name));
         setInstalledLoaded(true);
     }, []);
 
@@ -158,13 +159,14 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
         if (whisperJob.status === 'ready' || whisperJob.status === 'idle' || whisperJob.status === 'activation-error') void refreshInstalledModels();
     }, [whisperJob.status, refreshInstalledModels]);
 
-    // The Enhance transcript dialog links here to install Whisper.
+    // The Enhance transcript dialog links here to install Whisper: the For
+    // this computer card downloads it.
     useEffect(() => {
         const requestedSection = sessionStorage.getItem('meetily-settings-transcription-section');
         sessionStorage.removeItem('meetily-settings-transcription-section');
         sessionStorage.removeItem('meetily-settings-transcription-provider');
         if (requestedSection === 'post-call') {
-            window.setTimeout(() => afterMeetingRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
+            window.setTimeout(() => modelsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
         }
     }, []);
 
@@ -324,13 +326,7 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
             : installedModels.find((model) => model.provider === 'parakeet') ?? installedModels[0]);
     const afterKey = followsLive ? 'live' : keyOf(postCallConfig.provider as SpeechEngine, postCallConfig.model);
 
-    const installedWhisper = installedModels.filter((model) => model.provider === 'whisper');
     const usesWhisper = liveModel?.provider === 'whisper' || afterModel?.provider === 'whisper';
-    // The Whisper models in use, after meetings first: the OpenVINO row
-    // offers the companion of the first one that has one.
-    const whisperInUse = [afterModel, liveModel]
-        .filter((model): model is InstalledModel => model?.provider === 'whisper')
-        .map((model) => model.name);
 
     const usageFor = (engine: SpeechEngine) => (name: string) => [
         ...(liveModel?.provider === engine && liveModel.name === name ? ['During meetings'] : []),
@@ -338,6 +334,10 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
     ];
 
     const chooseLive = (key: string) => {
+        if (key === ALL_MODELS) {
+            openAllModels();
+            return;
+        }
         const model = installedModels.find((entry) => keyOf(entry.provider, entry.name) === key);
         if (!model || isSavingLive) return;
         void saveLiveConfig(model.provider === 'whisper' ? 'localWhisper' : 'parakeet', model.name);
@@ -354,12 +354,33 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
     };
 
     const scrollToModels = () => modelsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    const openAllModels = () => {
+        setAllModelsOpen(true);
+        window.setTimeout(() => allModelsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
+    };
 
-    const modelItems = (missing?: { key: string; label: string }) => (
+    // The device each installed model runs on (#88): its badge in the selects.
+    const deviceFor = (model: InstalledModel) => deviceOf(model.provider, model.name, choice.devices);
+    const modelLabel = (model: InstalledModel) => {
+        const device = deviceFor(model);
+        return (
+            <span className="inline-flex items-center gap-2">
+                {labelOf(model)}
+                {device && <DeviceBadge device={device} />}
+            </span>
+        );
+    };
+    // The live list marks Parakeet as the one for live text.
+    const liveHint = (model: InstalledModel) =>
+        model.provider === 'parakeet' && model.name === choice.pair.live.id
+            ? `${deviceFor(model) === 'Intel NPU' ? 'Light on power · ' : ''}recommended for live text`
+            : undefined;
+
+    const modelItems = (missing?: { key: string; label: string }, hint?: (model: InstalledModel) => string | undefined) => (
         <>
             {installedModels.map((model) => (
-                <SelectItem key={keyOf(model.provider, model.name)} value={keyOf(model.provider, model.name)}>
-                    {labelOf(model)}
+                <SelectItem key={keyOf(model.provider, model.name)} value={keyOf(model.provider, model.name)} hint={hint?.(model)}>
+                    {modelLabel(model)}
                 </SelectItem>
             ))}
             {missing && (
@@ -370,10 +391,12 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
         </>
     );
 
-    // A Labs speech option that is on is named on the step whose engine it changes.
+    // A Labs speech option that is on is named on the step whose engine it
+    // changes. The Parakeet GPU option does nothing while the Intel NPU runs
+    // Parakeet or gets ready to (#66), so it is not named then.
     const labsBadge = (engine: SpeechEngine) =>
         engine === 'parakeet'
-            ? labs.parakeetGpu && <Badge variant="accent" size="xs" className="ml-1.5 align-middle">GPU · Labs</Badge>
+            ? labs.parakeetGpu && !npuOwnsParakeet(choice.npu) && <Badge variant="accent" size="xs" className="ml-1.5 align-middle">GPU · Labs</Badge>
             : labs.whisperSilenceGuard && <Badge variant="accent" size="xs" className="ml-1.5 align-middle">Silence guard · Labs</Badge>;
 
     const engineNote = (model: InstalledModel) => model.provider === 'parakeet' ? (
@@ -392,46 +415,18 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
         </RowNote>
     );
 
-    const offeredWhisper = optionalWhisperName ? `Whisper ${optionalWhisperName}` : 'Whisper';
-    // The model is on disk by then, so this shows with Whisper installed,
-    // until a retry succeeds or After the meeting is set to that model.
+    // A failed switch of the optional Whisper job (the regular copy, N7):
+    // the model is on disk, After the meeting could not be set to it.
     const whisperActivationFailed = whisperJob.status === 'activation-error'
         && !(postCallConfig.provider === 'whisper' && postCallConfig.model === OPTIONAL_WHISPER_MODEL);
-    const whisperOffer = isWhisperDownloading ? (
-        <div className="space-y-2 rounded-xl border border-af-border bg-af-panel px-3.5 py-3">
-            <div className="flex flex-wrap items-center justify-between gap-2 text-[13px] font-medium text-af-text">
-                <span className="inline-flex items-center gap-2">
-                    {whisperJob.status === 'activating' && <Spinner className="h-3.5 w-3.5" />}
-                    {whisperJob.status === 'activating' ? 'Switching to Whisper…' : `Downloading ${offeredWhisper}…`}
-                </span>
-                <span className="tabular-nums text-af-text-2">{Math.round(whisperJob.progress)}%</span>
-            </div>
-            <div role="progressbar" aria-label="Whisper download progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={whisperJob.progress} className="h-1.5 overflow-hidden rounded-full bg-af-hover">
-                <div className="h-full rounded-full bg-af-accent transition-[width] duration-150" style={{ width: `${whisperJob.progress}%` }} />
-            </div>
-            <p className="text-xs text-af-text-3">You can keep using Protocol. After meetings switches to Whisper when the download finishes.</p>
-        </div>
-    ) : whisperActivationFailed || (whisperJob.status === 'error' && installedWhisper.length === 0) ? (
+    const whisperOffer = whisperActivationFailed ? (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-af-danger/30 bg-af-danger/[0.06] px-3.5 py-3">
             <p role="alert" className="min-w-0 flex-1 basis-60 text-xs text-af-danger [overflow-wrap:anywhere]">
-                {whisperActivationFailed ? `${offeredWhisper} downloaded, but Protocol could not switch to it. ` : `${offeredWhisper} could not be downloaded. `}
+                {`${`Whisper ${choice.whisper.find((model) => model.name === OPTIONAL_WHISPER_MODEL)?.display_name ?? ''}`.trim()} downloaded, but Protocol could not switch to it. `}
                 {whisperJob.error}
             </p>
             {/* Native code finds the model on disk and only retries the switch. */}
             <Button variant="secondary" size="sm" onClick={() => startDownload('whisper')}>Retry</Button>
-        </div>
-    ) : installedLoaded && installedWhisper.length === 0 ? (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-af-accent/25 bg-af-accent/[0.06] px-3.5 py-3">
-            <div className="min-w-0 flex-1 basis-60">
-                <p className="text-[13px] font-medium text-af-text">Get a cleaner transcript with Whisper</p>
-                <p className="mt-0.5 text-xs leading-relaxed text-af-text-3">
-                    {`${offeredWhisper} is slower than Parakeet but often more accurate on the full recording. Protocol uses it here once it is downloaded.`}
-                </p>
-            </div>
-            <Button variant="primary" size="sm" onClick={() => startDownload('whisper')}>
-                <Download />
-                Download{optionalWhisperSize ? ` · ${optionalWhisperSize}` : ''}
-            </Button>
         </div>
     ) : null;
 
@@ -447,7 +442,16 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
                             <SelectValue placeholder={installedLoaded ? 'No speech model installed' : 'Loading…'} />
                         </SelectTrigger>
                         <SelectContent>
-                            {modelItems(liveEngine && liveKey && !liveModel ? { key: liveKey, label: missingLabel(liveEngine, transcriptModelConfig.model) } : undefined)}
+                            <SelectGroup>
+                                <SelectLabel>On this computer</SelectLabel>
+                                {modelItems(liveEngine && liveKey && !liveModel ? { key: liveKey, label: missingLabel(liveEngine, transcriptModelConfig.model) } : undefined, liveHint)}
+                            </SelectGroup>
+                            <SelectGroup>
+                                <SelectLabel>Not downloaded</SelectLabel>
+                                <SelectItem value={ALL_MODELS} hint="In Speech models › All models">
+                                    <span className="text-af-text-3">Whisper Small, Medium and others</span>
+                                </SelectItem>
+                            </SelectGroup>
                         </SelectContent>
                     </Select>
                 }
@@ -591,48 +595,101 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
         </SettingsGroup>
     );
 
+    // The update offer (N2): this computer has an Intel GPU or NPU that
+    // Protocol does not use yet. Not now hides it per device; the card keeps
+    // a small way back to it while it still applies.
+    const offerInputs = {
+        installedAny: installedLoaded && installedModels.length > 0,
+        availability: choice.availability,
+        companion: choice.companion,
+        npu: choice.npu,
+    };
+    const offer = choice.loaded && !switching ? offerFor({ ...offerInputs, dismissed }) : null;
+    const putOff = choice.loaded && !switching && !offer ? offerFor({ ...offerInputs, dismissed: [] }) : null;
+    const notNow = (devices: Device[]) => {
+        writeDismissed(devices);
+        setDismissed(devices);
+    };
+    const offerGroup = offer ? (
+        <IntelOffer
+            key="offer"
+            offer={offer}
+            companionId={choice.companion?.id ?? null}
+            copy={choice.pair.copy}
+            onNotNow={() => notNow(offer.devices)}
+            onSwitch={() => { setSwitching(true); scrollToModels(); }}
+        />
+    ) : null;
+
     const modelsGroup = (
         <SettingsGroup
             key="models"
             ref={modelsRef}
             title="Speech models"
-            description="The models on this computer. A download keeps going while you use the rest of Protocol."
+            description={installedLoaded && installedModels.length === 0
+                ? "No speech model is on this computer yet, so recording can't start."
+                : 'The models on this computer. A download keeps going while you use the rest of Protocol.'}
         >
-            <SettingRow title="Parakeet" description="Fast enough for live transcripts. Recommended while recording.">
-                <div className={isSavingLive ? 'pointer-events-none opacity-70' : ''}>
-                    <ParakeetModelManager
-                        onModelSelect={handleParakeetDownloaded}
-                        onModelRemoved={() => void refreshInstalledModels()}
-                        usageFor={usageFor('parakeet')}
-                        autoSave={false}
-                    />
-                </div>
-            </SettingRow>
-            <SettingRow title="Whisper" description="Slower, but often more accurate on a full recording, and knows about 100 languages. Recommended after meetings.">
-                <div className={isSavingPostCall ? 'pointer-events-none opacity-70' : ''}>
-                    <ModelManager
-                        onModelSelect={handleWhisperDownloaded}
-                        onModelRemoved={(name) => void handleWhisperRemoved(name)}
-                        removeModel={(name) => {
-                            // Native uninstall refuses during a recording and resets
-                            // every choice that used the model before deleting it.
-                            if (name !== OPTIONAL_WHISPER_MODEL) return false;
-                            uninstallModel('whisper');
-                            return true;
-                        }}
-                        startModelDownload={(name) => {
-                            // The same job as the offer above: one download, and native
-                            // code makes it the after-meeting model even if Settings closes.
-                            if (name !== OPTIONAL_WHISPER_MODEL) return false;
-                            startDownload('whisper');
-                            return true;
-                        }}
-                        usageFor={usageFor('whisper')}
-                        autoSave={false}
-                    />
-                </div>
-            </SettingRow>
-            <OpenVinoAcceleration whisperModels={whisperInUse} />
+            <div className={`px-5 py-4 ${isSavingLive || isSavingPostCall ? 'pointer-events-none opacity-70' : ''}`}>
+                <ForThisComputer
+                    choice={choice}
+                    onParakeetInstalled={handleParakeetDownloaded}
+                    onModelsChanged={() => void refreshInstalledModels()}
+                    offerBack={putOff ? {
+                        label: `${putOff.title.replace(/^Protocol can use your /, 'Use your ')}…`,
+                        onClick: () => notNow([]),
+                    } : null}
+                />
+            </div>
+            <div ref={allModelsRef} className="scroll-mt-6">
+                <button
+                    type="button"
+                    aria-expanded={allModelsOpen}
+                    onClick={() => setAllModelsOpen((open) => !open)}
+                    className="flex w-full items-center gap-2 px-5 py-3 text-left text-[13px] font-medium text-af-text-2 hover:text-af-text"
+                >
+                    <ChevronRight className={`h-3.5 w-3.5 transition-transform ${allModelsOpen ? 'rotate-90' : ''}`} aria-hidden />
+                    All models
+                </button>
+                {allModelsOpen && (
+                    <div className="divide-y divide-af-border border-t border-af-border">
+                        <SettingRow title="Parakeet" description="Fast enough for live transcripts. Recommended while recording.">
+                            <div className={isSavingLive ? 'pointer-events-none opacity-70' : ''}>
+                                <ParakeetModelManager
+                                    onModelSelect={handleParakeetDownloaded}
+                                    onModelRemoved={() => { void refreshInstalledModels(); choice.refresh(); }}
+                                    usageFor={usageFor('parakeet')}
+                                    autoSave={false}
+                                />
+                            </div>
+                        </SettingRow>
+                        <SettingRow title="Whisper" description="Slower, but often more accurate on a full recording, and knows about 100 languages. Recommended after meetings.">
+                            <div className={isSavingPostCall ? 'pointer-events-none opacity-70' : ''}>
+                                <ModelManager
+                                    onModelSelect={handleWhisperDownloaded}
+                                    onModelRemoved={(name) => { void handleWhisperRemoved(name); choice.refresh(); }}
+                                    removeModel={(name) => {
+                                        // Native uninstall refuses during a recording and resets
+                                        // every choice that used the model before deleting it.
+                                        if (name !== OPTIONAL_WHISPER_MODEL) return false;
+                                        uninstallModel('whisper');
+                                        return true;
+                                    }}
+                                    startModelDownload={(name) => {
+                                        // The same job as the card's: one download, and native
+                                        // code makes it the after-meeting model even if Settings closes.
+                                        if (name !== OPTIONAL_WHISPER_MODEL) return false;
+                                        startDownload('whisper');
+                                        return true;
+                                    }}
+                                    usageFor={usageFor('whisper')}
+                                    autoSave={false}
+                                />
+                            </div>
+                        </SettingRow>
+                    </div>
+                )}
+            </div>
         </SettingsGroup>
     );
 
@@ -642,7 +699,7 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
     const speakers = speakerSettings ? <Fragment key="speakers">{speakerSettings}</Fragment> : null;
     const groups = needsSetup
         ? [modelsGroup, speechGroup, vocabularyGroup, speakers]
-        : [speechGroup, vocabularyGroup, speakers, modelsGroup];
+        : [offerGroup, speechGroup, vocabularyGroup, speakers, modelsGroup];
 
     return <div className="space-y-8">{groups}</div>;
 }
