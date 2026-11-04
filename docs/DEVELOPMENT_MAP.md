@@ -952,7 +952,10 @@ before changing it.
 - `parakeet_engine/chunking.rs`: the windows the static shape needs (#80's
   feed B: stretches of touching pieces, windows every 3.5 s snapped to a pause,
   the retry, the anchor merge, words assigned to their pieces) and the live
-  variant, which holds a capped piece's last second for the next piece.
+  variant, which holds a capped piece's last second for the next piece. A
+  junction drops a call's word only when the other call has a word starting
+  within 320 ms of it or overlapping its tokens' frames, so the other call's
+  words in a span TDT left empty in one window stay.
 - The paths: `Pass::windows_over` (import and retranscription) decodes each
   stretch whole on the NPU; the live worker keeps a `chunking::Live` per
   source (`audio/transcription/parakeet_live.rs`, which also shows held words
