@@ -619,6 +619,7 @@ mod tests {
             start_timestamp_ms: start_s * 1000.0,
             end_timestamp_ms: (start_s + seconds) * 1000.0,
             confidence: 0.9,
+            capped: false,
         }
     }
 

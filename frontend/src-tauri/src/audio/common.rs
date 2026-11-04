@@ -351,6 +351,7 @@ pub(crate) fn split_segment_at_silence(
                 start_timestamp_ms: chunk_start_ms,
                 end_timestamp_ms: chunk_end_ms,
                 confidence: segment.confidence,
+                capped: false,
             });
             break;
         }
@@ -413,6 +414,7 @@ pub(crate) fn split_segment_at_silence(
             start_timestamp_ms: chunk_start_ms,
             end_timestamp_ms: chunk_end_ms,
             confidence: segment.confidence,
+            capped: false,
         });
 
         // Advance position to where the current chunk actually ends
@@ -440,6 +442,7 @@ mod tests {
             start_timestamp_ms: 1_000.0,
             end_timestamp_ms: 31_000.0,
             confidence: 0.9,
+            capped: false,
         };
         let pieces = split_segment_at_silence(&segment, 25 * 16_000);
         assert_eq!(pieces.len(), 2);
@@ -463,6 +466,7 @@ mod tests {
             start_timestamp_ms: 0.0,
             end_timestamp_ms: 27_000.0,
             confidence: 0.9,
+            capped: false,
         };
         let pieces = split_segment_at_silence(&segment, 25 * 16_000);
         assert_eq!(pieces.len(), 1);
@@ -478,6 +482,7 @@ mod tests {
             start_timestamp_ms: 0.0,
             end_timestamp_ms: 1000.0,
             confidence: 0.9,
+            capped: false,
         };
         let result = split_segment_at_silence(&segment, 25 * 16000);
         assert_eq!(result.len(), 1);
@@ -497,6 +502,7 @@ mod tests {
             start_timestamp_ms: 0.0,
             end_timestamp_ms: 60_000.0,
             confidence: 0.9,
+            capped: false,
         };
 
         let result = split_segment_at_silence(&segment, 25 * 16000);
@@ -521,6 +527,7 @@ mod tests {
             start_timestamp_ms: 0.0,
             end_timestamp_ms: 60_000.0,
             confidence: 0.9,
+            capped: false,
         };
 
         let result = split_segment_at_silence(&segment, 25 * 16000);

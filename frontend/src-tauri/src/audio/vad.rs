@@ -11,6 +11,10 @@ pub struct SpeechSegment {
     pub start_timestamp_ms: f64,
     pub end_timestamp_ms: f64,
     pub confidence: f32,
+    /// The VAD cut this segment at its continuous-speech cap: the speech goes
+    /// on, and the rest comes as the next segment, touching this one. Parakeet
+    /// on the NPU holds a capped piece's last second for it (#66).
+    pub capped: bool,
 }
 
 /// Searches the trailing `search_samples` of `samples` for the window of length
@@ -123,6 +127,7 @@ impl ContinuousVadProcessor {
             start_timestamp_ms: start_ms,
             end_timestamp_ms: end_ms,
             confidence: 0.8,
+            capped: false,
         })
     }
 
@@ -373,6 +378,7 @@ impl ContinuousVadProcessor {
                     start_timestamp_ms: start_ms,
                     end_timestamp_ms: end_ms,
                     confidence: 0.8, // Estimated confidence for forced end
+                    capped: false,
                 };
 
                 self.speech_segments.push_back(segment);
@@ -477,6 +483,7 @@ impl ContinuousVadProcessor {
                                 start_timestamp_ms: start_ms,
                                 end_timestamp_ms: end_ms,
                                 confidence: 0.9, // VAD confidence
+                                capped: false,
                             });
                         } else {
                             debug!("VAD: Dropping silent segment at SpeechEnd (rms={:.5}, peak={:.5})", rms, peak);
@@ -541,6 +548,7 @@ impl ContinuousVadProcessor {
                             start_timestamp_ms: start_ms,
                             end_timestamp_ms: end_ms,
                             confidence: 0.9,
+                            capped: true,
                         });
 
                         self.speech_start_sample += cut_point;
