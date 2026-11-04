@@ -180,7 +180,10 @@ so dependencies resolve from that folder and System32 only, and stays loaded
 for the process. A process loads at most one version, once: the libraries of
 two versions share their names, and Windows resolves a dependency by name to
 the one already loaded. A runtime that is not installed is looked for again
-on the next load.
+on the next load. Parakeet on the Intel NPU uses the same version through
+OpenVINO's C API alone ([PARAKEET_NPU.md](PARAKEET_NPU.md)): it pins the
+folder without loading GenAI (`pin_runtime`), and GenAI then loads from that
+folder.
 
 `genai::API_LEVEL` (1) names the GenAI C API the binding calls: the functions
 it binds with the signatures of GenAI 2026.4.1's headers. Each catalog entry
@@ -265,7 +268,9 @@ is installed and used the same way.
 Remove in the row removes the companion, and with the last companion the
 runtime (a version this process loaded goes at the next start) and the model
 cache. At startup, a runtime no companion needs (none installed or begun) is
-removed too. A version left on disk only because this process loaded it
+removed too. On a PC with an Intel NPU and Parakeet v3 installed the NPU keeps
+the runtime instead, and `removesRuntime` is false
+([PARAKEET_NPU.md](PARAKEET_NPU.md#the-runtime)). A version left on disk only because this process loaded it
 counts as gone in the row until then (`RuntimeStatus::removed_at_restart`):
 the row says that Intel's libraries are removed when Protocol restarts,
 rather than showing them installed with a "Remove the libraries" that cannot
@@ -306,7 +311,7 @@ It is a separate download because GenAI cannot read ggml files.
   a model update brings new weights, so both start a new folder; each compile
   removes the folders of other runtime versions and of commits no installed
   companion has (`prune_cache`), and removing the last companion removes the
-  cache.
+  cache. The `parakeet-npu` folder there is the NPU's, which neither touches.
 - Calls run on Tokio's blocking pool, one at a time per pipeline (a mutex):
   GenAI keeps one infer request per model and the decoder state between the
   steps of a generation.
