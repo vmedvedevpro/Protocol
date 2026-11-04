@@ -57,7 +57,9 @@ pub fn is_model_dir(dir: &Path) -> bool {
 struct LoadedRuntime {
     dir: PathBuf,
     version: String,
-    outcome: std::result::Result<&'static GenAi, String>,
+    /// `None` while only OpenVINO's C API uses the version (Parakeet on the
+    /// NPU, [`pin_runtime`]): GenAI loads from the same folder on first use.
+    outcome: Option<std::result::Result<&'static GenAi, String>>,
 }
 
 static RUNTIME: Mutex<Option<LoadedRuntime>> = Mutex::new(None);
@@ -86,20 +88,40 @@ fn runtime_to_load() -> std::result::Result<crate::model_catalog::runtime::Insta
 /// process.
 pub fn runtime() -> Result<&'static GenAi> {
     let mut slot = loaded();
-    if let Some(loaded) = slot.as_ref() {
-        return loaded.outcome.clone().map_err(|error| anyhow!("{error}"));
+    if let Some(outcome) = slot.as_ref().and_then(|loaded| loaded.outcome.clone()) {
+        return outcome.map_err(|error| anyhow!("{error}"));
     }
-    let chosen = runtime_to_load().map_err(|reason| anyhow!("{reason}"))?;
-    let outcome = guarded(Step::Load, || GenAi::load(&chosen.dir))
+    let (dir, version) = match slot.as_ref() {
+        Some(pinned) => (pinned.dir.clone(), pinned.version.clone()),
+        None => {
+            let chosen = runtime_to_load().map_err(|reason| anyhow!("{reason}"))?;
+            (chosen.dir, chosen.record.version)
+        }
+    };
+    let outcome = guarded(Step::Load, || GenAi::load(&dir))
         .map_err(|stopped| anyhow!("{stopped}"))?
         .map(|api| &*Box::leak(Box::new(api)))
-        .map_err(|error| format!("OpenVINO GenAI {} could not be loaded: {error}", chosen.record.version));
+        .map_err(|error| format!("OpenVINO GenAI {version} could not be loaded: {error}"));
     match &outcome {
-        Ok(_) => log::info!("Loaded OpenVINO GenAI {} from {}", chosen.record.version, chosen.dir.display()),
+        Ok(_) => log::info!("Loaded OpenVINO GenAI {version} from {}", dir.display()),
         Err(error) => log::error!("{error}"),
     }
-    *slot = Some(LoadedRuntime { dir: chosen.dir, version: chosen.record.version, outcome: outcome.clone() });
+    *slot = Some(LoadedRuntime { dir, version, outcome: Some(outcome.clone()) });
     outcome.map_err(|error| anyhow!("{error}"))
+}
+
+/// The folder and version of the runtime this process uses, chosen now if
+/// nothing loaded one yet, for a user of OpenVINO's C API alone (Parakeet on
+/// the NPU, #66). Choosing it pins it: Whisper's GenAI later loads from the
+/// same folder. Loads nothing itself.
+pub fn pin_runtime() -> std::result::Result<(PathBuf, String), String> {
+    let mut slot = loaded();
+    if let Some(pinned) = slot.as_ref() {
+        return Ok((pinned.dir.clone(), pinned.version.clone()));
+    }
+    let chosen = runtime_to_load()?;
+    *slot = Some(LoadedRuntime { dir: chosen.dir.clone(), version: chosen.record.version.clone(), outcome: None });
+    Ok((chosen.dir, chosen.record.version))
 }
 
 /// The folder of the runtime version this process loaded or tried to load:
@@ -337,12 +359,17 @@ pub fn cache_key(runtime_version: &str, model_commit: &str) -> String {
     format!("{runtime_version}_{commit}")
 }
 
-/// Removes everything in `root` but the folders named in `keep`. Best
-/// effort: a blob a running pipeline holds open stays until the next prune.
+/// The folder of `cache_root` that holds Parakeet's NPU caches (#66): its
+/// own module keeps and removes it, with Parakeet and the runtime.
+pub const NPU_CACHE: &str = "parakeet-npu";
+
+/// Removes everything in `root` but the folders named in `keep` and the
+/// NPU's. Best effort: a blob a running pipeline holds open stays until the
+/// next prune.
 fn prune_cache(root: &Path, keep: &[String]) {
     let Ok(read) = std::fs::read_dir(root) else { return };
     for item in read.flatten() {
-        if keep.iter().any(|name| item.file_name() == name.as_str()) {
+        if item.file_name() == NPU_CACHE || keep.iter().any(|name| item.file_name() == name.as_str()) {
             continue;
         }
         let path = item.path();
@@ -358,7 +385,7 @@ fn prune_cache(root: &Path, keep: &[String]) {
     }
 }
 
-/// Removes the whole cache: Settings removed the last companion.
+/// Removes Whisper's whole cache: Settings removed the last companion.
 pub fn remove_cache() {
     let root = cache_root();
     prune_cache(&root, &[]);
@@ -824,13 +851,16 @@ mod tests {
         std::fs::create_dir_all(root.path().join(&current)).unwrap();
         // Blobs the round-1 builds wrote straight into the cache folder.
         std::fs::write(root.path().join("123456.blob"), b"x").unwrap();
+        // Parakeet's NPU caches are not Whisper's to remove.
+        std::fs::create_dir_all(root.path().join(NPU_CACHE).join("key")).unwrap();
         prune_cache(root.path(), &[current.clone()]);
-        let left: Vec<String> = std::fs::read_dir(root.path())
+        let mut left: Vec<String> = std::fs::read_dir(root.path())
             .unwrap()
             .flatten()
             .map(|item| item.file_name().to_string_lossy().into_owned())
             .collect();
-        assert_eq!(left, [current]);
+        left.sort();
+        assert_eq!(left, [current, NPU_CACHE.to_string()]);
     }
 
     #[test]

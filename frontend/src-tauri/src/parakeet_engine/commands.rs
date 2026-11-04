@@ -455,6 +455,9 @@ pub async fn parakeet_download_model<R: Runtime>(
                     log::error!("Failed to emit parakeet download complete event: {}", e);
                 }
 
+                #[cfg(windows)]
+                crate::parakeet_engine::npu::state::changed();
+
                 // Update tray menu to reflect model is now available
                 log::info!("Parakeet model download complete - updating tray menu");
                 crate::tray::update_tray_menu(&app_handle);

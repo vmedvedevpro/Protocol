@@ -8,7 +8,7 @@ use ort::value::TensorRef;
 use regex::Regex;
 
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 pub type DecoderState = (Array3<f32>, Array3<f32>);
 
@@ -357,7 +357,14 @@ impl From<ort::Error<ort::session::builder::SessionBuilder>> for ParakeetError {
 }
 
 pub struct ParakeetModel {
-    encoder: Session,
+    /// The encoder on ONNX Runtime (the processor, or DirectML from Labs).
+    /// `None` while the NPU encodes: it is built on a fallback.
+    encoder: Option<Session>,
+    /// Parakeet's encoder on the Intel NPU (#66), when the load got it.
+    #[cfg(windows)]
+    npu: Option<super::npu::NpuEncoder>,
+    model_dir: PathBuf,
+    quantized: bool,
     decoder_joint: Session,
     preprocessor: Session,
     vocab: Vec<String>,
@@ -373,16 +380,40 @@ impl Drop for ParakeetModel {
             "Dropping ParakeetModel with {} vocab tokens",
             self.vocab.len()
         );
+        #[cfg(windows)]
+        if self.npu.take().is_some() {
+            super::npu::state::set_active(false);
+        }
     }
 }
 
 impl ParakeetModel {
     pub fn new<P: AsRef<Path>>(model_dir: P, quantized: bool) -> Result<Self, ParakeetError> {
-        Self::new_with_backend(model_dir, quantized, super::labs::enabled())
+        // While the NPU is being prepared or is ready the encoder is its (or
+        // the processor's meanwhile), not DirectML's.
+        #[cfg(windows)]
+        let gpu = super::labs::enabled() && !super::npu::state::overrides_labs();
+        #[cfg(not(windows))]
+        let gpu = super::labs::enabled();
+        Self::new_with_backend(model_dir, quantized, gpu)
     }
 
     fn new_with_backend<P: AsRef<Path>>(model_dir: P, quantized: bool, gpu: bool) -> Result<Self, ParakeetError> {
         let encoder = Self::init_session(&model_dir, "encoder-model", None, quantized, gpu)?;
+        Self::with_encoder(model_dir, quantized, Some(encoder))
+    }
+
+    /// The Int8 model with its encoder on the NPU; the decoder and the
+    /// preprocessor stay on the processor.
+    #[cfg(windows)]
+    pub fn new_with_npu<P: AsRef<Path>>(model_dir: P, npu: super::npu::NpuEncoder) -> Result<Self, ParakeetError> {
+        let mut model = Self::with_encoder(model_dir, true, None)?;
+        model.npu = Some(npu);
+        super::npu::state::set_active(true);
+        Ok(model)
+    }
+
+    fn with_encoder<P: AsRef<Path>>(model_dir: P, quantized: bool, encoder: Option<Session>) -> Result<Self, ParakeetError> {
         let decoder_joint = Self::init_session(&model_dir, "decoder_joint-model", None, quantized, false)?;
         let preprocessor = Self::init_session(&model_dir, "nemo128", None, false, false)?;
 
@@ -397,6 +428,10 @@ impl ParakeetModel {
 
         Ok(Self {
             encoder,
+            #[cfg(windows)]
+            npu: None,
+            model_dir: model_dir.as_ref().to_path_buf(),
+            quantized,
             decoder_joint,
             preprocessor,
             vocab,
@@ -579,7 +614,7 @@ impl ParakeetModel {
             "audio_signal" => TensorRef::from_array_view(audio_signal.view())?,
             "length" => TensorRef::from_array_view(length.view())?,
         ];
-        let outputs = self.encoder.run(inputs)?;
+        let outputs = self.processor_encoder()?.run(inputs)?;
 
         let encoder_output = outputs
             .get("outputs")
@@ -593,6 +628,84 @@ impl ParakeetModel {
         let encoder_output = encoder_output.permuted_axes(IxDyn(&[0, 2, 1]));
 
         Ok((encoder_output.to_owned(), encoded_lengths.to_owned()))
+    }
+
+    /// The ONNX Runtime encoder, built now on the processor when the model
+    /// was loaded for the NPU and the NPU failed.
+    fn processor_encoder(&mut self) -> Result<&mut Session, ParakeetError> {
+        match &mut self.encoder {
+            Some(encoder) => Ok(encoder),
+            empty => {
+                log::info!("Parakeet's encoder moves to the processor");
+                Ok(empty.insert(Self::init_session(&self.model_dir, "encoder-model", None, self.quantized, false)?))
+            }
+        }
+    }
+
+    /// Whether the encoder runs on the NPU, so callers decode in windows of
+    /// its static shape (`super::chunking`).
+    pub fn uses_npu(&self) -> bool {
+        #[cfg(windows)]
+        return self.npu.is_some();
+        #[cfg(not(windows))]
+        false
+    }
+
+    /// The encoder output of `features` and the frames to decode: on the NPU
+    /// when the model has it and the features fit its shape, else on ONNX
+    /// Runtime. An NPU failure moves the encoder to the processor for good.
+    fn encode_features(&mut self, features: &ArrayD<f32>, lengths: &ArrayD<i64>) -> Result<(ArrayD<f32>, usize), ParakeetError> {
+        #[cfg(windows)]
+        if let Some(npu) = self.npu.as_mut() {
+            let frames = features.shape().get(2).copied().unwrap_or(usize::MAX);
+            if frames <= super::npu::FRAMES {
+                let view = features.view().into_dimensionality::<ndarray::Ix3>()?;
+                match npu.encode(&view, lengths.iter().next().copied().unwrap_or(frames as i64)) {
+                    Ok((encoded, decoded)) => return Ok((encoded.into_dyn(), decoded)),
+                    Err(error) => {
+                        self.npu = None;
+                        super::npu::state::failed_while_running(format!("an inference on the NPU failed: {error}"));
+                    }
+                }
+            } else {
+                log::warn!("Parakeet: {frames} feature frames do not fit the NPU's {}; this call runs on the processor", super::npu::FRAMES);
+            }
+        }
+        let (encoded, encoded_lengths) = self.encode(&features.view(), &lengths.view())?;
+        let decoded = encoded_lengths.iter().next().copied().unwrap_or(0).max(0) as usize;
+        Ok((encoded, decoded))
+    }
+
+    /// The words of one window of audio (at most 6.07 s on the NPU) that
+    /// starts at `offset_ms`, each timed by its first token's encoder frame.
+    pub(crate) fn window_words(
+        &mut self,
+        samples: &[f32],
+        offset_ms: f64,
+        vocabulary: Option<&str>,
+    ) -> Result<Vec<super::chunking::Word>, ParakeetError> {
+        self.configure_vocabulary(vocabulary);
+        if samples.is_empty() {
+            return Ok(Vec::new());
+        }
+        let waveforms = Array2::from_shape_vec((1, samples.len()), samples.to_vec())?.into_dyn();
+        let lengths = Array1::from_vec(vec![samples.len() as i64]).into_dyn();
+        let (features, features_lens) = self.preprocess(&waveforms.view(), &lengths.view())?;
+        let (encoded, frames) = self.encode_features(&features, &features_lens)?;
+        let encodings = encoded.index_axis(ndarray::Axis(0), 0);
+        let (ids, at) = self.decode_sequence(&encodings, frames)?;
+        let (tokens, at): (Vec<String>, Vec<usize>) =
+            ids.iter().zip(at).filter_map(|(&id, frame)| Some((self.vocab.get(id as usize)?.clone(), frame))).unzip();
+        Ok(super::chunking::words(&tokens, &at, offset_ms))
+    }
+
+    /// `text` with the glossary's spellings, as a whole-piece call's text
+    /// gets them.
+    pub(crate) fn correct_text(&self, text: &str) -> String {
+        match &self.vocabulary_bias {
+            Some(bias) => bias.correct_text(text),
+            None => text.to_string(),
+        }
     }
 
     pub fn create_decoder_state(&self) -> Result<DecoderState, ParakeetError> {
@@ -709,6 +822,19 @@ impl ParakeetModel {
         }
 
         Ok(results)
+    }
+
+    /// Greedy TDT decoding of the first `frames` frames of one encoder output
+    /// ([1, frames, 1024], as [`Self::encode`] returns it), for an encoder
+    /// that runs outside this model (the NPU, #66).
+    pub(crate) fn decode_encoded(
+        &mut self,
+        encoder_out: &ArrayViewD<f32>,
+        frames: usize,
+    ) -> Result<TimestampedResult, ParakeetError> {
+        let encodings = encoder_out.index_axis(ndarray::Axis(0), 0);
+        let (tokens, timestamps) = self.decode_sequence(&encodings, frames)?;
+        Ok(self.decode_tokens(tokens, timestamps))
     }
 
     fn decode_sequence(
@@ -884,7 +1010,7 @@ mod gpu_tests {
         std::env::set_var("MEETILY_PARAKEET_PROFILE", &profile);
         let mut model = ParakeetModel::new_with_backend(path, true, true).expect("load DirectML model");
         model.transcribe_samples(vec![0.0; 32_000], None).expect("transcribe synthetic silence");
-        let written = model.encoder.end_profiling().expect("finish profiling");
+        let written = model.encoder.as_mut().expect("the DirectML encoder").end_profiling().expect("finish profiling");
         let events = std::fs::read_to_string(written).expect("read profiling events");
         assert!(events.contains("DmlExecutionProvider"), "No encoder nodes executed on DirectML");
     }

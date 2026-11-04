@@ -422,7 +422,8 @@ async fn run_retranscription<R: Runtime>(
         language.as_deref(),
         vocabulary.as_deref(),
     )
-    .dropping_silence_hallucinations();
+    .dropping_silence_hallucinations()
+    .windows_over(&processable_segments);
     if pass.detects_language() {
         emit_progress(&app, &meeting_id, "transcribing", 25, "Detecting language...");
         pass.detect_languages(

@@ -22,6 +22,7 @@
 //! overwrites these live labels with more accurate ones.
 
 use super::engine::TranscriptionEngine;
+use super::parakeet_live::{HeldRow, ParakeetLive, Received};
 use super::provider::TranscriptionError;
 use crate::audio::AudioChunk;
 use crate::database::repositories::vocabulary::VocabularyRepository;
@@ -148,6 +149,9 @@ pub fn start_transcription_task<R: Runtime>(
 
             let worker_handle = tokio::spawn(async move {
                 info!("👷 Worker {} started", worker_id);
+                // Parakeet's live windows on the NPU (#66), one per capture
+                // source: this worker owns them for the recording.
+                let mut parakeet_live = ParakeetLive::default();
 
                 // PRE-VALIDATE model state to avoid repeated async calls per chunk
                 let initial_model_loaded = engine_clone.is_model_loaded().await;
@@ -168,10 +172,21 @@ pub fn start_transcription_task<R: Runtime>(
                 }
 
                 loop {
-                    // Try to get a chunk to process
-                    let chunk = {
+                    // Try to get a chunk to process; words Parakeet holds wait
+                    // for their continuation until their deadline (#66), and
+                    // only an empty queue waits.
+                    let received = {
                         let mut receiver = work_receiver_clone.lock().await;
-                        receiver.recv().await
+                        super::parakeet_live::next(&mut receiver, parakeet_live.deadline()).await
+                    };
+                    let chunk = match received {
+                        Received::Piece(chunk) => chunk,
+                        Received::Waited => {
+                            for row in parakeet_live.overdue(std::time::Instant::now()) {
+                                emit_held_row(&engine_clone, &app_clone, worker_id, row).await;
+                            }
+                            continue;
+                        }
                     };
 
                     match chunk {
@@ -241,11 +256,17 @@ pub fn start_transcription_task<R: Runtime>(
                                 }
                             };
 
+                            let source_index = ParakeetLive::index(&chunk.device_type);
+                            parakeet_live.seen(source_index, (chunk_timestamp + chunk_duration) * 1000.0, std::time::Instant::now());
+                            if let Some(row) = parakeet_live.before_piece(source_index, chunk_timestamp * 1000.0) {
+                                emit_held_row(&engine_clone, &app_clone, worker_id, row).await;
+                            }
                             // Transcribe with provider-agnostic approach
                             match transcribe_chunk_with_provider(
                                 &engine_clone,
                                 chunk,
                             vocabulary_clone.as_deref(),
+                                parakeet_live.live(source_index),
                             )
                             .await
                             {
@@ -260,6 +281,7 @@ pub fn start_transcription_task<R: Runtime>(
                                         Some(name.unwrap_or(label))
                                     }).await.ok().flatten().unwrap_or_else(|| "Guest".into());
                                 }
+                                parakeet_live.after_piece(source_index, &chunk_source);
                                     let confidence_str = match confidence_opt {
                                         Some(c) => format!("{:.2}", c),
                                         None => "N/A".to_string(),
@@ -413,6 +435,12 @@ pub fn start_transcription_task<R: Runtime>(
                     }
                 }
 
+                // What the NPU's windows still hold: the last piece was cut
+                // at the cap and the rest of its speech never came.
+                for row in parakeet_live.finish() {
+                    emit_held_row(&engine_clone, &app_clone, worker_id, row).await;
+                }
+
                 info!("👷 Worker {} completed", worker_id);
             });
 
@@ -506,12 +534,41 @@ pub fn start_transcription_task<R: Runtime>(
     })
 }
 
+/// Shows words Parakeet held at a cap cut as a row of their own
+/// (`parakeet_live`), with the glossary's spellings.
+async fn emit_held_row<R: Runtime>(engine: &TranscriptionEngine, app: &AppHandle<R>, worker_id: usize, row: HeldRow) {
+    let text = match engine {
+        TranscriptionEngine::Parakeet(parakeet) => parakeet.correct_text(&row.text).await,
+        _ => row.text,
+    };
+    if text.trim().is_empty() || !should_emit_transcript(&text, None) {
+        return;
+    }
+    let update = TranscriptUpdate {
+        text,
+        timestamp: format_current_timestamp(),
+        source: row.source,
+        sequence_id: SEQUENCE_COUNTER.fetch_add(1, Ordering::SeqCst),
+        chunk_start_time: row.start_s,
+        is_partial: false,
+        confidence: 0.85,
+        audio_start_time: row.start_s,
+        audio_end_time: row.end_s,
+        duration: row.end_s - row.start_s,
+    };
+    info!("Worker {}: emitting held words as their own row: '{}'", worker_id, update.text);
+    if let Err(e) = app.emit("transcript-update", &update) {
+        error!("Worker {}: Failed to emit transcript update: {}", worker_id, e);
+    }
+}
+
 /// Transcribe audio chunk using the appropriate provider (Whisper, Parakeet, or trait-based)
 /// Returns: (text, confidence Option, is_partial)
 async fn transcribe_chunk_with_provider(
     engine: &TranscriptionEngine,
     chunk: AudioChunk,
     vocabulary: Option<&str>,
+    parakeet_live: &mut crate::parakeet_engine::chunking::Live,
 ) -> std::result::Result<(String, Option<f32>, bool), TranscriptionError> {
     // Convert to 16kHz mono for transcription
     let transcription_data = if chunk.sample_rate != 16000 {
@@ -596,7 +653,8 @@ async fn transcribe_chunk_with_provider(
             }
         }
         TranscriptionEngine::Parakeet(parakeet_engine) => {
-            match parakeet_engine.transcribe_audio(speech_samples, vocabulary).await {
+            let start_ms = chunk.timestamp * 1000.0;
+            match parakeet_engine.transcribe_live(parakeet_live, start_ms, speech_samples, chunk.capped, vocabulary).await {
                 Ok(text) => {
                     let cleaned_text = text.trim().to_string();
                     if cleaned_text.is_empty() {

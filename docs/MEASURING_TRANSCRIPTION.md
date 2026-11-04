@@ -99,16 +99,17 @@ Runs the compared settings on one recording, one after the other in one
 process, and writes `<setting>.json` per setting (every piece with its time,
 whether it was skipped or dropped, its Whisper decoding, its rows, and each
 row's speakers) and, with diarization, `diarization.json`. Settings with the
-same VAD cap (`live` and `parakeet`) share one VAD pass.
+same VAD cap (`live`, `parakeet` and `parakeet-live`) share one VAD pass.
 
 | Variable | Meaning |
 | --- | --- |
 | `MEASURE_AUDIO` | An audio file, or a recording folder (`mic.mp4` and `system.mp4` are read as two tracks, as retranscription reads them; otherwise its audio file as one track). Required. |
 | `MEASURE_OUT` | The folder for the JSON. Required; created if missing. |
-| `MEASURE_SETTINGS` | Comma-separated, in order: `post-meeting` (the Whisper post-meeting pass: pieces from pause to pause, rows from Whisper's segments), `live` (the live Whisper call, greedy without timestamps, on the batch VAD's capped pieces of at most 6 s, one row per piece; like the live worker it skips only digital silence and keeps every text), `parakeet` (the Parakeet post-meeting pass: capped pieces, one row each). Default `post-meeting,live`. A setting named twice is refused, since each writes `<setting>.json`: repeat a run with another `MEASURE_OUT`. |
+| `MEASURE_SETTINGS` | Comma-separated, in order: `post-meeting` (the Whisper post-meeting pass: pieces from pause to pause, rows from Whisper's segments), `live` (the live Whisper call, greedy without timestamps, on the batch VAD's capped pieces of at most 6 s, one row per piece; like the live worker it skips only digital silence and keeps every text), `parakeet` (the Parakeet post-meeting pass: capped pieces, one row each; on the NPU each stretch decoded in its windows), `parakeet-live` (the live worker's Parakeet call on the capped pieces with the VAD's cap flag: one call per piece, or on the NPU the live windows, [PARAKEET_NPU.md](PARAKEET_NPU.md)). Default `post-meeting,live`. A setting named twice is refused, since each writes `<setting>.json`: repeat a run with another `MEASURE_OUT`. |
 | `MEASURE_WHISPER_MODEL` | The ggml file for the Whisper settings, or on Windows an OpenVINO model folder (the companion's files, [OPENVINO_WHISPER.md](OPENVINO_WHISPER.md)), which runs on the GPU the device rule picks. |
 | `MEASURE_OPENVINO_RUNTIME` | With an OpenVINO model: an installed runtime version folder, `<data>/runtimes/openvino-genai/<version>`, as the app or the ignored `model_catalog::openvino::tests::installs_the_catalogs_runtime_from_intel` (into `OPENVINO_INSTALL_DATA`) installs it. Without it, the runtime the app would load from the test binary's data folder. |
-| `MEASURE_PARAKEET_MODEL` | The Parakeet model folder for `parakeet`. |
+| `MEASURE_PARAKEET_MODEL` | The Parakeet model folder for `parakeet` and `parakeet-live`. |
+| `MEASURE_PARAKEET_NPU` | On Windows with an Intel NPU: a compile cache folder; Parakeet's encoder then runs on the NPU, from the runtime in `MEASURE_OPENVINO_RUNTIME` (a version with the NPU files, as the ignored `measure::npu::a_runtime_completed_while_loaded_runs_the_npu` installs it into `NPU_TEST_RUNTIME_ROOT`). The first run compiles for a minute or two. |
 | `MEASURE_LANGUAGE` | The app's language setting: `ru`, `en`, …, or `auto` (default). On `auto` the post-meeting pass detects the language once per track, from the pieces of the whole recording also with a span; live calls detect it per call. |
 | `MEASURE_VOCABULARY` | The vocabulary the app would pass (Settings › Transcription). Optional. |
 | `MEASURE_SPAN` | Only the pieces that reach into `start-end`, as `25:00-45:00` or `1500-2700` (seconds), each transcribed whole; the scoring then keeps the words inside the span, by word time, of both the runs and the reference. The VAD, the language detection and diarization read the whole tracks, as the app does, so the pieces and the timeline are those of the whole recording. A span that starts after the recording ends is refused; its end is cut to the recording's. Optional. |

@@ -24,6 +24,9 @@ pub struct AudioChunk {
     pub timestamp: f64,
     pub chunk_id: u64,
     pub device_type: DeviceType,
+    /// A VAD segment cut at the cap (`SpeechSegment::capped`); false for
+    /// capture audio.
+    pub capped: bool,
 }
 
 /// Processed audio chunk (post-VAD) for recording

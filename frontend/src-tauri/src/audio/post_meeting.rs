@@ -10,6 +10,10 @@
 //! (`whisper_engine::post_meeting`); each Whisper segment becomes a row, so a
 //! speaker change inside a piece still falls on a row boundary when Whisper
 //! starts a new segment there. Parakeet keeps the capped pieces, one row each.
+//! With Parakeet's encoder on the Intel NPU (#66) each stretch of a track's
+//! touching pieces is decoded in overlapping windows of the NPU's shape and
+//! the words go back to the pieces they start in ([`Pass::windows_over`],
+//! `parakeet_engine::chunking`): the rows stay the pieces.
 
 use std::fmt::Debug;
 
@@ -141,6 +145,75 @@ pub struct Pass<'a, K> {
     vocabulary: Option<String>,
     track_languages: Vec<(K, String)>,
     drops_silence_hallucinations: bool,
+    /// All the pass's pieces, for Parakeet on the NPU: a piece's stretch is
+    /// decoded when its first piece comes, and each member's text kept here.
+    windows: Option<StretchTexts<'a, K>>,
+}
+
+/// The pieces of a pass and the texts Parakeet on the NPU decoded for them
+/// so far, stretch by stretch.
+struct StretchTexts<'a, K> {
+    pieces: &'a [(SpeechSegment, K)],
+    texts: Vec<Option<String>>,
+    /// Each piece's stretch, found once, at the first stretch the NPU decodes:
+    /// the skip rule reads every sample of every piece.
+    stretches: Option<Stretches>,
+}
+
+/// The stretch of each piece (`of`) and the pieces of each stretch.
+struct Stretches {
+    of: Vec<usize>,
+    members: Vec<Vec<usize>>,
+}
+
+impl Stretches {
+    /// Each stretch is the pieces of one track that are not skipped and touch
+    /// in a chain, in time order; a skipped piece is a stretch of its own.
+    fn of<K: Copy + PartialEq>(pieces: &[(SpeechSegment, K)]) -> Self {
+        let mut of = vec![0; pieces.len()];
+        let mut members: Vec<Vec<usize>> = Vec::new();
+        // Per track: its last kept piece and that piece's stretch.
+        let mut open: Vec<(K, usize, usize)> = Vec::new();
+        for (index, (segment, track)) in pieces.iter().enumerate() {
+            if skip_reason(&segment.samples).is_some() {
+                of[index] = members.len();
+                members.push(vec![index]);
+                continue;
+            }
+            let last = open.iter().position(|(known, ..)| known == track);
+            let touches = last.filter(|&at| {
+                segment.start_timestamp_ms - pieces[open[at].1].0.end_timestamp_ms <= crate::parakeet_engine::chunking::TOUCH_MS
+            });
+            let stretch = match touches {
+                Some(at) => open[at].2,
+                None => {
+                    members.push(Vec::new());
+                    members.len() - 1
+                }
+            };
+            members[stretch].push(index);
+            of[index] = stretch;
+            match last {
+                Some(at) => open[at] = (*track, index, stretch),
+                None => open.push((*track, index, stretch)),
+            }
+        }
+        Self { of, members }
+    }
+}
+
+impl<K: Copy + PartialEq> StretchTexts<'_, K> {
+    /// The index of `piece` among the pieces (the caller passes them).
+    fn index_of(&self, piece: &SpeechSegment) -> Option<usize> {
+        self.pieces.iter().position(|(candidate, _)| std::ptr::eq(candidate, piece))
+    }
+
+    /// The pieces of `index`'s stretch, in time order.
+    fn stretch_of(&mut self, index: usize) -> Vec<usize> {
+        let pieces = self.pieces;
+        let stretches = self.stretches.get_or_insert_with(|| Stretches::of(pieces));
+        stretches.members[stretches.of[index]].clone()
+    }
 }
 
 impl<'a, K: Copy + PartialEq + Debug> Pass<'a, K> {
@@ -158,7 +231,53 @@ impl<'a, K: Copy + PartialEq + Debug> Pass<'a, K> {
             vocabulary: vocabulary.map(str::to_string),
             track_languages: Vec::new(),
             drops_silence_hallucinations: false,
+            windows: None,
         }
+    }
+
+    /// Gives the pass all its pieces, which it then transcribes in this
+    /// order, so that Parakeet on the NPU can decode each stretch whole.
+    /// Without it, or on any other engine, each piece is one call.
+    pub fn windows_over(mut self, pieces: &'a [(SpeechSegment, K)]) -> Self {
+        self.windows = Some(StretchTexts { pieces, texts: vec![None; pieces.len()], stretches: None });
+        self
+    }
+
+    /// Forgets the texts decoded so far: the kit decodes a warm-up piece
+    /// before its timed loop.
+    #[cfg(test)]
+    pub(crate) fn forget_windows(&mut self) {
+        if let Some(windows) = self.windows.as_mut() {
+            windows.texts.iter_mut().for_each(|text| *text = None);
+        }
+    }
+
+    /// The text of `piece` decoded with its stretch in the NPU's windows, or
+    /// `None` when this pass does not decode that way.
+    async fn stretch_text(&mut self, piece: &SpeechSegment) -> anyhow::Result<Option<String>> {
+        let (Some(parakeet), Some(windows)) = (self.transcriber.parakeet, self.windows.as_mut()) else { return Ok(None) };
+        let Some(index) = windows.index_of(piece) else { return Ok(None) };
+        if !parakeet.uses_npu().await {
+            return Ok(None);
+        }
+        if windows.texts[index].is_none() {
+            let members = windows.stretch_of(index);
+            let mut audio = crate::parakeet_engine::chunking::StretchAudio::default();
+            let mut spans = Vec::with_capacity(members.len());
+            for &member in &members {
+                let (segment, _) = &windows.pieces[member];
+                audio.push(segment.start_timestamp_ms, &segment.samples);
+                spans.push((segment.start_timestamp_ms, segment.end_timestamp_ms));
+            }
+            let texts = parakeet
+                .transcribe_pieces(&spans, &audio, self.vocabulary.as_deref())
+                .await
+                .map_err(|error| anyhow!("Parakeet transcription failed: {error}"))?;
+            for (member, text) in members.into_iter().zip(texts) {
+                windows.texts[member] = Some(text);
+            }
+        }
+        Ok(windows.texts[index].clone())
     }
 
     /// Drops a quiet piece whose whole text is a known silence hallucination
@@ -206,7 +325,11 @@ impl<'a, K: Copy + PartialEq + Debug> Pass<'a, K> {
             return Ok(PieceOutcome::Skipped(reason));
         }
         let language = self.language(track).map(str::to_string);
-        let rows = self.transcriber.rows(piece, language.as_deref(), self.vocabulary.as_deref()).await?;
+        let rows = match self.stretch_text(piece).await? {
+            Some(text) if text.trim().is_empty() => Vec::new(),
+            Some(text) => vec![(text, piece.start_timestamp_ms, piece.end_timestamp_ms)],
+            None => self.transcriber.rows(piece, language.as_deref(), self.vocabulary.as_deref()).await?,
+        };
         if self.drops_silence_hallucinations && !rows.is_empty() {
             let text = rows.iter().map(|(text, _, _)| text.trim()).collect::<Vec<_>>().join(" ");
             let rms = rms(&piece.samples);
@@ -527,6 +650,7 @@ mod tests {
             start_timestamp_ms: start_s * 1000.0,
             end_timestamp_ms: (start_s + seconds) * 1000.0,
             confidence: 0.9,
+            capped: false,
         }
     }
 
@@ -538,6 +662,23 @@ mod tests {
     fn whisper_pieces_run_from_pause_to_pause_and_parakeet_keeps_the_cap() {
         assert_eq!(vad_cap(false), ContinuousSpeechCap::PauseToPause);
         assert_eq!(vad_cap(true), ContinuousSpeechCap::Streaming);
+    }
+
+    #[test]
+    fn a_pass_finds_each_pieces_stretch_once_by_track_and_touch() {
+        // The microphone's pieces touch through a skipped (silent) one; the
+        // system's interleave with them; a 1 s gap starts a new stretch.
+        let pieces = vec![
+            (segment(0.0, 3.0, 0.1), "mic"),
+            (segment(1.0, 2.0, 0.1), "system"),
+            (segment(3.0, 0.5, 0.0), "mic"),
+            (segment(3.02, 3.0, 0.1), "mic"),
+            (segment(3.0, 2.0, 0.1), "system"),
+            (segment(7.02, 1.0, 0.1), "mic"),
+        ];
+        let stretches = Stretches::of(&pieces);
+        let members: Vec<&Vec<usize>> = (0..pieces.len()).map(|index| &stretches.members[stretches.of[index]]).collect();
+        assert_eq!(members, [&vec![0, 3], &vec![1, 4], &vec![2], &vec![0, 3], &vec![1, 4], &vec![5]]);
     }
 
     #[test]
