@@ -966,6 +966,7 @@ impl AudioCapture {
             timestamp,
             chunk_id,
             device_type: self.device_type.clone(),
+            capped: false,
         };
 
         // NOTE: Raw audio is NOT sent to recording saver to prevent echo
@@ -1235,6 +1236,7 @@ impl AudioPipeline {
                 timestamp: segment.start_timestamp_ms / 1000.0,
                 chunk_id: *chunk_id_counter,
                 device_type: device_type.clone(),
+                capped: segment.capped,
             };
             if let Err(e) = transcription_sender.send(transcription_chunk) {
                 warn!("Failed to send {:?} VAD segment: {}", device_type, e);
@@ -1429,6 +1431,7 @@ impl AudioPipeline {
                                     timestamp: ts,
                                     chunk_id: self.chunk_id_counter,
                                     device_type: DeviceType::Microphone,
+                                    capped: false,
                                 });
                                 let _ = sender.send(AudioChunk {
                                     data: sys_window.clone(),
@@ -1436,6 +1439,7 @@ impl AudioPipeline {
                                     timestamp: ts,
                                     chunk_id: self.chunk_id_counter,
                                     device_type: DeviceType::System,
+                                    capped: false,
                                 });
                                 let mixed = self.mixer.mix_window(&mic_window, &sys_window);
                                 let _ = sender.send(AudioChunk {
@@ -1444,6 +1448,7 @@ impl AudioPipeline {
                                     timestamp: ts,
                                     chunk_id: self.chunk_id_counter,
                                     device_type: DeviceType::Mixed,
+                                    capped: false,
                                 });
                             }
                         }
@@ -1513,6 +1518,7 @@ impl AudioPipeline {
                         timestamp: 0.0,
                         chunk_id,
                         device_type,
+                        capped: false,
                     });
                 }
             }
@@ -1551,6 +1557,7 @@ impl AudioPipeline {
                             timestamp: segment.start_timestamp_ms / 1000.0,
                             chunk_id: self.chunk_id_counter,
                             device_type: device_type.clone(),
+                            capped: segment.capped,
                         };
                         if let Err(e) = self.transcription_sender.send(transcription_chunk) {
                             warn!("Failed to send final {:?} VAD segment: {}", device_type, e);
@@ -1674,6 +1681,7 @@ impl AudioPipelineManager {
                 timestamp: 0.0,
                 chunk_id: u64::MAX, // Special ID to indicate flush
                 device_type: super::recording_state::DeviceType::Microphone,
+                capped: false,
             };
 
             if let Err(e) = sender.send(flush_chunk) {
@@ -1694,6 +1702,7 @@ impl AudioPipelineManager {
                         timestamp: 0.0,
                         chunk_id: u64::MAX - (i as u64),
                         device_type: super::recording_state::DeviceType::Microphone,
+                        capped: false,
                     };
                     let _ = sender.send(additional_flush);
                 }
@@ -1740,7 +1749,7 @@ mod ring_buffer_tests {
             (DeviceType::System, 0.4, 5.02),
         ].into_iter().enumerate() {
             tx.send(AudioChunk { data: vec![value; 960], sample_rate: 48_000,
-                timestamp, chunk_id: index as u64, device_type: source }).unwrap();
+                timestamp, chunk_id: index as u64, device_type: source, capped: false }).unwrap();
         }
         drop(tx);
         pipeline.run().await.unwrap();
@@ -2029,6 +2038,7 @@ mod ring_buffer_tests {
             start_timestamp_ms: 1_000.0,
             end_timestamp_ms: 1_100.0,
             confidence: 0.8,
+            capped: false,
         };
 
         AudioPipeline::enqueue_source_speech(

@@ -259,6 +259,83 @@ pub async fn install_into(
     }
 }
 
+/// The files of `entry` that the installed version in `dir` lacks, when that
+/// version is `entry` with fewer files: a catalog that pinned more files of
+/// the same version later (the NPU plugin and the ONNX frontend, #66).
+/// `None` when the version is not installed, or its record pins a file
+/// otherwise than `entry` does (another build: only a new install replaces it).
+pub fn missing_files(dir: &Path, entry: &RuntimeEntry) -> Option<Vec<schema::RuntimeFile>> {
+    let record = verified(dir)?;
+    let wanted = RuntimeRecord::from_entry(entry);
+    let part_of = record.id == wanted.id
+        && record.version == wanted.version
+        && record.api == wanted.api
+        && record.files.iter().all(|file| wanted.files.contains(file));
+    part_of.then(|| entry.files.iter().filter(|file| !record.files.iter().any(|kept| kept.name == file.name)).cloned().collect())
+}
+
+/// Adds to the installed version of `entry` under `root` the files its record
+/// lacks ([`missing_files`]) and returns the version's folder. The files it
+/// has are left alone, so this works while this process has the version
+/// loaded (Whisper on the GPU): Windows lets a folder whose libraries are in
+/// use gain files. The archive is downloaded and checked as an install does,
+/// only the missing files are extracted (checked against their pins and
+/// signer) into a staging folder and moved in, and the record is rewritten
+/// last: a completion cut short leaves files the record does not vouch for,
+/// which the next one replaces.
+pub async fn complete_into(
+    fetch: &Fetch,
+    root: &Path,
+    entry: &RuntimeEntry,
+    cancel: &CancellationToken,
+    mut progress: impl FnMut(u64, u64),
+) -> Result<PathBuf> {
+    let target = root.join(&entry.version);
+    let Some(missing) = missing_files(&target, entry) else {
+        bail!("{} {} is not installed as the model list pins it", entry.name, entry.version);
+    };
+    if missing.is_empty() {
+        return Ok(target);
+    }
+    let (client, signer) = match fetch {
+        Fetch::Vendor => vendor_client(entry).map(|(client, signer)| (client, Some(signer)))?,
+        #[cfg(test)]
+        Fetch::Local(client) => (client.clone(), None),
+        #[cfg(test)]
+        Fetch::LocalSigned(client, signer) => (client.clone(), Some(*signer)),
+    };
+    let staging = root.join(format!("{STAGING}{}", entry.version));
+    remove_dir(&staging)?;
+    tokio::fs::create_dir_all(&staging).await?;
+    let completed = async {
+        let archive = staging.join(ARCHIVE);
+        download(&client, &archive, entry, cancel, &mut progress).await?;
+        let (from, into, files, token) = (archive.clone(), staging.clone(), missing.clone(), cancel.clone());
+        let name = entry.name.clone();
+        tokio::task::spawn_blocking(move || extract(&from, &into, &files, &name, signer, &|| token.is_cancelled()))
+            .await
+            .map_err(|error| anyhow!("the extraction task failed: {error}"))??;
+        if cancel.is_cancelled() {
+            bail!(CANCELLED);
+        }
+        for file in &missing {
+            let (from, to) = (staging.join(&file.name), target.join(&file.name));
+            patiently(|| std::fs::rename(&from, &to))
+                .await
+                .map_err(|error| anyhow!("Could not finish installing {} {}: {error}", entry.name, entry.version))?;
+            model_integrity::mark_verified(model_integrity::intern(&file.name, file.size, &file.sha256), &to);
+        }
+        let record = serde_json::to_vec_pretty(&RuntimeRecord::from_entry(entry))?;
+        super::write_atomically(&target.join(RECORD), &record)?;
+        Ok(())
+    }
+    .await;
+    if let Err(cleanup) = remove_dir(&staging) {
+        log::warn!("[runtime] could not remove {}: {cleanup:#}", staging.display());
+    }
+    completed.map(|()| target)
+}
+
 /// Fills `staging` with the checked files and the record.
 async fn stage(
     client: &reqwest::Client,
@@ -654,6 +731,96 @@ mod tests {
         let dir = install(&root, bytes, &mut entry, &CancellationToken::new()).await.unwrap();
         assert_eq!(std::fs::read(dir.join("openvino_c.dll")).unwrap(), vec![5u8; 200]);
         assert_eq!(installed_in(&root).len(), 1);
+    }
+
+    /// The same version as `entry_with(version, salt)`, pinning one file more
+    /// (as the catalog added the NPU plugin), and the archive holding it.
+    fn entry_with_more(version: &str, salt: u8) -> (Vec<u8>, RuntimeEntry) {
+        let mut files = openvino_files(salt);
+        files.push(("root/runtime/bin/openvino_intel_npu_plugin.dll", "openvino_intel_npu_plugin.dll", vec![salt; 90]));
+        let borrowed: Vec<(&str, &str, &[u8])> = files.iter().map(|(path, name, content)| (*path, *name, content.as_slice())).collect();
+        archive_and_entry(version, &borrowed, "https://example.com/runtime.zip")
+    }
+
+    #[tokio::test]
+    async fn a_completion_adds_only_the_files_the_installed_version_lacks() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let data = tempfile::tempdir().unwrap();
+        let root = root_in(data.path(), "openvino-genai");
+        let (bytes, mut old) = entry_with("2026.4.1.0", 6);
+        let dir = install(&root, bytes, &mut old, &CancellationToken::new()).await.unwrap();
+        let before = std::fs::metadata(dir.join("openvino_c.dll")).unwrap().modified().unwrap();
+
+        let (bytes, mut more) = entry_with_more("2026.4.1.0", 6);
+        let missing = missing_files(&dir, &more).unwrap();
+        assert_eq!(missing.iter().map(|file| file.name.as_str()).collect::<Vec<_>>(), ["openvino_intel_npu_plugin.dll"]);
+        // As a loaded library: open without sharing. The completion does not touch it.
+        let held = std::fs::OpenOptions::new().read(true).share_mode(0).open(dir.join("openvino_c.dll")).unwrap();
+        more.archive.url = serve(bytes).await;
+        let completed = complete_into(&Fetch::Local(reqwest::Client::new()), &root, &more, &CancellationToken::new(), |_, _| {})
+            .await
+            .unwrap();
+        drop(held);
+
+        assert_eq!(completed, dir);
+        assert_eq!(std::fs::read(dir.join("openvino_intel_npu_plugin.dll")).unwrap(), vec![6u8; 90]);
+        assert_eq!(std::fs::metadata(dir.join("openvino_c.dll")).unwrap().modified().unwrap(), before);
+        assert_eq!(leftovers(&root), ["2026.4.1.0"]);
+        let installed = installed_in(&root);
+        assert_eq!(installed.len(), 1);
+        assert_eq!(installed[0].record, RuntimeRecord::from_entry(&more));
+        assert_eq!(missing_files(&dir, &more).unwrap(), []);
+        // Complete already: nothing is fetched.
+        complete_into(&Fetch::Local(reqwest::Client::new()), &root, &more, &CancellationToken::new(), |_, _| panic!("downloaded again"))
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_completion_that_fails_or_is_cancelled_leaves_the_version_as_it_was() {
+        let data = tempfile::tempdir().unwrap();
+        let root = root_in(data.path(), "openvino-genai");
+        let (bytes, mut old) = entry_with("2026.4.1.0", 2);
+        let dir = install(&root, bytes, &mut old, &CancellationToken::new()).await.unwrap();
+
+        // The catalog pins the new file otherwise than the archive holds it.
+        let (bytes, mut more) = entry_with_more("2026.4.1.0", 2);
+        more.files[3].sha256 = sha256(b"another build");
+        more.archive.url = serve(bytes.clone()).await;
+        let error = complete_into(&Fetch::Local(reqwest::Client::new()), &root, &more, &CancellationToken::new(), |_, _| {})
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("openvino_intel_npu_plugin.dll"), "{error:#}");
+
+        let (_, mut more) = entry_with_more("2026.4.1.0", 2);
+        more.archive.url = serve(bytes).await;
+        let cancel = CancellationToken::new();
+        let error = complete_into(&Fetch::Local(reqwest::Client::new()), &root, &more, &cancel, |_, _| cancel.cancel()).await.unwrap_err();
+        assert_eq!(error.to_string(), CANCELLED);
+
+        assert_eq!(leftovers(&root), ["2026.4.1.0"]);
+        assert!(!dir.join("openvino_intel_npu_plugin.dll").exists());
+        assert_eq!(installed_in(&root)[0].record, RuntimeRecord::from_entry(&old));
+    }
+
+    #[tokio::test]
+    async fn another_build_of_the_version_or_a_missing_one_is_not_completed() {
+        let data = tempfile::tempdir().unwrap();
+        let root = root_in(data.path(), "openvino-genai");
+        let (_, more) = entry_with_more("2026.4.1.0", 3);
+        let error = complete_into(&Fetch::Local(reqwest::Client::new()), &root, &more, &CancellationToken::new(), |_, _| panic!("downloaded"))
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("is not installed"), "{error:#}");
+
+        // Installed with other bytes for a file both pin: not a part of the entry.
+        let (bytes, mut old) = entry_with("2026.4.1.0", 4);
+        let dir = install(&root, bytes, &mut old, &CancellationToken::new()).await.unwrap();
+        assert!(missing_files(&dir, &more).is_none());
+        assert!(complete_into(&Fetch::Local(reqwest::Client::new()), &root, &more, &CancellationToken::new(), |_, _| panic!("downloaded"))
+            .await
+            .is_err());
+        assert_eq!(installed_in(&root)[0].record, RuntimeRecord::from_entry(&old));
     }
 
     #[test]

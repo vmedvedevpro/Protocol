@@ -1,5 +1,6 @@
 use crate::model_catalog::{self, huggingface, installed, schema::Engine};
 use crate::model_integrity::{self, Pinned};
+use crate::parakeet_engine::chunking;
 use crate::parakeet_engine::model::ParakeetModel;
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
@@ -400,8 +401,16 @@ impl ParakeetEngine {
 
                 // Load model based on quantization type
                 let quantized = model_info.quantization == QuantizationType::Int8;
-                let model = ParakeetModel::new(&model_info.path, quantized)
-                    .map_err(|e| anyhow!("Failed to load Parakeet model {}: {}", model_name, e))?;
+                // Parakeet v3's encoder on the Intel NPU once it is prepared
+                // (#66); the processor otherwise and on any NPU failure.
+                #[cfg(windows)]
+                let model = match crate::parakeet_engine::npu::state::encoder_for_load(model_name, &model_info.path) {
+                    Some(npu) => ParakeetModel::new_with_npu(&model_info.path, npu),
+                    None => ParakeetModel::new(&model_info.path, quantized),
+                };
+                #[cfg(not(windows))]
+                let model = ParakeetModel::new(&model_info.path, quantized);
+                let model = model.map_err(|e| anyhow!("Failed to load Parakeet model {}: {}", model_name, e))?;
 
                 // Update current model and model name
                 *self.current_model.write().await = Some(model);
@@ -434,10 +443,21 @@ impl ParakeetEngine {
     /// Int8 ones), but read only: `load_model`'s integrity check writes
     /// markers beside the files. For the measurement kit (`crate::measure`),
     /// which opens installed models in place.
+    /// With `MEASURE_PARAKEET_NPU` (a compile cache folder) the encoder runs
+    /// on the NPU, from the runtime in `MEASURE_OPENVINO_RUNTIME`.
     #[cfg(test)]
     pub(crate) async fn load_model_in_place(&self, model_dir: &Path) -> Result<()> {
-        let model = ParakeetModel::new(model_dir, true)
-            .map_err(|e| anyhow!("Failed to load Parakeet model {}: {}", model_dir.display(), e))?;
+        #[cfg(windows)]
+        let model = match std::env::var_os("MEASURE_PARAKEET_NPU") {
+            Some(cache) => {
+                let npu = crate::parakeet_engine::npu::state::encoder_for_kit(model_dir, Path::new(&cache)).map_err(|reason| anyhow!(reason))?;
+                ParakeetModel::new_with_npu(model_dir, npu)
+            }
+            None => ParakeetModel::new(model_dir, true),
+        };
+        #[cfg(not(windows))]
+        let model = ParakeetModel::new(model_dir, true);
+        let model = model.map_err(|e| anyhow!("Failed to load Parakeet model {}: {}", model_dir.display(), e))?;
         *self.current_model.write().await = Some(model);
         *self.current_model_name.write().await = Some(model_dir.display().to_string());
         Ok(())
@@ -486,6 +506,15 @@ impl ParakeetEngine {
             duration_seconds
         );
 
+        // On the NPU's static shape a piece is decoded in windows (#66).
+        if model.uses_npu() {
+            let length_ms = audio_data.len() as f64 / 16.0;
+            let audio = chunking::StretchAudio::borrowed(0.0, &audio_data);
+            let texts = chunking::transcribe(&[(0.0, length_ms)], &audio, |samples, offset| model.window_words(samples, offset, vocabulary))
+                .map_err(|e| anyhow!("Parakeet transcription failed: {}", e))?;
+            return Ok(model.correct_text(&texts.concat()));
+        }
+
         // Transcribe using Parakeet model
         let result = model
             .transcribe_samples(audio_data, vocabulary)
@@ -494,6 +523,64 @@ impl ParakeetEngine {
         log::debug!("Parakeet transcription result: '{}'", result.text);
 
         Ok(result.text)
+    }
+
+    /// Whether the loaded model encodes on the NPU, whose callers then decode
+    /// whole stretches in windows (`super::chunking`).
+    pub async fn uses_npu(&self) -> bool {
+        self.current_model.read().await.as_ref().is_some_and(ParakeetModel::uses_npu)
+    }
+
+    /// The texts of `pieces` (one source's, in time order, their audio in
+    /// `audio`) decoded in the NPU's windows, joined and assigned to them
+    /// (`chunking::transcribe`). Runs on the processor, window by window, if
+    /// the NPU failed meanwhile.
+    pub async fn transcribe_pieces(
+        &self,
+        pieces: &[(f64, f64)],
+        audio: &chunking::StretchAudio<'_>,
+        vocabulary: Option<&str>,
+    ) -> Result<Vec<String>> {
+        let mut model_guard = self.current_model.write().await;
+        let model = model_guard.as_mut().ok_or_else(|| anyhow!("No Parakeet model loaded. Please load a model first."))?;
+        let texts = chunking::transcribe(pieces, audio, |samples, offset| model.window_words(samples, offset, vocabulary))
+            .map_err(|e| anyhow!("Parakeet transcription failed: {}", e))?;
+        Ok(texts.iter().map(|text| model.correct_text(text)).collect())
+    }
+
+    /// The text of the live piece that starts at `start_ms` (`capped` when
+    /// the VAD cut it by its cap), with `live` the windows of its source: on
+    /// the NPU the stretch's windows decide what it shows (`chunking::Live`),
+    /// otherwise the piece is one call as before, after any words `live`
+    /// still held when the NPU stopped.
+    pub async fn transcribe_live(
+        &self,
+        live: &mut chunking::Live,
+        start_ms: f64,
+        audio_data: Vec<f32>,
+        capped: bool,
+        vocabulary: Option<&str>,
+    ) -> Result<String> {
+        if !self.uses_npu().await {
+            let held = live.flush().map(|held| chunking::text(&held.words)).unwrap_or_default();
+            let text = self.transcribe_audio(audio_data, vocabulary).await?;
+            return Ok([held, text].iter().filter(|part| !part.trim().is_empty()).cloned().collect::<Vec<_>>().join(" "));
+        }
+        let mut model_guard = self.current_model.write().await;
+        let model = model_guard.as_mut().ok_or_else(|| anyhow!("No Parakeet model loaded. Please load a model first."))?;
+        let shown = live
+            .piece(start_ms, &audio_data, capped, |samples, offset| model.window_words(samples, offset, vocabulary))
+            .map_err(|e| anyhow!("Parakeet transcription failed: {}", e))?;
+        Ok(model.correct_text(&chunking::text(&shown)))
+    }
+
+    /// `text` with the glossary's spellings of the loaded model's last call:
+    /// live rows of held words get them as every other row does.
+    pub async fn correct_text(&self, text: &str) -> String {
+        match self.current_model.read().await.as_ref() {
+            Some(model) => model.correct_text(text),
+            None => text.to_string(),
+        }
     }
 
     /// Get the models directory path
@@ -539,6 +626,8 @@ impl ParakeetEngine {
                         model.status = ModelStatus::Missing;
                     }
                 }
+                #[cfg(windows)]
+                crate::parakeet_engine::npu::state::model_removed(model_name);
 
                 Ok(format!("Successfully deleted Parakeet model '{}'", model_name))
             }
@@ -593,6 +682,9 @@ impl ParakeetEngine {
             self.cancel_downloads.write().await.insert(model_name.to_string(), cancellation.clone());
             self.completed_cancellations.write().await.remove(model_name);
         }
+        // Parakeet on the NPU keeps Intel's runtime while v3 downloads (#66).
+        #[cfg(windows)]
+        let _npu_keeps_runtime = crate::parakeet_engine::npu::state::model_download(model_name);
 
         let result = self
             .download_model_detailed_reserved(model_name, progress_callback, &cancellation)

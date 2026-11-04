@@ -913,6 +913,40 @@ installed and the GPU whisper.cpp would use is an Intel GPU OpenVINO lists
   decides whether the download is offered and, once the runtime is
   installed, names the device or the mismatch.
 
+### Parakeet on the Intel NPU
+
+On Windows with an Intel NPU, Parakeet v3's encoder runs on the NPU through
+OpenVINO's C API from the same runtime (#66); the preprocessor and the decoder
+stay on ONNX Runtime's CPU provider. Read [PARAKEET_NPU.md](PARAKEET_NPU.md)
+before changing it.
+
+- `parakeet_engine/npu/`: the C API binding (`openvino.rs`), the encoder on the
+  static 608-frame shape (`mod.rs`), the NPU found without the runtime by its
+  PnP device class (`detect.rs`), the crash guard of its native steps with a
+  marker of its own (`guard.rs`), and the state for Settings with the one-time
+  preparation, the cache under `cache/openvino/parakeet-npu/`, the commands
+  `parakeet_npu_status`/`parakeet_npu_retry` and the `parakeet-npu-status`
+  event (`state.rs`, the contract with #88). The preparation holds
+  `BusyReason::ModelCompile` and waits while a recording or another engine job
+  runs; a model load while `ready` takes the NPU, any failure the processor.
+- `parakeet_engine/chunking.rs`: the windows the static shape needs (#80's
+  feed B: stretches of touching pieces, windows every 3.5 s snapped to a pause,
+  the retry, the anchor merge, words assigned to their pieces) and the live
+  variant, which holds a capped piece's last second for the next piece.
+- The paths: `Pass::windows_over` (import and retranscription) decodes each
+  stretch whole on the NPU; the live worker keeps a `chunking::Live` per
+  source (`audio/transcription/parakeet_live.rs`, which also shows held words
+  whose continuation was lost as rows of their own) and passes the VAD's cap
+  flag (`SpeechSegment::capped`, `AudioChunk::capped`); `ParakeetModel` keeps
+  the NPU encoder and builds its CPU encoder only on a fallback. The processor
+  and Labs paths are unchanged.
+- The runtime: the catalog pins the NPU plugin and the ONNX frontend;
+  `runtime::complete_into` adds them to an older install of the same version
+  while it is loaded, and `openvino_runtime_download` installs or completes the
+  runtime alone. On a PC with an NPU the runtime stays without a Whisper
+  companion while v3 is installed or downloading; removing v3 or the runtime
+  removes the NPU cache.
+
 ### Windows installer
 
 `frontend/scripts/build-universal-windows.ps1` builds the one Windows asset,

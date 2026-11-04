@@ -13,6 +13,8 @@ use super::{ms_since, SAMPLES_PER_MS};
 use crate::audio::post_meeting::{self, Pass, PieceOutcome};
 use crate::audio::transcription::worker::{is_digital_silence, peak_level};
 use crate::audio::vad::{ContinuousSpeechCap, SpeechSegment};
+use crate::parakeet_engine::chunking::{Held, Live};
+use crate::parakeet_engine::ParakeetEngine;
 use crate::whisper_engine::decoding::WhisperDecoding;
 use crate::whisper_engine::WhisperEngine;
 
@@ -25,8 +27,13 @@ pub enum Setting {
     /// piece. The live pipeline cuts its own pieces while recording; that VAD
     /// is not reproduced, only the call and pieces of live size.
     Live,
-    /// The post-meeting pass with Parakeet: capped pieces, one row each.
+    /// The post-meeting pass with Parakeet: capped pieces, one row each (on
+    /// the NPU, each stretch decoded in its windows, #66).
     Parakeet,
+    /// The live worker's Parakeet call on the batch VAD's capped pieces, one
+    /// row per piece: each piece one call, or on the NPU the live windows
+    /// with the VAD's cap flag (`chunking::Live`, #66).
+    ParakeetLive,
     /// The reference transcript (`build_reference`), not a compared setting.
     Reference,
 }
@@ -46,7 +53,8 @@ impl Setting {
                 "post-meeting" => Ok(Self::PostMeeting),
                 "live" => Ok(Self::Live),
                 "parakeet" => Ok(Self::Parakeet),
-                other => Err(anyhow!("MEASURE_SETTINGS names {other:?}: use post-meeting, live or parakeet")),
+                "parakeet-live" => Ok(Self::ParakeetLive),
+                other => Err(anyhow!("MEASURE_SETTINGS names {other:?}: use post-meeting, live, parakeet or parakeet-live")),
             })
             .collect::<Result<Vec<_>>>()?;
         if settings.is_empty() {
@@ -63,12 +71,17 @@ impl Setting {
             Self::PostMeeting => "post-meeting",
             Self::Live => "live",
             Self::Parakeet => "parakeet",
+            Self::ParakeetLive => "parakeet-live",
             Self::Reference => "reference",
         }
     }
 
     pub fn uses_whisper(self) -> bool {
-        self != Self::Parakeet
+        !self.uses_parakeet()
+    }
+
+    pub fn uses_parakeet(self) -> bool {
+        matches!(self, Self::Parakeet | Self::ParakeetLive)
     }
 
     /// The reference takes the post-meeting pass's pieces: one call per
@@ -77,7 +90,7 @@ impl Setting {
         match self {
             Self::PostMeeting | Self::Reference => post_meeting::vad_cap(false),
             Self::Parakeet => post_meeting::vad_cap(true),
-            Self::Live => ContinuousSpeechCap::Streaming,
+            Self::Live | Self::ParakeetLive => ContinuousSpeechCap::Streaming,
         }
     }
 }
@@ -99,20 +112,21 @@ enum Call<'a> {
     /// One reference call per utterance (`WhisperEngine::reference_text`)
     /// after the pass's skip rule; the pass only detects the language.
     Reference(Pass<'a, &'static str>, &'a WhisperEngine),
+    /// The live worker's Parakeet call, with each track's live windows.
+    ParakeetLive(&'a ParakeetEngine, Vec<(&'static str, Live)>),
 }
 
 impl<'a> Call<'a> {
-    fn new(setting: Setting, engines: &'a Engines, inputs: &Inputs) -> Result<Self> {
+    fn new(setting: Setting, engines: &'a Engines, inputs: &Inputs, pieces: &'a [Piece]) -> Result<Self> {
         let whisper = engines.whisper.as_ref().map(|loaded| &loaded.engine).context("no Whisper model is loaded");
+        let parakeet = engines.parakeet.as_ref().map(|loaded| &loaded.engine).context("no Parakeet model is loaded");
         let pass = |parakeet, whisper| {
             Pass::new(parakeet, whisper, Some(inputs.language.as_str()), inputs.vocabulary.as_deref())
         };
         Ok(match setting {
             Setting::PostMeeting => Self::Pass(pass(None, Some(whisper?)).dropping_silence_hallucinations()),
-            Setting::Parakeet => {
-                let parakeet = engines.parakeet.as_ref().map(|loaded| &loaded.engine).context("no Parakeet model is loaded")?;
-                Self::Pass(pass(Some(parakeet), None).dropping_silence_hallucinations())
-            }
+            Setting::Parakeet => Self::Pass(pass(Some(parakeet?), None).dropping_silence_hallucinations().windows_over(pieces)),
+            Setting::ParakeetLive => Self::ParakeetLive(parakeet?, Vec::new()),
             Setting::Live => Self::Live(whisper?),
             Setting::Reference => {
                 let whisper = whisper?;
@@ -137,7 +151,7 @@ impl<'a> Call<'a> {
     fn detected_language(&self, track: &'static str) -> Option<String> {
         match self {
             Self::Pass(pass) | Self::Reference(pass, _) => pass.detected_language(track).map(str::to_string),
-            Self::Live(_) => None,
+            Self::Live(_) | Self::ParakeetLive(..) => None,
         }
     }
 
@@ -162,6 +176,27 @@ impl<'a> Call<'a> {
                     .await?;
                 Ok(PieceOutcome::Rows(whole_piece(text)))
             }
+            Self::ParakeetLive(engine, windows) => {
+                if let Some(reason) = live_skip_reason(&piece.samples) {
+                    return Ok(PieceOutcome::Skipped(reason));
+                }
+                let live = match windows.iter().position(|(known, _)| *known == track) {
+                    Some(index) => &mut windows[index].1,
+                    None => {
+                        windows.push((track, Live::default()));
+                        &mut windows.last_mut().expect("just pushed").1
+                    }
+                };
+                // Words the last stretch held, when this piece does not
+                // continue it, are a row of their own with their own time.
+                let earlier = if live.continues(piece.start_timestamp_ms) { None } else { live.flush() };
+                let text = engine
+                    .transcribe_live(live, piece.start_timestamp_ms, piece.samples.clone(), piece.capped, vocabulary)
+                    .await?;
+                let mut rows: Vec<(String, f64, f64)> = earlier.map(held_row).into_iter().collect();
+                rows.extend(whole_piece(text));
+                Ok(PieceOutcome::Rows(rows))
+            }
             Self::Reference(pass, engine) => {
                 if let Some(reason) = post_meeting::skip_reason(&piece.samples) {
                     return Ok(PieceOutcome::Skipped(reason));
@@ -180,8 +215,37 @@ impl<'a> Call<'a> {
             Self::Pass(pass) => pass.whisper_decoding(),
             Self::Live(_) => Some(WhisperDecoding::LIVE),
             Self::Reference(..) => Some(WhisperDecoding::POST_MEETING),
+            Self::ParakeetLive(..) => None,
         }
     }
+
+    /// Back to the state before the first piece, after the warm-up call:
+    /// the NPU's windows decode a stretch once and keep its texts, and the
+    /// live windows remember the stretch.
+    fn rewind(&mut self) {
+        match self {
+            Self::Pass(pass) => pass.forget_windows(),
+            Self::ParakeetLive(_, windows) => windows.clear(),
+            _ => {}
+        }
+    }
+
+    /// Words the live windows still hold at the end, per track, as the
+    /// worker shows them after the last piece.
+    fn held(&mut self) -> Vec<(&'static str, Held)> {
+        match self {
+            Self::ParakeetLive(_, windows) => {
+                windows.iter_mut().filter_map(|(track, live)| live.flush().map(|held| (*track, held))).collect()
+            }
+            _ => Vec::new(),
+        }
+    }
+}
+
+/// The row of words a live stretch held: from the first to the stretch's end.
+fn held_row(held: Held) -> (String, f64, f64) {
+    let start_ms = held.words.first().map_or(held.end_ms, |word| word.start_ms.min(held.end_ms));
+    (crate::parakeet_engine::chunking::text(&held.words), start_ms, held.end_ms)
 }
 
 fn decoding_name(decoding: WhisperDecoding) -> String {
@@ -207,7 +271,7 @@ pub async fn run(
 ) -> Result<Run> {
     debug_assert_eq!(cut.cap, setting.cap());
     let mut timing = Timing { vad_ms: cut.vad_ms, ..Timing::default() };
-    let mut call = Call::new(setting, engines, inputs)?;
+    let mut call = Call::new(setting, engines, inputs, &cut.pieces)?;
     let started = Instant::now();
     if call.detect_languages(&cut.pieces).await {
         timing.detection_ms = ms_since(started);
@@ -230,6 +294,7 @@ pub async fn run(
         }
     }
     timing.warmup_ms = ms_since(started);
+    call.rewind();
 
     let mut results = Vec::with_capacity(measured.len());
     for (index, &(segment, track)) in measured.iter().enumerate() {
@@ -274,8 +339,15 @@ pub async fn run(
         }
     }
 
+    for (track, held) in call.held() {
+        let (text, start_ms, end_ms) = held_row(held);
+        if let (false, Some(last)) = (text.is_empty(), results.iter_mut().rev().find(|result| result.track == track && result.skipped.is_none())) {
+            last.rows.push(Row { start_ms, end_ms, text, speakers: None });
+        }
+    }
+
     let loaded_model = match setting {
-        Setting::Parakeet => engines.parakeet.as_ref().map(|p| (p.model.clone(), p.acceleration)),
+        Setting::Parakeet | Setting::ParakeetLive => engines.parakeet.as_ref().map(|p| (p.model.clone(), p.acceleration)),
         _ => engines.whisper.as_ref().map(|w| (w.model.clone(), w.acceleration)),
     };
     let (model, acceleration) = loaded_model.context("no model is loaded")?;
@@ -323,6 +395,8 @@ mod tests {
         assert_eq!(Setting::Reference.cap(), ContinuousSpeechCap::PauseToPause);
         assert_eq!(Setting::Parakeet.cap(), ContinuousSpeechCap::Streaming);
         assert_eq!(Setting::Live.cap(), ContinuousSpeechCap::Streaming);
+        assert_eq!(Setting::ParakeetLive.cap(), ContinuousSpeechCap::Streaming);
+        assert!(Setting::ParakeetLive.uses_parakeet() && !Setting::ParakeetLive.uses_whisper());
     }
 
     #[test]

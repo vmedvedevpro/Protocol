@@ -184,6 +184,8 @@ fn platform_install(update: tauri_plugin_updater::Update, bytes: Vec<u8>, mode: 
 async fn prepare_exit<R: Runtime>(app: &AppHandle<R>) {
     #[cfg(windows)]
     crate::whisper_engine::openvino::set_closing(true);
+    #[cfg(windows)]
+    crate::parakeet_engine::npu::guard::set_closing(true);
     if let Some(app_state) = app.try_state::<crate::state::AppState>() {
         if let Err(error) = sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)")
             .execute(app_state.db_manager.pool())
@@ -203,6 +205,8 @@ async fn prepare_exit<R: Runtime>(app: &AppHandle<R>) {
 fn resume_after_failed_install() {
     #[cfg(windows)]
     crate::whisper_engine::openvino::set_closing(false);
+    #[cfg(windows)]
+    crate::parakeet_engine::npu::guard::set_closing(false);
     if let Err(error) = crate::crash_report::start_session() {
         log::warn!("[updater] could not reopen the crash session: {error}");
     }
