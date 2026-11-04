@@ -243,6 +243,8 @@ test('N6: a failed NPU and a fallen-back Intel GPU version say what runs instead
   };
   await render(fellBack);
   expect(text()).toContain("The Intel NPU didn't start, so Parakeet runs on the processor.");
+  // #66's reason is for the log: not even in a tooltip.
+  expect(text()).not.toContain('NPU compile failed');
   expect(text()).toContain("The Intel GPU version didn't start, so Whisper uses this copy. Nothing to download.");
   // The copy that runs is the row, without badges.
   expect(text()).toContain('Whisper Large V3 Turbo Compressed');

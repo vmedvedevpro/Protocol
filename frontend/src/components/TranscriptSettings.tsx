@@ -19,7 +19,7 @@ import { RowNote, SettingRow, SettingsGroup } from './settings/SettingsGroup';
 import type { RawModelInfo } from '@/hooks/useTranscriptionModels';
 import { getModelDisplayInfo } from '@/lib/parakeet';
 import { installedSpeechModels, speechModelLabel, speechModelLanguages, type InstalledSpeechModel, type SpeechEngine } from '@/lib/speech-models';
-import { deviceOf, gpuVersionLabel, gpuVersionStandIn, isGpuVersion, npuOwnsParakeet, offerFor, readDismissed, writeDismissed, type Device } from '@/lib/speech-choice';
+import { NPU_PARAKEET, deviceOf, gpuVersionLabel, gpuVersionStandIn, isGpuVersion, npuOwnsParakeet, offerFor, readDismissed, writeDismissed, type Device } from '@/lib/speech-choice';
 import { useLabs } from '@/hooks/useLabs';
 import { useSpeechChoice } from '@/hooks/useSpeechChoice';
 import { useIntelLibraries } from '@/hooks/useIntelLibraries';
@@ -632,6 +632,7 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
         companion: choice.companion,
         npu: choice.npu,
         librariesDownloading: libraries.status === 'downloading',
+        npuModelInstalled: choice.parakeet.some((model) => model.name === NPU_PARAKEET && model.status === 'Available'),
     };
     const offer = choice.loaded && !switching ? offerFor({ ...offerInputs, dismissed }) : null;
     const putOff = choice.loaded && !switching && !offer ? offerFor({ ...offerInputs, dismissed: [] }) : null;

@@ -475,7 +475,8 @@ export function ForThisComputer({ choice, onParakeetInstalled, onModelsChanged, 
           )}
           {npuFailed && (
             <Notice actions={<button type="button" className={noticeButton} onClick={retryNpu}>Try again</button>}>
-              <span title={npu.reason ?? undefined}>The Intel NPU didn&apos;t start, so Parakeet runs on the processor.</span>
+              {/* #66's `reason` is for the log only. */}
+              <span>The Intel NPU didn&apos;t start, so Parakeet runs on the processor.</span>
             </Notice>
           )}
           {errors.live && <p role="alert" className="mt-2 text-xs text-af-danger [overflow-wrap:anywhere]">{errors.live}</p>}

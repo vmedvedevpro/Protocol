@@ -132,17 +132,24 @@ test('the Intel GPU version counts as fallen back after a crash, a failed load o
 });
 
 test('the offer after an update names the devices it would use, with the size of what Switch downloads', () => {
-  const both = offerFor({ installedAny: true, availability: intelGpu, companion: companion(), npu: npu('needs_runtime'), dismissed: [] });
+  const both = offerFor({ installedAny: true, availability: intelGpu, companion: companion(), npu: npu('needs_runtime'), dismissed: [], npuModelInstalled: true });
   expect(both).toMatchObject({ devices: ['Intel GPU', 'Intel NPU'], title: 'Protocol can use your Intel GPU and NPU', gpu: true, bytes: (254 + 828) * MB });
   expect(both!.description).toContain('Whisper switches to its Intel GPU version');
-  const gpuOnly = offerFor({ installedAny: true, availability: intelGpu, companion: companion(), npu: NPU_ABSENT, dismissed: [] });
+  const gpuOnly = offerFor({ installedAny: true, availability: intelGpu, companion: companion(), npu: NPU_ABSENT, dismissed: [], npuModelInstalled: true });
   expect(gpuOnly).toMatchObject({ devices: ['Intel GPU'], title: 'Protocol can use your Intel GPU', gpu: true });
-  const npuOnly = offerFor({ installedAny: true, availability: otherGpu, companion: companion(), npu: npu('needs_runtime'), dismissed: [] });
+  const npuOnly = offerFor({ installedAny: true, availability: otherGpu, companion: companion(), npu: npu('needs_runtime'), dismissed: [], npuModelInstalled: true });
   expect(npuOnly).toMatchObject({ devices: ['Intel NPU'], title: 'Protocol can use your Intel NPU', gpu: false, bytes: 254 * MB });
 });
 
+test('the NPU is offered only with Parakeet v3, which keeps the libraries and which it runs', () => {
+  // needs_runtime comes before needs_model in #66's status, so it reads so without v3 too.
+  const withoutV3 = { installedAny: true, companion: companion(), npu: npu('needs_runtime'), dismissed: [], npuModelInstalled: false };
+  expect(offerFor({ ...withoutV3, availability: otherGpu })).toBeNull();
+  expect(offerFor({ ...withoutV3, availability: intelGpu })).toMatchObject({ devices: ['Intel GPU'], title: 'Protocol can use your Intel GPU' });
+});
+
 test('the offer shows only after an update, and only for what is missing', () => {
-  const base = { installedAny: true, availability: intelGpu, companion: companion(), npu: npu('needs_runtime'), dismissed: [] };
+  const base = { installedAny: true, availability: intelGpu, companion: companion(), npu: npu('needs_runtime'), dismissed: [], npuModelInstalled: true };
   // A first run gets the For this computer card instead.
   expect(offerFor({ ...base, installedAny: false })).toBeNull();
   // The Intel GPU version installed, and the NPU has its libraries (or is past them).
@@ -157,7 +164,7 @@ test('the offer shows only after an update, and only for what is missing', () =>
 });
 
 test('Not now hides the offer until it can offer a device it did not offer then', () => {
-  const base = { installedAny: true, availability: intelGpu, companion: companion(), npu: NPU_ABSENT };
+  const base = { installedAny: true, availability: intelGpu, companion: companion(), npu: NPU_ABSENT, npuModelInstalled: true };
   expect(offerFor({ ...base, dismissed: ['Intel GPU'] })).toBeNull();
   // The NPU becomes usable later (#66 in an update): the offer is back, for both.
   const back = offerFor({ ...base, npu: npu('needs_runtime'), dismissed: ['Intel GPU'] });

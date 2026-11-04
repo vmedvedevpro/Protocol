@@ -29,11 +29,11 @@ export interface ParakeetNpuStatus {
   state: NpuState;
   /** The loaded Parakeet model uses the NPU right now. */
   active: boolean;
-  /** `failed`: a short technical reason for the log and a tooltip. */
+  /** `failed`: a technical reason for logs and diagnostics; never shown in the UI. */
   reason: string | null;
 }
 
-/** What a build without #66's commands reports: a failing invoke means no NPU. */
+/** A failing `parakeet_npu_status` means no NPU: the NPU commands exist on Windows only. */
 export const NPU_ABSENT: ParakeetNpuStatus = { present: false, state: 'absent', active: false, reason: null };
 
 export const NPU_EVENT = 'parakeet-npu-status';
@@ -173,6 +173,13 @@ export interface OfferInputs {
   dismissed: Device[];
   /** Intel's libraries are downloading alone (`useIntelLibraries`): the NPU is on its way. */
   librariesDownloading?: boolean;
+  /**
+   * Parakeet v3, the model the NPU runs, is installed. Without it the NPU is
+   * not offered: it would run nothing, and #66 keeps Intel's libraries only
+   * while v3 is installed or downloading, so libraries got alone would go
+   * at the next start.
+   */
+  npuModelInstalled: boolean;
 }
 
 /**
@@ -181,10 +188,10 @@ export interface OfferInputs {
  * Intel GPU version of Whisper, or an Intel NPU without Intel's libraries.
  * Not now hides it until a device it did not offer then becomes one to offer.
  */
-export function offerFor({ installedAny, availability, companion, npu, dismissed, librariesDownloading = false }: OfferInputs): Offer | null {
+export function offerFor({ installedAny, availability, companion, npu, dismissed, librariesDownloading = false, npuModelInstalled }: OfferInputs): Offer | null {
   if (!installedAny) return null;
   const gpu = gpuOffered(availability, companion) && !companion!.installed && companion!.downloading === null;
-  const npuWanted = npu.present && npu.state === 'needs_runtime' && !librariesDownloading;
+  const npuWanted = npu.present && npu.state === 'needs_runtime' && npuModelInstalled && !librariesDownloading;
   const devices: Device[] = [...(gpu ? ['Intel GPU' as const] : []), ...(npuWanted ? ['Intel NPU' as const] : [])];
   if (devices.length === 0 || devices.every((device) => dismissed.includes(device))) return null;
   const both = gpu && npuWanted;

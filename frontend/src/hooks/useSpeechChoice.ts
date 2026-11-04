@@ -5,8 +5,8 @@
  * computer (#88, `lib/speech-choice.ts`): the model lists, whether the GPU is
  * an Intel GPU and the state of Whisper's Intel GPU version, the Intel NPU
  * (#66), and why the Intel GPU version last fell back. Kept current from the
- * native events; every command that fails reads as "nothing there" (a build
- * without OpenVINO or without #66's NPU commands).
+ * native events; every command that fails reads as "nothing there" (the
+ * OpenVINO and NPU commands exist on Windows only).
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';

@@ -136,6 +136,22 @@ test('Not now is remembered per device, and the card keeps a way back to the off
   expect(text()).toContain('Protocol can use your Intel GPU and NPU');
 });
 
+test("without Parakeet v3 the NPU is not offered: Intel's libraries alone would run nothing and go at the next start", async () => {
+  // needs_runtime is #66's state before the model is looked at.
+  installed = { parakeet: false, copy: true, gpu: false };
+  availability = { offer: false, gpu: 'NVIDIA', reason: 'not Intel', device: null, mismatch: null };
+  await render();
+  expect(text()).not.toContain('Protocol can use your Intel');
+  expect(text()).not.toContain('Use your Intel');
+  await act(async () => root.unmount());
+
+  // An Intel GPU is still offered, alone.
+  availability = { offer: true, gpu: 'Intel(R) Arc(TM) B390 GPU', reason: null, device: null, mismatch: null };
+  await render();
+  expect(text()).toContain('Protocol can use your Intel GPU');
+  expect(text()).not.toContain('Protocol can use your Intel GPU and NPU');
+});
+
 test('a fresh install gets the card, not the offer; a build without the NPU commands offers the GPU alone', async () => {
   installed = { parakeet: false, copy: false, gpu: false };
   await render();
