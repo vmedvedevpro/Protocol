@@ -414,6 +414,10 @@ impl WhisperEngine {
             return Ok(());
         }
         self.unload_model().await;
+        // This load decides afresh: an older outcome must not stand for it,
+        // in the reason below or in Settings (as `load_openvino_companion`).
+        #[cfg(windows)]
+        super::openvino::record_status(super::openvino::BackendStatus::default());
         #[cfg(windows)]
         let reason = match crate::speech_choice::installed(version) {
             Some(companion) if super::openvino::is_model_dir(&companion.dir) => {
@@ -423,9 +427,18 @@ impl WhisperEngine {
                     log::info!("Successfully loaded model: {id} on OpenVINO ({})", companion.dir.display());
                     return Ok(());
                 }
-                super::openvino::backend_status()
-                    .and_then(|status| status.fallback_reason)
-                    .unwrap_or_else(|| "Protocol found no Intel GPU it can run on".to_string())
+                match super::openvino::backend_status().and_then(|status| status.fallback_reason) {
+                    Some(reason) => reason,
+                    None => {
+                        // The device rule picked no device, which records nothing.
+                        let reason = "Protocol found no Intel GPU it can run on".to_string();
+                        super::openvino::record_status(super::openvino::BackendStatus {
+                            openvino_device: None,
+                            fallback_reason: Some(reason.clone()),
+                        });
+                        reason
+                    }
+                }
             }
             _ => "it is not installed".to_string(),
         };
@@ -444,7 +457,7 @@ impl WhisperEngine {
             .collect();
         let Some(copy) = crate::speech_choice::regular_copy(version, |name| installed.iter().any(|model| model == name)) else {
             log::error!("The Intel GPU version {id} did not start ({reason}), and no regular copy is installed");
-            return Err(anyhow!(crate::speech_choice::no_copy_message(&reason)));
+            return Err(anyhow!(crate::speech_choice::no_copy_message(version)));
         };
         log::warn!("The Intel GPU version {id} did not start ({reason}); Whisper runs the regular copy {copy}");
         self.load_ggml(&copy, false).await?;

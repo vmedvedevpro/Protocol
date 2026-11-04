@@ -476,6 +476,9 @@ pub async fn openvino_status<R: Runtime>(app: AppHandle<R>, whisper_model: Strin
 #[tauri::command]
 pub async fn openvino_download<R: Runtime>(app: AppHandle<R>, id: String, choose: Option<bool>) -> Result<(), String> {
     let entry = companion(&id).ok_or_else(|| format!("{id} is not in the model list"))?;
+    // With `choose` (#88) the work ends when the choice is saved, after the
+    // install's own hold: an update must not restart the app in between.
+    let _choosing = choose.unwrap_or(false).then(|| busy::hold(BusyReason::ModelDownload));
     let cancel = CancellationToken::new();
     {
         let mut downloads = downloads();

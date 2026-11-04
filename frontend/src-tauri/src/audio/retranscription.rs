@@ -103,6 +103,8 @@ async fn start_retranscription<R: Runtime>(
     vocabulary: Option<String>,
 ) -> Result<RetranscriptionResult> {
     let use_parakeet = provider.as_deref() == Some("parakeet");
+    // The model this pass was asked for, for the removal of the Compressed copy (#88).
+    let requested = if use_parakeet { None } else { model.clone() };
     let batch_lease = super::common::acquire_stt_batch_lease().await;
     let result = run_retranscription(
         app.clone(),
@@ -120,7 +122,6 @@ async fn start_retranscription<R: Runtime>(
 
     // Unload the engine after the batch job (success, failure, or cancellation)
     super::common::unload_engine_after_batch(use_parakeet).await;
-    crate::speech_choice::after_post_meeting_pass(app.clone(), ran_on_gpu);
 
     // Guard will automatically clear flag on drop
     // No need for manual: RETRANSCRIPTION_IN_PROGRESS.store(false, Ordering::SeqCst);
@@ -148,6 +149,9 @@ async fn start_retranscription<R: Runtime>(
         }
     }
 
+    // Without this pass's own flag: the removal waits while another pass runs.
+    drop(_guard);
+    crate::speech_choice::after_post_meeting_pass(app.clone(), ran_on_gpu, requested);
     result
 }
 
@@ -720,7 +724,7 @@ async fn get_or_init_whisper<R: Runtime>(
                     }
                     Err(load_err) => {
                         error!("Failed to load Whisper model '{}': {}", target_model, load_err);
-                        Err(anyhow!("Failed to load Whisper model '{}': {}", target_model, load_err))
+                        Err(anyhow!("Failed to load Whisper model '{}': {}", crate::speech_choice::shown_name(&target_model), load_err))
                     }
                 }
             } else {
