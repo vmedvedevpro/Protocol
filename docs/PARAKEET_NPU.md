@@ -87,8 +87,16 @@ own time and the label of the piece they were held from, never at the start
 of a later row (`audio/transcription/parakeet_live.rs`):
 
 - before the source's next piece, when that piece does not continue the stretch;
-- after `HELD_WAIT` (8 s) with no piece, the stretch kept for a late continuation;
+- once their source's audio is `HELD_WAIT` (8 s) past them with no piece
+  waiting for the worker, the stretch kept for a late continuation;
 - at the end of the recording.
+
+The wait is measured on the source's own audio (the end of its newest piece
+received, plus the time since it was received; capture runs in real time, so
+this is never ahead of the recording), not from when the worker got to the held
+piece, and the deadline applies only to an empty queue
+(`parakeet_live::next`): a worker that lags behind takes the queued
+continuation first, and it joins the held words as it would on time.
 
 Such rows get the glossary's spellings like every other row; a system-audio
 source that has had no labelled row yet uses the worker's label for it
@@ -187,12 +195,13 @@ restart is needed. 0.5.0 keeps an installed version as it is (it compares only
 version and API level) and 0.4.3 does not read `runtimes`.
 
 **Who keeps the runtime**: on a PC with an Intel NPU, the runtime stays even
-without a Whisper companion while Parakeet v3 is installed or once the runtime
-was downloaded for the NPU (`openvino_runtime_download` writes
-`runtimes/parakeet-npu.requested`), so a v3 download that fails or comes later
-does not lose it (`state::keeps_runtime`, at the startup prune, the companion's
-removal and the companion status: installed, not "removed at restart", and
-`removesRuntime` false). Removing v3 removes the NPU cache and that marker
+without a Whisper companion while Parakeet v3 is installed or its download runs
+(`state::keeps_runtime`, `state::model_download`; at the startup prune, the
+companion's removal and the companion status: installed, not "removed at
+restart", and `removesRuntime` false). A runtime downloaded alone for a v3 that
+never arrived (its download failed, was cancelled or the app quit first) is
+pruned at the next start like any runtime no one needs, and the NPU reads
+`needs_runtime` again. Removing v3 removes the NPU cache
 (`state::model_removed`), and with no companion left the runtime goes at the
 next start. Removing the last companion still removes Whisper's own cache.
 Whisper's cache prune leaves the `parakeet-npu` folder alone.
@@ -226,7 +235,7 @@ Whisper's cache prune leaves the `parakeet-npu` folder alone.
   seen at the next start.
 - Only Parakeet v3 runs on the NPU; v2 stays on the processor.
 - A held word shows up with the next piece's row, up to a second late; when its
-  continuation was lost, in a row of its own up to 8 s later.
+  continuation was lost, in a row of its own once the recording is 8 s past it.
 - A word up to about 1.5 s before a cap cut can come out wrong and is shown
   before the next call hears it right: the hold covers the last second only.
 - A compile that started before a recording runs through it.

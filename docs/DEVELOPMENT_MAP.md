@@ -944,8 +944,8 @@ before changing it.
   `runtime::complete_into` adds them to an older install of the same version
   while it is loaded, and `openvino_runtime_download` installs or completes the
   runtime alone. On a PC with an NPU the runtime stays without a Whisper
-  companion while v3 is installed or the runtime was downloaded for the NPU;
-  removing v3 or the runtime removes the NPU cache.
+  companion while v3 is installed or downloading; removing v3 or the runtime
+  removes the NPU cache.
 
 ### Windows installer
 

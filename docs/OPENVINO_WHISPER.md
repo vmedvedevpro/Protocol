@@ -268,9 +268,9 @@ is installed and used the same way.
 Remove in the row removes the companion, and with the last companion the
 runtime (a version this process loaded goes at the next start) and the model
 cache. At startup, a runtime no companion needs (none installed or begun) is
-removed too. On a PC with an Intel NPU where Parakeet v3 is installed, or the
-runtime was downloaded for the NPU, the NPU keeps the runtime (not the model
-cache): the row shows it installed, and `removesRuntime` is false
+removed too. On a PC with an Intel NPU where Parakeet v3 is installed or
+downloading, the NPU keeps the runtime (not the model cache): the row shows it
+installed, and `removesRuntime` is false
 ([PARAKEET_NPU.md](PARAKEET_NPU.md#the-runtime)). A version left on disk only because this process loaded it
 counts as gone in the row until then (`RuntimeStatus::removed_at_restart`):
 the row says that Intel's libraries are removed when Protocol restarts,
