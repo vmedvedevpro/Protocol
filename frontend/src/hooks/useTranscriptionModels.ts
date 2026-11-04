@@ -11,7 +11,11 @@ export interface RawModelInfo {
   status: 'Available' | 'Missing' | { Downloading: { progress: number } } | { Error: string };
   /** From the model catalog. */
   display_name?: string;
+  description?: string;
   languages?: string[];
+  recommended?: boolean;
+  /** The Intel GPU version of Whisper (#88): the ggml models it serves. */
+  companion_of?: string[];
 }
 
 export interface ModelOption {
@@ -63,7 +67,8 @@ export function useTranscriptionModels(transcriptModelConfig: TranscriptModelCon
         .map((m) => ({
           provider: 'whisper' as const,
           name: m.name,
-          displayName: speechModelLabel('whisper', m.name, m.display_name),
+          // The Intel GPU version is named after the model it serves.
+          displayName: `${speechModelLabel('whisper', m.name, m.display_name)}${m.companion_of?.length ? ' · Intel GPU' : ''}`,
           sizeLabel: formatModelSize(m.size_bytes),
         }));
       setHasWhisperModel(availableWhisper.length > 0);

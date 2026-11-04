@@ -81,6 +81,11 @@ async function resolveEnhancementModel(
     (model) => model.provider === normalizedProvider && model.name === configuredModel,
   );
   if (configured) return configured;
+  // The Intel GPU version (#88) stays the choice when it is gone: native code
+  // then runs a regular copy of it, or says to download one.
+  if (normalizedProvider === 'whisper' && whisperModels.some((model) => model.name === configuredModel && model.companion_of?.length)) {
+    return { provider: 'whisper', name: configuredModel! };
+  }
   if (normalizedProvider === 'whisper' || normalizedProvider === 'parakeet') {
     const sameProvider = available.find((model) => model.provider === normalizedProvider);
     if (sameProvider) return sameProvider;
