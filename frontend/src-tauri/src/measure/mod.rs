@@ -88,7 +88,7 @@ async fn transcribe_settings() -> Result<()> {
     let whisper_model = settings.iter().any(|s| s.uses_whisper())
         .then(|| existing_path("MEASURE_WHISPER_MODEL", "the ggml model file of the Whisper settings, or on Windows an OpenVINO model folder"))
         .transpose()?;
-    let parakeet_model = settings.contains(&Setting::Parakeet)
+    let parakeet_model = settings.iter().any(|s| s.uses_parakeet())
         .then(|| existing_path("MEASURE_PARAKEET_MODEL", "the Parakeet model folder"))
         .transpose()?;
     let diarizer = Diarizer::from_env()?;

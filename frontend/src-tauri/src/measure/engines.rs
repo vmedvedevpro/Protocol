@@ -48,8 +48,13 @@ impl Engines {
             Some(path) => {
                 let engine = ParakeetEngine::new_with_models_dir(Some(models_dir.path().to_path_buf()))?;
                 engine.load_model_in_place(path).await?;
-                let acceleration =
-                    if crate::parakeet_engine::labs::enabled() { "DirectML encoder (Labs)" } else { "CPU" };
+                let acceleration = if engine.uses_npu().await {
+                    "Intel NPU encoder"
+                } else if crate::parakeet_engine::labs::enabled() {
+                    "DirectML encoder (Labs)"
+                } else {
+                    "CPU"
+                };
                 Some(Loaded { engine, model: file_name(path), acceleration })
             }
             None => None,
