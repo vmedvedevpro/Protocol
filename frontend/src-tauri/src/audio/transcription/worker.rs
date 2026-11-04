@@ -22,7 +22,7 @@
 //! overwrites these live labels with more accurate ones.
 
 use super::engine::TranscriptionEngine;
-use super::parakeet_live::{HeldRow, ParakeetLive};
+use super::parakeet_live::{HeldRow, ParakeetLive, Received};
 use super::provider::TranscriptionError;
 use crate::audio::AudioChunk;
 use crate::database::repositories::vocabulary::VocabularyRepository;
@@ -172,19 +172,20 @@ pub fn start_transcription_task<R: Runtime>(
                 }
 
                 loop {
-                    for row in parakeet_live.overdue(std::time::Instant::now()) {
-                        emit_held_row(&engine_clone, &app_clone, worker_id, row).await;
-                    }
                     // Try to get a chunk to process; words Parakeet holds wait
-                    // for their continuation until their deadline (#66).
-                    let chunk = {
+                    // for their continuation until their deadline (#66), and
+                    // only an empty queue waits.
+                    let received = {
                         let mut receiver = work_receiver_clone.lock().await;
-                        match parakeet_live.deadline() {
-                            Some(deadline) => match tokio::time::timeout_at(deadline.into(), receiver.recv()).await {
-                                Ok(chunk) => chunk,
-                                Err(_) => continue,
-                            },
-                            None => receiver.recv().await,
+                        super::parakeet_live::next(&mut receiver, parakeet_live.deadline()).await
+                    };
+                    let chunk = match received {
+                        Received::Piece(chunk) => chunk,
+                        Received::Waited => {
+                            for row in parakeet_live.overdue(std::time::Instant::now()) {
+                                emit_held_row(&engine_clone, &app_clone, worker_id, row).await;
+                            }
+                            continue;
                         }
                     };
 
@@ -256,6 +257,7 @@ pub fn start_transcription_task<R: Runtime>(
                             };
 
                             let source_index = ParakeetLive::index(&chunk.device_type);
+                            parakeet_live.seen(source_index, (chunk_timestamp + chunk_duration) * 1000.0, std::time::Instant::now());
                             if let Some(row) = parakeet_live.before_piece(source_index, chunk_timestamp * 1000.0) {
                                 emit_held_row(&engine_clone, &app_clone, worker_id, row).await;
                             }
@@ -279,7 +281,7 @@ pub fn start_transcription_task<R: Runtime>(
                                         Some(name.unwrap_or(label))
                                     }).await.ok().flatten().unwrap_or_else(|| "Guest".into());
                                 }
-                                parakeet_live.after_piece(source_index, &chunk_source, std::time::Instant::now());
+                                parakeet_live.after_piece(source_index, &chunk_source);
                                     let confidence_str = match confidence_opt {
                                         Some(c) => format!("{:.2}", c),
                                         None => "N/A".to_string(),

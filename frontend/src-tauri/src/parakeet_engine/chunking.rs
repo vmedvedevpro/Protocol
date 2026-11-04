@@ -552,7 +552,12 @@ impl Live {
 
     /// Whether words are held.
     pub fn holds(&self) -> bool {
-        self.stretch.as_ref().is_some_and(|stretch| !stretch.pending.is_empty())
+        self.held_end_ms().is_some()
+    }
+
+    /// The end of the stretch whose words are held, if any are.
+    pub fn held_end_ms(&self) -> Option<f64> {
+        self.stretch.as_ref().filter(|stretch| !stretch.pending.is_empty()).map(|stretch| stretch.end_ms)
     }
 }
 
