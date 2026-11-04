@@ -10,6 +10,8 @@ import { OptionalModelDownloads } from '@/components/OptionalModelDownloads';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'framer-motion';
 import { formatModelSize, useModelSize } from '@/lib/model-catalog';
+import { useSpeechChoice } from '@/hooks/useSpeechChoice';
+import { IntelGpuDownload } from '@/components/settings/IntelGpuDownload';
 
 const PARAKEET_MODEL = 'parakeet-tdt-0.6b-v3-int8';
 
@@ -38,6 +40,8 @@ export function DownloadProgressStep() {
   } = useOnboarding();
 
   const [isMac, setIsMac] = useState(false);
+  // Whisper's Intel GPU version, if setup chose it (#88).
+  const speechChoice = useSpeechChoice();
   // Sizes come from Hugging Face (or the installed files); a download's
   // progress events then report its exact total. 0 / null: not known yet.
   const parakeetBytes = useModelSize('parakeet', PARAKEET_MODEL);
@@ -477,6 +481,7 @@ export function DownloadProgressStep() {
             'MiB'
           )}
           <OptionalModelDownloads activeOnly />
+          <IntelGpuDownload choice={speechChoice} />
         </div>
 
         {/* Info Message - Only show when Parakeet is downloaded */}
