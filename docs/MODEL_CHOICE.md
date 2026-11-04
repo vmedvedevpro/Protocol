@@ -48,8 +48,9 @@ meetings, `localWhisper:<id>` live). `discover_models` lists it after the
 ggml models (`speech_choice::listed`, Windows only) with `companion_of` set,
 named after the model it serves ("Large V3 Turbo"), Available once the
 companion and its record are verified, else Missing. `WhisperAPI.getAvailableModels`
-leaves it out of All models; the import and retranscribe pickers name it
-"… · Intel GPU" (`gpuVersionLabel`).
+leaves it out of All models; the import and retranscribe pickers and the
+Settings selects name it "Whisper · Large V3 Turbo · Intel GPU"
+(`gpuVersionLabel`), apart from the full Large V3 Turbo it is named after.
 
 `WhisperEngine::load_model` of its id (`load_gpu_version`):
 
@@ -77,7 +78,9 @@ decides; the Import and Enhance dialogs preselect the copy it would run, or,
 without one, keep it marked "(not installed)" so the pass reports what to
 download instead of running another model; Settings › After the meeting
 names it ("Whisper · Large V3 Turbo · Intel GPU is not on this computer, so
-… is used instead", or that no copy is installed either). An explicitly
+… is used instead", or that no copy is installed either), from the Whisper
+list it fetches with the installed models, and offers the missing entry only
+once that list is in (the select reads "Loading…" until then). An explicitly
 chosen `large-v3-turbo` or `large-v3-turbo-q5_0` keeps #79's behaviour: its
 companion, when installed, runs in its place, and the selects badge it
 "Intel GPU" then.
@@ -146,13 +149,19 @@ lock, `retire_copy` gathers the facts and `retire` removes
   the copy when the Intel GPU does not start, and without it recording could
   not start at all.
 
-The marker goes first, then the copy: if its removal fails, nothing is
-deleted, and a crash in between leaves the copy without a marker, never a
-marker without its copy. Then `optional-model-removed` (`whisper`) is
-emitted. A marker that names another file, or a copy that is gone, outlived
-its copy (removed in All models, downloaded again, a crash): it is removed at
-the next pass or the next time Settings asks `speech_choice_copy_retires`, and
-never removes anything. So a copy downloaded after the switch, for example
+The marker is written beside its place and renamed into it, so a reader
+finds no marker or a whole one. The card's check
+(`speech_choice_copy_retires`) and a pass read it without a lock while
+`chosen` may be writing it: the download announces the companion before the
+choice is saved, and the card refreshes on that. The marker goes first, then
+the copy: if its removal fails, nothing is deleted, and a crash in between
+leaves the copy without a marker, never a marker without its copy. Then
+`optional-model-removed` (`whisper`) is emitted. A marker read whole that
+names another file, or any marker when no copy is installed, outlived its
+copy (removed in All models, downloaded again, a crash): it counts for
+nothing, only the next pass removes it (under the optional Whisper
+operation; the card's check only reads), and it never removes anything. A
+marker that cannot be read is neither used nor removed. So a copy downloaded after the switch, for example
 the standard version the card offers after a failure, stays.
 Until then the card says "The Compressed copy stays until this one has
 transcribed a meeting." (during the download, and afterwards while
@@ -182,8 +191,8 @@ a tooltip.
 
 During and After the meeting badge the device each installed model runs on
 (`deviceOf`): the Intel GPU version, and a ggml model it runs in place of,
-"Intel GPU" while it has not fallen back, except the full Large V3 Turbo it
-is named after, which would otherwise read the same; Parakeet v3 "Intel NPU" once the
+"Intel GPU" while it has not fallen back (the full Large V3 Turbo included,
+which reads apart from the Intel GPU version by name); Parakeet v3 "Intel NPU" once the
 NPU is `ready` or `active`. whisper.cpp on Vulkan or the processor gets no
 badge. The live list groups "On this computer" and "Not downloaded"; Parakeet
 carries "recommended for live text" ("Light on power · …" on the NPU), and the
@@ -200,7 +209,8 @@ are hidden while the NPU state is `preparing` or `ready`: the NPU wins (#66).
   alone and neither, a refused companion, the catalog's recommendations; badges
   and fallbacks; the offer's conditions, titles and sizes, Not now per device;
   the Labs rule; the card's copy; what stands in for a missing Intel GPU
-  version; native errors in device words.
+  version; the selects' names for it and the models it runs in place of;
+  native errors in device words.
 - `tests/model-catalog/for-this-computer.test.tsx`: N1, N7, an NPU-only PC,
   Intel's libraries alone (bytes, Cancel, a kept failure, a download already
   running, onboarding's row), an Intel GPU version installed before the NPU
@@ -213,7 +223,7 @@ are hidden while the NPU state is `preparing` or `ready`: the NPU wins (#66).
   on a first run or once everything is used, a build without #66, the offer
   back after a failed or cancelled Switch), All models from the live select,
   the Labs badge, a chosen Intel GPU version that is gone (with and without a
-  copy).
+  copy, and before the speech choice loads).
 - `tests/model-catalog/transcription-models.test.tsx`: the Import and Enhance
   dialogs' preselection for a missing Intel GPU version, and its name.
 - `tests/labs-npu.test.tsx`, `tests/onboarding-pair.test.tsx`: the Labs switch;
@@ -223,8 +233,10 @@ are hidden while the NPU state is `preparing` or `ready`: the NPU wins (#66).
   driven on a temporary folder with a stand-in copy file and the settings
   database (migrations, in memory): the copy retires once, a copy downloaded
   later stays, a marker never removes a copy other than its own (removed and
-  downloaded again, removed before a pass, Settings' check), a marker that
-  cannot be removed keeps the copy, and the copy stays while a recording,
+  downloaded again, removed before a pass, Settings' check, which only
+  reads), a marker is written whole and an unreadable one or a leftover part
+  of a write is left alone, a marker that cannot be removed keeps the copy,
+  and the copy stays while a recording,
   another pass, an explicit pick, the engine or a live choice could load it;
   `load_model` of the Intel GPU version with no files and no copy; the
   fallback copy, the no-copy message, the id lookup, the choice move on
