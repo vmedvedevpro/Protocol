@@ -98,7 +98,11 @@ the same name as its menu item, and its model picker uses catalog names
 the default is onboarding's recommended setup (Parakeet live, Whisper Large V3
 Turbo Compressed after meetings), `?models=fresh` has no Whisper and
 `?models=none` no speech model, so recording opens the setup dialog. Downloads
-report progress like the native ones.
+report progress like the native ones. `src/dev/preview/intel.ts` adds the
+Intel hardware of [MODEL_CHOICE.md](MODEL_CHOICE.md): `?intel=gpu,npu`, `gpu`,
+`npu` or `none`; `?gpu=missing|installed|fallback|crash` for the Intel GPU
+version and `?npu=<state>` for #66's NPU. Without `?intel` the preview answers
+like a build without those commands.
 
 ## Limits
 
