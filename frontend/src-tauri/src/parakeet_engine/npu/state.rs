@@ -135,11 +135,14 @@ fn has_npu_files(dir: &Path) -> bool {
         .is_some_and(|record| RUNTIME_FILES.iter().all(|name| record.files.iter().any(|file| file.name == *name)))
 }
 
-/// The runtime folder this process uses or would: the one it pinned, else
-/// the one it would load.
+/// The runtime folder a load would take now. The process may have pinned an
+/// older version meanwhile (a new one was installed while it ran): [`api`]
+/// then fails with the reason, and the next start takes the new one.
 fn runtime_dir() -> Option<PathBuf> {
-    crate::whisper_engine::openvino::loaded_runtime_dir()
-        .or_else(|| model_catalog::openvino::runtime_to_load().ok().map(|installed| installed.dir))
+    model_catalog::openvino::runtime_to_load()
+        .ok()
+        .map(|installed| installed.dir)
+        .or_else(crate::whisper_engine::openvino::loaded_runtime_dir)
 }
 
 /// Parakeet v3's folder.
