@@ -253,9 +253,9 @@ any `Result`. While any of these steps runs, the app keeps
 line, and removes it when none runs. A marker found by the first such step of
 a process was left by one that died there: OpenVINO then stays off
 (whisper.cpp runs) and the For this computer card says the Intel GPU version
-didn't start, with Try again (`openvino_retry`), which removes the marker and
-lets the next model load try (#88; `CompanionStatus.stopped` keeps the
-technical text for the tooltip). Meanwhile the selects drop the "Intel GPU"
+didn't start, with Try again (`openvino_retry`), which removes the marker,
+forgets the last load's fallback reason (`retry`) and lets the next model load
+try (#88; `CompanionStatus.stopped` keeps the technical text for the tooltip). Meanwhile the selects drop the "Intel GPU"
 badge. Without it, a crash in
 OpenVINO would repeat at every start. A process that ends on purpose while a
 step runs (Quit, `RunEvent::Exit`, or the updater closing the app to install)
