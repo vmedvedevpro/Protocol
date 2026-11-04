@@ -26,6 +26,8 @@
 mod diarize;
 mod engines;
 mod input;
+#[cfg(windows)]
+mod npu;
 mod output;
 mod settings;
 mod stages;
