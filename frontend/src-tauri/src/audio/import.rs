@@ -544,7 +544,8 @@ async fn run_import<R: Runtime>(
         whisper_engine.as_deref(),
         language.as_deref(),
         vocabulary.as_deref(),
-    );
+    )
+    .windows_over(&processable_segments);
     if pass.detects_language() {
         emit_progress(&app, "transcribing", 30, "Detecting language...");
         pass.detect_languages(processable_segments.iter().map(|(segment, track)| (segment, *track)), || false).await;
