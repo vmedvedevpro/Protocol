@@ -37,9 +37,9 @@ an eighth faster per call.
   processor meanwhile.
   The NPU hears the audio in overlapping windows, so a word cut at the
   six-second limit is no longer lost. Word errors on public samples (FLEURS):
-  - after a meeting, 8.5 % instead of 12.4 % in Russian and 19.3 % instead of
+  - after a meeting, 8.5 % instead of 12.4 % in Russian and 14.2 % instead of
     35.5 % in English;
-  - live, 9.4 % instead of 12.4 % in Russian and 17.7 % instead of 35.5 % in
+  - live, 9.4 % instead of 12.4 % in Russian and 15.0 % instead of 35.5 % in
     English.
 
   On an Intel Core Ultra X7 358H, the pass after a meeting ran 35 times faster
