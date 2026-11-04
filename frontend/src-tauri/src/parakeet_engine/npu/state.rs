@@ -11,13 +11,17 @@
 //! under `<data>/cache/openvino/parakeet-npu/<key>/`, the key naming the
 //! runtime version, the encoder's pinned hash and the NPU driver's and
 //! compiler's versions: a change of any of them compiles again. It runs once,
-//! in the background ([`kick`]), postponed while a recording or another
-//! engine job runs, and holds the busy registry (`ModelCompile`): about 80 s
-//! of the driver compiler's CPU time, 1.2 GB of cache. A first inference
-//! checks the compiled encoder; then a `prepared` marker in the key folder
-//! makes later starts `ready` after one device query. A failure leaves
-//! `failed.txt` there with the reason, so a driver that cannot compile is
-//! not tried at every start; `parakeet_npu_retry` clears it.
+//! in the background ([`kick`]), and holds the busy registry (`ModelCompile`):
+//! about 80 s of the driver compiler's CPU time, 1.2 GB of cache. While a
+//! recording or another engine job runs it only waits: it does not touch the
+//! NPU or the crash marker, and the device is asked once per process. A
+//! compile that started before a recording runs to its end (the C API cannot
+//! cut one call short). A first inference checks the compiled encoder; then a
+//! `prepared` marker in the key folder makes later starts `ready` after one
+//! device query. A failure leaves `failed.txt` there with the reason, so a
+//! driver that cannot compile is not tried at every start; a failed inference
+//! does the same, until `parakeet_npu_retry` or a new driver or runtime (a new
+//! key). A failure while the app closes is not recorded.
 //!
 //! **Use**: a Parakeet v3 load while the state is `ready` compiles from the
 //! cache (about 1.5 s) and checks one inference ([`encoder_for_load`]);
@@ -25,13 +29,15 @@
 //! loaded before the preparation finished moves to the NPU at its next load,
 //! never mid-recording.
 //!
-//! **Removal**: the NPU cache goes with Parakeet v3 ([`model_removed`]) and
-//! with the runtime ([`runtime_removed`]). On a PC with an NPU and v3, the
-//! runtime stays installed even when no Whisper companion uses it
-//! ([`keeps_runtime`]).
+//! **Removal**: the NPU cache goes with Parakeet v3 ([`model_removed`]), with
+//! the runtime ([`runtime_removed`]) and, at startup, when v3 is not
+//! installed ([`startup`]); a preparation that a removal overtook drops what
+//! it compiled. On a PC with an NPU, the runtime stays installed even when no
+//! Whisper companion uses it while v3 is installed or the runtime was
+//! downloaded for the NPU ([`keeps_runtime`]).
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
@@ -53,6 +59,8 @@ pub const RUNTIME_FILES: [&str; 2] = ["openvino_intel_npu_plugin.dll", "openvino
 pub const ENCODER: &str = "encoder-model.int8.onnx";
 const PREPARED: &str = "prepared";
 const FAILED: &str = "failed.txt";
+/// Beside the crash marker: the runtime was downloaded for the NPU.
+const REQUESTED: &str = "parakeet-npu.requested";
 /// How often a postponed preparation looks again.
 const WAIT: Duration = Duration::from_secs(2);
 
@@ -75,7 +83,8 @@ pub struct ParakeetNpuStatus {
     pub state: NpuState,
     /// The loaded Parakeet model encodes on the NPU now.
     pub active: bool,
-    /// `failed`: a short technical reason.
+    /// `failed`: a short technical reason, for logs; Settings says in its own
+    /// words that the NPU is off.
     pub reason: Option<String>,
 }
 
@@ -99,6 +108,9 @@ struct Progress {
 
 static PROGRESS: Mutex<Progress> = Mutex::new(Progress { prepared: None, failed: None, preparing: false, active: false });
 static JOB: AtomicBool = AtomicBool::new(false);
+/// Bumped by each removal of the NPU's cache: a preparation that started
+/// before one drops what it compiled.
+static GENERATION: AtomicU64 = AtomicU64::new(0);
 static EMIT: OnceLock<Box<dyn Fn(&ParakeetNpuStatus) + Send + Sync>> = OnceLock::new();
 
 fn progress() -> std::sync::MutexGuard<'static, Progress> {
@@ -193,11 +205,36 @@ pub fn set_app<R: tauri::Runtime>(app: tauri::AppHandle<R>) {
     }));
 }
 
-/// Whether the NPU keeps Intel's runtime installed: an Intel NPU and
-/// Parakeet v3 are here (`model_catalog::openvino` prunes it otherwise once
-/// no Whisper companion keeps it).
+fn requested_marker() -> PathBuf {
+    crate::paths::install_data_root().join("runtimes").join(REQUESTED)
+}
+
+/// Whether the NPU keeps Intel's runtime installed: an Intel NPU is here
+/// and Parakeet v3 is installed, or the runtime was downloaded for the NPU
+/// (v3 may still be downloading, or come next). `model_catalog::openvino`
+/// prunes it otherwise once no Whisper companion keeps it.
 pub fn keeps_runtime() -> bool {
-    detect::present() && installed_encoder().is_some()
+    keeps(detect::present(), || installed_encoder().is_some(), &requested_marker())
+}
+
+fn keeps(present: bool, model: impl FnOnce() -> bool, requested: &Path) -> bool {
+    present && (model() || requested.is_file())
+}
+
+/// The runtime alone is being downloaded (`openvino_runtime_download`): on a
+/// PC with an NPU it is the NPU's, and stays until v3 or it is removed.
+pub fn runtime_requested() {
+    request_in(detect::present(), &requested_marker());
+}
+
+fn request_in(present: bool, marker: &Path) {
+    if !present {
+        return;
+    }
+    let written = marker.parent().map_or(Ok(()), std::fs::create_dir_all).and_then(|()| std::fs::write(marker, b""));
+    if let Err(error) = written {
+        log::warn!("[npu] cannot write {}: {error}", marker.display());
+    }
 }
 
 /// Whether the Labs DirectML toggle is overruled: the NPU is being
@@ -242,7 +279,25 @@ struct Device {
     compiler: String,
 }
 
+/// The NPU, asked once per process: each query loads the plugin into a new
+/// core and starts the driver, which wakes the NPU. A failure is asked again
+/// (after a retry).
 fn device(api: &'static OpenVino) -> Result<Device, String> {
+    let mut known = known_device();
+    if let Some(device) = known.as_ref() {
+        return Ok(device.clone());
+    }
+    let device = query_device(api)?;
+    *known = Some(device.clone());
+    Ok(device)
+}
+
+fn known_device() -> std::sync::MutexGuard<'static, Option<Device>> {
+    static DEVICE: Mutex<Option<Device>> = Mutex::new(None);
+    DEVICE.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+fn query_device(api: &'static OpenVino) -> Result<Device, String> {
     guard::guarded(Step::Device, || {
         let core = api.core().map_err(|error| error.to_string())?;
         // The plugin lists the NPUs it can drive by their architecture.
@@ -293,15 +348,21 @@ fn engines_busy() -> bool {
     busy::current().into_iter().any(|reason| !matches!(reason, BusyReason::ModelDownload | BusyReason::Onboarding))
 }
 
-/// Records a failure for this process and, keyed, for later starts.
+/// Records a failure for this process and, keyed, for later starts. One
+/// while the app closes (a compile or call cut short by the exit) is not a
+/// fault of the NPU and is not kept.
 fn fail(reason: String, key_dir: Option<&Path>) {
     log::error!("[npu] {reason}; Parakeet runs on the processor");
-    if let Some(dir) = key_dir {
-        let _ = std::fs::create_dir_all(dir).and_then(|()| std::fs::write(dir.join(FAILED), &reason));
-    }
+    persist_failure(&reason, key_dir, guard::closing());
     let mut progress = progress();
     progress.failed = Some(reason);
     progress.preparing = false;
+}
+
+fn persist_failure(reason: &str, key_dir: Option<&Path>, closing: bool) {
+    if let (Some(dir), false) = (key_dir, closing) {
+        let _ = std::fs::create_dir_all(dir).and_then(|()| std::fs::write(dir.join(FAILED), reason));
+    }
 }
 
 /// Starts the preparation in the background when it is due and not running;
@@ -324,12 +385,38 @@ pub fn changed() {
     kick();
 }
 
+/// At startup, once the catalog in use is set: a cache left without v3 (a
+/// removal the app did not finish) goes, then the preparation runs if due.
+pub fn startup() {
+    if installed_encoder().is_none() && cache_root().exists() {
+        remove_cache();
+    }
+    kick();
+}
+
+/// Waits while `busy` (a recording or another engine job), looking only at
+/// `due` and `busy` every `wait`: true once nothing else runs, false when the
+/// preparation stopped being due meanwhile. The caller's native steps (the
+/// device query, the crash marker, the compile) come after it.
+async fn idle_while_due(due: impl Fn() -> bool, busy: impl Fn() -> bool, wait: Duration) -> bool {
+    loop {
+        if !due() {
+            return false;
+        }
+        if !busy() {
+            return true;
+        }
+        tokio::time::sleep(wait).await;
+    }
+}
+
 async fn prepare_when_due() {
     loop {
-        if status().state != NpuState::Waiting {
+        if !idle_while_due(|| status().state == NpuState::Waiting, engines_busy, WAIT).await {
             return;
         }
         let Some(encoder_sha256) = installed_encoder() else { return };
+        let generation = GENERATION.load(Ordering::SeqCst);
         let checked = tokio::task::spawn_blocking(|| api().and_then(|(api, version)| device(api).map(|device| (api, version, device)))).await;
         let (api, version, device) = match checked {
             Ok(Ok(found)) => found,
@@ -339,7 +426,9 @@ async fn prepare_when_due() {
         let key_dir = cache_root().join(cache_key(&version, encoder_sha256, &device));
         if key_dir.join(PREPARED).is_file() {
             log::info!("[npu] {} is prepared ({})", device.name, key_dir.display());
-            progress().prepared = Some(key_dir);
+            if GENERATION.load(Ordering::SeqCst) == generation {
+                progress().prepared = Some(key_dir);
+            }
             return;
         }
         if let Ok(reason) = std::fs::read_to_string(key_dir.join(FAILED)) {
@@ -366,6 +455,10 @@ async fn prepare_when_due() {
         })
         .await
         .unwrap_or_else(|error| Err(format!("the preparation stopped: {error}")));
+        if dropped_when_overtaken(&key_dir, generation) {
+            progress().preparing = false;
+            return;
+        }
         match prepared {
             Ok(seconds) => {
                 log::info!("[npu] prepared in {seconds:.0} s");
@@ -385,6 +478,18 @@ async fn prepare_when_due() {
         }
         return;
     }
+}
+
+/// Whether v3 or the runtime was removed after a preparation that started
+/// at `generation`: OpenVINO wrote its blob into `key_dir` after the cache
+/// was emptied, and it goes too; the preparation records nothing.
+fn dropped_when_overtaken(key_dir: &Path, generation: u64) -> bool {
+    if GENERATION.load(Ordering::SeqCst) == generation {
+        return false;
+    }
+    log::info!("[npu] a removal overtook the preparation; dropping {}", key_dir.display());
+    let _ = std::fs::remove_dir_all(key_dir);
+    true
 }
 
 /// Removes the NPU caches other than `keep`'s.
@@ -423,6 +528,18 @@ pub fn encoder_for_load(model_id: &str, model_dir: &Path) -> Option<NpuEncoder> 
         return None;
     }
     let key_dir = progress().prepared.clone()?;
+    // The preparation was for the encoder installed then: one updated since
+    // has another key, and compiling it here would take a minute or two.
+    let now = api().ok().and_then(|(_, version)| {
+        let device = known_device().clone()?;
+        installed_encoder().map(|encoder| cache_root().join(cache_key(&version, encoder, &device)))
+    });
+    if now.as_ref() != Some(&key_dir) {
+        log::info!("[npu] Parakeet v3 changed since {} was prepared; preparing again", key_dir.display());
+        progress().prepared = None;
+        changed();
+        return None;
+    }
     let loaded = api().and_then(|(api, _)| {
         let mut encoder = compile(api, &model_dir.join(ENCODER), &key_dir)?;
         first_run(&mut encoder)?;
@@ -476,6 +593,7 @@ pub fn failed_while_running(reason: String) {
 // --- Removal and retry -----------------------------------------------------
 
 fn remove_cache() {
+    GENERATION.fetch_add(1, Ordering::SeqCst);
     let root = cache_root();
     match std::fs::remove_dir_all(&root) {
         Ok(()) => log::info!("[npu] removed the cache {}", root.display()),
@@ -487,10 +605,12 @@ fn remove_cache() {
     progress.failed = None;
 }
 
-/// Parakeet `model_id` was deleted: v3 takes the NPU cache with it.
+/// Parakeet `model_id` was deleted: v3 takes the NPU cache with it, and the
+/// NPU no longer keeps the runtime.
 pub fn model_removed(model_id: &str) {
     if model_id == MODEL_ID {
         remove_cache();
+        let _ = std::fs::remove_file(requested_marker());
         emit();
     }
 }
@@ -498,33 +618,44 @@ pub fn model_removed(model_id: &str) {
 /// Intel's runtime was removed (or is pruned at startup): the NPU cache goes.
 pub fn runtime_removed() {
     remove_cache();
+    let _ = std::fs::remove_file(requested_marker());
     emit();
 }
 
+/// Off the main thread: the status reads the runtime's and the model's
+/// records and files.
 #[tauri::command]
-pub fn parakeet_npu_status() -> ParakeetNpuStatus {
-    let status = status();
-    if status.state == NpuState::Waiting {
-        // A preparation due and not running (installed by another path).
-        kick();
-    }
-    status
+pub async fn parakeet_npu_status() -> Result<ParakeetNpuStatus, String> {
+    tokio::task::spawn_blocking(|| {
+        let status = status();
+        if status.state == NpuState::Waiting {
+            // A preparation due and not running (installed by another path).
+            kick();
+        }
+        status
+    })
+    .await
+    .map_err(|error| error.to_string())
 }
 
 /// Clears `failed` (the crash marker and the recorded reasons) and prepares
 /// again.
 #[tauri::command]
-pub fn parakeet_npu_retry() -> ParakeetNpuStatus {
-    guard::retry();
-    if let Ok(read) = std::fs::read_dir(cache_root()) {
-        for item in read.flatten() {
-            let _ = std::fs::remove_file(item.path().join(FAILED));
+pub async fn parakeet_npu_retry() -> Result<ParakeetNpuStatus, String> {
+    tokio::task::spawn_blocking(|| {
+        guard::retry();
+        if let Ok(read) = std::fs::read_dir(cache_root()) {
+            for item in read.flatten() {
+                let _ = std::fs::remove_file(item.path().join(FAILED));
+            }
         }
-    }
-    progress().failed = None;
-    log::info!("[npu] retrying the NPU");
-    changed();
-    status()
+        progress().failed = None;
+        log::info!("[npu] retrying the NPU");
+        changed();
+        status()
+    })
+    .await
+    .map_err(|error| error.to_string())
 }
 
 #[cfg(test)]
@@ -567,6 +698,70 @@ mod tests {
             serde_json::to_value(&status).unwrap(),
             serde_json::json!({ "present": true, "state": "needs_runtime", "active": false, "reason": null })
         );
+    }
+
+    #[tokio::test]
+    async fn a_due_preparation_waits_out_a_recording_before_anything_native() {
+        use std::cell::Cell;
+        // A recording runs for three looks; then nothing else does.
+        let looks = Cell::new(0);
+        let busy = || {
+            looks.set(looks.get() + 1);
+            looks.get() <= 3
+        };
+        assert!(idle_while_due(|| true, busy, Duration::from_millis(1)).await);
+        assert_eq!(looks.get(), 4);
+
+        // v3 removed during the recording: no longer due, nothing to do.
+        let dues = Cell::new(0);
+        let due = || {
+            dues.set(dues.get() + 1);
+            dues.get() < 3
+        };
+        assert!(!idle_while_due(due, || true, Duration::from_millis(1)).await);
+        assert_eq!(dues.get(), 3);
+    }
+
+    #[test]
+    fn the_npu_keeps_the_runtime_for_v3_or_once_it_was_downloaded_for_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let marker = dir.path().join("runtimes").join(REQUESTED);
+        assert!(keeps(true, || true, &marker));
+        assert!(!keeps(true, || false, &marker));
+        // The runtime downloaded alone for the NPU stays while v3 is not
+        // there yet (downloading, failed, or next).
+        request_in(true, &marker);
+        assert!(keeps(true, || false, &marker));
+        // Without an NPU nothing is kept, and nothing is marked.
+        assert!(!keeps(false, || true, &marker));
+        std::fs::remove_file(&marker).unwrap();
+        request_in(false, &marker);
+        assert!(!marker.exists());
+    }
+
+    #[test]
+    fn a_removal_during_the_compile_drops_what_it_wrote() {
+        let dir = tempfile::tempdir().unwrap();
+        let key_dir = dir.path().join("2026.4.1.0_aabbccddeeff_1005540_524291");
+        std::fs::create_dir_all(&key_dir).unwrap();
+        std::fs::write(key_dir.join("blob"), b"compiled").unwrap();
+        let started = GENERATION.load(Ordering::SeqCst);
+        // No removal: the compile's folder stays and becomes `prepared`.
+        assert!(!dropped_when_overtaken(&key_dir, started));
+        assert!(key_dir.join("blob").exists());
+        // v3 removed while it compiled (`remove_cache` bumps the generation).
+        GENERATION.fetch_add(1, Ordering::SeqCst);
+        assert!(dropped_when_overtaken(&key_dir, started));
+        assert!(!key_dir.exists());
+    }
+
+    #[test]
+    fn a_failure_while_the_app_closes_is_not_kept_for_later_starts() {
+        let dir = tempfile::tempdir().unwrap();
+        persist_failure("compile cut short", Some(dir.path()), true);
+        assert!(!dir.path().join(FAILED).exists());
+        persist_failure("old driver", Some(dir.path()), false);
+        assert_eq!(std::fs::read_to_string(dir.path().join(FAILED)).unwrap(), "old driver");
     }
 
     #[test]

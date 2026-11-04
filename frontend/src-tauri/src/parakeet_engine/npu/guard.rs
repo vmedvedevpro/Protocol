@@ -127,9 +127,18 @@ pub(super) fn retry_in(guard: &Mutex<Guard>) {
 /// The process is ending on purpose (`RunEvent::Exit`, or the updater
 /// closing the app to install): a step it cuts short did not crash.
 pub fn set_closing(closing: bool) {
-    let mut guard = lock(&GUARD);
+    set_closing_in(&GUARD, closing);
+}
+
+pub(super) fn set_closing_in(guard: &Mutex<Guard>, closing: bool) {
+    let mut guard = lock(guard);
     guard.closing = closing;
     guard.record();
+}
+
+/// Whether the process is ending on purpose.
+pub fn closing() -> bool {
+    lock(&GUARD).closing
 }
 
 /// Runs `work` inside the crash guard; `Err` when a crash stopped the NPU.
@@ -186,5 +195,28 @@ mod tests {
         assert!(!marker.exists());
         assert_eq!(stopped_in(&next), None);
         assert!(guarded_in(&next, Step::Device, || ()).is_ok());
+    }
+
+    #[test]
+    fn a_clean_quit_during_the_first_compile_is_not_a_crash() {
+        let dir = tempfile::tempdir().unwrap();
+        let marker = dir.path().join("parakeet-npu.attempt");
+        let guard = Guard::new(Some(marker.clone()));
+        // The app exits (or the updater closes it) while the compile runs:
+        // the marker goes at once, and the steps after it write none.
+        guarded_in(&guard, Step::Compile, || {
+            assert!(marker.exists());
+            set_closing_in(&guard, true);
+            assert!(!marker.exists());
+            guarded_in(&guard, Step::FirstRun, || assert!(!marker.exists())).unwrap();
+        })
+        .unwrap();
+        assert!(!marker.exists());
+        // The next start finds no marker: the NPU is not stopped.
+        assert_eq!(stopped_in(&Guard::new(Some(marker.clone()))), None);
+
+        // An install that failed reopens the app: steps record again.
+        set_closing_in(&guard, false);
+        guarded_in(&guard, Step::Compile, || assert!(marker.exists())).unwrap();
     }
 }

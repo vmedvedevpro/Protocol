@@ -496,7 +496,7 @@ pub fn run() {
             #[cfg(windows)]
             {
                 parakeet_engine::npu::state::set_app(_app.handle().clone());
-                parakeet_engine::npu::state::kick();
+                parakeet_engine::npu::state::startup();
             }
 
             // Initialize ModelManager for summary engine (async, non-blocking)
