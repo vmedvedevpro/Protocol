@@ -7,36 +7,67 @@ is inherited from the project Protocol forked from; Protocol did not release it.
 
 ## Protocol — unreleased
 
-## Protocol 0.5.0 — 2026-11-03
+## Protocol 0.5.0 — 2026-11-04
 
-On a Windows PC with an Intel GPU, Whisper can run through Intel's OpenVINO:
-one click in Settings › Transcription downloads Intel's libraries from Intel
-and a copy of the model from Hugging Face, and on the Intel Arc laptop GPU it
-was measured on, the transcript after a meeting came about four times as fast.
-Live Whisper on a Vulkan GPU is also about an eighth faster per call.
+Protocol now picks the speech models for your computer and runs each where it
+is fastest and uses the least power. On a Windows PC with an Intel GPU, Whisper
+runs on it, and the transcript after a meeting comes about four times as fast.
+With an Intel NPU, Parakeet's live text runs on the NPU, loses fewer words and
+takes about a quarter of the energy. Live Whisper on a Vulkan GPU is also about
+an eighth faster per call.
 
 ### New
 
+- **Speech models for this computer**
+  ([#88](https://github.com/vmedvedevpro/Protocol/issues/88)). Settings ›
+  Transcription opens with the pair recommended for this computer, with one
+  Download button: Parakeet Lightning for live text and Whisper Large V3 Turbo
+  for the transcript after the meeting. A badge says "Intel GPU" or
+  "Intel NPU" where a model runs on one. After an update, one offer at the top
+  switches to them. First-run setup offers the same pair, and every other
+  model stays under All models. Large V3 Turbo Compressed stays until the
+  Intel GPU version has transcribed a meeting. Protocol then removes it,
+  unless you use it elsewhere.
+- **Parakeet on the Intel NPU**
+  ([#66](https://github.com/vmedvedevpro/Protocol/issues/66)). On a Windows PC
+  with an Intel NPU, Parakeet runs on the NPU, live and after a meeting. It
+  needs Intel's libraries, which come with Whisper's Intel GPU version or on
+  their own, and no second model. The first time, Protocol prepares the model
+  for the NPU once, which takes about a minute and a half; Parakeet runs on the
+  processor meanwhile.
+  The NPU hears the audio in overlapping windows, so a word cut at the
+  six-second limit is no longer lost. Word errors on public samples (FLEURS):
+  - after a meeting, 8.5 % instead of 12.4 % in Russian and 19.3 % instead of
+    35.5 % in English;
+  - live, 9.4 % instead of 12.4 % in Russian and 17.7 % instead of 35.5 % in
+    English.
+
+  On an Intel Core Ultra X7 358H, the pass after a meeting ran 35 times faster
+  than real time instead of 24.5 on the processor. It used 15 J per minute of
+  audio instead of 54. If the NPU does not start, Parakeet runs on the
+  processor, and Settings says so and offers Try again.
 - **Whisper on Intel GPUs through OpenVINO**
   ([#79](https://github.com/vmedvedevpro/Protocol/issues/79)). On a Windows PC
-  where Whisper runs on an Intel GPU, Settings › Transcription offers, under
-  Large V3 Turbo (and its Compressed version), a download that runs it through
-  Intel's OpenVINO instead of Vulkan. One click fetches Intel's OpenVINO
-  libraries from Intel's server, under Intel's licence (linked in the row),
-  and a copy of the model made for them from Hugging Face; the row says how
-  big each is, and nothing is downloaded before that click. Every file is
-  checked against the hash the model list pins, and every library against
-  Intel's signature. A newer version of Intel's libraries arrives through the
-  model list, like a model update, without a new app release. On an Intel Arc
-  B390 integrated GPU, the transcript after a meeting of a public Russian
-  sample (FLEURS) came 36.6 times faster than real time instead of 9.1 with
-  whisper.cpp on Vulkan, with no more word errors (6.0 % against 6.4 %), and
-  live lines 30.3 times instead of 7.3. On 20 minutes of a recorded meeting,
-  transcription took 26 seconds instead of about 110 (one run). OpenVINO
-  decodes greedily where whisper.cpp uses beam search after a meeting. Whisper
-  stays on whisper.cpp where OpenVINO cannot load or does not list that GPU,
-  and Settings says why; after Protocol closes unexpectedly inside OpenVINO,
-  it stays off until you try it again in the row.
+  with an Intel GPU, Whisper Large V3 Turbo runs through Intel's OpenVINO
+  instead of Vulkan. Protocol downloads two things:
+  - Intel's OpenVINO libraries, from Intel's server, under Intel's licence;
+  - a copy of the model made for them, from Hugging Face.
+
+  Every file is checked against the hash the model list pins, and every
+  library against Intel's signature. A newer version of Intel's libraries
+  arrives through the model list, like a model update, without a new app
+  release.
+  Measured on an Intel Arc B390 integrated GPU:
+  - after a meeting on a public Russian sample (FLEURS), 36.6 times faster than
+    real time instead of 9.1 with whisper.cpp on Vulkan, with no more word
+    errors (6.0 % against 6.4 %);
+  - live lines, 30.3 times instead of 7.3;
+  - 20 minutes of a recorded meeting, 26 seconds instead of about 110 (one run).
+
+  OpenVINO decodes greedily where whisper.cpp uses beam search after a meeting.
+  Where OpenVINO cannot load or does not list that GPU, Whisper falls back to
+  its regular copy, or offers to download it, and Settings says why. If Protocol closes unexpectedly
+  inside OpenVINO, it stays off until you choose Try again.
 
 ### Changed
 
