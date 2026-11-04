@@ -306,7 +306,7 @@
     {
       "id": "openvino-genai",
       "name": "OpenVINO GenAI",
-      "description": "Intel's OpenVINO libraries that run Whisper on an Intel GPU",
+      "description": "Intel's OpenVINO libraries that run Whisper on an Intel GPU and Parakeet on an Intel NPU",
       "version": "2026.4.1.0",
       "platform": "windows-x86_64",
       "api": 1,
@@ -328,6 +328,8 @@
         { "name": "openvino_intel_cpu_plugin.dll", "path": "openvino_genai_windows_2026.4.1.0_x86_64/runtime/bin/intel64/Release/openvino_intel_cpu_plugin.dll", "size": 46305552, "sha256": "453a921db1883a34e1384cddf21b404c87fdd5e224866e43bb5ca0124e7ed02d" },
         { "name": "openvino_auto_batch_plugin.dll", "path": "openvino_genai_windows_2026.4.1.0_x86_64/runtime/bin/intel64/Release/openvino_auto_batch_plugin.dll", "size": 208144, "sha256": "d6e27fbea07239e98978e3592c78094cffd65c518ecfd3e14d8fc685e0061211" },
         { "name": "openvino_ir_frontend.dll", "path": "openvino_genai_windows_2026.4.1.0_x86_64/runtime/bin/intel64/Release/openvino_ir_frontend.dll", "size": 508680, "sha256": "19f07106364f28f1246704ca9cfed8b1b071cff82734ae01457837b1f4c5eba9" },
+        { "name": "openvino_intel_npu_plugin.dll", "path": "openvino_genai_windows_2026.4.1.0_x86_64/runtime/bin/intel64/Release/openvino_intel_npu_plugin.dll", "size": 7635208, "sha256": "6155f114669572df0ff6650f216b2c040a8569769dfa1a9888f6d15add08ecb5" },
+        { "name": "openvino_onnx_frontend.dll", "path": "openvino_genai_windows_2026.4.1.0_x86_64/runtime/bin/intel64/Release/openvino_onnx_frontend.dll", "size": 5424904, "sha256": "b4c4eaeace4feafb8105674f956279cfc7b13e0df8843d93b8603abdcaaab565" },
         { "name": "openvino_tokenizers.dll", "path": "openvino_genai_windows_2026.4.1.0_x86_64/runtime/bin/intel64/Release/openvino_tokenizers.dll", "size": 3490568, "sha256": "0e7274e2488d68dfaa9c3a3deea0c77131245927f66f848528680f8581c260fb" },
         { "name": "tbb12.dll", "path": "openvino_genai_windows_2026.4.1.0_x86_64/runtime/3rdparty/tbb/bin/tbb12.dll", "size": 337160, "sha256": "d7603904d45426c05db2d5cb5541aaa861ad36dc481c7fbf3befd11acd596343" },
         { "name": "tbbmalloc.dll", "path": "openvino_genai_windows_2026.4.1.0_x86_64/runtime/3rdparty/tbb/bin/tbbmalloc.dll", "size": 119056, "sha256": "ef627edf5b1c19ead180f8fdf027b5800c4ffdfbfcc00d67c7e66df7d62b4f92" },
