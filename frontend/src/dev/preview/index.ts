@@ -73,6 +73,7 @@ const state = {
     notify: true,
   },
   labs: { whisperStrictSilence: false, voiceProfiles: false, parakeetGpu: false },
+  agentAccess: false,
   voices: [{ person_id: 'person-tom', samples: 6, meetings: 1, from: ['meeting-acme-kickoff'] }] as Array<{
     person_id: string;
     samples: number;
@@ -416,6 +417,24 @@ function handle(cmd: string, args: Args): unknown {
       return new Promise((resolve) => setTimeout(() => resolve(RUNNING_APPS.map((app) => ({ ...app }))), 250));
     case 'select_custom_app_executable':
       return { id: 'CiscoCollabHost.exe', name: 'Webex', executable: 'CiscoCollabHost.exe', pid: null, has_audio: false, icon: null };
+
+    // ---- AI agents ---------------------------------------------------------
+    case 'set_agent_access':
+      state.agentAccess = !!args.enabled;
+    // falls through: the native command answers with the new status
+    case 'get_agent_access': {
+      const server = 'C:\\Users\\preview\\AppData\\Local\\vmedvedevpro\\Protocol\\protocol-mcp.exe';
+      return {
+        enabled: state.agentAccess,
+        databasePath: 'C:\\Users\\preview\\AppData\\Local\\vmedvedevpro\\Protocol\\data\\meeting_minutes.sqlite',
+        command: server,
+        args: [],
+        serverFound: true,
+        translocated: false,
+        claudeCodeCommand: `claude mcp add --scope user protocol -- "${server}"`,
+        claudeDesktopConfig: JSON.stringify({ mcpServers: { protocol: { command: server, args: [] } } }, null, 2),
+      };
+    }
 
     // ---- Labs --------------------------------------------------------------
     case 'get_whisper_strict_silence':
