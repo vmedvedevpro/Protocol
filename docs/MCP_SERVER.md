@@ -197,8 +197,12 @@ A client keeps its server for its whole session, often with Protocol closed.
   writes the new file after every other one, seconds later; until then the name
   is free, so an agent that starts the server meanwhile (a new Claude Code
   session) gets a missing file it can retry, rather than holding the file and
-  stopping the update at an Abort/Retry/Ignore box. Nothing is stopped,
-  so an update applied on quit does not cut an agent off. Uninstalling stops
+  stopping the update at an Abort/Retry/Ignore box. The hook stops nothing,
+  so the in-app update (applied on quit) does not cut an agent off. A
+  downloaded setup run by hand is different: for an upgrade it pre-selects
+  "Uninstall before installing", which runs the previous version's
+  uninstaller first, and that stops this install's servers (below). Only
+  "Do not uninstall" keeps an agent connected there. Uninstalling stops
   processes whose image is this install's `protocol-mcp.exe` or a moved copy,
   matched by full path like the app itself, and deletes the copies.
 - **macOS.** The updater swaps the bundle; the old process runs on from the old
@@ -242,7 +246,9 @@ Code `/mcp` and reconnect; quit and reopen Claude Desktop).
 - `transcript_chunks` (the text sent for summarising) is not served; the app
   does not show it as a transcript either.
 - No audio, no writes, no network.
-- Reinstalling by hand with "Uninstall before installing" runs the old
-  uninstaller, which stops running servers.
+- Upgrading by hand with a downloaded setup stops running servers by default:
+  its pre-selected "Uninstall before installing" runs the previous version's
+  uninstaller (from the second release with the server on). The in-app update
+  does not.
 - A development build without the staged sidecar has no server; Settings says
   so.

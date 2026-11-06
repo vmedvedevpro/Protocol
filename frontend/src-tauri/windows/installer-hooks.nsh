@@ -221,7 +221,11 @@ Var MeetilyBackend
 ; must not cut that agent off. Windows lets a running executable be renamed
 ; but not overwritten, so the file copy after this hook would fail on it: the
 ; running copy is moved aside and keeps serving its agent until the agent
-; restarts it, and its answers say Protocol was updated. Nothing is stopped.
+; restarts it, and its answers say Protocol was updated. Nothing is stopped
+; here, but an interactive upgrade's default choice, "Uninstall before
+; installing", first runs the previous version's uninstaller, whose
+; NSIS_HOOK_PREUNINSTALL stops this install's servers; the in-app update
+; (passive) and "Do not uninstall" keep them.
 ; The file is moved whether or not it runs, and the moved copy deleted if it
 ; can be: the installer writes protocol-mcp.exe only after every other file,
 ; and an agent may start the server in between (a new Claude Code session),
