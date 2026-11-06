@@ -51,15 +51,27 @@ fn launch(exe: &Path, appimage: Option<&Path>) -> (PathBuf, Vec<String>) {
 
 /// `path` as one word for the shell the command is pasted into. Windows:
 /// double quotes, which cmd.exe and PowerShell both read and a Windows path
-/// cannot contain; PowerShell still expands `$` and backticks there, so such a
-/// path is single-quoted for it (`'` doubled). POSIX shells expand `$`,
-/// backticks and `\` inside double quotes, and interactive zsh `!`, so
-/// elsewhere the path is single-quoted, a `'` written as `'\''`.
+/// cannot contain. PowerShell still expands `$` and backticks there, and ends
+/// the string at a typographic double quote too (`“ ” „`, legal in file
+/// names), so such a path is single-quoted for it, with every character it
+/// reads as a single quote doubled. POSIX shells expand `$`, backticks and `\`
+/// inside double quotes, and interactive zsh `!`, so elsewhere the path is
+/// single-quoted, a `'` written as `'\''`.
 fn shell_word(path: &str, windows: bool) -> String {
+    /// What PowerShell takes for a single quote.
+    const POWERSHELL_SINGLE_QUOTES: [char; 5] = ['\'', '‘', '’', '‚', '‛'];
     if !windows {
         format!("'{}'", path.replace('\'', "'\\''"))
-    } else if path.contains(['$', '`']) {
-        format!("'{}'", path.replace('\'', "''"))
+    } else if path.contains(['$', '`', '“', '”', '„']) {
+        let mut word = String::from("'");
+        for c in path.chars() {
+            word.push(c);
+            if POWERSHELL_SINGLE_QUOTES.contains(&c) {
+                word.push(c);
+            }
+        }
+        word.push('\'');
+        word
     } else {
         format!("\"{path}\"")
     }
@@ -202,6 +214,18 @@ mod tests {
             shell_word(r"C:\Users\a$b\it's\protocol-mcp.exe", true),
             r"'C:\Users\a$b\it''s\protocol-mcp.exe'"
         );
+        // PowerShell reads typographic quotes as quotes: ’ would end the
+        // single-quoted word and “ ” the double-quoted one.
+        assert_eq!(
+            shell_word(r"C:\Users\O’Brien$x\‘a’ ‚b‛\protocol-mcp.exe", true),
+            r"'C:\Users\O’’Brien$x\‘‘a’’ ‚‚b‛‛\protocol-mcp.exe'"
+        );
+        assert_eq!(
+            shell_word(r"C:\Users\Anna\“Work” „x”\protocol-mcp.exe", true),
+            r"'C:\Users\Anna\“Work” „x”\protocol-mcp.exe'"
+        );
+        let typographic = r"C:\Users\O’Brien\protocol-mcp.exe";
+        assert_eq!(shell_word(typographic, true), format!("\"{typographic}\""));
         assert_eq!(
             shell_word("/Applications/Protocol.app/Contents/MacOS/protocol-mcp", false),
             "'/Applications/Protocol.app/Contents/MacOS/protocol-mcp'"

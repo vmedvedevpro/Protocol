@@ -163,8 +163,11 @@ Settings shows, once access is on:
 
 - **Claude Code:** `claude mcp add --scope user protocol -- "<path to protocol-mcp>"`.
   On macOS and Linux the path is in single quotes instead, since shells expand
-  `$`, backticks, `\` and (zsh) `!` inside double quotes; on Windows a path
-  with `$` or a backtick is single-quoted for PowerShell (`shell_word`).
+  `$`, backticks, `\` and (zsh) `!` inside double quotes. On Windows a path
+  with `$`, a backtick or a typographic double quote (`“ ” „`, which
+  PowerShell also takes for quotes) is single-quoted for PowerShell, with
+  every character it takes for a single quote (`' ‘ ’ ‚ ‛`) doubled
+  (`shell_word`).
 - **Claude Desktop:** **Add to Claude Desktop** builds `Protocol.mcpb` in the
   app's cache folder and opens it; Claude Desktop shows its install dialog. The
   bundle holds only `manifest.json` (manifest 0.3, `server.type` `binary`,
