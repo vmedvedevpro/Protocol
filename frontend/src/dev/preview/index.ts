@@ -433,8 +433,16 @@ function handle(cmd: string, args: Args): unknown {
         translocated: false,
         claudeCodeCommand: `claude mcp add --scope user protocol -- "${server}"`,
         claudeDesktopConfig: JSON.stringify({ mcpServers: { protocol: { command: server, args: [] } } }, null, 2),
+        extensionSupported: true,
+        extensionMoved: false,
       };
     }
+    case 'add_to_claude_desktop':
+      return {
+        bundle: 'C:\\Users\\preview\\AppData\\Local\\vmedvedevpro.protocol\\mcpb\\Protocol.mcpb',
+        opened: true,
+        openError: null,
+      };
 
     // ---- Labs --------------------------------------------------------------
     case 'get_whisper_strict_silence':

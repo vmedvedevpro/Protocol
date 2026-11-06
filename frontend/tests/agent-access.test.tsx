@@ -7,6 +7,7 @@ import { afterEach, beforeEach, expect, mock, test } from 'bun:test';
 
 const SERVER = 'C:\\Users\\Someone\\AppData\\Local\\Protocol\\protocol-mcp.exe';
 let state: any;
+let added: any;
 let calls: Array<{ command: string; args?: any }>;
 let copied: string[];
 
@@ -23,6 +24,10 @@ mock.module('@tauri-apps/api/core', () => ({
     if (command === 'set_agent_access') {
       state.enabled = args.enabled;
       return status(state.enabled);
+    }
+    if (command === 'add_to_claude_desktop') {
+      state.extensionMoved = false;
+      return added;
     }
     throw new Error(command);
   },
@@ -53,7 +58,10 @@ beforeEach(() => {
     translocated: false,
     claudeCodeCommand: `claude mcp add --scope user protocol -- "${SERVER}"`,
     claudeDesktopConfig: JSON.stringify({ mcpServers: { protocol: { command: SERVER, args: [] } } }, null, 2),
+    extensionSupported: true,
+    extensionMoved: false,
   };
+  added = { bundle: 'C:\\Users\\Someone\\AppData\\Local\\cache\\mcpb\\Protocol.mcpb', opened: true, openError: null };
   calls = [];
   copied = [];
   Object.defineProperty(globalThis, 'navigator', {
@@ -106,4 +114,44 @@ test('a build without the server says so', async () => {
   await render();
   expect(text()).toContain("include the server");
   expect(text()).not.toContain('claude mcp add');
+});
+
+const label = (node: any): string =>
+  node.children.map((child: any) => (typeof child === 'string' ? child : label(child))).join('');
+const buttonLabelled = (name: string) => root.root.find((node) => node.type === 'button' && label(node) === name);
+
+test('Add to Claude Desktop builds the extension and says where to finish', async () => {
+  state.enabled = true;
+  await render();
+  await act(async () => buttonLabelled('Add to Claude Desktop').props.onClick());
+  expect(calls.map((call) => call.command)).toContain('add_to_claude_desktop');
+  expect(text()).toContain('Finish in Claude Desktop. If nothing opened, set it up by hand below.');
+  expect(text()).toContain('Protocol.mcpb');
+});
+
+test('when nothing opens the extension, the reason and the hand setup are shown', async () => {
+  state.enabled = true;
+  added = { bundle: 'C:\\cache\\Protocol.mcpb', opened: false, openError: 'No app on this computer opens Claude Desktop extensions.' };
+  await render();
+  await act(async () => buttonLabelled('Add to Claude Desktop').props.onClick());
+  expect(text()).toContain('No app on this computer opens Claude Desktop extensions.');
+  expect(text()).toContain('Set it up by hand below.');
+  expect(text()).toContain('Set up by hand');
+});
+
+test('a moved app asks for the extension to be added again', async () => {
+  state.enabled = true;
+  state.extensionMoved = true;
+  await render();
+  expect(text()).toContain('Protocol moved since you added it. Add it again.');
+  await act(async () => buttonLabelled('Add to Claude Desktop').props.onClick());
+  expect(text()).not.toContain('Protocol moved since you added it.');
+});
+
+test('without Claude Desktop for the platform there is no extension button', async () => {
+  state.enabled = true;
+  state.extensionSupported = false;
+  await render();
+  expect(text()).not.toContain('Add to Claude Desktop');
+  expect(text()).toContain('mcpServers');
 });

@@ -32,6 +32,10 @@ pub struct AgentAccess {
     pub translocated: bool,
     pub claude_code_command: String,
     pub claude_desktop_config: String,
+    /// "Add to Claude Desktop" can build an extension here.
+    pub extension_supported: bool,
+    /// The extension last added runs a server path this app no longer has.
+    pub extension_moved: bool,
 }
 
 /// The program and arguments that start the server for this app.
@@ -71,6 +75,8 @@ fn status_at(data_dir: &Path, exe: &Path, appimage: Option<&Path>) -> AgentAcces
         translocated: cfg!(target_os = "macos") && command.contains("/AppTranslocation/"),
         claude_code_command: claude_code_command(&command, &args),
         claude_desktop_config: claude_desktop_config(&command, &args),
+        extension_supported: crate::claude_desktop_extension::SUPPORTED,
+        extension_moved: crate::claude_desktop_extension::moved(data_dir, &command),
         command,
         args,
     }

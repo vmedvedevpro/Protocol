@@ -25,6 +25,8 @@ export interface AgentAccess {
   translocated: boolean;
   claudeCodeCommand: string;
   claudeDesktopConfig: string;
+  extensionSupported: boolean;
+  extensionMoved: boolean;
 }
 
 export const AGENT_PRIVACY =
@@ -57,7 +59,82 @@ function CopyBlock({ label, text }: { label: string; text: string }) {
   );
 }
 
-function Connect({ access }: { access: AgentAccess }) {
+/** `claude_desktop_extension::AddedExtension`. */
+interface AddedExtension {
+  bundle: string;
+  opened: boolean;
+  openError: string | null;
+}
+
+const BY_HAND = 'Paste into Claude Desktop > Settings > Developer > Edit Config, then restart Claude Desktop. If the file already lists servers under mcpServers, add the protocol entry next to them.';
+
+function ClaudeDesktop({ access, onAdded }: { access: AgentAccess; onAdded: () => void }) {
+  const [adding, setAdding] = useState(false);
+  const [added, setAdded] = useState<AddedExtension | null>(null);
+  const config = <CopyBlock label="Claude Desktop configuration" text={access.claudeDesktopConfig} />;
+
+  if (!access.extensionSupported) {
+    return (
+      <SettingRow icon={MessageSquare} title="Claude Desktop" description={BY_HAND}>
+        {config}
+      </SettingRow>
+    );
+  }
+
+  const add = async () => {
+    setAdding(true);
+    try {
+      setAdded(await invoke<AddedExtension>('add_to_claude_desktop'));
+      onAdded();
+    } catch (error) {
+      toast.error('Could not add Protocol to Claude Desktop', { description: String(error) });
+    } finally {
+      setAdding(false);
+    }
+  };
+
+  return (
+    <SettingRow
+      icon={MessageSquare}
+      title="Claude Desktop"
+      description="Opens Claude Desktop to install Protocol as an extension."
+      control={
+        <Button variant="secondary" size="sm" onClick={add} disabled={adding}>
+          Add to Claude Desktop
+        </Button>
+      }
+    >
+      <div className="space-y-2">
+        {access.extensionMoved && !added && (
+          <RowNote tone="warning" icon={TriangleAlert}>
+            Protocol moved since you added it. Add it again.
+          </RowNote>
+        )}
+        {added?.opened && <RowNote tone="success">Finish in Claude Desktop. If nothing opened, set it up by hand below.</RowNote>}
+        {added && !added.opened && (
+          <RowNote tone="warning" icon={TriangleAlert}>
+            {added.openError} Set it up by hand below.
+          </RowNote>
+        )}
+        {added && (
+          <RowNote>
+            The extension file is {added.bundle}. Claude Desktop also installs it from Settings &gt; Extensions &gt;
+            Advanced settings &gt; Install Extension.
+          </RowNote>
+        )}
+        <details className="group">
+          <summary className="cursor-pointer text-xs font-medium text-af-text-2">Set up by hand</summary>
+          <div className="mt-2 space-y-2">
+            <RowNote>{BY_HAND}</RowNote>
+            {config}
+          </div>
+        </details>
+      </div>
+    </SettingRow>
+  );
+}
+
+function Connect({ access, onAdded }: { access: AgentAccess; onAdded: () => void }) {
   if (access.translocated) {
     return (
       <RowNote tone="warning" icon={TriangleAlert}>
@@ -82,13 +159,7 @@ function Connect({ access }: { access: AgentAccess }) {
       >
         <CopyBlock label="Claude Code command" text={access.claudeCodeCommand} />
       </SettingRow>
-      <SettingRow
-        icon={MessageSquare}
-        title="Claude Desktop"
-        description="Paste into Claude Desktop > Settings > Developer > Edit Config, then restart Claude Desktop. If the file already lists servers under mcpServers, add the protocol entry next to them."
-      >
-        <CopyBlock label="Claude Desktop configuration" text={access.claudeDesktopConfig} />
-      </SettingRow>
+      <ClaudeDesktop access={access} onAdded={onAdded} />
     </SettingsGroup>
   );
 }
@@ -98,10 +169,13 @@ export function AgentAccessSettings() {
   const [busy, setBusy] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const load = () =>
     invoke<AgentAccess>('get_agent_access')
       .then(setAccess)
       .catch((error) => setLoadError(String(error)));
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const toggle = async (enabled: boolean) => {
@@ -138,7 +212,7 @@ export function AgentAccessSettings() {
           )}
         </SettingRow>
       </SettingsGroup>
-      {access?.enabled && <Connect access={access} />}
+      {access?.enabled && <Connect access={access} onAdded={load} />}
     </>
   );
 }

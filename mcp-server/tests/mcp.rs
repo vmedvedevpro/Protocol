@@ -68,6 +68,9 @@ async fn eight_read_only_tools_with_text_results() {
             "search"
         ]
     );
+    let mut listed: Vec<&str> = meeting_library::agent_access::TOOLS.iter().map(|(name, _)| *name).collect();
+    listed.sort();
+    assert_eq!(names, listed, "the Claude Desktop manifest lists these");
     for tool in &tools {
         let annotations = tool.annotations.as_ref().unwrap();
         assert_eq!(annotations.read_only_hint, Some(true), "{}", tool.name);
