@@ -4,14 +4,22 @@
 //! `journal_mode` and neither does the app. While a statement of this server
 //! runs it holds a SHARED lock, and an app commit (the transcript save on Stop)
 //! waits for it, giving up after its pool's 5 s `busy_timeout`. Locks are held
-//! only while a statement steps, so every statement here is cut off by
-//! [`STATEMENT_TIME`] through a progress handler and answered with "narrow the
-//! question", and no transaction stays open between tool calls.
+//! only while a statement steps, so a call's statements are cut off once they
+//! have run for [`STATEMENT_TIME`] (a progress handler) and answered with
+//! "narrow the question", and no transaction stays open between tool calls.
+//!
+//! The other way round, a statement here never waits inside SQLite for the
+//! app's write lock (no busy timeout): it fails at once, and [`Library::read`]
+//! runs the whole call again on a fresh session after a short pause, for up to
+//! [`BUSY_WAIT`]. SQLite does not run the progress handler while it waits, so
+//! a wait inside a statement would count against the call's second and an app
+//! write longer than that would be answered with "narrow the question".
 
 use sqlx::migrate::Migrator;
 use sqlx::pool::PoolConnection;
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use sqlx::{Sqlite, SqlitePool};
+use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -24,8 +32,11 @@ pub static APP_MIGRATIONS: Migrator = sqlx::migrate!("../frontend/src-tauri/migr
 /// An app commit waits at most this long for this server's lock, well inside
 /// the app's 5 s busy timeout.
 pub const STATEMENT_TIME: Duration = Duration::from_secs(1);
-/// How long a statement waits for the app's own write to finish.
-const BUSY_TIMEOUT: Duration = Duration::from_secs(3);
+/// How long a call waits, in all, for the app's own write to finish before it
+/// answers that Protocol is writing.
+pub const BUSY_WAIT: Duration = Duration::from_secs(3);
+/// Pause before a call blocked by the app's write runs again.
+const BUSY_PAUSE: Duration = Duration::from_millis(25);
 /// SQLite virtual-machine steps between deadline checks.
 const PROGRESS_STEPS: i32 = 1_000;
 
@@ -140,7 +151,8 @@ impl Library {
             // stay visible, and SQLite still honours the app's locks.
             .read_only(true)
             .create_if_missing(false)
-            .busy_timeout(BUSY_TIMEOUT)
+            // A locked database fails a statement at once; Library::read waits.
+            .busy_timeout(Duration::ZERO)
             .pragma("query_only", "ON");
         let pool = SqlitePoolOptions::new()
             .max_connections(2)
@@ -151,7 +163,7 @@ impl Library {
             // A returned connection keeps the last call's expired deadline
             // until the next session replaces it; a ping would trip it.
             .test_before_acquire(false)
-            .acquire_timeout(BUSY_TIMEOUT + Duration::from_secs(2))
+            .acquire_timeout(BUSY_WAIT + Duration::from_secs(2))
             // The search lowers text with it; registering writes nothing.
             .after_connect(|conn, _| Box::pin(meeting_library::sql::register(conn)))
             .connect_lazy_with(options);
@@ -167,6 +179,35 @@ impl Library {
 
     pub async fn close(&self) {
         self.pool.close().await;
+    }
+
+    /// Runs `call` on a fresh [`Session`], again after [`BUSY_PAUSE`] while
+    /// the app holds its write lock, until [`BUSY_WAIT`] has passed. Each run
+    /// has its own [`STATEMENT_TIME`], so waiting for the app is never taken for
+    /// a question too broad to read. Also returns whether the database is newer
+    /// than this server ([`Session::newer_database`]), known once a session opened.
+    pub async fn read<T, F, Fut>(&self, mut call: F) -> (Result<T, Problem>, bool)
+    where
+        F: FnMut(PoolConnection<Sqlite>) -> Fut,
+        Fut: Future<Output = Result<T, Problem>>,
+    {
+        let started = Instant::now();
+        let mut newer_database = false;
+        loop {
+            let result = match self.session().await {
+                Ok(session) => {
+                    newer_database = session.newer_database;
+                    call(session.conn).await
+                }
+                Err(problem) => Err(problem),
+            };
+            match result {
+                Err(Problem::Busy) if started.elapsed() + BUSY_PAUSE < BUSY_WAIT => {
+                    tokio::time::sleep(BUSY_PAUSE).await
+                }
+                result => return (result, newer_database),
+            }
+        }
     }
 
     pub async fn session(&self) -> Result<Session, Problem> {

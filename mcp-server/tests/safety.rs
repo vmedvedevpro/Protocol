@@ -3,7 +3,7 @@
 mod common;
 
 use common::{writer, Fixture, DB_FILE};
-use protocol_mcp::store::{Library, Problem, STATEMENT_TIME};
+use protocol_mcp::store::{Library, Problem, BUSY_WAIT, STATEMENT_TIME};
 use protocol_mcp::tools::{self, *};
 use std::path::Path;
 use std::time::{Duration, Instant, SystemTime};
@@ -123,6 +123,76 @@ async fn the_app_saves_while_the_server_reads() {
         .await
         .unwrap();
     assert!(text.contains("A line saved on Stop"), "the next call sees the save:\n{text}");
+}
+
+/// The app takes its write lock and adds `rows` transcript lines, then holds
+/// the lock for `hold` before committing.
+async fn app_writes_for(fixture: &Fixture, rows: usize, hold: Duration) -> tokio::task::JoinHandle<()> {
+    let app = writer(&fixture.db, false).await;
+    let mut conn = app.acquire().await.unwrap();
+    sqlx::query("BEGIN EXCLUSIVE").execute(&mut *conn).await.unwrap();
+    for index in 0..rows {
+        sqlx::query(
+            "INSERT INTO transcripts (id, meeting_id, transcript, timestamp, audio_start_time) \
+             VALUES (?, 'm1', ?, '2026-10-01T09:40:00Z', ?)",
+        )
+        .bind(format!("written-{index}"))
+        .bind(format!("Written line {index}"))
+        .bind(600.0 + index as f64)
+        .execute(&mut *conn)
+        .await
+        .unwrap();
+    }
+    tokio::spawn(async move {
+        tokio::time::sleep(hold).await;
+        sqlx::query("COMMIT").execute(&mut *conn).await.unwrap();
+        drop(conn);
+        app.close().await;
+    })
+}
+
+/// The app holds its write lock longer than a call may read (a migration at
+/// the first start after an update): the call waits it out and answers. A
+/// wait inside SQLite used to count against the call's second, and a search
+/// of these 3,000 lines then ran past its 1,000-step check and was stopped as
+/// too broad.
+#[tokio::test]
+async fn a_call_waits_out_an_app_write_longer_than_its_time() {
+    let fixture = Fixture::new().await;
+    let commit = app_writes_for(&fixture, 3_000, STATEMENT_TIME + Duration::from_millis(500)).await;
+    let started = Instant::now();
+    let (result, _) = fixture
+        .library()
+        .read(|mut conn| async move {
+            let args = SearchArgs { query: "written line".into(), limit: Some(5), ..Default::default() };
+            tools::search(&mut conn, args).await
+        })
+        .await;
+    let waited = started.elapsed();
+    let text = result.expect("the call must answer once the app commits");
+    assert!(text.starts_with("Results for \"written line\" 1–5,"), "{text}");
+    assert!(waited > STATEMENT_TIME, "answered after {waited:?}, before the app committed");
+    assert!(waited < BUSY_WAIT, "answered after {waited:?}");
+    commit.await.unwrap();
+}
+
+/// A write that outlasts the wait is answered with "Protocol is writing".
+#[tokio::test]
+async fn a_write_longer_than_the_wait_answers_busy() {
+    let fixture = Fixture::new().await;
+    let commit = app_writes_for(&fixture, 0, BUSY_WAIT + Duration::from_millis(700)).await;
+    let started = Instant::now();
+    let (result, _) = fixture
+        .library()
+        .read(|mut conn| async move { tools::list_groups(&mut conn, ListGroupsArgs::default()).await })
+        .await;
+    let waited = started.elapsed();
+    let problem = result.unwrap_err();
+    assert_eq!(problem, Problem::Busy);
+    assert!(problem.message().contains("Protocol is writing"));
+    assert!(waited > BUSY_WAIT - Duration::from_millis(100), "gave up after {waited:?}");
+    assert!(waited < BUSY_WAIT + Duration::from_millis(500), "gave up after {waited:?}");
+    commit.await.unwrap();
 }
 
 /// A journal left by a write that never finished (the app was killed) may be

@@ -183,7 +183,7 @@ async fn scope(
 // list_meetings
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Default, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ListMeetingsArgs {
     /// Only meetings that started on or after this: a date `YYYY-MM-DD` (from the start of that local day) or an RFC 3339 time.
@@ -358,7 +358,7 @@ pub async fn list_meetings(conn: &mut SqliteConnection, args: ListMeetingsArgs) 
 // get_meeting / get_transcript
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct GetMeetingArgs {
     /// The meeting's id, from list_meetings or search.
@@ -367,7 +367,7 @@ pub struct GetMeetingArgs {
     pub include_transcript: Option<bool>,
 }
 
-#[derive(Debug, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct GetTranscriptArgs {
     /// The meeting's id, from list_meetings or search.
@@ -665,7 +665,7 @@ pub async fn get_transcript(conn: &mut SqliteConnection, args: GetTranscriptArgs
 // get_summary
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct GetSummaryArgs {
     /// The meeting's id, from list_meetings or search.
@@ -759,7 +759,7 @@ pub async fn get_summary(conn: &mut SqliteConnection, args: GetSummaryArgs) -> R
 // get_action_items
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Default, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct GetActionItemsArgs {
     /// One meeting's items, in their order. Without it, items across meetings, newest meeting first.
@@ -979,7 +979,7 @@ pub async fn get_action_items(conn: &mut SqliteConnection, args: GetActionItemsA
 /// Deepest result a search pages to; past it the agent should narrow the query.
 const SEARCH_WINDOW: usize = 200;
 
-#[derive(Debug, Default, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct SearchArgs {
     /// Words to find, as one phrase: the text must contain it, in any letter case. Words are matched as written, not by form: for a Russian word, search its stem.
@@ -1161,7 +1161,7 @@ fn render_hit(hit: &search::GlobalSearchResult, lines: &std::collections::HashMa
 // list_people / list_groups
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Default, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ListPeopleArgs {
     /// Only contacts whose name contains this text.
@@ -1173,7 +1173,7 @@ pub struct ListPeopleArgs {
     pub offset: Option<u32>,
 }
 
-#[derive(Debug, Default, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ListGroupsArgs {
     /// Only groups whose name contains this text.

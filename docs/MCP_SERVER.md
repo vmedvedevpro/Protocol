@@ -113,9 +113,14 @@ lock, and an app commit waits for it until its 5 s `busy_timeout` runs out. So
 the server opens the file with `SQLITE_OPEN_READONLY` and `query_only`, keeps no
 transaction open between statements, and stops a call once its statements have
 run for 1 s (a progress handler): the agent is asked to narrow the question by
-date, person or group. A server statement waits up to 3 s for an app write to
-finish, then answers that Protocol is writing and to ask again in a few
-seconds.
+date, person or group. The other way round, a server statement never waits
+inside SQLite for the app's write lock (no busy timeout). SQLite does not run
+the progress handler while it waits, so that wait would count against the
+call's second, and an app write of 1–3 s (migrations at the first start after
+an update) would be answered with "narrow the question". The statement fails
+at once instead, and `Library::read` runs the whole call again on a fresh
+connection every 25 ms; after 3 s it answers that Protocol is writing and to
+ask again in a few seconds.
 
 A journal left by a killed app (a hot journal) can be rolled back only by a
 writer; the server answers "Open Protocol once" and leaves it alone.
@@ -207,9 +212,11 @@ Code `/mcp` and reconnect; quit and reopen Claude Desktop).
 
 - `cargo test -p protocol-mcp -p meeting-library`: each tool on a library
   built by the app's migrations, nothing changing on disk, an app save during a
-  long statement, a hot journal, older/newer/foreign schemas, the switch, a
-  replaced executable, strict arguments, the built executable over stdio, and
-  search pages read one after another equal to one long page.
+  long statement, an app write that outlasts a call's second (answered) or
+  its 3 s wait ("Protocol is writing"), a hot journal, older/newer/foreign
+  schemas, the switch, a replaced executable, strict arguments, the built
+  executable over stdio, and search pages read one after another equal to one
+  long page.
 - `cargo test -p protocol --lib`: `global_search_tests` (Ctrl+K unchanged
   except that capitalised Cyrillic now matches, in titles, transcript lines
   and action items, at a line start and mid-sentence), `agent_access`, `claude_desktop_extension` (manifest 0.3 properties, the
