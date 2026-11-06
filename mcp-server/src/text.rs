@@ -75,6 +75,39 @@ impl Output {
         true
     }
 
+    /// Writes a list: `header(shown)` and `notes`, then as many `rows` as fit
+    /// with `reserve` tokens kept free below them (the paging line). The rows
+    /// are fitted first, so the header counts only those written. Returns how
+    /// many were.
+    pub fn list(
+        &mut self,
+        header: impl Fn(usize) -> String,
+        notes: &[String],
+        rows: &[String],
+        reserve: usize,
+    ) -> usize {
+        // The header's longest form: its count has at most as many digits as
+        // for every row, and "none of N" is the form for no row.
+        let header_tokens = estimated_tokens(&header(rows.len())).max(estimated_tokens(&header(0))) + 1;
+        let notes_tokens: usize = notes.iter().map(|note| estimated_tokens(note) + 1).sum();
+        let mut page = Output::with_budget(self.room(header_tokens + notes_tokens + reserve));
+        let mut shown = 0;
+        for row in rows {
+            if !page.fit(row, 0) {
+                break;
+            }
+            shown += 1;
+        }
+        self.line(header(shown));
+        for note in notes {
+            self.line(note);
+        }
+        if !page.is_empty() {
+            self.line(page.finish());
+        }
+        shown
+    }
+
     /// Tokens still free after keeping `reserve`.
     pub fn room(&self, reserve: usize) -> usize {
         self.budget.saturating_sub(self.tokens + reserve)

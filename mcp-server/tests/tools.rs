@@ -426,6 +426,33 @@ async fn search_pages_slice_one_ranking() {
     }
 }
 
+/// A page the token budget cuts short counts in its header only the rows it
+/// shows; it used to count every row read ("1–100") above 20-odd rows.
+#[tokio::test]
+async fn a_page_cut_by_the_budget_counts_what_it_shows() {
+    let meetings: Vec<String> = (0..100)
+        .map(|i| {
+            format!(
+                "('long-{i:03}', '{}', '2026-09-{:02}T09:00:00Z', '2026-09-01T10:00:00Z')",
+                format!("Совещание {i} ").repeat(40),
+                i % 28 + 1
+            )
+        })
+        .collect();
+    let rows = format!(
+        "{}\nINSERT INTO meetings (id, title, created_at, updated_at) VALUES {};\n",
+        common::LIBRARY,
+        meetings.join(", ")
+    );
+    let fixture = Fixture::with(&rows).await;
+    let text = list_meetings(&fixture, ListMeetingsArgs { limit: Some(100), ..Default::default() }).await;
+    let shown = text.lines().filter(|line| line.starts_with("- ")).count();
+    assert!(shown > 0 && shown < 100, "{shown} rows:\n{text}");
+    assert!(text.starts_with(&format!("Meetings 1–{shown} of 104,")), "{shown} rows:\n{text}");
+    assert!(text.ends_with(&format!("offset={shown} and the same other arguments.")), "{text}");
+    assert!(estimated_tokens(&text) <= RESULT_TOKENS, "{}", estimated_tokens(&text));
+}
+
 #[tokio::test]
 async fn people_and_groups_list_without_phone_or_notes() {
     let fixture = Fixture::new().await;

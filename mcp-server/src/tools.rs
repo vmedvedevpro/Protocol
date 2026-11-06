@@ -305,7 +305,6 @@ pub async fn list_meetings(conn: &mut SqliteConnection, args: ListMeetingsArgs) 
 
     let mut out = Output::new();
     let total = total as usize;
-    let mut shown = 0;
     let mut lines = Vec::new();
     for (id, title, created_at, group_id, group_name, has_summary) in &rows {
         let mut parts = vec![quoted(title), format!("id {id}"), local_time(created_at)];
@@ -334,20 +333,14 @@ pub async fn list_meetings(conn: &mut SqliteConnection, args: ListMeetingsArgs) 
         lines.push(format!("- {}", parts.join(" · ")));
     }
 
-    out.line(format!(
-        "Meetings {}, newest first. Times are local ({}).",
-        range(offset, rows.len(), total),
-        local_offset()
-    ));
-    for note in &scope.notes {
-        out.line(note);
-    }
-    for line in &lines {
-        if !out.fit(line, FOOTER) {
-            break;
-        }
-        shown += 1;
-    }
+    let header = |shown| {
+        format!(
+            "Meetings {}, newest first. Times are local ({}).",
+            range(offset, shown, total),
+            local_offset()
+        )
+    };
+    let shown = out.list(header, &scope.notes, &lines, FOOTER);
     if offset + shown < total {
         out.line(more_line("list_meetings", offset + shown, ""));
     }
@@ -955,17 +948,8 @@ pub async fn get_action_items(conn: &mut SqliteConnection, args: GetActionItemsA
         Some(meeting) => format!("{what} of {} (id {})", quoted(&meeting.title), meeting.id),
         None => format!("{what} across meetings, newest meeting first"),
     };
-    out.line(format!("{header}: {}.", range(offset, items.len(), total)));
-    for note in &notes {
-        out.line(note);
-    }
-    let mut shown = 0;
-    for item in &items {
-        if !out.fit(item.render(meeting.is_none()), FOOTER) {
-            break;
-        }
-        shown += 1;
-    }
+    let rows: Vec<String> = items.iter().map(|item| item.render(meeting.is_none())).collect();
+    let shown = out.list(|shown| format!("{header}: {}.", range(offset, shown, total)), &notes, &rows, FOOTER);
     if offset + shown < total {
         out.line(more_line("get_action_items", offset + shown, ""));
     }
@@ -1036,30 +1020,28 @@ pub async fn search(conn: &mut SqliteConnection, args: SearchArgs) -> Result<Str
 
     let found = search::search(conn, &query, &scope.filter, offset, page).await?;
     let mut out = Output::new();
-    out.line(format!(
-        "Results for {} {}, best first. Times are local ({}).",
-        quoted(&query),
-        if found.results.is_empty() && offset == 0 {
-            "none".to_string()
-        } else {
-            format!("{}–{}", offset + 1, offset + found.results.len())
-        },
-        local_offset()
-    ));
-    for note in &scope.notes {
-        out.line(note);
-    }
+    let header = |shown| {
+        format!(
+            "Results for {} {}, best first. Times are local ({}).",
+            quoted(&query),
+            match shown {
+                0 if offset == 0 => "none".to_string(),
+                0 => format!("none after {offset}"),
+                _ => format!("{}–{}", offset + 1, offset + shown),
+            },
+            local_offset()
+        )
+    };
+    let mut notes = scope.notes;
     let lines = line_numbers(conn, &found.results).await?;
     if !lines.is_empty() {
-        out.line("Transcript lines count from 1, as get_transcript shows them; pass a result's offset to get_transcript to read around it.");
+        notes.push(
+            "Transcript lines count from 1, as get_transcript shows them; pass a result's offset to get_transcript to read around it."
+                .to_string(),
+        );
     }
-    let mut shown = 0;
-    for result in &found.results {
-        if !out.fit(render_hit(result, &lines), FOOTER) {
-            break;
-        }
-        shown += 1;
-    }
+    let rows: Vec<String> = found.results.iter().map(|result| render_hit(result, &lines)).collect();
+    let shown = out.list(header, &notes, &rows, FOOTER);
     let more = found.more || shown < found.results.len();
     if more && offset + shown < SEARCH_WINDOW {
         out.line(more_line("search", offset + shown, ""));
@@ -1248,11 +1230,7 @@ pub async fn list_people(conn: &mut SqliteConnection, args: ListPeopleArgs) -> R
 
     let mut out = Output::new();
     let total = total as usize;
-    out.line(format!(
-        "Contacts {}, by name. Contacts are the names given to speakers in Protocol.",
-        range(offset, rows.len(), total)
-    ));
-    let mut shown = 0;
+    let mut lines = Vec::new();
     for (id, name, email, company, role, meetings, last) in &rows {
         let mut parts = vec![format!("- {}", one_line(name)), format!("id {id}")];
         for value in [email, company, role].into_iter().flatten() {
@@ -1267,11 +1245,15 @@ pub async fn list_people(conn: &mut SqliteConnection, args: ListPeopleArgs) -> R
         if let Some(groups) = groups.get(id) {
             parts.push(format!("groups: {}", groups.join(", ")));
         }
-        if !out.fit(parts.join(" · "), FOOTER) {
-            break;
-        }
-        shown += 1;
+        lines.push(parts.join(" · "));
     }
+    let header = |shown| {
+        format!(
+            "Contacts {}, by name. Contacts are the names given to speakers in Protocol.",
+            range(offset, shown, total)
+        )
+    };
+    let shown = out.list(header, &[], &lines, FOOTER);
     if offset + shown < total {
         out.line(more_line("list_people", offset + shown, ""));
     }
@@ -1304,8 +1286,7 @@ pub async fn list_groups(conn: &mut SqliteConnection, args: ListGroupsArgs) -> R
 
     let mut out = Output::new();
     let total = total as usize;
-    out.line(format!("Groups {}, by name.", range(offset, rows.len(), total)));
-    let mut shown = 0;
+    let mut lines = Vec::new();
     for (id, name, kind, description, meetings, last) in &rows {
         let mut parts = vec![format!("- {}", quoted(name)), format!("id {id}")];
         if let Some(kind) = kind.as_deref().filter(|kind| !kind.trim().is_empty()) {
@@ -1318,11 +1299,9 @@ pub async fn list_groups(conn: &mut SqliteConnection, args: ListGroupsArgs) -> R
         if let Some(description) = description.as_deref().filter(|text| !text.trim().is_empty()) {
             parts.push(text::clip(&one_line(description), 120));
         }
-        if !out.fit(parts.join(" · "), FOOTER) {
-            break;
-        }
-        shown += 1;
+        lines.push(parts.join(" · "));
     }
+    let shown = out.list(|shown| format!("Groups {}, by name.", range(offset, shown, total)), &[], &lines, FOOTER);
     if offset + shown < total {
         out.line(more_line("list_groups", offset + shown, ""));
     }

@@ -38,7 +38,8 @@ estimated 8,000 tokens and 40,000 characters (`text.rs`): Claude Code warns
 above 10,000 tokens and saves results over 25,000 tokens or 50,000 characters
 to a file instead of showing them. The estimate counts ASCII at three
 characters per token and every other character at 0.6 tokens, which errs high
-for Russian. A list that stops early ends with the call that reads the rest.
+for Russian. A list that stops early counts in its header only the rows it
+shows (`Output::list`) and ends with the call that reads the rest.
 
 Speaker labels come out exactly as stored: "You" (this computer's microphone),
 "Guest" (its sound output before voices were told apart), "Speaker N", "A + B",
