@@ -231,8 +231,11 @@ Var MeetilyBackend
 ; server in between (a new Claude Code session), which would hold the file and
 ; stop the update at an Abort/Retry/Ignore box. With the name free until then,
 ; that agent gets a missing file and retries. The moved copy stays until the
-; install has succeeded (Protocol_DeleteMovedServer), so an install that stops
-; before writing the new file can put it back (.onInstFailed).
+; install reaches NSIS_HOOK_POSTINSTALL (Protocol_DeleteMovedServer), so an
+; install that stops before can put it back (.onInstFailed). Whether the new
+; file was written is told by reaching POSTINSTALL, not by the name: a write
+; that fails halfway (a full disk) leaves a partial protocol-mcp.exe, and an
+; Ignore at a file error lets the install go on with none.
 ;
 ; Protocol must be closed before the file moves. The template checks that only
 ; after this hook (CheckIfAppIsRunning in installer.nsi), and a Cancel at its
@@ -263,24 +266,34 @@ Var ProtocolMovedServer
   ${EndIf}
 !macroend
 
-; Once the new protocol-mcp.exe is in place, the moved copy goes, unless an
-; agent still runs it (a running executable cannot be deleted).
+; The file copy is over: the moved copy goes, unless an agent still runs it (a
+; running executable cannot be deleted). If the new protocol-mcp.exe was
+; skipped (Ignore at its file error), the old one goes back instead.
 !macro Protocol_DeleteMovedServer
   ${If} $ProtocolMovedServer != ""
-    ClearErrors
-    Delete "$ProtocolMovedServer"
-    ${If} ${Errors}
-      DetailPrint "      An AI agent is using Protocol's MCP server; it gets the new one when it restarts it."
+    ${If} ${FileExists} "$INSTDIR\protocol-mcp.exe"
+      ClearErrors
+      Delete "$ProtocolMovedServer"
+      ${If} ${Errors}
+        DetailPrint "      An AI agent is using Protocol's MCP server; it gets the new one when it restarts it."
+      ${EndIf}
+    ${Else}
+      DetailPrint "      WARNING: the new protocol-mcp.exe was not written; keeping the previous one."
+      Rename "$ProtocolMovedServer" "$INSTDIR\protocol-mcp.exe"
     ${EndIf}
+    StrCpy $ProtocolMovedServer ""
   ${EndIf}
 !macroend
 
 ; NSIS calls this after any Abort of the install (a file that cannot be
-; written, a full disk). Before the new protocol-mcp.exe is written, the moved
-; copy goes back, running or not, so the installed version keeps its server.
+; written, a full disk). Before POSTINSTALL, whatever holds the name may be a
+; partial write, so the moved copy replaces it, running or not, and the
+; installed version keeps its server. A new server an agent already runs
+; cannot be deleted; it then stays and the rename fails.
 Function .onInstFailed
   ${If} $ProtocolMovedServer != ""
-  ${AndIfNot} ${FileExists} "$INSTDIR\protocol-mcp.exe"
+  ${AndIf} ${FileExists} "$ProtocolMovedServer"
+    Delete "$INSTDIR\protocol-mcp.exe"
     Rename "$ProtocolMovedServer" "$INSTDIR\protocol-mcp.exe"
   ${EndIf}
 FunctionEnd

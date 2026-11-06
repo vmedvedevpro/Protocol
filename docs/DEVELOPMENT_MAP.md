@@ -1034,8 +1034,10 @@ in the pre-install hook checks that Protocol is closed (the template's
 `CheckIfAppIsRunning`, so its Cancel or a failed kill leaves the server alone),
 then renames the installed copy to `protocol-mcp.exe.old-<n>`, so the new file
 can take its name and a server an agent starts during the file copy finds no
-file to hold. The post-install hook deletes the moved copy unless it runs, and
-`.onInstFailed` renames it back when the install aborts first. The uninstall
+file to hold. Reaching the post-install hook, not the file name, says the copy
+is over: it deletes the moved copy unless it runs (or renames it back if the new
+file was skipped), and `.onInstFailed` renames it back over whatever holds the
+name when the install aborts first. The uninstall
 hook stops this install's copies by full path and deletes them. See
 [MCP_SERVER.md](MCP_SERVER.md).
 

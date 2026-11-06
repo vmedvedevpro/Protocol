@@ -203,16 +203,18 @@ A client keeps its server for its whole session, often with Protocol closed.
   check that Protocol is closed, so a Cancel at its "click OK to kill it"
   prompt or a failed kill aborts with the server untouched, also while the
   prompt waits. It then deletes copies earlier updates moved aside and renames
-  `protocol-mcp.exe` to `protocol-mcp.exe.old-<tick>`; once the install has
-  written the new file, `NSIS_HOOK_POSTINSTALL` deletes that copy unless it
-  runs, and an install aborted before that (`.onInstFailed`) renames it back,
-  running or not. The new file takes the old name; a running old process keeps
-  serving. The installer
-  writes the new file after every other one, seconds later; until then the name
-  is free, so an agent that starts the server meanwhile (a new Claude Code
-  session) gets a missing file it can retry, rather than holding the file and
-  stopping the update at an Abort/Retry/Ignore box. The hook stops nothing,
-  so the in-app update (applied on quit) does not cut an agent off. A
+  `protocol-mcp.exe` to `protocol-mcp.exe.old-<tick>`. When the install
+  reaches `NSIS_HOOK_POSTINSTALL`, the file copy is over: that copy is deleted
+  unless it runs, or renamed back if the new file was skipped (Ignore at its
+  file error). An install aborted before that (`.onInstFailed`) renames it
+  back, running or not, in place of whatever holds the name, which may be a
+  write that failed halfway (a full disk). The new file takes the old name; a
+  running old process keeps serving. The installer writes the new file after
+  every other one, seconds later; until then the name is free, so an agent
+  that starts the server meanwhile (a new Claude Code session) gets a missing
+  file it can retry, rather than holding the file and stopping the update at
+  an Abort/Retry/Ignore box. The hook stops nothing, so the in-app update
+  (applied on quit) does not cut an agent off. A
   downloaded setup run by hand is different: for an upgrade it pre-selects
   "Uninstall before installing", which runs the previous version's
   uninstaller first, and that stops this install's servers (below). Only
