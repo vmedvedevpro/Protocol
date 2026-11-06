@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "frontend/src-tauri",
     "llama-helper",
+    "mcp-server",
     "meeting-library",
     "vendor/silero-rs",
     "vendor/tauri-runtime-wry"

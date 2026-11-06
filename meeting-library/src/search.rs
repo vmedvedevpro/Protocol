@@ -123,7 +123,7 @@ impl SearchFilter {
     }
 
     /// ` AND ...` conditions on the meeting aliased `m`, with their arguments.
-    fn meeting_clauses(&self, args: &mut SqliteArguments<'_>) -> String {
+    pub fn meeting_clauses(&self, args: &mut SqliteArguments<'_>) -> String {
         let mut sql = String::new();
         if let Some(from) = &self.from {
             sql.push_str(" AND julianday(m.created_at) >= julianday(?)");
