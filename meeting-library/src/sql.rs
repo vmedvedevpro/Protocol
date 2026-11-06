@@ -179,7 +179,8 @@ mod tests {
     /// character it handles, and the rest of the alphabet is lowered too.
     #[test]
     fn agrees_with_char_to_lowercase() {
-        for code in (0..0x0500u32).chain(0x1E00..0x2000).chain(0x2C00..0x2D00) {
+        // Latin, Greek, Cyrillic and Armenian, and their extended blocks.
+        for code in (0..0x0590u32).chain(0x1E00..0x2000).chain(0x2C00..0x2D00) {
             let Some(character) = char::from_u32(code) else { continue };
             let expected: String = character.to_lowercase().collect();
             let text = character.to_string();
