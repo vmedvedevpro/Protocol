@@ -7,6 +7,8 @@ is inherited from the project Protocol forked from; Protocol did not release it.
 
 ## Protocol — unreleased
 
+## Protocol 0.5.1 — 2026-11-06
+
 ## Protocol 0.5.0 — 2026-11-04
 
 Protocol now picks the speech models for your computer and runs each where it
