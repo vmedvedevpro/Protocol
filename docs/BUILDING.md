@@ -22,6 +22,21 @@ pnpm install
 pnpm run tauri:dev:vulkan   # or tauri:dev:cpu / tauri:dev:cuda
 ```
 
+The app bundles two programs built from this workspace, and Tauri stops
+before building when `frontend/src-tauri/binaries/` lacks either one (named
+with the target triple, as `externalBin` in `tauri.conf.json` expects):
+`llama-helper` (the built-in summary model) and `protocol-mcp` (the
+[MCP server](MCP_SERVER.md) for AI agents). Build and copy them once, and
+again after changing them:
+
+```powershell
+cargo build --release -p llama-helper -p protocol-mcp
+Copy-Item "$env:CARGO_TARGET_DIR\release\llama-helper.exe" frontend\src-tauri\binaries\llama-helper-x86_64-pc-windows-msvc.exe
+Copy-Item "$env:CARGO_TARGET_DIR\release\protocol-mcp.exe" frontend\src-tauri\binaries\protocol-mcp-x86_64-pc-windows-msvc.exe
+```
+
+(Without `CARGO_TARGET_DIR` set, the files are in `target\release`.)
+
 A Vulkan build needs a short cargo target dir. whisper.cpp builds its Vulkan
 shader generator as a nested CMake project deep inside the target dir, and the
 compiler cannot write paths longer than Windows' 259 characters, even with long

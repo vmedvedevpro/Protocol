@@ -49,6 +49,9 @@ Everything Meetily – Actually Free offers is here, plus:
 
   ![Settings › Transcription: the installed Parakeet and Whisper models with their badges, and further Whisper models from the model list with their sizes, one of them downloading](docs/media/settings-speech-models.png)
 
+- **Your meetings in Claude.** Turn on Settings › AI agents and Claude Desktop,
+  Claude Code or another MCP client on your computer can search and read your
+  meetings, read-only. See [the MCP server](docs/MCP_SERVER.md).
 - **A lean, locked-down app.** No analytics code, no internal commands the app
   does not use, and no setting that starts an executable of your choice.
 - **One small Windows installer.** About 118 MB. It picks the Vulkan GPU build
