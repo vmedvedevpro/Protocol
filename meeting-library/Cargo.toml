@@ -1,0 +1,14 @@
+[package]
+name = "meeting-library"
+version = "0.1.0"
+description = "Read model of Protocol's meeting library, shared by the app and the protocol-mcp server"
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+# No Tauri here: protocol-mcp depends on this crate and must stay a small
+# binary that starts without the app.
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { version = "0.8", default-features = false, features = ["sqlite"] }
