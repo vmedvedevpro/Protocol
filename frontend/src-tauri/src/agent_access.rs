@@ -49,8 +49,27 @@ fn launch(exe: &Path, appimage: Option<&Path>) -> (PathBuf, Vec<String>) {
     }
 }
 
+/// `path` as one word for the shell the command is pasted into. Windows:
+/// double quotes, which cmd.exe and PowerShell both read and a Windows path
+/// cannot contain; PowerShell still expands `$` and backticks there, so such a
+/// path is single-quoted for it (`'` doubled). POSIX shells expand `$`,
+/// backticks and `\` inside double quotes, and interactive zsh `!`, so
+/// elsewhere the path is single-quoted, a `'` written as `'\''`.
+fn shell_word(path: &str, windows: bool) -> String {
+    if !windows {
+        format!("'{}'", path.replace('\'', "'\\''"))
+    } else if path.contains(['$', '`']) {
+        format!("'{}'", path.replace('\'', "''"))
+    } else {
+        format!("\"{path}\"")
+    }
+}
+
 fn claude_code_command(command: &str, args: &[String]) -> String {
-    let mut line = format!("claude mcp add --scope user {SERVER_NAME} -- \"{command}\"");
+    let mut line = format!(
+        "claude mcp add --scope user {SERVER_NAME} -- {}",
+        shell_word(command, cfg!(windows))
+    );
     for arg in args {
         line.push(' ');
         line.push_str(arg);
@@ -132,7 +151,10 @@ mod tests {
         assert!(off.args.is_empty());
         assert_eq!(
             off.claude_code_command,
-            format!("claude mcp add --scope user protocol -- \"{server}\"")
+            format!(
+                "claude mcp add --scope user protocol -- {}",
+                shell_word(&server, cfg!(windows))
+            )
         );
         let config: serde_json::Value = serde_json::from_str(&off.claude_desktop_config).unwrap();
         assert_eq!(config["mcpServers"]["protocol"]["command"], server.as_str());
@@ -162,9 +184,32 @@ mod tests {
         assert!(status.server_found);
         assert_eq!(
             status.claude_code_command,
-            format!("claude mcp add --scope user protocol -- \"{path}\" --mcp-server")
+            format!(
+                "claude mcp add --scope user protocol -- {} --mcp-server",
+                shell_word(&path, cfg!(windows))
+            )
         );
         let config: serde_json::Value = serde_json::from_str(&status.claude_desktop_config).unwrap();
         assert_eq!(config["mcpServers"]["protocol"]["args"], serde_json::json!(["--mcp-server"]));
+    }
+
+    #[test]
+    fn paths_are_quoted_for_the_shell_they_are_pasted_into() {
+        let installed = r"C:\Users\Anna\AppData\Local\vmedvedevpro\Protocol\protocol-mcp.exe";
+        assert_eq!(shell_word(installed, true), format!("\"{installed}\""));
+        // PowerShell would read $b as a variable in double quotes.
+        assert_eq!(
+            shell_word(r"C:\Users\a$b\it's\protocol-mcp.exe", true),
+            r"'C:\Users\a$b\it''s\protocol-mcp.exe'"
+        );
+        assert_eq!(
+            shell_word("/Applications/Protocol.app/Contents/MacOS/protocol-mcp", false),
+            "'/Applications/Protocol.app/Contents/MacOS/protocol-mcp'"
+        );
+        // $, backticks and \ expand in POSIX double quotes, ! in interactive zsh.
+        assert_eq!(
+            shell_word("/home/a$b/Apps!/it's `x`.AppImage", false),
+            r"'/home/a$b/Apps!/it'\''s `x`.AppImage'"
+        );
     }
 }
