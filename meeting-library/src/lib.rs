@@ -7,6 +7,7 @@
 
 pub mod agent_access;
 pub mod search;
+pub mod sql;
 pub mod summary;
 
 /// The form a person's or group's name takes in `people.normalized_name` and

@@ -1365,7 +1365,9 @@ MCP on stdio, read-only, while Settings > AI agents (`AgentAccessSettings.tsx`,
 `agent_access.rs`) holds the off-by-default switch and the commands that start
 it; `claude_desktop_extension.rs` builds the Claude Desktop bundle. The Ctrl+K
 search, the summary text and the switch file live in the shared
-`meeting-library/` crate, so the app and the server answer the same way. The
+`meeting-library/` crate, so the app and the server answer the same way;
+both pools register its `unicode_lower` SQL function (`sql.rs`), which lets the
+search match capitalised Cyrillic in any case. The
 server never writes, keeps each tool call under one second of statements so the
 app's commits are not held, and answers `Open Protocol once` for a database it
 cannot read safely. Data flow, limits, packaging and the update path:

@@ -329,6 +329,28 @@ async fn search_ranks_like_ctrl_k_and_points_into_the_transcript() {
     assert!(matches!(blank, Problem::BadArgument(_)));
 }
 
+/// Capitalised Cyrillic is found whatever case the query is typed in (#8);
+/// SQLite's own lower() missed "Бюджет" at the start of a line.
+#[tokio::test]
+async fn capitalised_cyrillic_is_found_in_any_case() {
+    let fixture = Fixture::new().await;
+    let mut session = fixture.session().await;
+    for query in ["бюджет", "БЮДЖЕТ", "Бюджет"] {
+        let text = tools::search(
+            &mut session.conn,
+            SearchArgs { query: query.into(), kinds: Some(vec!["transcript".into()]), ..Default::default() },
+        )
+        .await
+        .unwrap();
+        assert!(text.contains("line 0 · Speaker 1: \"Бюджет утвердили, budget is final\""), "{query}:\n{text}");
+        assert!(text.contains("line 1 · Guest: \"обсудили бюджет на квартал\""), "{query}:\n{text}");
+    }
+    drop(session);
+
+    let by_title = list_meetings(&fixture, ListMeetingsArgs { title: Some("ПЛАНЁРКА".into()), ..Default::default() }).await;
+    assert!(by_title.contains("id m2 ") && by_title.contains("1–1 of 1"), "{by_title}");
+}
+
 #[tokio::test]
 async fn people_and_groups_list_without_phone_or_notes() {
     let fixture = Fixture::new().await;

@@ -152,6 +152,8 @@ impl Library {
             // until the next session replaces it; a ping would trip it.
             .test_before_acquire(false)
             .acquire_timeout(BUSY_TIMEOUT + Duration::from_secs(2))
+            // The search lowers text with it; registering writes nothing.
+            .after_connect(|conn, _| Box::pin(meeting_library::sql::register(conn)))
             .connect_lazy_with(options);
         Library {
             pool,

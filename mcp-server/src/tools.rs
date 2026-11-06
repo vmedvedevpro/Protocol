@@ -271,9 +271,9 @@ pub async fn list_meetings(conn: &mut SqliteConnection, args: ListMeetingsArgs) 
     let mut binds = SqliteArguments::default();
     let mut condition = String::from(" WHERE 1 = 1");
     if let Some(title) = clean(args.title) {
-        // Matched like Ctrl+K matches titles: SQLite's LIKE folds Latin case only.
-        condition.push_str(" AND m.title LIKE ? ESCAPE '\\'");
-        let _ = binds.add(format!("%{}%", escape_like(&title)));
+        // Matched like Ctrl+K matches titles, in any letter case.
+        condition.push_str(" AND unicode_lower(m.title) LIKE ? ESCAPE '\\'");
+        let _ = binds.add(format!("%{}%", escape_like(&title.to_lowercase())));
     }
     condition.push_str(&scope.filter.meeting_clauses(&mut binds));
 
@@ -982,7 +982,7 @@ const SEARCH_WINDOW: usize = 200;
 #[derive(Debug, Default, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct SearchArgs {
-    /// Words to find, as one phrase: the text must contain it (Latin letters ignore case; for Cyrillic, try the word as it appears, or its stem).
+    /// Words to find, as one phrase: the text must contain it, in any letter case. Words are matched as written, not by form: for a Russian word, search its stem.
     pub query: String,
     /// Kinds to return: any of "meeting" (title), "transcript" (a spoken line), "summary", "action" (action item), "person", "group". Default all.
     pub kinds: Option<Vec<String>>,

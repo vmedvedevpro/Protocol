@@ -67,6 +67,16 @@ The app's `PeopleRepository::global_search` (Ctrl+K) calls the same
 `meeting_library::search::global_search`; `global_search_tests.rs` pins its
 results.
 
+**Letter case.** SQLite's `lower()` and `LIKE` fold ASCII only, so before #8
+a capitalised Russian word in a title, transcript line or action item was
+found only as written ("бюджет" missed "Бюджет утвердили"). The search now
+lowers those columns with `unicode_lower` (`meeting_library::sql`), Rust's
+`str::to_lowercase` registered as an SQL function on every connection of the
+app's pool (`DatabaseManager`) and the server's (`store.rs`), and compares
+them with the query lowered the same way. Nothing is stored and no migration
+is involved; names and summaries were already lowered in Rust. The group
+page's transcript filter (`group.rs`) uses it too.
+
 **Where the database is.** `--db <path>`, else `PROTOCOL_MCP_DB`, else
 `<folder of protocol-mcp>/data/meeting_minutes.sqlite` if that file exists
 (Windows and Linux installs whose folder is writable, as `paths.rs` decides),
@@ -106,20 +116,26 @@ Measured on a synthetic library of 300 one-hour meetings (150,000 transcript
 lines, mostly Russian; 40.6 MB) with a release build on the development
 laptop, median of three:
 
-| Call | ms |
-|---|---|
-| `list_meetings`, 100 per page | 47 |
-| `get_meeting` with transcript | 103 |
-| `get_transcript`, first page | 68 |
-| `search`, a common word | 185 |
-| `search`, no match (scans every line) | 165 |
-| `search`, results 151–200 | 246 |
-| `get_action_items`, all open | 4 |
-| `list_people`, 200 | 3 |
+| Call | ms | with SQLite's `lower()` |
+|---|---|---|
+| `list_meetings`, 100 per page | 51 | |
+| `get_meeting` with transcript | 104 | |
+| `get_transcript`, first page | 54 | |
+| `search`, a common word | 165 | 137 |
+| `search`, no match (scans every line) | 155 | 130 |
+| `search`, results 151–200 | 218 | 180 |
+| `search`, one group | 170 | 137 |
+| `get_action_items`, all open | 3 | |
+| `list_people`, 200 | 3 | |
 
-An app save of 500 transcript lines started during the slowest search
-committed after 149 ms. The numbers come from
-`cargo test -p protocol-mcp --release --test scale -- --ignored --nocapture`.
+An app save of 500 transcript lines started during the no-match search
+committed after 149 ms (118 ms with `lower()`). Lowering in any letter case
+costs the search about a fifth: SQLite's `lower()` maps ASCII through a byte
+table, while `unicode_lower` checks each Cyrillic letter. A first version that
+sent every non-ASCII character through `char::to_lowercase` took twice as long
+as `lower()`. The numbers come from
+`cargo test -p protocol-mcp --release --test scale -- --ignored --nocapture`,
+before and after on the same machine.
 
 ## Connecting a client
 
@@ -176,8 +192,9 @@ Code `/mcp` and reconnect; quit and reopen Claude Desktop).
   built by the app's migrations, nothing changing on disk, an app save during a
   long statement, a hot journal, older/newer/foreign schemas, the switch, a
   replaced executable, strict arguments, and the built executable over stdio.
-- `cargo test -p protocol --lib`: `global_search_tests` (Ctrl+K unchanged),
-  `agent_access`, `claude_desktop_extension` (manifest 0.3 properties, the
+- `cargo test -p protocol --lib`: `global_search_tests` (Ctrl+K unchanged
+  except that capitalised Cyrillic now matches, in titles, transcript lines
+  and action items, at a line start and mid-sentence), `agent_access`, `claude_desktop_extension` (manifest 0.3 properties, the
   bundle's contents, a moved app).
 - `frontend/tests/agent-access.test.tsx` (Bun): off by default, the privacy
   statement, the commands and Copy, the extension button and its failures, a
@@ -190,10 +207,8 @@ Code `/mcp` and reconnect; quit and reopen Claude Desktop).
 
 ## Limits
 
-- Matching folds case for Latin letters only: SQLite's `LIKE` and `lower()`
-  fold ASCII, so a capitalised Russian word in a title, transcript line or
-  action item is found only as written. This is the Ctrl+K search's behaviour,
-  kept unchanged (summaries and names are matched in Rust and do fold).
+- Words match as written, in any letter case, not by grammatical form: "отчёт"
+  does not find "отчёта", and "е" does not find "ё".
 - A recording in progress is not in the database until Stop saves it.
 - `transcript_chunks` (the text sent for summarising) is not served; the app
   does not show it as a transcript either.

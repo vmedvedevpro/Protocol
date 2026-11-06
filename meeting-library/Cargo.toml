@@ -12,6 +12,11 @@ publish = false
 serde = { workspace = true }
 serde_json = { workspace = true }
 sqlx = { version = "0.8", default-features = false, features = ["sqlite"] }
+# The SQLite sqlx links (one copy per build): sql.rs registers a function on
+# sqlx's connection handle.
+libsqlite3-sys = { version = "0.30", default-features = false }
 
 [dev-dependencies]
 tempfile = "3.3.0"
+sqlx = { version = "0.8", default-features = false, features = ["sqlite", "runtime-tokio"] }
+tokio = { version = "1.32", features = ["macros", "rt"] }

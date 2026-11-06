@@ -5,6 +5,10 @@
 //! Moved here from the app's `person.rs` (#8) so both callers run the same
 //! queries. With an empty [`SearchFilter`] the queries and the ranking are the
 //! ones Ctrl+K has always used; `global_search_tests.rs` in the app pins them.
+//! Titles, transcript lines and action items are lowered with
+//! `unicode_lower` ([`crate::sql`]), so the connection must have it
+//! registered; before #8 they used SQLite's ASCII-only `lower()`, and a
+//! capitalised Cyrillic word matched only as written.
 
 use serde::Serialize;
 use sqlx::sqlite::SqliteArguments;
@@ -283,7 +287,7 @@ async fn ranked(
         let meetings = sqlx::query_as_with::<_, (String, String, String), _>(
             &format!(
                 "SELECT m.id, m.title, m.created_at FROM meetings m \
-                 WHERE lower(m.title) LIKE ? ESCAPE '\\'{scope} \
+                 WHERE unicode_lower(m.title) LIKE ? ESCAPE '\\'{scope} \
                  ORDER BY m.created_at DESC LIMIT ?"
             ),
             args,
@@ -336,8 +340,8 @@ async fn ranked(
             &format!(
                 "SELECT t.id, m.id, m.title, t.transcript, t.timestamp, t.speaker, t.audio_start_time \
                  FROM transcripts t JOIN meetings m ON m.id = t.meeting_id \
-                 WHERE (lower(t.transcript) LIKE ? ESCAPE '\\' \
-                    OR lower(COALESCE(t.speaker, '')) LIKE ? ESCAPE '\\'){scope} \
+                 WHERE (unicode_lower(t.transcript) LIKE ? ESCAPE '\\' \
+                    OR unicode_lower(COALESCE(t.speaker, '')) LIKE ? ESCAPE '\\'){scope} \
                  ORDER BY m.created_at DESC, t.audio_start_time ASC LIMIT ?"
             ),
             args,
@@ -468,7 +472,7 @@ async fn ranked(
             &format!(
                 "SELECT a.id, a.meeting_id, m.title, m.created_at, a.text, a.owner_label, a.audio_time \
                  FROM action_items a JOIN meetings m ON m.id = a.meeting_id \
-                 WHERE (lower(a.text) LIKE ? ESCAPE '\\' OR lower(COALESCE(a.owner_label, '')) LIKE ? ESCAPE '\\'){scope} \
+                 WHERE (unicode_lower(a.text) LIKE ? ESCAPE '\\' OR unicode_lower(COALESCE(a.owner_label, '')) LIKE ? ESCAPE '\\'){scope} \
                  ORDER BY a.done, m.created_at DESC LIMIT ?"
             ),
             args,

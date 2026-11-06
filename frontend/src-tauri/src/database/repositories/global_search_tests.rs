@@ -1,13 +1,14 @@
 //! Pins what the Ctrl+K search (`PeopleRepository::global_search`) returns on a
 //! library built by the app's own migrations, so moving the search into the
-//! shared `meeting-library` crate (#8) cannot change its results.
+//! shared `meeting-library` crate (#8) cannot change its results. One change
+//! is deliberate: capitalised Cyrillic now matches in any case (`unicode_lower`,
+//! `meeting_library::sql`).
 
 use super::person::PeopleRepository;
 use sqlx::sqlite::SqlitePoolOptions;
 use sqlx::SqlitePool;
 
-/// Every result kind, mixed timestamp formats, Cyrillic text (SQLite's LIKE
-/// folds ASCII only), LIKE wildcards in the query, a summary whose cache holds
+/// Every result kind, mixed timestamp formats, Cyrillic text, LIKE wildcards in the query, a summary whose cache holds
 /// the query but whose visible text does not, and a transcript row whose
 /// meeting was deleted without foreign keys.
 const LIBRARY: &str = r###"
@@ -42,6 +43,8 @@ INSERT INTO action_items (id, meeting_id, text, owner_label, person_id, done, so
 async fn library() -> SqlitePool {
     let pool = SqlitePoolOptions::new()
         .max_connections(1)
+        // As DatabaseManager registers it on the app's pool.
+        .after_connect(|conn, _| Box::pin(meeting_library::sql::register(conn)))
         .connect("sqlite::memory:")
         .await
         .unwrap();
@@ -73,11 +76,46 @@ async fn ctrl_k_results_stay_as_they_were() {
     assert_eq!(actual, expected, "{}", serde_json::to_string_pretty(&actual).unwrap());
 }
 
-/// What the search returned on this library before it moved (#8). Note the
-/// quirks it keeps: "бюджет" misses the transcript line "Бюджет …" because
-/// SQLite's LIKE folds ASCII only, while the summary match (Rust lowercase)
-/// finds "Бюджет согласован"; the deleted meeting's line and the summary
-/// cache never match.
+/// Capitalised Cyrillic, at the start of a text and in the middle of it, in a
+/// meeting title, transcript lines and an action item, found whatever case the
+/// query is typed in (#8).
+#[tokio::test]
+async fn capitalised_cyrillic_is_found_in_any_case() {
+    let pool = library().await;
+    sqlx::raw_sql(
+        r###"
+INSERT INTO meetings (id, title, created_at, updated_at) VALUES
+    ('m4', 'Квартальный Отчёт', '2026-10-04T09:00:00Z', '2026-10-04T10:00:00Z');
+INSERT INTO transcripts (id, meeting_id, transcript, timestamp, speaker, audio_start_time, audio_end_time) VALUES
+    ('t7', 'm4', 'Отчёт сдаём в пятницу', '2026-10-04T09:00:05Z', 'You', 5.0, 7.0),
+    ('t8', 'm4', 'Потом обсудим ОТЧЁТ целиком и Отчёт по рискам', '2026-10-04T09:00:09Z', 'Guest', 9.0, 12.0);
+INSERT INTO action_items (id, meeting_id, text, owner_label, person_id, done, source, position, created_at, updated_at) VALUES
+    ('a3', 'm4', 'Отправить Отчёт финансистам', 'Борис', NULL, 0, 'user', 0, '2026-10-04T10:00:00Z', '2026-10-04T10:00:00Z');
+"###,
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    for query in ["отчёт", "Отчёт", "ОТЧЁТ"] {
+        let found: Vec<String> = search(&pool, query, None)
+            .await
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|result| result["id"].as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(found, ["m4", "a3", "t8", "t7"], "query {query:?}");
+    }
+    let owner = search(&pool, "борис", None).await;
+    assert_eq!(owner[0]["id"], "a3", "owner label: {owner}");
+}
+
+/// What the search returned on this library before it moved (#8), except for
+/// one deliberate change: "бюджет" now finds the transcript line "Бюджет …"
+/// (t3), which SQLite's ASCII-only `lower()` used to miss while the summary
+/// match (Rust lowercase) found "Бюджет согласован". The deleted meeting's
+/// line and the summary cache never match.
 const EXPECTED: &str = r###"{
   "50%": [
     {"id": "m3", "kind": "meeting", "meetingId": "m3", "snippet": "Retro 50% done",
@@ -137,6 +175,9 @@ const EXPECTED: &str = r###"{
   "бюджет": [
     {"id": "m2", "kind": "meeting", "meetingId": "m2", "snippet": "Планёрка по бюджету",
      "timestamp": "2026-10-02T09:00:00Z", "title": "Планёрка по бюджету"},
+    {"audioStartTime": 3.0, "id": "t3", "kind": "transcript", "meetingId": "m2",
+     "snippet": "Бюджет утвердили, budget is final", "speaker": "Speaker 2",
+     "timestamp": "2026-10-02T09:00:03Z", "title": "Планёрка по бюджету", "transcriptId": "t3"},
     {"id": "summary-m2", "kind": "summary", "meetingId": "m2", "snippet": "Бюджет согласован",
      "timestamp": "2026-10-02T09:00:00Z", "title": "Планёрка по бюджету"}
   ]

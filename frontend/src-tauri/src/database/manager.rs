@@ -1,5 +1,6 @@
 use sqlx::{
     migrate::{MigrateDatabase, MigrateError, Migrator},
+    sqlite::SqlitePoolOptions,
     Result, Sqlite, SqlitePool, Transaction,
 };
 use std::fs;
@@ -50,7 +51,12 @@ impl DatabaseManager {
         // A failed checksum pass can leave another pooled SQLite connection
         // holding the pre-migration schema. Reopen before serving app queries.
         migration_pool.close().await;
-        let pool = SqlitePool::connect(tauri_db_path).await?;
+        // The library search lowers text with unicode_lower (#8), a function
+        // each connection has to carry.
+        let pool = SqlitePoolOptions::new()
+            .after_connect(|conn, _| Box::pin(meeting_library::sql::register(conn)))
+            .connect(tauri_db_path)
+            .await?;
 
         Ok(DatabaseManager { pool })
     }
