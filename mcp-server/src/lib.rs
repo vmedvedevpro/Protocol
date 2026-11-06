@@ -1,7 +1,8 @@
-//! Read-only access to Protocol's meeting library for AI agents (#8): where
-//! the database is, a read-only store, and each tool's answer as text.
+//! Read-only MCP server over Protocol's meeting library (#8). The binary in
+//! `main.rs` wires these modules to stdio; tests drive them directly.
 
 pub mod location;
+pub mod server;
 pub mod store;
 pub mod text;
 pub mod tools;
