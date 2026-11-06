@@ -182,9 +182,13 @@ A client keeps its server for its whole session, often with Protocol closed.
 
 - **Windows.** A running executable can be renamed but not overwritten.
   `NSIS_HOOK_PREINSTALL` (before the app-running check and the file copy)
-  deletes copies earlier updates moved aside, and if `protocol-mcp.exe` cannot
-  be opened for writing, renames it to `protocol-mcp.exe.old-<tick>`. The new
-  file takes the old name; the old process keeps serving. Nothing is stopped,
+  deletes copies earlier updates moved aside, renames `protocol-mcp.exe` to
+  `protocol-mcp.exe.old-<tick>` and deletes that copy unless it runs. The new
+  file takes the old name; a running old process keeps serving. The installer
+  writes the new file after every other one, seconds later; until then the name
+  is free, so an agent that starts the server meanwhile (a new Claude Code
+  session) gets a missing file it can retry, rather than holding the file and
+  stopping the update at an Abort/Retry/Ignore box. Nothing is stopped,
   so an update applied on quit does not cut an agent off. Uninstalling stops
   processes whose image is this install's `protocol-mcp.exe` or a moved copy,
   matched by full path like the app itself, and deletes the copies.

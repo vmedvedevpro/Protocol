@@ -222,6 +222,11 @@ Var MeetilyBackend
 ; but not overwritten, so the file copy after this hook would fail on it: the
 ; running copy is moved aside and keeps serving its agent until the agent
 ; restarts it, and its answers say Protocol was updated. Nothing is stopped.
+; The file is moved whether or not it runs, and the moved copy deleted if it
+; can be: the installer writes protocol-mcp.exe only after every other file,
+; and an agent may start the server in between (a new Claude Code session),
+; which would hold the file and stop the update at an Abort/Retry/Ignore box.
+; With the name free until then, that agent gets a missing file and retries.
 !macro Protocol_MoveRunningServerAside
   ; Copies moved aside by earlier updates; one still running stays.
   FindFirst $R1 $R2 "$INSTDIR\protocol-mcp.exe.old-*"
@@ -231,15 +236,18 @@ Var MeetilyBackend
   ${Loop}
   FindClose $R1
   ${If} ${FileExists} "$INSTDIR\protocol-mcp.exe"
-    ; A running executable cannot be opened for writing.
+    System::Call 'kernel32::GetTickCount() i.R4'
     ClearErrors
-    FileOpen $R3 "$INSTDIR\protocol-mcp.exe" a
+    Rename "$INSTDIR\protocol-mcp.exe" "$INSTDIR\protocol-mcp.exe.old-$R4"
     ${If} ${Errors}
-      System::Call 'kernel32::GetTickCount() i.R4'
-      Rename "$INSTDIR\protocol-mcp.exe" "$INSTDIR\protocol-mcp.exe.old-$R4"
-      DetailPrint "      An AI agent is using Protocol's MCP server; it gets the new one when it restarts it."
+      DetailPrint "      WARNING: protocol-mcp.exe could not be moved aside; the update may not replace it."
     ${Else}
-      FileClose $R3
+      ; A running executable cannot be deleted.
+      ClearErrors
+      Delete "$INSTDIR\protocol-mcp.exe.old-$R4"
+      ${If} ${Errors}
+        DetailPrint "      An AI agent is using Protocol's MCP server; it gets the new one when it restarts it."
+      ${EndIf}
     ${EndIf}
   ${EndIf}
 !macroend

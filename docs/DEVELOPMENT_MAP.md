@@ -1030,9 +1030,11 @@ replaced. Installs over a pre-0.3.0 build delete the CUDA DLLs it copied next to
 
 The MCP server for AI agents (`protocol-mcp.exe`, #8) can be running when an
 update installs, often with Protocol closed: `Protocol_MoveRunningServerAside`
-in the pre-install hook renames a running copy to `protocol-mcp.exe.old-<n>`
-so the new file can take its name, and the uninstall hook stops this install's
-copies by full path and deletes them. See [MCP_SERVER.md](MCP_SERVER.md).
+in the pre-install hook renames the installed copy to `protocol-mcp.exe.old-<n>`
+and deletes it unless it runs, so the new file can take its name and a server an
+agent starts during the file copy finds no file to hold; the uninstall hook
+stops this install's copies by full path and deletes them. See
+[MCP_SERVER.md](MCP_SERVER.md).
 
 `node frontend/scripts/verify-windows-release.mjs [dist]` checks the output
 without installing: `SHA256SUMS.txt`, the NSIS archive (7-Zip; `SEVEN_ZIP`
