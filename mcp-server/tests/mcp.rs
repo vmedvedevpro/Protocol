@@ -168,5 +168,12 @@ async fn a_replaced_binary_asks_for_a_restart() {
     let after = text(&after);
     assert!(after.contains("Budget committee"), "{after}");
     assert!(after.ends_with("so its answers keep up with Protocol."), "{after}");
+
+    // A failing call says it too: a newer Protocol's schema breaking a query
+    // is when restarting matters most.
+    let failed = call(&client, "get_meeting", serde_json::json!({ "meeting_id": "no-such-meeting" })).await;
+    assert_eq!(failed.is_error, Some(true));
+    let failed = text(&failed);
+    assert!(failed.ends_with("so its answers keep up with Protocol."), "{failed}");
     client.cancel().await.unwrap();
 }

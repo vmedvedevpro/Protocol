@@ -22,6 +22,11 @@ use crate::tools::{
     ListMeetingsArgs, ListPeopleArgs, SearchArgs,
 };
 
+/// Ends every answer, error or not, once Protocol was updated under this server.
+const UPDATED_NOTE: &str = "\n\nNote: Protocol was updated after this MCP server started. Restart the server \
+    (in Claude Code: /mcp, then reconnect protocol; in Claude Desktop: quit and reopen it) so its answers \
+    keep up with Protocol.";
+
 const INSTRUCTIONS: &str = "Read-only access to the user's meetings recorded in Protocol: \
 transcripts, AI summaries, action items, contacts (named speakers) and groups. Start with \
 list_meetings or search, then read one meeting with get_meeting, get_transcript or get_summary; \
@@ -121,37 +126,32 @@ impl ProtocolServer {
         F: FnMut(sqlx::pool::PoolConnection<sqlx::Sqlite>) -> Fut,
         Fut: std::future::Future<Output = Result<String, Problem>>,
     {
-        match self.answer(tool).await {
-            Ok(text) => CallToolResult::success(vec![ContentBlock::text(text)]),
-            Err(problem) => CallToolResult::error(vec![ContentBlock::text(problem.message())]),
+        let (result, newer_database) = self.answer(tool).await;
+        // Errors get the note too: a query that a newer Protocol's schema
+        // broke is when restarting matters most.
+        let updated = newer_database || self.state.binary.as_ref().is_some_and(Binary::replaced);
+        let note = if updated { UPDATED_NOTE } else { "" };
+        match result {
+            Ok(text) => CallToolResult::success(vec![ContentBlock::text(text + note)]),
+            Err(problem) => CallToolResult::error(vec![ContentBlock::text(problem.message() + note)]),
         }
     }
 
-    async fn answer<F, Fut>(&self, tool: F) -> Result<String, Problem>
+    /// The tool's answer, and whether the database is newer than this server.
+    async fn answer<F, Fut>(&self, tool: F) -> (Result<String, Problem>, bool)
     where
         F: FnMut(sqlx::pool::PoolConnection<sqlx::Sqlite>) -> Fut,
         Fut: std::future::Future<Output = Result<String, Problem>>,
     {
         let path = match location::locate(&self.state.inputs) {
             Located::Found(path) => path,
-            Located::Missing(tried) => return Err(Problem::NoDatabase(tried)),
+            Located::Missing(tried) => return (Err(Problem::NoDatabase(tried)), false),
         };
         let folder = path.parent().unwrap_or(Path::new("."));
         if !meeting_library::agent_access::is_enabled(folder) {
-            return Err(Problem::AccessOff);
+            return (Err(Problem::AccessOff), false);
         }
-        let (result, newer_database) = self.library(&path).await.read(tool).await;
-        let mut text = result?;
-
-        let replaced = self.state.binary.as_ref().is_some_and(Binary::replaced);
-        if replaced || newer_database {
-            text.push_str(
-                "\n\nNote: Protocol was updated after this MCP server started. Restart the server \
-                 (in Claude Code: /mcp, then reconnect protocol; in Claude Desktop: quit and reopen \
-                 it) so its answers keep up with Protocol.",
-            );
-        }
-        Ok(text)
+        self.library(&path).await.read(tool).await
     }
 }
 
