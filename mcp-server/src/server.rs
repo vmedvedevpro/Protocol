@@ -25,7 +25,7 @@ use crate::tools::{
 const INSTRUCTIONS: &str = "Read-only access to the user's meetings recorded in Protocol: \
 transcripts, AI summaries, action items, contacts (named speakers) and groups. Start with \
 list_meetings or search, then read one meeting with get_meeting, get_transcript or get_summary; \
-a transcript search result names the line to pass to get_transcript as offset. Ids come from \
+a transcript search result names its line and the offset to pass to get_transcript. Ids come from \
 earlier results. Lists are paged: a result that has more says which offset to ask for next. \
 Meeting times are this computer's local time; transcript times are positions in the recording. \
 Speaker labels are exactly as Protocol stores them; never assume who an unnamed \"Speaker N\" is. \

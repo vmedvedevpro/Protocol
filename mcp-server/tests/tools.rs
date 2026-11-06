@@ -283,9 +283,9 @@ async fn search_ranks_like_ctrl_k_and_points_into_the_transcript() {
     let mut session = fixture.session().await;
     let text = tools::search(&mut session.conn, SearchArgs { query: "budget".into(), ..Default::default() }).await.unwrap();
     assert!(text.contains("- transcript · meeting \"Budget review\" (m1, "), "{text}");
-    assert!(text.contains("at 00:12, line 0 · Speaker 2: \"We need to cut the budget by ten percent\""), "{text}");
-    assert!(text.contains("at 00:21, line 3 · Alice + Speaker 2: "), "{text}");
-    assert!(text.contains("line is the offset get_transcript starts from"), "{text}");
+    assert!(text.contains("at 00:12, line 1, offset 0 · Speaker 2: \"We need to cut the budget by ten percent\""), "{text}");
+    assert!(text.contains("at 00:21, line 4, offset 3 · Alice + Speaker 2: "), "{text}");
+    assert!(text.contains("pass a result's offset to get_transcript"), "{text}");
     assert!(text.contains("- group \"Budget committee\" · id g1 · 2 meetings"), "{text}");
     for hidden in ["deleted meeting", "Ghost", "cache text"] {
         assert!(!text.contains(hidden), "{hidden} leaked:\n{text}");
@@ -342,8 +342,8 @@ async fn capitalised_cyrillic_is_found_in_any_case() {
         )
         .await
         .unwrap();
-        assert!(text.contains("line 0 · Speaker 1: \"Бюджет утвердили, budget is final\""), "{query}:\n{text}");
-        assert!(text.contains("line 1 · Guest: \"обсудили бюджет на квартал\""), "{query}:\n{text}");
+        assert!(text.contains("line 1, offset 0 · Speaker 1: \"Бюджет утвердили, budget is final\""), "{query}:\n{text}");
+        assert!(text.contains("line 2, offset 1 · Guest: \"обсудили бюджет на квартал\""), "{query}:\n{text}");
     }
     drop(session);
 

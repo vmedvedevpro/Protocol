@@ -13,7 +13,7 @@ opens the meeting database read-only. It is off until the user turns on
 | `list_meetings` | Meetings newest first: local start time, length, transcript lines, group, named contacts, whether a summary exists. Filters: `from`/`to`, `person`, `group`, `title`. | `limit` ≤ 100, `offset` |
 | `get_meeting` | One meeting: contacts with the speaker labels they were given, the transcript's labels with line counts, the user's notes, action items, the AI summary; with `include_transcript`, the transcript's first lines. | one result |
 | `get_transcript` | `[start–end] Speaker: text` lines in the app's order; a label is written only where it changes, and on each page's first line. | `limit` ≤ 500, `offset` |
-| `search` | The Ctrl+K search (`meeting_library::search`) with filters (`kinds`, `from`/`to`, `person`, `group`); a transcript hit names its line, the `offset` that `get_transcript` reads it from. | `limit` ≤ 50, results 1–200 |
+| `search` | The Ctrl+K search (`meeting_library::search`) with filters (`kinds`, `from`/`to`, `person`, `group`); a transcript hit names its line (counted from 1, as `get_transcript` shows lines) and the `offset` to read it from. | `limit` ≤ 50, results 1–200 |
 | `get_summary` | The summary as Markdown, as the export renders it, with its status (being regenerated, failed, edited by the user). | one result |
 | `get_action_items` | One meeting's items in order, or open items across meetings; filters by owner, group, dates, status. | `limit` ≤ 200, `offset` |
 | `list_people` | Contacts with email, company, role, meeting count, last meeting, groups. Phone numbers and the user's notes about a person stay out. | `limit` ≤ 200, `offset` |

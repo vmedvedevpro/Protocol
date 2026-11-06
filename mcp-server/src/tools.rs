@@ -1051,7 +1051,7 @@ pub async fn search(conn: &mut SqliteConnection, args: SearchArgs) -> Result<Str
     }
     let lines = line_numbers(conn, &found.results).await?;
     if !lines.is_empty() {
-        out.line("A transcript result's line is the offset get_transcript starts from to read around it.");
+        out.line("Transcript lines count from 1, as get_transcript shows them; pass a result's offset to get_transcript to read around it.");
     }
     let mut shown = 0;
     for result in &found.results {
@@ -1121,7 +1121,7 @@ fn render_hit(hit: &search::GlobalSearchResult, lines: &std::collections::HashMa
         "transcript" => {
             let at = hit.audio_start_time.map(|time| format!(" at {}", clock(time))).unwrap_or_default();
             let at = match hit.transcript_id.as_ref().and_then(|id| lines.get(id)) {
-                Some(line) => format!("{at}, line {line}"),
+                Some(line) => format!("{at}, line {}, offset {line}", line + 1),
                 None => at,
             };
             let speaker = hit
