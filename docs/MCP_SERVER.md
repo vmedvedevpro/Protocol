@@ -151,6 +151,12 @@ as `lower()`. The numbers come from
 `cargo test -p protocol-mcp --release --test scale -- --ignored --nocapture`,
 before and after on the same machine.
 
+After the paging and busy fixes from the review of #93, the same run gave
+159, 143, 205 and 153 ms for the four searches, within the spread between
+runs. The save now went through as the server runs a call: it committed
+after 141 ms, and the search, which the save's lock stopped between two
+statements, ran again and answered after 338 ms.
+
 ## Connecting a client
 
 Settings shows, once access is on:

@@ -223,12 +223,16 @@ async fn the_heaviest_calls_on_a_large_library() {
     })
     .await;
 
-    // The app saves a meeting's transcript while the slowest search runs.
-    let session = library.session().await.unwrap();
+    // The app saves a meeting's transcript while the slowest search runs, as
+    // the server runs it: Library::read runs a call the save blocked again.
+    let reading = library.clone();
     let reader = tokio::spawn(async move {
-        let mut conn = session.conn;
         let started = Instant::now();
-        let result = tools::search(&mut conn, SearchArgs { query: "несуществующее".into(), ..Default::default() }).await;
+        let (result, _) = reading
+            .read(|mut conn| async move {
+                tools::search(&mut conn, SearchArgs { query: "несуществующее".into(), ..Default::default() }).await
+            })
+            .await;
         (result.map(|_| ()), started.elapsed())
     });
     tokio::time::sleep(Duration::from_millis(20)).await;
