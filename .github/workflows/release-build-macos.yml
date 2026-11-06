@@ -77,6 +77,13 @@ jobs:
           mkdir -p frontend/src-tauri/binaries
           cp "target/$TARGET/release/llama-helper" "frontend/src-tauri/binaries/llama-helper-$TARGET"
           chmod +x "frontend/src-tauri/binaries/llama-helper-$TARGET"
+      # The read-only MCP server Settings > AI agents points agents at (#8).
+      - name: Build protocol-mcp
+        run: |
+          set -euo pipefail
+          cargo build --release --locked --package protocol-mcp --target "$TARGET"
+          cp "target/$TARGET/release/protocol-mcp" "frontend/src-tauri/binaries/protocol-mcp-$TARGET"
+          chmod +x "frontend/src-tauri/binaries/protocol-mcp-$TARGET"
       - name: Install frontend dependencies
         working-directory: frontend
         run: pnpm install --frozen-lockfile
@@ -105,7 +112,10 @@ jobs:
       # custom-protocol as in tauri build, so tauri and its dependents are not
       # compiled again for the tests.
       - name: Test the native code
-        run: cargo test --release --locked -p protocol --lib --target "$TARGET" --features custom-protocol -- --test-threads=1
+        run: |
+          set -euo pipefail
+          cargo test --release --locked -p protocol --lib --target "$TARGET" --features custom-protocol -- --test-threads=1
+          cargo test --release --locked -p protocol-mcp -p meeting-library --target "$TARGET"
       - name: Verify the bundle and start the app
         run: |
           set -euo pipefail
@@ -164,11 +174,14 @@ jobs:
           print("Packaged Audio Capture status helper returned:", result.stdout.strip())
           PY
 
-          for sidecar in "$APP_PATH/Contents/MacOS/llama-helper" "$APP_PATH/Contents/MacOS/ffmpeg"; do
+          for sidecar in "$APP_PATH/Contents/MacOS/llama-helper" "$APP_PATH/Contents/MacOS/protocol-mcp" "$APP_PATH/Contents/MacOS/ffmpeg"; do
             test -x "$sidecar" || { echo "Missing executable sidecar: $sidecar"; exit 1; }
             file "$sidecar" | grep -q "arm64"
             assert_macos_compatible "$sidecar"
           done
+          MCP_VERSION=$("$APP_PATH/Contents/MacOS/protocol-mcp" --version)
+          echo "$MCP_VERSION"
+          [[ "$MCP_VERSION" == "protocol-mcp "* ]]
 
           "$APP_PATH/Contents/MacOS/ffmpeg" -version
           FFMPEG_TEST="$RUNNER_TEMP/ffmpeg-smoke.m4a"

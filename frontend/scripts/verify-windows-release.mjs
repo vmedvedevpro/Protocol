@@ -83,7 +83,7 @@ run(sevenZip, ['t', join(dist, setup)]);
 const extracted = await mkdtemp(join(dist, 'verify-'));
 try {
   run(sevenZip, ['x', join(dist, setup), `-o${extracted}`, '-y', 'protocol.exe', 'installer-variants/*', 'ffmpeg.exe',
-    'llama-helper.exe', 'resources/*', 'runtime-deps/*', 'binaries/onnxruntime/*']);
+    'llama-helper.exe', 'protocol-mcp.exe', 'resources/*', 'runtime-deps/*', 'binaries/onnxruntime/*']);
   const sameAs = async (packaged, staged, message) =>
     assert.deepEqual(await hash(join(extracted, packaged)), await hash(join(tauri, staged)), message);
 
@@ -110,6 +110,8 @@ try {
 
   await sameAs('ffmpeg.exe', 'binaries/ffmpeg-x86_64-pc-windows-msvc.exe', 'Stale ffmpeg.exe');
   await sameAs('llama-helper.exe', 'binaries/llama-helper-x86_64-pc-windows-msvc.exe', 'Stale llama-helper.exe');
+  // The MCP server Settings > AI agents points agents at (#8).
+  await sameAs('protocol-mcp.exe', 'binaries/protocol-mcp-x86_64-pc-windows-msvc.exe', 'Stale protocol-mcp.exe');
   // The diarization models and their notices; the files Protocol 0.3.0
   // bundled under other names must not come back (installer-hooks.nsh
   // deletes them from an updated install).

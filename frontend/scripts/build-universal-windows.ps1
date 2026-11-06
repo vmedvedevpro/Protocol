@@ -200,10 +200,10 @@ $vulkanBinary = Join-Path $target "release\protocol.exe"
 if (-not (Test-Path -LiteralPath $vulkanBinary)) { throw "Vulkan binary missing: $vulkanBinary" }
 Save-Symbols "vulkan"
 
-foreach ($sidecar in @("llama-helper-x86_64-pc-windows-msvc.exe", "ffmpeg-x86_64-pc-windows-msvc.exe")) {
+foreach ($sidecar in @("llama-helper-x86_64-pc-windows-msvc.exe", "protocol-mcp-x86_64-pc-windows-msvc.exe", "ffmpeg-x86_64-pc-windows-msvc.exe")) {
   $sidecarPath = Join-Path $tauri "binaries\$sidecar"
   if (-not (Test-Path $sidecarPath)) {
-    throw "Required sidecar missing: $sidecarPath (llama-helper: cargo build --release -p llama-helper, then copy it there; ffmpeg: downloaded by the cargo build)"
+    throw "Required sidecar missing: $sidecarPath (llama-helper, protocol-mcp: cargo build --release -p <name>, then copy it there; ffmpeg: downloaded by the cargo build)"
   }
 }
 

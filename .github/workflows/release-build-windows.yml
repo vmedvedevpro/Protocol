@@ -89,6 +89,12 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit 1 }
           New-Item -ItemType Directory -Force frontend/src-tauri/binaries | Out-Null
           Copy-Item target/release/llama-helper.exe frontend/src-tauri/binaries/llama-helper-x86_64-pc-windows-msvc.exe
+      # The read-only MCP server Settings > AI agents points agents at (#8).
+      - name: Build protocol-mcp
+        run: |
+          cargo build --release --locked -p protocol-mcp
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          Copy-Item target/release/protocol-mcp.exe frontend/src-tauri/binaries/protocol-mcp-x86_64-pc-windows-msvc.exe
       - name: Install frontend dependencies
         working-directory: frontend
         run: pnpm install --frozen-lockfile
@@ -102,6 +108,8 @@ jobs:
       - name: Test the native code
         run: |
           cargo test --release --locked -p protocol --lib --no-default-features --features custom-protocol -- --test-threads=1
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          cargo test --release --locked -p protocol-mcp -p meeting-library
           if ($LASTEXITCODE -ne 0) { exit 1 }
       - name: Verify the installer payload
         env:
@@ -133,10 +141,15 @@ jobs:
           foreach ($milestone in @('Application setup complete', 'Fresh database initialized successfully')) {
             if (-not (Select-String -Path $log -SimpleMatch $milestone -Quiet)) { throw "Missing startup milestone: $milestone" }
           }
+          # An agent's MCP server keeps serving through an update (#8).
+          $mcp = & frontend/scripts/check-mcp-server-update.ps1 -InstallDir $installDir -Setup dist\protocol-windows-x64-setup.exe
           # _?= runs the uninstaller in place, so Start-Process can wait for it.
           $uninstall = Start-Process -FilePath (Join-Path $installDir 'uninstall.exe') -ArgumentList '/S', "_?=$installDir" -Wait -PassThru
           if ($uninstall.ExitCode -ne 0) { throw "Uninstall exited with $($uninstall.ExitCode)" }
           if (Test-Path (Join-Path $installDir 'protocol.exe')) { throw 'protocol.exe was not removed' }
+          if (-not $mcp.WaitForExit(10000)) { throw 'Uninstall left the MCP server running' }
+          $leftovers = @(Get-ChildItem -LiteralPath $installDir -Filter 'protocol-mcp.exe*' -ErrorAction SilentlyContinue)
+          if ($leftovers.Count -gt 0) { throw "Uninstall left $($leftovers.Name -join ', ')" }
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: leg-windows
