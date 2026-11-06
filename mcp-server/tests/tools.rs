@@ -351,6 +351,81 @@ async fn capitalised_cyrillic_is_found_in_any_case() {
     assert!(by_title.contains("id m2 ") && by_title.contains("1–1 of 1"), "{by_title}");
 }
 
+/// One meeting with more hits than a page, as a common Russian word in a long
+/// meeting gives: 30 lines, 12 action items (open and done mixed) and the
+/// title. Following "More" page by page returns the same hits, in the same
+/// order, as one page holding them all; each kind used to rank only its first
+/// rows, so later pages repeated earlier hits and never reached the rest.
+#[tokio::test]
+async fn search_pages_slice_one_ranking() {
+    let lines: Vec<String> = (0..30)
+        .map(|i| {
+            format!(
+                "('long-{i:02}', 'long', 'Бюджет, пункт {i}', '2026-10-05T09:{i:02}:00Z', 'Speaker {}', {}.0, {}.5)",
+                i % 3 + 1,
+                i * 60,
+                i * 60
+            )
+        })
+        .collect();
+    let actions: Vec<String> = (0..12)
+        .map(|i| {
+            format!(
+                "('act-{i:02}', 'long', 'Бюджет: задача {i}', NULL, NULL, NULL, {}, 'ai', {i}, \
+                 '2026-10-05T10:00:00Z', '2026-10-05T10:00:00Z')",
+                i % 2
+            )
+        })
+        .collect();
+    let rows = format!(
+        "{}\nINSERT INTO meetings (id, title, created_at, updated_at) VALUES \
+         ('long', 'Квартальный бюджет', '2026-10-05T09:00:00Z', '2026-10-05T10:00:00Z');\n\
+         INSERT INTO transcripts (id, meeting_id, transcript, timestamp, speaker, audio_start_time, audio_end_time) VALUES {};\n\
+         INSERT INTO action_items (id, meeting_id, text, owner_label, person_id, due_text, done, source, position, created_at, updated_at) VALUES {};\n",
+        common::LIBRARY,
+        lines.join(", "),
+        actions.join(", ")
+    );
+    let fixture = Fixture::with(&rows).await;
+    let mut session = fixture.session().await;
+    let hits = |text: &str| -> Vec<String> {
+        text.lines().filter(|line| line.starts_with("- ")).map(str::to_string).collect()
+    };
+
+    let whole = tools::search(&mut session.conn, SearchArgs { query: "бюджет".into(), limit: Some(50), ..Default::default() })
+        .await
+        .unwrap();
+    let whole = hits(&whole);
+    // 2 titles, 32 lines, 12 action items, 1 summary.
+    assert_eq!(whole.len(), 47, "{whole:#?}");
+
+    let mut paged = Vec::new();
+    let mut pages = 0;
+    let mut offset = 0;
+    loop {
+        let text = tools::search(
+            &mut session.conn,
+            SearchArgs { query: "бюджет".into(), limit: Some(10), offset: Some(offset), ..Default::default() },
+        )
+        .await
+        .unwrap();
+        pages += 1;
+        let page = hits(&text);
+        assert!(text.starts_with(&format!("Results for \"бюджет\" {}–{},", offset + 1, offset as usize + page.len())), "{text}");
+        paged.extend(page);
+        match text.lines().last().and_then(|line| line.strip_prefix("More: call search again with offset=")) {
+            Some(rest) => offset = rest.split(' ').next().unwrap().parse().unwrap(),
+            None => break,
+        }
+    }
+    assert_eq!(pages, 5);
+    assert_eq!(paged, whole);
+    for i in 0..30 {
+        let line = format!("offset {i} · Speaker {}: \"Бюджет, пункт {i}\"", i % 3 + 1);
+        assert_eq!(paged.iter().filter(|hit| hit.contains(&line)).count(), 1, "{line}");
+    }
+}
+
 #[tokio::test]
 async fn people_and_groups_list_without_phone_or_notes() {
     let fixture = Fixture::new().await;

@@ -179,6 +179,20 @@ struct RankedResult {
     result: GlobalSearchResult,
 }
 
+/// Which rows each kind's query returns before the kinds are merged.
+#[derive(Debug, Clone, Copy)]
+enum Window {
+    /// Ctrl+K as it always was: each kind's first `n` rows in that kind's own
+    /// order, which is not the merged order, so only one page is meaningful.
+    Head(i64),
+    /// Each kind's best `n` rows in the merged order: transcripts and action
+    /// items sorted by the merge key in SQL, and every person, meeting and
+    /// group match (their rank is computed in Rust; one row per contact,
+    /// meeting or group). The first `n` merged rows are then exact, so pages
+    /// slice one ranking.
+    Best(i64),
+}
+
 /// The Ctrl+K search: at most `limit` results (default 40, at most 100).
 pub async fn global_search(
     conn: &mut SqliteConnection,
@@ -193,14 +207,15 @@ pub async fn global_search(
     let limit = limit
         .unwrap_or(DEFAULT_SEARCH_LIMIT)
         .clamp(1, MAX_SEARCH_LIMIT);
-    let mut ranked = ranked(conn, query, limit, &SearchFilter::default()).await?;
+    let mut ranked = ranked(conn, query, Window::Head(limit), &SearchFilter::default()).await?;
     ranked.truncate(limit as usize);
     Ok(ranked.into_iter().map(|item| item.result).collect())
 }
 
 /// Results `offset..offset + limit` of the ranked list for `query` within
-/// `filter`. Each kind is asked for `offset + limit + 1` rows, so the merged
-/// list is exact up to the end of this page and `more` is known.
+/// `filter`. Each kind gives its best `offset + limit + 1` rows in the merged
+/// order ([`Window::Best`]), so the merged list is exact up to the end of this
+/// page, every page slices the same ranking, and `more` is known.
 pub async fn search(
     conn: &mut SqliteConnection,
     query: &str,
@@ -216,7 +231,7 @@ pub async fn search(
         });
     }
     let fetch = (offset + limit + 1) as i64;
-    let ranked = ranked(conn, query, fetch, filter).await?;
+    let ranked = ranked(conn, query, Window::Best(fetch), filter).await?;
     let more = ranked.len() > offset + limit;
     Ok(SearchPage {
         results: ranked
@@ -229,17 +244,22 @@ pub async fn search(
     })
 }
 
-/// Every matching row of each kind (at most `fetch` per kind except
-/// summaries, whose visible text is matched in Rust), best first.
+/// The matching rows of each kind that `window` picks (summaries all: their
+/// visible text is matched in Rust), merged best first.
 async fn ranked(
     conn: &mut SqliteConnection,
     query: &str,
-    fetch: i64,
+    window: Window,
     filter: &SearchFilter,
 ) -> Result<Vec<RankedResult>, sqlx::Error> {
     let normalized_query = normalize_person_name(query);
     let like_query = format!("%{}%", escape_like(&normalized_query));
     let mut ranked = Vec::new();
+    // LIMIT for the kinds ranked in Rust; a negative LIMIT is none in SQLite.
+    let (fetch, unranked) = match window {
+        Window::Head(n) => (n, n),
+        Window::Best(n) => (n, -1),
+    };
 
     if filter.includes(Kind::Person) {
         let people = sqlx::query_as::<_, (String, String, Option<String>, i64)>(
@@ -251,7 +271,7 @@ async fn ranked(
              ORDER BY p.updated_at DESC LIMIT ?",
         )
         .bind(&like_query)
-        .bind(fetch)
+        .bind(unranked)
         .fetch_all(&mut *conn)
         .await?;
 
@@ -283,7 +303,7 @@ async fn ranked(
         let mut args = SqliteArguments::default();
         let _ = args.add(like_query.clone());
         let scope = filter.meeting_clauses(&mut args);
-        let _ = args.add(fetch);
+        let _ = args.add(unranked);
         let meetings = sqlx::query_as_with::<_, (String, String, String), _>(
             &format!(
                 "SELECT m.id, m.title, m.created_at FROM meetings m \
@@ -322,8 +342,15 @@ async fn ranked(
         let mut args = SqliteArguments::default();
         let _ = args.add(like_query.clone());
         let _ = args.add(like_query.clone());
+        let _ = args.add(like_query.clone());
         let scope = filter.meeting_clauses(&mut args);
         let _ = args.add(fetch);
+        // `speaker_match` is the score below, taken from SQL so that
+        // Window::Best sorts by exactly the merge key.
+        let order = match window {
+            Window::Head(_) => "m.created_at DESC, t.audio_start_time ASC",
+            Window::Best(_) => "speaker_match DESC, t.timestamp DESC, t.id",
+        };
         let transcripts = sqlx::query_as_with::<
             _,
             (
@@ -334,26 +361,24 @@ async fn ranked(
                 String,
                 Option<String>,
                 Option<f64>,
+                bool,
             ),
             _,
         >(
             &format!(
-                "SELECT t.id, m.id, m.title, t.transcript, t.timestamp, t.speaker, t.audio_start_time \
+                "SELECT t.id, m.id, m.title, t.transcript, t.timestamp, t.speaker, t.audio_start_time, \
+                        unicode_lower(COALESCE(t.speaker, '')) LIKE ? ESCAPE '\\' AS speaker_match \
                  FROM transcripts t JOIN meetings m ON m.id = t.meeting_id \
                  WHERE (unicode_lower(t.transcript) LIKE ? ESCAPE '\\' \
                     OR unicode_lower(COALESCE(t.speaker, '')) LIKE ? ESCAPE '\\'){scope} \
-                 ORDER BY m.created_at DESC, t.audio_start_time ASC LIMIT ?"
+                 ORDER BY {order} LIMIT ?"
             ),
             args,
         )
         .fetch_all(&mut *conn)
         .await?;
 
-        for (id, meeting_id, title, text, timestamp, speaker, audio_start_time) in transcripts {
-            let speaker_match = speaker
-                .as_deref()
-                .map(|value| value.to_lowercase().contains(&normalized_query))
-                .unwrap_or(false);
+        for (id, meeting_id, title, text, timestamp, speaker, audio_start_time, speaker_match) in transcripts {
             ranked.push(RankedResult {
                 score: if speaker_match { 5 } else { 20 },
                 sort_time: timestamp.clone(),
@@ -427,7 +452,7 @@ async fn ranked(
              FROM groups g WHERE g.normalized_name LIKE ? ESCAPE '\\' LIMIT ?",
         )
         .bind(&like_query)
-        .bind(fetch)
+        .bind(unranked)
         .fetch_all(&mut *conn)
         .await?;
 
@@ -464,6 +489,10 @@ async fn ranked(
         let _ = args.add(like_query.clone());
         let scope = filter.meeting_clauses(&mut args);
         let _ = args.add(fetch);
+        let order = match window {
+            Window::Head(_) => "a.done, m.created_at DESC",
+            Window::Best(_) => "m.created_at DESC, a.id",
+        };
         let actions = sqlx::query_as_with::<
             _,
             (String, String, String, String, String, Option<String>, Option<f64>),
@@ -473,7 +502,7 @@ async fn ranked(
                 "SELECT a.id, a.meeting_id, m.title, m.created_at, a.text, a.owner_label, a.audio_time \
                  FROM action_items a JOIN meetings m ON m.id = a.meeting_id \
                  WHERE (unicode_lower(a.text) LIKE ? ESCAPE '\\' OR unicode_lower(COALESCE(a.owner_label, '')) LIKE ? ESCAPE '\\'){scope} \
-                 ORDER BY a.done, m.created_at DESC LIMIT ?"
+                 ORDER BY {order} LIMIT ?"
             ),
             args,
         )

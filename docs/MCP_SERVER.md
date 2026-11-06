@@ -24,6 +24,14 @@ containing it; the answer says what the name matched. Dates are local calendar
 days (`2026-10-01` covers that whole day on this computer) or RFC 3339 times.
 Unknown arguments are refused with the list of allowed ones.
 
+`search` pages slice one ranking. Ctrl+K shows one page, and each kind's
+query there takes its first rows in its own order (a meeting's lines from the
+start) before the merge re-sorts them; paged that way, later pages repeated
+earlier hits and never reached the rest. For the server each kind returns its
+best rows in the merged order instead: transcript lines and action items are
+sorted by the merge key in SQL, and every matching title, contact and group is
+read, since their rank is computed in Rust (`search::Window`).
+
 Every result is one text block, with no `structuredContent` and no
 `outputSchema`, so its rows reach the model once. A result stays under an
 estimated 8,000 tokens and 40,000 characters (`text.rs`): Claude Code warns
@@ -196,7 +204,8 @@ Code `/mcp` and reconnect; quit and reopen Claude Desktop).
 - `cargo test -p protocol-mcp -p meeting-library`: each tool on a library
   built by the app's migrations, nothing changing on disk, an app save during a
   long statement, a hot journal, older/newer/foreign schemas, the switch, a
-  replaced executable, strict arguments, and the built executable over stdio.
+  replaced executable, strict arguments, the built executable over stdio, and
+  search pages read one after another equal to one long page.
 - `cargo test -p protocol --lib`: `global_search_tests` (Ctrl+K unchanged
   except that capitalised Cyrillic now matches, in titles, transcript lines
   and action items, at a line start and mid-sentence), `agent_access`, `claude_desktop_extension` (manifest 0.3 properties, the
