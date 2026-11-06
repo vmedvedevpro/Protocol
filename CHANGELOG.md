@@ -7,6 +7,42 @@ is inherited from the project Protocol forked from; Protocol did not release it.
 
 ## Protocol — unreleased
 
+## Protocol 0.5.1 — 2026-11-06
+
+Claude and other AI agents on your computer can now read your meetings: ask
+Claude Desktop or Claude Code what a meeting decided or who promised what,
+instead of copying an export into the chat. Search also finds Russian words
+written with a capital letter.
+
+### New
+
+- **Your meetings in AI agents**
+  ([#8](https://github.com/vmedvedevpro/Protocol/issues/8)). Protocol now
+  comes with a read-only MCP server. Turn on Settings › AI agents, then
+  connect an agent:
+  - Claude Desktop: **Add to Claude Desktop** prepares the extension. Where
+    Claude Desktop does not open it by itself (its Microsoft Store version
+    does not), Protocol shows the file, and you install it in Claude Desktop
+    › Settings › Extensions › Advanced settings › Install Extension.
+  - Claude Code: run the command Settings shows.
+  - Another MCP client: **Set up by hand** gives its configuration.
+
+  The agent can list and search your meetings and read transcripts,
+  summaries, your notes, action items, contacts and groups. Contacts' phone
+  numbers and your notes about people stay out. The server cannot change
+  anything, play audio or reach the network. What the agent reads goes to its
+  model provider (for Claude, Anthropic) under your account. The agent starts
+  the server itself, so Protocol does not have to be open. Access is off
+  until you turn it on, and turning it off stops agents at their next
+  request.
+
+### Fixed
+
+- **Capitalised Russian words in search.** Ctrl+K and the transcript filter
+  on a group's page missed a word written with a capital letter: "бюджет"
+  did not find "Бюджет утвердили", because the database lowered only Latin
+  letters. Both now match in any letter case.
+
 ## Protocol 0.5.0 — 2026-11-04
 
 Protocol now picks the speech models for your computer and runs each where it
