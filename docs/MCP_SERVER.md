@@ -149,6 +149,11 @@ Settings shows, once access is on:
   `--db` when the data folder sits beside the app) and the icon, so the server
   stays the installed one and updates with Protocol. `mcpb pack` refuses an
   entry point outside the bundle; Claude Desktop runs the command as written.
+  On Windows, Protocol first asks whether any app claims `.mcpb`
+  (`AssocQueryStringW`). The Microsoft Store build of Claude Desktop (4.23118)
+  registers only `claude:` links, so there Protocol shows the file in
+  Explorer instead and Settings points to Claude Desktop › Settings ›
+  Extensions › Advanced settings › Install Extension.
   The path last added is kept in `claude-desktop-extension.json` next to the
   database; when the app's path differs (Protocol moved), Settings asks for the
   extension to be added again. **Set up by hand** gives the

@@ -83,8 +83,37 @@ fn write_bundle(path: &Path, manifest: &serde_json::Value) -> Result<(), String>
 fn open(bundle: &Path) -> Result<(), String> {
     #[cfg(windows)]
     {
-        use std::{ffi::OsStr, os::windows::ffi::OsStrExt, ptr};
-        use windows_sys::Win32::UI::{Shell::ShellExecuteW, WindowsAndMessaging::SW_SHOWNORMAL};
+        use std::{ffi::OsStr, os::windows::ffi::OsStrExt, os::windows::process::CommandExt, ptr};
+        use windows_sys::Win32::UI::{
+            Shell::{AssocQueryStringW, ShellExecuteW, ASSOCF_INIT_IGNOREUNKNOWN, ASSOCSTR_FRIENDLYAPPNAME},
+            WindowsAndMessaging::SW_SHOWNORMAL,
+        };
+
+        // The Microsoft Store build of Claude Desktop (4.23118, checked for #8)
+        // registers only claude: links, no file type, and ShellExecute on an
+        // extension nothing claims fails or brings up Windows' app picker. Then
+        // the folder is shown instead, for Install Extension in Claude Desktop.
+        let extension: Vec<u16> = OsStr::new(".mcpb").encode_wide().chain(Some(0)).collect();
+        let mut length = 0u32;
+        let claimed = unsafe {
+            AssocQueryStringW(
+                ASSOCF_INIT_IGNOREUNKNOWN,
+                ASSOCSTR_FRIENDLYAPPNAME,
+                extension.as_ptr(),
+                ptr::null(),
+                ptr::null_mut(),
+                &mut length,
+            )
+        } >= 0;
+        if !claimed {
+            // raw_arg: explorer reads /select,"path" and not a quoted whole.
+            let _ = std::process::Command::new("explorer.exe")
+                .raw_arg(format!("/select,\"{}\"", bundle.display()))
+                .spawn();
+            return Err("Claude Desktop on this computer does not open extension files by itself, so the \
+                 folder with Protocol.mcpb is open instead."
+                .to_string());
+        }
 
         let operation: Vec<u16> = OsStr::new("open").encode_wide().chain(Some(0)).collect();
         let target: Vec<u16> = bundle.as_os_str().encode_wide().chain(Some(0)).collect();
