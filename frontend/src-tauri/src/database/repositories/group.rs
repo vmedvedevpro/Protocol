@@ -432,7 +432,7 @@ impl GroupsRepository {
             let transcript_hits: Vec<String> = sqlx::query_scalar(
                 "SELECT DISTINCT t.meeting_id FROM transcripts t \
                  JOIN meetings m ON m.id = t.meeting_id \
-                 WHERE m.group_id = ? AND lower(t.transcript) LIKE ? ESCAPE '\\'",
+                 WHERE m.group_id = ? AND unicode_lower(t.transcript) LIKE ? ESCAPE '\\'",
             )
             .bind(group_id)
             .bind(&like)

@@ -29,6 +29,16 @@ cp \
     "$FRONTEND_DIR/src-tauri/binaries/llama-helper-$TARGET"
 chmod +x "$FRONTEND_DIR/src-tauri/binaries/llama-helper-$TARGET"
 
+echo "Building the protocol-mcp sidecar..."
+(
+    cd "$REPO_DIR"
+    cargo build --release --package protocol-mcp --target "$TARGET"
+)
+cp \
+    "$REPO_DIR/target/$TARGET/release/protocol-mcp" \
+    "$FRONTEND_DIR/src-tauri/binaries/protocol-mcp-$TARGET"
+chmod +x "$FRONTEND_DIR/src-tauri/binaries/protocol-mcp-$TARGET"
+
 echo "Building the Apple Silicon DMG..."
 (
     cd "$FRONTEND_DIR"

@@ -33,8 +33,10 @@ macro_rules! perf_trace {
 // Re-export async logging macros for external use (removed due to macro conflicts)
 
 // Declare audio module
+pub mod agent_access;
 pub mod api;
 pub mod audio;
+pub mod claude_desktop_extension;
 pub mod config;
 pub mod crash_report;
 pub mod database;
@@ -579,6 +581,9 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            agent_access::get_agent_access,
+            agent_access::set_agent_access,
+            claude_desktop_extension::add_to_claude_desktop,
             start_recording,
             stop_recording,
             is_recording,

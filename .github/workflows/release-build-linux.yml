@@ -61,6 +61,11 @@ jobs:
           cargo build --release --locked -p llama-helper
           mkdir -p frontend/src-tauri/binaries
           cp target/release/llama-helper frontend/src-tauri/binaries/llama-helper-x86_64-unknown-linux-gnu
+      # The read-only MCP server Settings > AI agents points agents at (#8).
+      - name: Build protocol-mcp
+        run: |
+          cargo build --release --locked -p protocol-mcp
+          cp target/release/protocol-mcp frontend/src-tauri/binaries/protocol-mcp-x86_64-unknown-linux-gnu
       - name: Install frontend dependencies
         working-directory: frontend
         run: pnpm install --frozen-lockfile
@@ -104,6 +109,8 @@ jobs:
       - name: Test the native code (not blocking yet)
         continue-on-error: true
         run: cargo test --release --locked -p protocol --lib --features custom-protocol -- --test-threads=1
+      - name: Test protocol-mcp
+        run: cargo test --release --locked -p protocol-mcp -p meeting-library
       - name: Check the packages and start the AppImage
         run: |
           set -euo pipefail
@@ -115,6 +122,7 @@ jobs:
           dpkg-deb --contents "$deb" | tee "$contents"
           # tauri-bundler writes the data archive without the usual ./ prefix.
           grep -Eq ' (\./)?usr/bin/protocol$' "$contents"
+          grep -Eq ' (\./)?usr/bin/protocol-mcp$' "$contents"
           if grep -Eq 'runtime-deps|installer-variants' "$contents"; then
             echo "The deb carries the Windows resource folders"
             exit 1
@@ -122,6 +130,12 @@ jobs:
           appimage_contents="$RUNNER_TEMP/appimage-contents.txt"
           offset=$("$appimage" --appimage-offset)
           unsquashfs -l -o "$offset" "$appimage" > "$appimage_contents"
+          # Settings gives an AppImage's agents "$APPIMAGE" --mcp-server, which
+          # execs this file (main.rs).
+          grep -q '/usr/bin/protocol-mcp$' "$appimage_contents"
+          mcp_version=$(APPIMAGE_EXTRACT_AND_RUN=1 "$appimage" --mcp-server --version)
+          echo "$mcp_version"
+          [[ "$mcp_version" == "protocol-mcp "* ]]
           # The bundled speaker models and their notices, as the macOS leg checks
           # them; without them Pyannote needs the repair download.
           for name in segmentation-3.0.onnx voxceleb_resnet34_LM.onnx xvec_transform.npz parakeet-rs-LICENSE.txt THIRD_PARTY_MODELS.txt; do

@@ -8,48 +8,21 @@
 
 use serde::{Deserialize, Serialize};
 use sqlx::{Sqlite, SqlitePool, Transaction};
-use std::cmp::Ordering;
 use std::collections::HashMap;
 use uuid::Uuid;
 
 use super::action_item::{ActionItemFilter, ActionItemView, ActionItemsRepository};
 use crate::state::AppState;
+pub use meeting_library::search::GlobalSearchResult;
+#[cfg(test)]
+use meeting_library::search::escape_like;
 
-const DEFAULT_SEARCH_LIMIT: i64 = 40;
-const MAX_SEARCH_LIMIT: i64 = 100;
 // Roughly 3k tokens at four characters per token, leaving room for the bounded
 // question, grounding prompt, and answer on a 4k-token model.
 const PERSON_CONTEXT_CHARS: usize = 12_000;
 const MEETING_MESSAGE_CHARS: usize = 8_000;
 const MEETING_SUMMARY_CHARS: usize = 4_000;
 const MESSAGE_TEXT_CHARS: usize = 1_000;
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct GlobalSearchResult {
-    pub kind: String,
-    pub id: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub meeting_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub person_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub transcript_id: Option<String>,
-    pub title: String,
-    pub snippet: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub timestamp: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub speaker: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub audio_start_time: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub meeting_count: Option<i64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub group_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub color: Option<String>,
-}
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -151,13 +124,6 @@ pub(crate) struct PersonContextMessage {
     pub audio_start_time: Option<f64>,
 }
 
-#[derive(Debug)]
-struct RankedResult {
-    score: i32,
-    sort_time: String,
-    result: GlobalSearchResult,
-}
-
 pub struct PeopleRepository;
 
 pub(crate) struct SpeakerRenameOutcome {
@@ -167,256 +133,15 @@ pub(crate) struct SpeakerRenameOutcome {
 }
 
 impl PeopleRepository {
+    /// The Ctrl+K search; the queries live in `meeting_library::search`,
+    /// which the MCP server shares (#8).
     pub async fn global_search(
         pool: &SqlitePool,
         query: &str,
         limit: Option<i64>,
     ) -> Result<Vec<GlobalSearchResult>, sqlx::Error> {
-        let query = query.trim();
-        if query.is_empty() {
-            return Ok(Vec::new());
-        }
-
-        let limit = limit
-            .unwrap_or(DEFAULT_SEARCH_LIMIT)
-            .clamp(1, MAX_SEARCH_LIMIT);
-        let normalized_query = normalize_person_name(query);
-        let like_query = format!("%{}%", escape_like(&normalized_query));
-        let mut ranked = Vec::new();
-
-        let people = sqlx::query_as::<_, (String, String, Option<String>, i64)>(
-            "SELECT p.id, p.display_name, p.notes, COUNT(DISTINCT ps.meeting_id) \
-             FROM people p \
-             LEFT JOIN person_speakers ps ON ps.person_id = p.id \
-             WHERE p.normalized_name LIKE ? ESCAPE '\\' \
-             GROUP BY p.id, p.display_name, p.notes, p.updated_at \
-             ORDER BY p.updated_at DESC LIMIT ?",
-        )
-        .bind(&like_query)
-        .bind(limit)
-        .fetch_all(pool)
-        .await?;
-
-        for (id, display_name, notes, meeting_count) in people {
-            let score = match_quality(&normalize_person_name(&display_name), &normalized_query);
-            ranked.push(RankedResult {
-                score,
-                sort_time: String::new(),
-                result: GlobalSearchResult {
-                    kind: "person".to_string(),
-                    id: id.clone(),
-                    meeting_id: None,
-                    person_id: Some(id),
-                    transcript_id: None,
-                    title: display_name,
-                    snippet: notes.unwrap_or_else(|| format!("{} mapped meetings", meeting_count)),
-                    timestamp: None,
-                    speaker: None,
-                    audio_start_time: None,
-                    meeting_count: Some(meeting_count),
-                    group_id: None,
-                    color: None,
-                },
-            });
-        }
-
-        let meetings = sqlx::query_as::<_, (String, String, String)>(
-            "SELECT id, title, created_at FROM meetings \
-             WHERE lower(title) LIKE ? ESCAPE '\\' \
-             ORDER BY created_at DESC LIMIT ?",
-        )
-        .bind(&like_query)
-        .bind(limit)
-        .fetch_all(pool)
-        .await?;
-
-        for (id, title, created_at) in meetings {
-            ranked.push(RankedResult {
-                score: match_quality(&title.to_lowercase(), &normalized_query),
-                sort_time: created_at.clone(),
-                result: GlobalSearchResult {
-                    kind: "meeting".to_string(),
-                    id: id.clone(),
-                    meeting_id: Some(id),
-                    person_id: None,
-                    transcript_id: None,
-                    title: title.clone(),
-                    snippet: title,
-                    timestamp: Some(created_at),
-                    speaker: None,
-                    audio_start_time: None,
-                    meeting_count: None,
-                    group_id: None,
-                    color: None,
-                },
-            });
-        }
-
-        let transcripts = sqlx::query_as::<
-            _,
-            (
-                String,
-                String,
-                String,
-                String,
-                String,
-                Option<String>,
-                Option<f64>,
-            ),
-        >(
-            "SELECT t.id, m.id, m.title, t.transcript, t.timestamp, t.speaker, t.audio_start_time \
-             FROM transcripts t JOIN meetings m ON m.id = t.meeting_id \
-             WHERE lower(t.transcript) LIKE ? ESCAPE '\\' \
-                OR lower(COALESCE(t.speaker, '')) LIKE ? ESCAPE '\\' \
-             ORDER BY m.created_at DESC, t.audio_start_time ASC LIMIT ?",
-        )
-        .bind(&like_query)
-        .bind(&like_query)
-        .bind(limit)
-        .fetch_all(pool)
-        .await?;
-
-        for (id, meeting_id, title, text, timestamp, speaker, audio_start_time) in transcripts {
-            let speaker_match = speaker
-                .as_deref()
-                .map(|value| value.to_lowercase().contains(&normalized_query))
-                .unwrap_or(false);
-            ranked.push(RankedResult {
-                score: if speaker_match { 5 } else { 20 },
-                sort_time: timestamp.clone(),
-                result: GlobalSearchResult {
-                    kind: "transcript".to_string(),
-                    id: id.clone(),
-                    meeting_id: Some(meeting_id),
-                    person_id: None,
-                    transcript_id: Some(id),
-                    title,
-                    snippet: snippet_around(&text, query, 180),
-                    timestamp: Some(timestamp),
-                    speaker,
-                    audio_start_time,
-                    meeting_count: None,
-                    group_id: None,
-                    color: None,
-                },
-            });
-        }
-
-        // Summary JSON contains caches and editor structure, so only parsed,
-        // user-visible text is searched. Never use a LIKE against the raw blob.
-        let summaries = sqlx::query_as::<_, (String, String, String, String)>(
-            "SELECT m.id, m.title, m.created_at, s.result \
-             FROM summary_processes s JOIN meetings m ON m.id = s.meeting_id \
-             WHERE s.result IS NOT NULL ORDER BY m.created_at DESC",
-        )
-        .fetch_all(pool)
-        .await?;
-
-        for (meeting_id, title, created_at, raw) in summaries {
-            let Some(visible) = visible_summary_text(&raw) else {
-                continue;
-            };
-            if !visible.to_lowercase().contains(&normalized_query) {
-                continue;
-            }
-            ranked.push(RankedResult {
-                score: 25,
-                sort_time: created_at.clone(),
-                result: GlobalSearchResult {
-                    kind: "summary".to_string(),
-                    id: format!("summary-{}", meeting_id),
-                    meeting_id: Some(meeting_id),
-                    person_id: None,
-                    transcript_id: None,
-                    title,
-                    snippet: snippet_around(&visible, query, 220),
-                    timestamp: Some(created_at),
-                    speaker: None,
-                    audio_start_time: None,
-                    meeting_count: None,
-                    group_id: None,
-                    color: None,
-                },
-            });
-        }
-
-        let groups = sqlx::query_as::<_, (String, String, Option<String>, i64)>(
-            "SELECT g.id, g.name, g.color, (SELECT COUNT(*) FROM meetings m WHERE m.group_id = g.id) \
-             FROM groups g WHERE g.normalized_name LIKE ? ESCAPE '\\' LIMIT ?",
-        )
-        .bind(&like_query)
-        .bind(limit)
-        .fetch_all(pool)
-        .await?;
-
-        for (id, name, color, meeting_count) in groups {
-            ranked.push(RankedResult {
-                score: match_quality(&normalize_person_name(&name), &normalized_query) + 1,
-                sort_time: String::new(),
-                result: GlobalSearchResult {
-                    kind: "group".to_string(),
-                    id: id.clone(),
-                    meeting_id: None,
-                    person_id: None,
-                    transcript_id: None,
-                    title: name,
-                    snippet: format!(
-                        "{} meeting{}",
-                        meeting_count,
-                        if meeting_count == 1 { "" } else { "s" }
-                    ),
-                    timestamp: None,
-                    speaker: None,
-                    audio_start_time: None,
-                    meeting_count: Some(meeting_count),
-                    group_id: Some(id),
-                    color,
-                },
-            });
-        }
-
-        let actions = sqlx::query_as::<_, (String, String, String, String, String, Option<String>, Option<f64>)>(
-            "SELECT a.id, a.meeting_id, m.title, m.created_at, a.text, a.owner_label, a.audio_time \
-             FROM action_items a JOIN meetings m ON m.id = a.meeting_id \
-             WHERE lower(a.text) LIKE ? ESCAPE '\\' OR lower(COALESCE(a.owner_label, '')) LIKE ? ESCAPE '\\' \
-             ORDER BY a.done, m.created_at DESC LIMIT ?",
-        )
-        .bind(&like_query)
-        .bind(&like_query)
-        .bind(limit)
-        .fetch_all(pool)
-        .await?;
-
-        for (id, meeting_id, title, created_at, text, owner, audio_time) in actions {
-            ranked.push(RankedResult {
-                score: 18,
-                sort_time: created_at.clone(),
-                result: GlobalSearchResult {
-                    kind: "action".to_string(),
-                    id,
-                    meeting_id: Some(meeting_id),
-                    person_id: None,
-                    transcript_id: None,
-                    title,
-                    snippet: text,
-                    timestamp: Some(created_at),
-                    speaker: owner,
-                    audio_start_time: audio_time,
-                    meeting_count: None,
-                    group_id: None,
-                    color: None,
-                },
-            });
-        }
-
-        ranked.sort_by(|a, b| {
-            a.score
-                .cmp(&b.score)
-                .then_with(|| b.sort_time.cmp(&a.sort_time))
-                .then_with(|| a.result.id.cmp(&b.result.id))
-        });
-        ranked.truncate(limit as usize);
-        Ok(ranked.into_iter().map(|item| item.result).collect())
+        let mut conn = pool.acquire().await?;
+        meeting_library::search::global_search(&mut conn, query, limit).await
     }
 
     pub async fn get_profile(
@@ -1380,9 +1105,7 @@ fn replace_speaker_component(label: &str, from: &str, to: &str) -> String {
     result.join(" + ")
 }
 
-pub(crate) fn normalize_person_name(name: &str) -> String {
-    name.trim().to_lowercase()
-}
+pub(crate) use meeting_library::normalize_person_name;
 
 pub(crate) fn is_person_name(name: &str) -> bool {
     let trimmed = name.trim();
@@ -1425,169 +1148,7 @@ async fn next_available_speaker_label(
     unreachable!("positive speaker labels are unbounded")
 }
 
-pub(crate) fn visible_summary_text(raw: &str) -> Option<String> {
-    let raw = raw.trim();
-    if raw.is_empty() {
-        return None;
-    }
-    match serde_json::from_str::<serde_json::Value>(raw) {
-        Ok(value) => visible_summary_value(&value),
-        Err(_) if raw.starts_with('{') || raw.starts_with('[') => None,
-        Err(_) => Some(raw.to_string()),
-    }
-}
-
-fn visible_summary_value(value: &serde_json::Value) -> Option<String> {
-    match value {
-        serde_json::Value::String(text) => {
-            let text = text.trim();
-            if text.starts_with('{') || text.starts_with('[') {
-                visible_summary_text(text)
-            } else {
-                (!text.is_empty()).then(|| text.to_string())
-            }
-        }
-        serde_json::Value::Array(blocks) => blocknote_text(blocks),
-        serde_json::Value::Object(object) => {
-            if let Some(markdown) = object
-                .get("markdown")
-                .and_then(serde_json::Value::as_str)
-                .map(str::trim)
-                .filter(|text| !text.is_empty())
-            {
-                return Some(markdown.to_string());
-            }
-            if let Some(blocks) = object
-                .get("summary_json")
-                .and_then(serde_json::Value::as_array)
-            {
-                if let Some(text) = blocknote_text(blocks) {
-                    return Some(text);
-                }
-            }
-
-            let mut sections = Vec::new();
-            let ordered_keys: Vec<&str> = object
-                .get("_section_order")
-                .and_then(serde_json::Value::as_array)
-                .map(|keys| keys.iter().filter_map(serde_json::Value::as_str).collect())
-                .unwrap_or_else(|| object.keys().map(String::as_str).collect());
-            for key in ordered_keys {
-                if matches!(
-                    key,
-                    "markdown"
-                        | "summary_json"
-                        | "_section_order"
-                        | "MeetingName"
-                        | "english_cache"
-                ) {
-                    continue;
-                }
-                let Some(section) = object.get(key).and_then(serde_json::Value::as_object) else {
-                    continue;
-                };
-                let Some(blocks) = section.get("blocks").and_then(serde_json::Value::as_array)
-                else {
-                    continue;
-                };
-                if let Some(title) = section
-                    .get("title")
-                    .and_then(serde_json::Value::as_str)
-                    .map(str::trim)
-                    .filter(|title| !title.is_empty())
-                {
-                    sections.push(title.to_string());
-                }
-                for block in blocks {
-                    let text = inline_text(block).trim().to_string();
-                    if !text.is_empty() {
-                        sections.push(text);
-                    }
-                }
-            }
-            (!sections.is_empty()).then(|| sections.join("\n"))
-        }
-        _ => None,
-    }
-}
-
-fn blocknote_text(blocks: &[serde_json::Value]) -> Option<String> {
-    fn walk(blocks: &[serde_json::Value], output: &mut Vec<String>) {
-        for block in blocks {
-            let text = block
-                .get("content")
-                .map(inline_text)
-                .unwrap_or_default()
-                .trim()
-                .to_string();
-            if !text.is_empty() {
-                output.push(text);
-            }
-            if let Some(children) = block.get("children").and_then(serde_json::Value::as_array) {
-                walk(children, output);
-            }
-        }
-    }
-
-    let mut output = Vec::new();
-    walk(blocks, &mut output);
-    (!output.is_empty()).then(|| output.join("\n"))
-}
-
-fn inline_text(value: &serde_json::Value) -> String {
-    match value {
-        serde_json::Value::String(text) => text.clone(),
-        serde_json::Value::Array(values) => values.iter().map(inline_text).collect(),
-        serde_json::Value::Object(object) => {
-            if let Some(text) = object.get("text").and_then(serde_json::Value::as_str) {
-                text.to_string()
-            } else {
-                object.get("content").map(inline_text).unwrap_or_default()
-            }
-        }
-        _ => String::new(),
-    }
-}
-
-fn escape_like(value: &str) -> String {
-    value
-        .replace('\\', "\\\\")
-        .replace('%', "\\%")
-        .replace('_', "\\_")
-}
-
-fn match_quality(value: &str, query: &str) -> i32 {
-    match value.cmp(query) {
-        Ordering::Equal => 0,
-        _ if value.starts_with(query) => 3,
-        _ => 10,
-    }
-}
-
-fn snippet_around(text: &str, query: &str, max_chars: usize) -> String {
-    let chars: Vec<char> = text.chars().collect();
-    if chars.len() <= max_chars {
-        return text.to_string();
-    }
-
-    let lower = text.to_lowercase();
-    let query_lower = query.to_lowercase();
-    let match_char = lower
-        .find(&query_lower)
-        .map(|byte| lower[..byte].chars().count())
-        .unwrap_or(0)
-        .min(chars.len());
-    let start = match_char.saturating_sub(max_chars / 3);
-    let end = (start + max_chars).min(chars.len());
-    let mut snippet: String = chars[start..end].iter().collect();
-    if start > 0 {
-        snippet.insert_str(0, "...");
-    }
-    if end < chars.len() {
-        snippet.push_str("...");
-    }
-    snippet
-}
+pub(crate) use meeting_library::summary::visible_summary_text;
 
 pub(crate) fn truncate_chars(text: &str, max_chars: usize) -> String {
     let mut value: String = text.chars().take(max_chars).collect();

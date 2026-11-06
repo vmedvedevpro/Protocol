@@ -113,6 +113,7 @@
         ],
         "externalBin": [
             "binaries/llama-helper",
+            "binaries/protocol-mcp",
             "binaries/ffmpeg"
         ],
         "macOS": {

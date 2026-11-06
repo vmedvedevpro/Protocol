@@ -107,6 +107,12 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit 1 }
           New-Item -ItemType Directory -Force frontend/src-tauri/binaries | Out-Null
           Copy-Item target/release/llama-helper.exe frontend/src-tauri/binaries/llama-helper-x86_64-pc-windows-msvc.exe
+      # The bundle lists protocol-mcp (#8); the app build needs it in place.
+      - name: Build protocol-mcp
+        run: |
+          cargo build --release --locked -p protocol-mcp
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          Copy-Item target/release/protocol-mcp.exe frontend/src-tauri/binaries/protocol-mcp-x86_64-pc-windows-msvc.exe
       - name: Install frontend dependencies
         working-directory: frontend
         run: pnpm install --frozen-lockfile
@@ -246,6 +252,13 @@ jobs:
           mkdir -p frontend/src-tauri/binaries
           cp "target/$TARGET/release/llama-helper" "frontend/src-tauri/binaries/llama-helper-$TARGET"
           chmod +x "frontend/src-tauri/binaries/llama-helper-$TARGET"
+      # The bundle lists protocol-mcp (#8); the app build needs it in place.
+      - name: Build protocol-mcp
+        run: |
+          set -euo pipefail
+          cargo build --release --locked --package protocol-mcp --target "$TARGET"
+          cp "target/$TARGET/release/protocol-mcp" "frontend/src-tauri/binaries/protocol-mcp-$TARGET"
+          chmod +x "frontend/src-tauri/binaries/protocol-mcp-$TARGET"
       - name: Install frontend dependencies
         working-directory: frontend
         run: pnpm install --frozen-lockfile
@@ -347,6 +360,11 @@ jobs:
           cargo build --release --locked -p llama-helper
           mkdir -p frontend/src-tauri/binaries
           cp target/release/llama-helper frontend/src-tauri/binaries/llama-helper-x86_64-unknown-linux-gnu
+      # The bundle lists protocol-mcp (#8); the app build needs it in place.
+      - name: Build protocol-mcp
+        run: |
+          cargo build --release --locked -p protocol-mcp
+          cp target/release/protocol-mcp frontend/src-tauri/binaries/protocol-mcp-x86_64-unknown-linux-gnu
       - name: Install frontend dependencies
         working-directory: frontend
         run: pnpm install --frozen-lockfile

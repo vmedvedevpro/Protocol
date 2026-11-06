@@ -1028,11 +1028,24 @@ replaced. Installs over a pre-0.3.0 build delete the CUDA DLLs it copied next to
 "not applicable" unless the app is built with `--features cuda`
 (`CUDA_SETUP_AVAILABLE`), so the CUDA notice never shows.
 
+The MCP server for AI agents (`protocol-mcp.exe`, #8) can be running when an
+update installs, often with Protocol closed: `Protocol_MoveRunningServerAside`
+in the pre-install hook checks that Protocol is closed (the template's
+`CheckIfAppIsRunning`, so its Cancel or a failed kill leaves the server alone),
+then renames the installed copy to `protocol-mcp.exe.old-<n>`, so the new file
+can take its name and a server an agent starts during the file copy finds no
+file to hold. Reaching the post-install hook, not the file name, says the copy
+is over: it deletes the moved copy unless it runs (or renames it back if the new
+file was skipped), and `.onInstFailed` renames it back over whatever holds the
+name when the install aborts first. The uninstall
+hook stops this install's copies by full path and deletes them. See
+[MCP_SERVER.md](MCP_SERVER.md).
+
 `node frontend/scripts/verify-windows-release.mjs [dist]` checks the output
 without installing: `SHA256SUMS.txt`, the NSIS archive (7-Zip; `SEVEN_ZIP`
 overrides the path), the exact variant and runtime sets (no CUDA files), that the
 bundled `protocol.exe` does not import `vulkan-1.dll` while the Vulkan build
-does, the `nsis` marker on both, and that ffmpeg, llama-helper, ONNX Runtime and
+does, the `nsis` marker on both, and that ffmpeg, llama-helper, protocol-mcp, ONNX Runtime and
 the notices (`parakeet-rs-LICENSE.txt`, `THIRD_PARTY_MODELS.txt`) equal the
 staged files. A local warm build took about 8 minutes and produced a 118 MB
 installer (upstream's universal installer with CUDA was 674 MB).
@@ -1351,6 +1364,21 @@ auto-start flag for the recording hook. Topic extraction remains heuristic and
 depends on a recognizable Key Topics heading or legacy section. Verification
 covers frontend/native builds and the Windows installer payload; a local installer
 is not a published release.
+
+### AI agents: the MCP server (#8)
+
+`mcp-server/` (`protocol-mcp`) serves the meeting library to AI agents over
+MCP on stdio, read-only, while Settings > AI agents (`AgentAccessSettings.tsx`,
+`agent_access.rs`) holds the off-by-default switch and the commands that start
+it; `claude_desktop_extension.rs` builds the Claude Desktop bundle. The Ctrl+K
+search, the summary text and the switch file live in the shared
+`meeting-library/` crate, so the app and the server answer the same way;
+both pools register its `unicode_lower` SQL function (`sql.rs`), which lets the
+search match capitalised Cyrillic in any case. The
+server never writes, keeps each tool call under one second of statements so the
+app's commits are not held, and answers `Open Protocol once` for a database it
+cannot read safely. Data flow, limits, packaging and the update path:
+[MCP_SERVER.md](MCP_SERVER.md).
 
 ### Speaker colors in transcripts
 

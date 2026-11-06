@@ -162,6 +162,8 @@ whatlang = "0.16.4"
 ffmpeg-sidecar = { git = "https://github.com/nathanbabcock/ffmpeg-sidecar", branch = "main" }
 
 sqlx = { version = "0.8", features = [ "runtime-tokio", "sqlite", "chrono"] }
+# The Ctrl+K search and summary text, shared with the protocol-mcp server (#8).
+meeting-library = { path = "../../meeting-library" }
 
 # Common Tauri configuration
 tauri = { version = "2.12.5", features = [ "macos-private-api", "protocol-asset", "tray-icon"] }

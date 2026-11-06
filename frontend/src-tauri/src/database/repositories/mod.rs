@@ -8,3 +8,6 @@ pub mod summary;
 pub mod transcript;
 pub mod transcript_chunk;
 pub mod vocabulary;
+
+#[cfg(test)]
+mod global_search_tests;

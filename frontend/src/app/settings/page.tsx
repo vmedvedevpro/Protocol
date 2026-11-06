@@ -8,7 +8,7 @@
 import { Suspense, useEffect, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { invoke } from '@tauri-apps/api/core';
-import { AudioLines, Cpu, FileAudio, FlaskConical, Info, Mic, Radar, Settings2, Sparkles, type LucideIcon } from 'lucide-react';
+import { AudioLines, Bot, Cpu, FileAudio, FlaskConical, Info, Mic, Radar, Settings2, Sparkles, type LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useConfig } from '@/contexts/ConfigContext';
 import { useImportDialog } from '@/contexts/ImportDialogContext';
@@ -23,15 +23,17 @@ import { MeetingDetectionSettings } from '@/components/MeetingDetectionSettings'
 import { LocalStackStatus } from '@/components/LocalStackStatus';
 import { AboutSettings } from '@/components/AboutSettings';
 import { LabsSettings } from '@/components/LabsSettings';
+import { AgentAccessSettings } from '@/components/AgentAccessSettings';
 import { AppAudioCard } from '@/components/recording/AppAudioSource';
 
-type SectionId = 'general' | 'recording' | 'transcription' | 'summaries' | 'detection' | 'local' | 'labs' | 'about';
+type SectionId = 'general' | 'recording' | 'transcription' | 'summaries' | 'agents' | 'detection' | 'local' | 'labs' | 'about';
 
 const SECTIONS: Array<{ id: SectionId; label: string; hint: string; description: string; icon: LucideIcon }> = [
   { id: 'general', label: 'General', hint: 'Theme, name, notifications', description: 'How Protocol looks, what it calls you, and when it notifies you.', icon: Settings2 },
   { id: 'recording', label: 'Recording', hint: 'Saving, computer audio', description: 'Where recordings are saved, and which computer audio they capture.', icon: Mic },
   { id: 'transcription', label: 'Transcription', hint: 'Models, language, speakers', description: 'How speech becomes text during and after a meeting, and how voices are told apart.', icon: AudioLines },
   { id: 'summaries', label: 'Summaries', hint: 'Model, language', description: 'Which AI model writes summaries and answers Ask AI, and in what language.', icon: Sparkles },
+  { id: 'agents', label: 'AI agents', hint: 'Claude Desktop, Claude Code', description: 'Let AI agents on this computer read your meetings, and connect them.', icon: Bot },
   { id: 'detection', label: 'Meeting detection', hint: 'Prompt to record', description: 'Notice calls in other apps, and offer to record them.', icon: Radar },
   { id: 'local', label: 'Local AI', hint: 'Memory, disk, acceleration', description: 'The models running on this computer, the memory and disk they use, and what goes online.', icon: Cpu },
   { id: 'labs', label: 'Labs', hint: 'Experimental features', description: 'Experimental features. Each stays off until you turn it on, and may change in later versions.', icon: FlaskConical },
@@ -171,6 +173,7 @@ function SettingsInner() {
               />
             )}
             {active === 'summaries' && <SummaryModelSettings />}
+            {active === 'agents' && <AgentAccessSettings />}
             {active === 'detection' && <MeetingDetectionSettings />}
             {active === 'local' && <LocalStackStatus />}
             {active === 'labs' && <LabsSettings />}

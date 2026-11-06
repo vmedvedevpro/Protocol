@@ -54,6 +54,15 @@ Data leaves your machine only when **you** choose an action that sends it:
 - **Model sizes.** A list of models (Settings, onboarding, the optional
   downloads) asks Hugging Face for the file sizes of the models it offers when
   it does not know them yet. These requests carry no meeting content.
+- **AI agents** (off unless you turn on Settings › AI agents): an AI app on
+  this computer that you connect to Protocol, such as Claude Desktop or Claude
+  Code, can read your meetings through Protocol's MCP server: transcripts,
+  summaries, your notes, action items, contacts (not their phone numbers or
+  your notes about them) and groups. The server only reads the local database;
+  it makes no network requests, cannot change anything and cannot play audio.
+  What the agent reads is sent to that agent's model provider (for Claude,
+  Anthropic) under your account, subject to their privacy policy. Turning the
+  switch off stops agents at their next request.
 
 If Protocol detects that the previous session ended unexpectedly, it can create
 a redacted crash-report ZIP at your request. The report excludes recordings,

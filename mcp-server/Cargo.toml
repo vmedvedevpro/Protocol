@@ -1,0 +1,29 @@
+[package]
+name = "protocol-mcp"
+version = "0.1.0"
+description = "Read-only MCP server over Protocol's meeting library (stdio)"
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[[bin]]
+name = "protocol-mcp"
+path = "src/main.rs"
+
+# Read-only by construction: no network client, no audio decoding, and the
+# database is opened with SQLITE_OPEN_READONLY (store.rs).
+[dependencies]
+meeting-library = { path = "../meeting-library" }
+rmcp = { version = "3.9", default-features = false, features = ["server", "macros", "transport-io"] }
+schemars = "1"
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { version = "1.32.0", features = ["macros", "rt-multi-thread", "io-std", "sync", "time"] }
+# `migrate` only to embed the app's migration list (store.rs); nothing runs it.
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "sqlite", "migrate", "macros"] }
+chrono = "0.4.31"
+dirs = "5.0.1"
+
+[dev-dependencies]
+rmcp = { version = "3.9", default-features = false, features = ["client", "server", "macros", "transport-io"] }
+tempfile = "3.3.0"

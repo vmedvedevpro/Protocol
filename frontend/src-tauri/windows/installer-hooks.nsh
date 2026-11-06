@@ -216,6 +216,89 @@ Var MeetilyBackend
   RMDir /r "$INSTDIR\installer-variants"
 !macroend
 
+; protocol-mcp.exe (#8) runs for as long as an AI agent's app (Claude Desktop,
+; Claude Code) keeps it, often while Protocol itself is closed, and an update
+; must not cut that agent off. Windows lets a running executable be renamed
+; but not overwritten, so the file copy after this hook would fail on it: the
+; running copy is moved aside and keeps serving its agent until the agent
+; restarts it, and its answers say Protocol was updated. No server is
+; stopped here (only Protocol itself, by the app check below), but an
+; interactive upgrade's default choice, "Uninstall before installing", first
+; runs the previous version's uninstaller, whose NSIS_HOOK_PREUNINSTALL stops
+; this install's servers; the in-app update (passive) and "Do not uninstall"
+; keep them.
+; The file is moved whether or not it runs: the installer writes
+; protocol-mcp.exe only after every other file, and an agent may start the
+; server in between (a new Claude Code session), which would hold the file and
+; stop the update at an Abort/Retry/Ignore box. With the name free until then,
+; that agent gets a missing file and retries. The moved copy stays until the
+; install reaches NSIS_HOOK_POSTINSTALL (Protocol_DeleteMovedServer), so an
+; install that stops before can put it back (.onInstFailed). Whether the new
+; file was written is told by reaching POSTINSTALL, not by the name: a write
+; that fails halfway (a full disk) leaves a partial protocol-mcp.exe, and an
+; Ignore at a file error lets the install go on with none.
+;
+; Protocol must be closed before the file moves. The template checks that only
+; after this hook (CheckIfAppIsRunning in installer.nsi), and a Cancel at its
+; "click OK to kill it" prompt or a failed kill aborts the install; checked
+; here first, those abort with the server untouched, also while the prompt
+; waits, and the template's own check finds nothing left to stop.
+Var ProtocolMovedServer
+
+!macro Protocol_MoveRunningServerAside
+  !insertmacro CheckIfAppIsRunning "$INSTDIR\${MAINBINARYNAME}.exe" "${PRODUCTNAME}"
+  ; Copies moved aside by earlier updates; one still running stays.
+  FindFirst $R1 $R2 "$INSTDIR\protocol-mcp.exe.old-*"
+  ${DoWhile} $R2 != ""
+    Delete "$INSTDIR\$R2"
+    FindNext $R1 $R2
+  ${Loop}
+  FindClose $R1
+  StrCpy $ProtocolMovedServer ""
+  ${If} ${FileExists} "$INSTDIR\protocol-mcp.exe"
+    System::Call 'kernel32::GetTickCount() i.R4'
+    ClearErrors
+    Rename "$INSTDIR\protocol-mcp.exe" "$INSTDIR\protocol-mcp.exe.old-$R4"
+    ${If} ${Errors}
+      DetailPrint "      WARNING: protocol-mcp.exe could not be moved aside; the update may not replace it."
+    ${Else}
+      StrCpy $ProtocolMovedServer "$INSTDIR\protocol-mcp.exe.old-$R4"
+    ${EndIf}
+  ${EndIf}
+!macroend
+
+; The file copy is over: the moved copy goes, unless an agent still runs it (a
+; running executable cannot be deleted). If the new protocol-mcp.exe was
+; skipped (Ignore at its file error), the old one goes back instead.
+!macro Protocol_DeleteMovedServer
+  ${If} $ProtocolMovedServer != ""
+    ${If} ${FileExists} "$INSTDIR\protocol-mcp.exe"
+      ClearErrors
+      Delete "$ProtocolMovedServer"
+      ${If} ${Errors}
+        DetailPrint "      An AI agent is using Protocol's MCP server; it gets the new one when it restarts it."
+      ${EndIf}
+    ${Else}
+      DetailPrint "      WARNING: the new protocol-mcp.exe was not written; keeping the previous one."
+      Rename "$ProtocolMovedServer" "$INSTDIR\protocol-mcp.exe"
+    ${EndIf}
+    StrCpy $ProtocolMovedServer ""
+  ${EndIf}
+!macroend
+
+; NSIS calls this after any Abort of the install (a file that cannot be
+; written, a full disk). Before POSTINSTALL, whatever holds the name may be a
+; partial write, so the moved copy replaces it, running or not, and the
+; installed version keeps its server. A new server an agent already runs
+; cannot be deleted; it then stays and the rename fails.
+Function .onInstFailed
+  ${If} $ProtocolMovedServer != ""
+  ${AndIf} ${FileExists} "$ProtocolMovedServer"
+    Delete "$INSTDIR\protocol-mcp.exe"
+    Rename "$ProtocolMovedServer" "$INSTDIR\protocol-mcp.exe"
+  ${EndIf}
+FunctionEnd
+
 !macro NSIS_HOOK_PREINSTALL
   SetDetailsPrint both
   DetailPrint "────────────────────────────────────────"
@@ -226,6 +309,7 @@ Var MeetilyBackend
     DetailPrint " Installing app files…"
   ${EndIf}
   DetailPrint "────────────────────────────────────────"
+  !insertmacro Protocol_MoveRunningServerAside
 !macroend
 
 !macro NSIS_HOOK_POSTINSTALL
@@ -234,6 +318,7 @@ Var MeetilyBackend
   DetailPrint "────────────────────────────────────────"
   DetailPrint " Runtime setup"
   DetailPrint "────────────────────────────────────────"
+  !insertmacro Protocol_DeleteMovedServer
 
   DetailPrint "[1/3] Visual C++ 2015–2022 (x64)…"
   !insertmacro Meetily_CheckVcredist
@@ -270,8 +355,13 @@ Var MeetilyBackend
 ; terminates a running Protocol here, with no prompt and no end-session request.
 ; The 32-bit stub reads a 64-bit process's path through
 ; QueryFullProcessImageNameW, which needs only limited query access.
-!macro Protocol_StopInstalledApp
-  StrCpy $R1 "$INSTDIR\${MAINBINARYNAME}.exe"
+; EXE is the file name; a copy an update moved aside (EXE.old-<n>,
+; Protocol_MoveRunningServerAside) still runs under its old image name and
+; counts as this install's too.
+!macro Protocol_StopInstalledApp EXE
+  StrCpy $R1 "$INSTDIR\${EXE}"
+  StrCpy $R0 "$INSTDIR\${EXE}.old-"
+  StrLen $R9 $R0
   ; TH32CS_SNAPPROCESS
   System::Call 'kernel32::CreateToolhelp32Snapshot(i 2, i 0) p.R2'
   ${If} $R2 P<> -1
@@ -280,13 +370,17 @@ Var MeetilyBackend
     System::Call 'kernel32::Process32FirstW(p R2, p R3) i.R4'
     ${DoWhile} $R4 <> 0
       System::Call '*$R3(i, i, i .R5, p, i, i, i, i, i, &w260 .R6)'
-      ${If} $R6 == "${MAINBINARYNAME}.exe"
+      ${If} $R6 == "${EXE}"
         ; PROCESS_TERMINATE | PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE
         System::Call 'kernel32::OpenProcess(i 0x101001, i 0, i R5) p.R7'
         ${If} $R7 P<> 0
-          System::Call 'kernel32::QueryFullProcessImageNameW(p R7, i 0, w .R8, *i ${NSIS_MAX_STRLEN}) i.R9'
-          ${If} $R9 <> 0
-          ${AndIf} $R8 == $R1
+          System::Call 'kernel32::QueryFullProcessImageNameW(p R7, i 0, w .R8, *i ${NSIS_MAX_STRLEN}) i.R6'
+          ${If} $R6 = 0
+            StrCpy $R8 ""
+          ${EndIf}
+          StrCpy $R6 $R8 $R9
+          ${If} $R8 == $R1
+          ${OrIf} $R6 == $R0
             DetailPrint "      Stopping $R8 (process $R5)."
             System::Call 'kernel32::TerminateProcess(p R7, i 1)'
             ; Wait so the uninstaller can delete the executable and sidecars.
@@ -304,14 +398,20 @@ Var MeetilyBackend
 
 !macro NSIS_HOOK_PREUNINSTALL
   DetailPrint "Stopping Protocol if it is still running…"
-  !insertmacro Protocol_StopInstalledApp
+  !insertmacro Protocol_StopInstalledApp "${MAINBINARYNAME}.exe"
+  ; Uninstalling ends access for AI agents too: their servers would otherwise
+  ; keep the files from being deleted.
+  !insertmacro Protocol_StopInstalledApp "protocol-mcp.exe"
 !macroend
 
 !macro NSIS_HOOK_POSTUNINSTALL
   ; The uninstaller deletes only the files the bundle lists. These come from
-  ; the hooks: DirectML.dll from Meetily_InstallCommonRuntime, and the CUDA
-  ; runtime of installs before 0.3.0 if no later install removed it.
+  ; the hooks: DirectML.dll from Meetily_InstallCommonRuntime, renamed MCP
+  ; servers, and the CUDA runtime of installs before 0.3.0 if no later install
+  ; removed it.
   Delete "$INSTDIR\DirectML.dll"
+  ; MCP servers an update moved aside (Protocol_MoveRunningServerAside).
+  Delete "$INSTDIR\protocol-mcp.exe.old-*"
   Delete "$INSTDIR\cudart64_13.dll"
   Delete "$INSTDIR\cublas64_13.dll"
   Delete "$INSTDIR\cublasLt64_13.dll"
