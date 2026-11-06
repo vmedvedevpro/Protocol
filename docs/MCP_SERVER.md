@@ -213,7 +213,8 @@ A client keeps its server for its whole session, often with Protocol closed.
   every other one, seconds later; until then the name is free, so an agent
   that starts the server meanwhile (a new Claude Code session) gets a missing
   file it can retry, rather than holding the file and stopping the update at
-  an Abort/Retry/Ignore box. The hook stops nothing, so the in-app update
+  an Abort/Retry/Ignore box. The hook stops no server (only a running
+  Protocol, as the template's check always did), so the in-app update
   (applied on quit) does not cut an agent off. A
   downloaded setup run by hand is different: for an upgrade it pre-selects
   "Uninstall before installing", which runs the previous version's
@@ -266,5 +267,11 @@ Code `/mcp` and reconnect; quit and reopen Claude Desktop).
   its pre-selected "Uninstall before installing" runs the previous version's
   uninstaller (from the second release with the server on). The in-app update
   does not.
+- A Windows installer killed during the file copy (Task Manager, a logoff, a
+  power loss) runs no `.onInstFailed`: the install folder then holds
+  `protocol-mcp.exe.old-<n>` and no `protocol-mcp.exe`, so agents cannot start
+  the server and Settings reports a build without one, until the next install.
+  Rename `protocol-mcp.exe.old-<n>` back to `protocol-mcp.exe`, or run the
+  setup again.
 - A development build without the staged sidecar has no server; Settings says
   so.
