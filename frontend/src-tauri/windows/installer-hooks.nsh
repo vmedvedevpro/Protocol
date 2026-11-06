@@ -226,12 +226,23 @@ Var MeetilyBackend
 ; installing", first runs the previous version's uninstaller, whose
 ; NSIS_HOOK_PREUNINSTALL stops this install's servers; the in-app update
 ; (passive) and "Do not uninstall" keep them.
-; The file is moved whether or not it runs, and the moved copy deleted if it
-; can be: the installer writes protocol-mcp.exe only after every other file,
-; and an agent may start the server in between (a new Claude Code session),
-; which would hold the file and stop the update at an Abort/Retry/Ignore box.
-; With the name free until then, that agent gets a missing file and retries.
+; The file is moved whether or not it runs: the installer writes
+; protocol-mcp.exe only after every other file, and an agent may start the
+; server in between (a new Claude Code session), which would hold the file and
+; stop the update at an Abort/Retry/Ignore box. With the name free until then,
+; that agent gets a missing file and retries. The moved copy stays until the
+; install has succeeded (Protocol_DeleteMovedServer), so an install that stops
+; before writing the new file can put it back (.onInstFailed).
+;
+; Protocol must be closed before the file moves. The template checks that only
+; after this hook (CheckIfAppIsRunning in installer.nsi), and a Cancel at its
+; "click OK to kill it" prompt or a failed kill aborts the install; checked
+; here first, those abort with the server untouched, also while the prompt
+; waits, and the template's own check finds nothing left to stop.
+Var ProtocolMovedServer
+
 !macro Protocol_MoveRunningServerAside
+  !insertmacro CheckIfAppIsRunning "$INSTDIR\${MAINBINARYNAME}.exe" "${PRODUCTNAME}"
   ; Copies moved aside by earlier updates; one still running stays.
   FindFirst $R1 $R2 "$INSTDIR\protocol-mcp.exe.old-*"
   ${DoWhile} $R2 != ""
@@ -239,6 +250,7 @@ Var MeetilyBackend
     FindNext $R1 $R2
   ${Loop}
   FindClose $R1
+  StrCpy $ProtocolMovedServer ""
   ${If} ${FileExists} "$INSTDIR\protocol-mcp.exe"
     System::Call 'kernel32::GetTickCount() i.R4'
     ClearErrors
@@ -246,15 +258,32 @@ Var MeetilyBackend
     ${If} ${Errors}
       DetailPrint "      WARNING: protocol-mcp.exe could not be moved aside; the update may not replace it."
     ${Else}
-      ; A running executable cannot be deleted.
-      ClearErrors
-      Delete "$INSTDIR\protocol-mcp.exe.old-$R4"
-      ${If} ${Errors}
-        DetailPrint "      An AI agent is using Protocol's MCP server; it gets the new one when it restarts it."
-      ${EndIf}
+      StrCpy $ProtocolMovedServer "$INSTDIR\protocol-mcp.exe.old-$R4"
     ${EndIf}
   ${EndIf}
 !macroend
+
+; Once the new protocol-mcp.exe is in place, the moved copy goes, unless an
+; agent still runs it (a running executable cannot be deleted).
+!macro Protocol_DeleteMovedServer
+  ${If} $ProtocolMovedServer != ""
+    ClearErrors
+    Delete "$ProtocolMovedServer"
+    ${If} ${Errors}
+      DetailPrint "      An AI agent is using Protocol's MCP server; it gets the new one when it restarts it."
+    ${EndIf}
+  ${EndIf}
+!macroend
+
+; NSIS calls this after any Abort of the install (a file that cannot be
+; written, a full disk). Before the new protocol-mcp.exe is written, the moved
+; copy goes back, running or not, so the installed version keeps its server.
+Function .onInstFailed
+  ${If} $ProtocolMovedServer != ""
+  ${AndIfNot} ${FileExists} "$INSTDIR\protocol-mcp.exe"
+    Rename "$ProtocolMovedServer" "$INSTDIR\protocol-mcp.exe"
+  ${EndIf}
+FunctionEnd
 
 !macro NSIS_HOOK_PREINSTALL
   SetDetailsPrint both
@@ -275,6 +304,7 @@ Var MeetilyBackend
   DetailPrint "────────────────────────────────────────"
   DetailPrint " Runtime setup"
   DetailPrint "────────────────────────────────────────"
+  !insertmacro Protocol_DeleteMovedServer
 
   DetailPrint "[1/3] Visual C++ 2015–2022 (x64)…"
   !insertmacro Meetily_CheckVcredist
