@@ -123,9 +123,238 @@ fn inline_text(value: &Value) -> String {
     }
 }
 
+/// The complete summary as markdown, as the app's Markdown export renders it
+/// (`completeSummaryMarkdown(parseSummaryData(...))` in
+/// `frontend/src/lib/summary-markdown.ts`). A top-level BlockNote array, which
+/// the export leaves empty, is rendered like `summary_json`.
+pub fn summary_markdown(raw: &str) -> Option<String> {
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return None;
+    }
+    let value = match serde_json::from_str::<Value>(raw) {
+        Ok(value) => value,
+        Err(_) => return Some(raw.to_string()),
+    };
+    let markdown = match &value {
+        // Double-encoded: a JSON string that holds the summary JSON, or
+        // markdown saved as a JSON string.
+        Value::String(inner) => match serde_json::from_str::<Value>(inner) {
+            Ok(parsed @ (Value::Object(_) | Value::Array(_))) => complete_markdown(&parsed),
+            _ => inner.clone(),
+        },
+        other => complete_markdown(other),
+    };
+    let markdown = markdown.trim();
+    (!markdown.is_empty()).then(|| markdown.to_string())
+}
+
+fn complete_markdown(value: &Value) -> String {
+    match value {
+        Value::String(text) => text.clone(),
+        Value::Array(blocks) => blocks_to_markdown(blocks),
+        Value::Object(object) => {
+            if let Some(markdown) = object.get("markdown").and_then(Value::as_str) {
+                return markdown.to_string();
+            }
+            if let Some(blocks) = object.get("summary_json").and_then(Value::as_array) {
+                return blocks_to_markdown(blocks);
+            }
+            let mut keys: Vec<&str> = Vec::new();
+            let ordered = object
+                .get("_section_order")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str);
+            for key in ordered.chain(object.keys().map(String::as_str)) {
+                if !keys.contains(&key) {
+                    keys.push(key);
+                }
+            }
+            keys.into_iter()
+                .filter(|key| !matches!(*key, "english_cache" | "original_markdown"))
+                .filter_map(|key| {
+                    let section = object.get(key)?;
+                    let blocks = section.get("blocks")?.as_array()?;
+                    let title = section
+                        .get("title")
+                        .and_then(Value::as_str)
+                        .filter(|title| !title.is_empty())
+                        .unwrap_or(key);
+                    let body = blocks
+                        .iter()
+                        .map(|block| block.get("content").map(inline_text).unwrap_or_default())
+                        .collect::<Vec<_>>()
+                        .join("\n\n");
+                    Some(format!("## {title}\n\n{body}"))
+                })
+                .collect::<Vec<_>>()
+                .join("\n\n")
+        }
+        _ => String::new(),
+    }
+}
+
+/// `blocksToMarkdown` of `summary-markdown.ts`.
+fn blocks_to_markdown(blocks: &[Value]) -> String {
+    fn walk(list: &[Value], depth: usize, out: &mut Vec<String>) {
+        for block in list {
+            let text = block
+                .get("content")
+                .map(inline_text)
+                .unwrap_or_default()
+                .trim()
+                .to_string();
+            let indent = "  ".repeat(depth);
+            let props = block.get("props");
+            match block.get("type").and_then(Value::as_str) {
+                Some("heading") => {
+                    let level = props
+                        .and_then(|props| props.get("level"))
+                        .and_then(Value::as_i64)
+                        .unwrap_or(2)
+                        .clamp(1, 6) as usize;
+                    out.push(format!("{} {}", "#".repeat(level), text));
+                }
+                Some("bulletListItem") => out.push(format!("{indent}- {text}")),
+                Some("numberedListItem") => out.push(format!("{indent}1. {text}")),
+                Some("checkListItem") => {
+                    let checked = props
+                        .and_then(|props| props.get("checked"))
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false);
+                    out.push(format!("{indent}- [{}] {text}", if checked { 'x' } else { ' ' }));
+                }
+                Some("quote") => {
+                    if !text.is_empty() {
+                        out.push(format!("> {text}"));
+                    }
+                }
+                Some("table") => table_lines(block, out),
+                _ => {
+                    if !text.is_empty() {
+                        out.push(text);
+                    }
+                }
+            }
+            if let Some(children) = block.get("children").and_then(Value::as_array) {
+                if !children.is_empty() {
+                    walk(children, depth + 1, out);
+                }
+            }
+        }
+    }
+
+    let mut out = Vec::new();
+    walk(blocks, 0, &mut out);
+    out.join("\n")
+}
+
+fn table_lines(block: &Value, out: &mut Vec<String>) {
+    let Some(rows) = block
+        .get("content")
+        .and_then(|content| content.get("rows"))
+        .and_then(Value::as_array)
+        .filter(|rows| !rows.is_empty())
+    else {
+        return;
+    };
+    let cells: Vec<Vec<String>> = rows
+        .iter()
+        .map(|row| {
+            row.get("cells")
+                .and_then(Value::as_array)
+                .map(|cells| {
+                    cells
+                        .iter()
+                        .map(|cell| {
+                            let content = if cell.is_array() { Some(cell) } else { cell.get("content") };
+                            content
+                                .map(inline_text)
+                                .unwrap_or_default()
+                                .trim()
+                                .replace('|', "\\|")
+                        })
+                        .collect()
+                })
+                .unwrap_or_default()
+        })
+        .collect();
+    let width = cells.iter().map(Vec::len).max().unwrap_or(0).max(1);
+    let line = |row: &[String]| {
+        let padded: Vec<&str> = (0..width)
+            .map(|index| row.get(index).map(String::as_str).unwrap_or(""))
+            .collect();
+        format!("| {} |", padded.join(" | "))
+    };
+    out.push(line(&cells[0]));
+    out.push(format!("| {} |", vec!["---"; width].join(" | ")));
+    for row in &cells[1..] {
+        out.push(line(row));
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::visible_summary_text;
+    use super::{summary_markdown, visible_summary_text};
+
+    #[test]
+    fn markdown_summaries_are_returned_as_written() {
+        assert_eq!(
+            summary_markdown(r###"{"markdown":"## Decisions\n- Ship it","english_cache":{"markdown":"cache"}}"###)
+                .as_deref(),
+            Some("## Decisions\n- Ship it")
+        );
+        assert_eq!(summary_markdown("Plain **markdown**").as_deref(), Some("Plain **markdown**"));
+        let double = serde_json::to_string(r#"{"markdown":"Twice encoded"}"#).unwrap();
+        assert_eq!(summary_markdown(&double).as_deref(), Some("Twice encoded"));
+        assert_eq!(summary_markdown("\"Markdown in a JSON string\"").as_deref(), Some("Markdown in a JSON string"));
+        assert_eq!(summary_markdown("  "), None);
+        assert_eq!(summary_markdown(r#"{"english_cache":{"markdown":"only a cache"}}"#), None);
+    }
+
+    #[test]
+    fn blocknote_summaries_become_markdown_like_the_export() {
+        let raw = r#"{"summary_json":[
+            {"type":"heading","props":{"level":1},"content":[{"type":"text","text":"Итоги"}]},
+            {"type":"paragraph","content":[{"text":"Intro "},{"text":"text"}]},
+            {"type":"bulletListItem","content":"First","children":[
+                {"type":"bulletListItem","content":[{"text":"Nested"}]}
+            ]},
+            {"type":"numberedListItem","content":[{"text":"Step"}]},
+            {"type":"checkListItem","props":{"checked":true},"content":[{"text":"Done"}]},
+            {"type":"checkListItem","content":[{"text":"Open"}]},
+            {"type":"quote","content":[{"text":"Said"}]},
+            {"type":"quote","content":[]},
+            {"type":"table","content":{"rows":[
+                {"cells":[[{"text":"Who"}],[{"text":"What"}]]},
+                {"cells":[{"content":[{"text":"Alice"}]},[{"text":"a|b"}]]}
+            ]}},
+            {"type":"heading","content":[{"text":"Default level"}]}
+        ]}"#;
+        assert_eq!(
+            summary_markdown(raw).unwrap(),
+            "# Итоги\nIntro text\n- First\n  - Nested\n1. Step\n- [x] Done\n- [ ] Open\n> Said\n\
+             | Who | What |\n| --- | --- |\n| Alice | a\\|b |\n## Default level"
+        );
+    }
+
+    #[test]
+    fn legacy_section_summaries_follow_their_section_order() {
+        let raw = r#"{
+            "MeetingName":"Weekly",
+            "_section_order":["decisions","actions"],
+            "actions":{"title":"Action Items","blocks":[{"content":"Call Alice"},{"content":[{"text":"Email Bob"}]}]},
+            "decisions":{"title":"","blocks":[{"content":"Ship"}]},
+            "english_cache":{"blocks":[{"content":"hidden"}]},
+            "original_markdown":{"blocks":[{"content":"hidden"}]}
+        }"#;
+        assert_eq!(
+            summary_markdown(raw).unwrap(),
+            "## decisions\n\nShip\n\n## Action Items\n\nCall Alice\n\nEmail Bob"
+        );
+    }
 
     #[test]
     fn visible_text_skips_caches() {

@@ -3417,6 +3417,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sqlx",
+ "tempfile",
 ]
 
 [[package]]
