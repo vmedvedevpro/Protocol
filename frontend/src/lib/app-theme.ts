@@ -3,126 +3,127 @@
 import { useEffect, useState } from 'react';
 
 /**
- * App themes. Colors live in globals.css as channel tokens under
- * `:root[data-theme='…']`; this module only decides which theme is active.
+ * App theme. Colors live in globals.css as channel tokens under
+ * `:root[data-theme='light' | 'dark']`; this module decides which one is
+ * painted.
  *
- * The choice is stored in localStorage, which the main window and the minibar
- * share, so a change in Settings repaints both.
+ * The preference is stored in localStorage, which the main window and the
+ * minibar share, so a change in Settings repaints both. `system` follows the
+ * OS light or dark mode, including a switch while the app is open (Windows can
+ * switch on a schedule).
  */
-export type AppTheme = 'midnight' | 'vanilla' | 'charcoal';
+export type ThemePreference = 'light' | 'dark' | 'system';
+export type AppTheme = 'light' | 'dark';
 
-export interface ThemeInfo {
-  id: AppTheme;
-  label: string;
-  description: string;
-  dark: boolean;
-  /** Canvas, panel, raised surface, text, accent: used for theme previews. */
-  swatch: [string, string, string, string, string];
-}
-
-export const THEMES: ThemeInfo[] = [
-  {
-    id: 'midnight',
-    label: 'Midnight',
-    description: 'Deep navy. The default.',
-    dark: true,
-    swatch: ['#0a0c10', '#0f1218', '#181d27', '#e6edf5', '#3b7cf0'],
-  },
-  {
-    id: 'vanilla',
-    label: 'Vanilla',
-    description: 'Warm cream with ink-blue accents.',
-    dark: false,
-    swatch: ['#efe8dc', '#faf6ef', '#fffcf7', '#2a2319', '#2f5ecf'],
-  },
-  {
-    id: 'charcoal',
-    label: 'Charcoal',
-    description: 'Warm charcoal with clay accents.',
-    dark: true,
-    swatch: ['#141211', '#1b1917', '#262321', '#f0ede9', '#de8462'],
-  },
+export const THEME_PREFERENCES: { id: ThemePreference; label: string }[] = [
+  { id: 'light', label: 'Light' },
+  { id: 'dark', label: 'Dark' },
+  { id: 'system', label: 'Match system' },
 ];
 
-export const DEFAULT_THEME: AppTheme = 'midnight';
+export const DEFAULT_THEME_PREFERENCE: ThemePreference = 'system';
 const THEME_STORAGE_KEY = 'meetily_theme';
 const THEME_EVENT = 'af-theme-change';
+const DARK_QUERY = '(prefers-color-scheme: dark)';
 
-function normalizeTheme(value: string | null): AppTheme {
-  if (value === 'midnight' || value === 'vanilla' || value === 'charcoal') return value;
-  // Stored by the old light/dark toggle.
-  if (value === 'light') return 'vanilla';
-  return DEFAULT_THEME;
+export function normalizeThemePreference(value: string | null): ThemePreference {
+  if (value === 'light' || value === 'dark' || value === 'system') return value;
+  // Stored before #96, when the app had three named themes.
+  if (value === 'vanilla') return 'light';
+  if (value === 'midnight' || value === 'charcoal') return 'dark';
+  return DEFAULT_THEME_PREFERENCE;
 }
 
-export function themeInfo(theme: AppTheme): ThemeInfo {
-  return THEMES.find((entry) => entry.id === theme) ?? THEMES[0];
+/**
+ * Under Tauri, prefers-color-scheme reports the window's theme, not the OS
+ * one. It follows the OS only while no theme is forced on the window, which is
+ * why applyAppTheme clears it for `system`; on Windows Tauri then passes every
+ * OS switch on to the webview.
+ */
+export function resolveTheme(preference: ThemePreference): AppTheme {
+  if (preference !== 'system') return preference;
+  return window.matchMedia?.(DARK_QUERY).matches ? 'dark' : 'light';
 }
 
-export function getSavedAppTheme(): AppTheme {
-  if (typeof window === 'undefined') return DEFAULT_THEME;
+function paintTheme(theme: AppTheme) {
+  const root = document.documentElement;
+  root.setAttribute('data-theme', theme);
+  root.classList.toggle('dark', theme === 'dark');
+}
+
+export function getSavedThemePreference(): ThemePreference {
+  if (typeof window === 'undefined') return DEFAULT_THEME_PREFERENCE;
   try {
-    return normalizeTheme(localStorage.getItem(THEME_STORAGE_KEY));
+    return normalizeThemePreference(localStorage.getItem(THEME_STORAGE_KEY));
   } catch {
-    return DEFAULT_THEME;
+    return DEFAULT_THEME_PREFERENCE;
   }
 }
 
-/** Paint the document with `theme`. `persist` also saves it and tells other windows. */
-export function applyAppTheme(theme: AppTheme, persist = false) {
+/** Paint the document for `preference`. `persist` also saves it and tells other windows. */
+export function applyAppTheme(preference: ThemePreference, persist = false) {
   if (typeof window === 'undefined') return;
-  const info = themeInfo(theme);
-  const root = document.documentElement;
-  root.setAttribute('data-theme', info.id);
-  root.classList.toggle('dark', info.dark);
+  paintTheme(resolveTheme(preference));
 
   if (persist) {
     try {
-      localStorage.setItem(THEME_STORAGE_KEY, info.id);
+      localStorage.setItem(THEME_STORAGE_KEY, preference);
     } catch {
       // Storage can be unavailable in locked-down webviews; the paint still applies.
     }
   }
-  window.dispatchEvent(new CustomEvent<AppTheme>(THEME_EVENT, { detail: info.id }));
+  window.dispatchEvent(new CustomEvent<ThemePreference>(THEME_EVENT, { detail: preference }));
 
   if ('__TAURI_INTERNALS__' in window) {
+    // null hands the window back to the OS theme; the media query listener in
+    // useAppTheme repaints once the webview reports it.
     void import('@tauri-apps/api/window')
-      .then(({ getCurrentWindow }) => getCurrentWindow().setTheme(info.dark ? 'dark' : 'light'))
+      .then(({ getCurrentWindow }) => getCurrentWindow().setTheme(preference === 'system' ? null : preference))
       .catch((error) => console.warn('Failed to sync the native window theme:', error));
   }
 }
 
 /**
  * Runs in <head> before the first paint so the window never flashes the
- * default theme. Kept dependency-free because it is inlined as a string.
+ * wrong theme. Kept dependency-free because it is inlined as a string; it
+ * must resolve stored values the way normalizeThemePreference does.
  */
 export const THEME_BOOT_SCRIPT = `
 (function () {
   try {
     var saved = localStorage.getItem('${THEME_STORAGE_KEY}');
-    var theme = saved === 'vanilla' || saved === 'charcoal' || saved === 'midnight'
-      ? saved
-      : (saved === 'light' ? 'vanilla' : 'midnight');
+    var dark = saved === 'dark' || saved === 'midnight' || saved === 'charcoal'
+      || (saved !== 'light' && saved !== 'vanilla' && window.matchMedia('${DARK_QUERY}').matches);
     var root = document.documentElement;
-    root.setAttribute('data-theme', theme);
-    if (theme === 'vanilla') root.classList.remove('dark');
-    else root.classList.add('dark');
+    root.setAttribute('data-theme', dark ? 'dark' : 'light');
+    if (dark) root.classList.add('dark');
+    else root.classList.remove('dark');
   } catch (_) {}
 })();
 `;
 
-/** Current theme, kept in sync with Settings and with the other app window. */
-export function useAppTheme(): [AppTheme, (theme: AppTheme) => void] {
-  const [theme, setTheme] = useState<AppTheme>(DEFAULT_THEME);
+/**
+ * The saved preference and the theme it paints, kept in sync with Settings,
+ * the other app window and, for `system`, the OS.
+ */
+export function useAppTheme(): {
+  preference: ThemePreference;
+  theme: AppTheme;
+  setPreference: (preference: ThemePreference) => void;
+} {
+  // null until read from storage: resolving the default first would paint the
+  // OS theme over a forced one for a frame.
+  const [saved, setSaved] = useState<ThemePreference | null>(null);
+  const [theme, setTheme] = useState<AppTheme>('dark');
 
   useEffect(() => {
-    setTheme(getSavedAppTheme());
-    const onLocal = (event: Event) => setTheme((event as CustomEvent<AppTheme>).detail);
+    setSaved(getSavedThemePreference());
+    const onLocal = (event: Event) => setSaved((event as CustomEvent<ThemePreference>).detail);
     const onStorage = (event: StorageEvent) => {
       if (event.key !== THEME_STORAGE_KEY) return;
-      const next = normalizeTheme(event.newValue);
+      const next = normalizeThemePreference(event.newValue);
       applyAppTheme(next);
-      setTheme(next);
+      setSaved(next);
     };
     window.addEventListener(THEME_EVENT, onLocal);
     window.addEventListener('storage', onStorage);
@@ -132,5 +133,23 @@ export function useAppTheme(): [AppTheme, (theme: AppTheme) => void] {
     };
   }, []);
 
-  return [theme, (next: AppTheme) => applyAppTheme(next, true)];
+  useEffect(() => {
+    if (saved === null) return;
+    const update = () => {
+      const next = resolveTheme(saved);
+      paintTheme(next);
+      setTheme(next);
+    };
+    update();
+    if (saved !== 'system') return;
+    const query = window.matchMedia?.(DARK_QUERY);
+    query?.addEventListener('change', update);
+    return () => query?.removeEventListener('change', update);
+  }, [saved]);
+
+  return { preference: saved ?? DEFAULT_THEME_PREFERENCE, theme, setPreference: saveThemePreference };
+}
+
+function saveThemePreference(preference: ThemePreference) {
+  applyAppTheme(preference, true);
 }

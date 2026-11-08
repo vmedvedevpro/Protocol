@@ -13,7 +13,7 @@ import { GridSuggestionMenuController, SuggestionMenuController, useCreateBlockN
 import { BlockNoteView } from '@blocknote/shadcn';
 import '@blocknote/shadcn/style.css';
 import { cn } from '@/lib/utils';
-import { themeInfo, useAppTheme } from '@/lib/app-theme';
+import { useAppTheme } from '@/lib/app-theme';
 import { blocksToMarkdownSafely } from '@/lib/blocknote-markdown';
 import { BlockNoteLayerProvider, blockNoteMenus, useBlockNoteLayer } from '@/components/editor/blocknote-menus';
 
@@ -99,8 +99,7 @@ export function NotesEditor({
   className,
   onReady,
 }: NotesEditorProps) {
-  const [theme] = useAppTheme();
-  const dark = themeInfo(theme).dark;
+  const dark = useAppTheme().theme === 'dark';
   const menuLayer = useBlockNoteLayer(dark);
   const loaded = useRef(false);
   const onChangeRef = useRef(onChange);

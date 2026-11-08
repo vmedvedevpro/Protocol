@@ -13,7 +13,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import { launchRecording, requestRecordingStop } from '@/lib/recording-launch'
 import { listen, UnlistenFn } from '@tauri-apps/api/event'
 import { invoke } from '@tauri-apps/api/core'
-import { applyAppTheme, getSavedAppTheme, themeInfo, THEME_BOOT_SCRIPT, useAppTheme } from '@/lib/app-theme'
+import { applyAppTheme, getSavedThemePreference, THEME_BOOT_SCRIPT, useAppTheme } from '@/lib/app-theme'
 import { COMPACT_MIN_WIDTH } from '@/hooks/useCompactChrome'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { AppTooltipGuard } from '@/components/AppTooltipGuard'
@@ -170,11 +170,11 @@ export default function RootLayout({
   const [importFilePath, setImportFilePath] = useState<string | null>(null)
 
   // THEME_BOOT_SCRIPT already painted the saved theme; this also syncs the
-  // native title bar. useAppTheme follows changes from Settings and from the
-  // other window.
-  const [appTheme] = useAppTheme()
+  // native title bar. useAppTheme follows changes from Settings, from the
+  // other window and, for Match system, from the OS.
+  const { theme: appTheme } = useAppTheme()
   useEffect(() => {
-    applyAppTheme(getSavedAppTheme())
+    applyAppTheme(getSavedThemePreference())
   }, [])
 
   // Keep the window wide enough for the expanded rail, its collapse control,
@@ -492,7 +492,7 @@ export default function RootLayout({
   // client so the full app chrome never mounts there and then unmounts.
   if (isMinibar) {
     return (
-      <html lang="en" data-theme="midnight" className="dark minibar-window" suppressHydrationWarning>
+      <html lang="en" data-theme="dark" className="dark minibar-window" suppressHydrationWarning>
         <head>
           <script dangerouslySetInnerHTML={{ __html: THEME_BOOT_SCRIPT }} />
           <script dangerouslySetInnerHTML={{ __html: inlineChunkErrorHandler }} />
@@ -505,7 +505,7 @@ export default function RootLayout({
   }
 
   return (
-    <html lang="en" data-theme="midnight" className="dark" suppressHydrationWarning>
+    <html lang="en" data-theme="dark" className="dark" suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: THEME_BOOT_SCRIPT }} />
         <script dangerouslySetInnerHTML={{ __html: CHROME_BOOT_SCRIPT }} />
@@ -592,7 +592,7 @@ export default function RootLayout({
 
         <Toaster
           position="top-center"
-          theme={themeInfo(appTheme).dark ? 'dark' : 'light'}
+          theme={appTheme}
           closeButton
           offset="calc(var(--af-chrome-h) + 16px)"
           icons={{ close: <X className="h-4 w-4" /> }}

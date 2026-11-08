@@ -7,17 +7,18 @@
 
 /* ============================================================
    Themes
-   Every theme defines the same RGB channel tokens. Components read
+   Both themes define the same RGB channel tokens. Components read
    them through Tailwind (`bg-af-panel`, `text-af-text-2/60`) or the
    derived `--af-*` colors below; nothing should hard-code a palette
-   value. <html data-theme="…"> selects the theme and dark themes also
-   carry the `dark` class for `dark:` variants and BlockNote.
+   value. <html data-theme="light|dark"> selects the theme (see
+   lib/app-theme.ts) and the dark one also carries the `dark` class for
+   `dark:` variants and BlockNote.
    The shadcn HSL variables mirror the same palette for BlockNote.
    ============================================================ */
 
-/* Midnight (default) */
+/* Dark, also the fallback before a theme is painted */
 :root,
-:root[data-theme='midnight'] {
+:root[data-theme='dark'] {
   color-scheme: dark;
   --af-bg-rgb: 10 12 16;
   --af-panel-rgb: 15 18 24;
@@ -76,8 +77,8 @@
   --af-c-pink: #f472b6;
 }
 
-/* Vanilla */
-:root[data-theme='vanilla'] {
+/* Light */
+:root[data-theme='light'] {
   color-scheme: light;
   --af-bg-rgb: 239 232 220;
   --af-panel-rgb: 250 246 239;
@@ -134,65 +135,6 @@
   --af-c-blue: #2f5ecf;
   --af-c-violet: #6d3fd1;
   --af-c-pink: #b8306f;
-}
-
-/* Charcoal */
-:root[data-theme='charcoal'] {
-  color-scheme: dark;
-  --af-bg-rgb: 20 18 17;
-  --af-panel-rgb: 27 25 23;
-  --af-panel-2-rgb: 33 30 28;
-  --af-elevated-rgb: 38 35 33;
-  --af-hover-rgb: 41 38 36;
-  --af-active-rgb: 50 46 43;
-  --af-raised-rgb: 57 53 50;
-  --af-border-rgb: 44 41 38;
-  --af-border-strong-rgb: 61 57 53;
-  --af-text-rgb: 240 237 233;
-  --af-text-2-rgb: 199 193 187;
-  --af-text-3-rgb: 150 143 136;
-  --af-text-4-rgb: 110 104 98;
-  --af-accent-rgb: 222 132 98;
-  --af-accent-hover-rgb: 231 150 118;
-  --af-on-accent-rgb: 28 21 18;
-  --af-record-rgb: 232 84 74;
-  --af-danger-rgb: 226 92 80;
-  --af-on-danger-rgb: 255 255 255;
-  --af-success-rgb: 132 190 146;
-  --af-warning-rgb: 224 176 96;
-  --af-shadow-rgb: 0 0 0;
-  --af-soft: 0.14;
-  --af-scrim: 0.6;
-  --background: 30 8% 9.8%;
-  --foreground: 34 18.9% 92.7%;
-  --card: 30 8% 9.8%;
-  --card-foreground: 34 18.9% 92.7%;
-  --popover: 24 7% 13.9%;
-  --popover-foreground: 34 18.9% 92.7%;
-  --primary: 16 65.3% 62.7%;
-  --primary-foreground: 18 21.7% 9%;
-  --secondary: 24 8.2% 12%;
-  --secondary-foreground: 34 18.9% 92.7%;
-  --muted: 24 8.2% 12%;
-  --muted-foreground: 30 6.3% 56.1%;
-  --accent: 24 6.5% 15.1%;
-  --accent-foreground: 34 18.9% 92.7%;
-  --destructive: 5 71.6% 60%;
-  --destructive-foreground: 0 0% 100%;
-  --border: 30 7.3% 16.1%;
-  --input: 30 7% 22.4%;
-  --ring: 16 65.3% 62.7%;
-
-  --af-c-slate: #a8a29e;
-  --af-c-red: #f28b82;
-  --af-c-orange: #f5a25d;
-  --af-c-amber: #f2c14e;
-  --af-c-green: #8fd19e;
-  --af-c-teal: #6fd3c1;
-  --af-c-sky: #7cc4ef;
-  --af-c-blue: #8fb0f5;
-  --af-c-violet: #b9a2f2;
-  --af-c-pink: #f09ac0;
 }
 
 /* Colors derived from the active theme's channels. */
@@ -680,7 +622,7 @@ html.minibar-window body {
    .bn-shadcn. Point them at the active theme. */
 :root .bn-shadcn,
 :root .bn-shadcn.dark,
-:root[data-theme='midnight'] .bn-shadcn {
+:root[data-theme='dark'] .bn-shadcn {
   --background: 220.0 23.1% 7.6%;
   --foreground: 212.0 42.9% 93.1%;
   --card: 220.0 23.8% 12.4%;
@@ -702,8 +644,8 @@ html.minibar-window body {
   --ring: 218.5 85.8% 58.6%;
   --radius: 0.625rem;
 }
-:root[data-theme='vanilla'] .bn-shadcn,
-:root[data-theme='vanilla'] .bn-shadcn.dark {
+:root[data-theme='light'] .bn-shadcn,
+:root[data-theme='light'] .bn-shadcn.dark {
   --background: 38.2 52.4% 95.9%;
   --foreground: 35.3 25.4% 13.1%;
   --card: 37.5 100.0% 98.4%;
@@ -723,29 +665,6 @@ html.minibar-window body {
   --border: 37.3 27.8% 73.9%;
   --input: 37.3 27.8% 73.9%;
   --ring: 222.4 63.0% 49.8%;
-  --radius: 0.625rem;
-}
-:root[data-theme='charcoal'] .bn-shadcn,
-:root[data-theme='charcoal'] .bn-shadcn.dark {
-  --background: 30.0 8.0% 9.8%;
-  --foreground: 34.3 18.9% 92.7%;
-  --card: 24.0 7.0% 13.9%;
-  --card-foreground: 34.3 18.9% 92.7%;
-  --popover: 24.0 7.0% 13.9%;
-  --popover-foreground: 34.3 18.9% 92.7%;
-  --primary: 16.5 65.3% 62.7%;
-  --primary-foreground: 18.0 21.7% 9.0%;
-  --secondary: 24.0 8.2% 12.0%;
-  --secondary-foreground: 34.3 18.9% 92.7%;
-  --muted: 24.0 8.2% 12.0%;
-  --muted-foreground: 30.0 6.3% 56.1%;
-  --accent: 24.0 6.5% 15.1%;
-  --accent-foreground: 34.3 18.9% 92.7%;
-  --destructive: 4.9 71.6% 60.0%;
-  --destructive-foreground: 0.0 0.0% 100.0%;
-  --border: 30.0 7.0% 22.4%;
-  --input: 30.0 7.0% 22.4%;
-  --ring: 16.5 65.3% 62.7%;
   --radius: 0.625rem;
 }
 
