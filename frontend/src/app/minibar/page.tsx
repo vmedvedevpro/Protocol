@@ -34,7 +34,7 @@ const laneButton = (muted: boolean) =>
   );
 
 export default function MiniBarPage() {
-  // Follow theme changes made in the main window.
+  // Follow theme changes made in the main window and, for Match system, the OS.
   useAppTheme();
   const [elapsed, setElapsed] = useState(0);
   const [isPaused, setIsPaused] = useState(false);

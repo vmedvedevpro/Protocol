@@ -117,9 +117,12 @@ export function PreferenceSettings() {
   return (
     <div className="space-y-8">
       <SettingsGroup title="Appearance">
-        <SettingRow icon={Palette} title="Theme" description="Applies to every window, including the floating recording bar.">
-          <ThemePicker />
-        </SettingRow>
+        <SettingRow
+          icon={Palette}
+          title="Theme"
+          description="Applies to every window, including the floating recording bar."
+          control={<ThemePicker />}
+        />
       </SettingsGroup>
 
       <SettingsGroup title="You">

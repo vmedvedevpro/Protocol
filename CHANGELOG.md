@@ -7,6 +7,17 @@ is inherited from the project Protocol forked from; Protocol did not release it.
 
 ## Protocol — unreleased
 
+### Changed
+
+- **Light, Dark or Match system**
+  ([#96](https://github.com/vmedvedevpro/Protocol/issues/96)). Settings ›
+  General › Theme is now one small selector instead of three theme cards.
+  Match system follows the light or dark mode of Windows (or macOS) and
+  switches every window, the floating recording bar included, as soon as the
+  system does, for example on a schedule. Charcoal is gone: a saved Midnight
+  or Charcoal becomes Dark and Vanilla becomes Light. Without a saved choice,
+  Protocol now follows the system.
+
 ## Protocol 0.5.1 — 2026-11-06
 
 Claude and other AI agents on your computer can now read your meetings: ask

@@ -49,7 +49,7 @@ import { useSidebar } from '@/components/Sidebar/SidebarProvider';
 import { useRecordingState } from '@/contexts/RecordingStateContext';
 import { useImportDialog } from '@/contexts/ImportDialogContext';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
-import { THEMES, useAppTheme } from '@/lib/app-theme';
+import { THEME_PREFERENCES, useAppTheme } from '@/lib/app-theme';
 import { formatShortDate, parseDate } from '@/lib/dates';
 import { stamp } from '@/lib/live-context';
 import { displayTitle } from '@/lib/meeting-titles';
@@ -101,7 +101,7 @@ export default function GlobalSearchDialog() {
   const { openImportDialog } = useImportDialog();
   const { groups } = useWorkspace();
   const { meetings } = useSidebar();
-  const [theme, setTheme] = useAppTheme();
+  const { preference: themePreference, setPreference: setThemePreference } = useAppTheme();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchResult[]>([]);
@@ -216,15 +216,15 @@ export default function GlobalSearchDialog() {
 
   const themeCommands = useMemo<Command[]>(
     () =>
-      THEMES.map((option) => ({
+      THEME_PREFERENCES.map((option) => ({
         id: `theme-${option.id}`,
         label: `Theme: ${option.label}`,
-        keywords: `appearance color dark light ${option.label}`,
-        icon: option.id === theme ? <Check /> : <Palette />,
-        hint: option.id === theme ? 'Current' : undefined,
-        run: () => setTheme(option.id),
+        keywords: `appearance color dark light system auto ${option.label}`,
+        icon: option.id === themePreference ? <Check /> : <Palette />,
+        hint: option.id === themePreference ? 'Current' : undefined,
+        run: () => setThemePreference(option.id),
       })),
-    [setTheme, theme],
+    [setThemePreference, themePreference],
   );
 
   // With a query, groups can also be recorded into directly.
