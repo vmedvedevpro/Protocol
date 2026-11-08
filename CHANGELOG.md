@@ -7,6 +7,12 @@ is inherited from the project Protocol forked from; Protocol did not release it.
 
 ## Protocol — unreleased
 
+## Protocol 0.6.0 — 2026-11-08
+
+Protocol can now follow your system's light or dark mode. When Windows
+switches between them during the day, Protocol switches with it, without a
+restart.
+
 ### Changed
 
 - **Light, Dark or Match system**
