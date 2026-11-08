@@ -7,6 +7,8 @@ is inherited from the project Protocol forked from; Protocol did not release it.
 
 ## Protocol — unreleased
 
+## Protocol 0.6.0 — 2026-11-08
+
 ### Changed
 
 - **Light, Dark or Match system**
