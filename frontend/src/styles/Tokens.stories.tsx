@@ -3,7 +3,7 @@ import type {Meta, StoryObj} from '@storybook/react-vite'
 import type {Transition} from 'motion/react'
 import * as m from 'motion/react-m'
 import styled, {useTheme} from 'styled-components'
-import {type DurationName, durations, type EasingName, easings, springs, tween} from './motion'
+import {cubicBezier, durations, easings, springs, tween} from './motion'
 import type {AppTheme} from './theme'
 
 const Sheet = styled.div`
@@ -133,21 +133,19 @@ function MotionRow({label, transition, at}: { label: string; transition: Transit
     )
 }
 
-const bezier = (name: EasingName) => easings[name].join(', ')
-
 function MotionTokens() {
     const [at, setAt] = useState(false)
     return (
         <Group>
             <Heading>Motion</Heading>
             <PlayButton type="button" onClick={() => setAt((value) => !value)}>Play</PlayButton>
-            {(Object.keys(durations) as DurationName[]).map((name) => (
+            {keysOf(durations).map((name) => (
                 <MotionRow key={name} at={at} transition={tween(name)} label={`duration.${name} · ${durations[name]}ms, standard`}/>
             ))}
-            {(Object.keys(easings) as EasingName[]).map((name) => (
-                <MotionRow key={name} at={at} transition={tween('slow', name)} label={`easing.${name} · ${bezier(name)}, slow`}/>
+            {keysOf(easings).map((name) => (
+                <MotionRow key={name} at={at} transition={tween('slow', name)} label={`easing.${name} · ${cubicBezier(easings[name])}, slow`}/>
             ))}
-            {(Object.keys(springs) as (keyof typeof springs)[]).map((name) => (
+            {keysOf(springs).map((name) => (
                 <MotionRow
                     key={name}
                     at={at}

@@ -22,6 +22,8 @@ afterEach(() => {
     cleanup()
     clearMocks()
     useThemeModeStore.setState({mode: 'system'})
+    // Tests that fake View Transitions install the method on document.
+    delete (document as { startViewTransition?: unknown }).startViewTransition
     localStorage.clear()
     window.history.replaceState(null, '', '/')
 })

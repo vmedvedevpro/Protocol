@@ -63,7 +63,8 @@ export const useThemeModeStore = create<ThemeModeState>()(
     persist(
         (set) => ({
             mode: 'system',
-            setMode: (mode) => set({mode}),
+            // Every change of mode crossfades; callers just set it.
+            setMode: (mode) => changeThemeSmoothly(() => set({mode})),
         }),
         {
             name: THEME_STORAGE_KEY,

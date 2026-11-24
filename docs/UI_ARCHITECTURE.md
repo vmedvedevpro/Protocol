@@ -101,27 +101,22 @@ focus); motion (`motion/react`) carries enter and exit, indicators and springs.
 - Animated elements are `m.*` (`import * as m from 'motion/react-m'`) under
   `MotionProvider` (in `App` and in Storybook's decorator). It loads
   `domAnimation` (`app/motionFeatures.ts`) as its own chunk after the first
-  render; until then an `m` element shows its `animate` values and animates
-  nothing. Its `strict` mode rejects the full `motion.*`. Import nothing from
+  render; until then an `m` element keeps the values it mounted with and
+  catches up when the chunk arrives. Its `strict` mode rejects the full
+  `motion.*`. Import nothing from
   motion's imperative API (`animate()`, `useAnimate`): it puts the engine back
   into the first chunk. Layout animations (`layout`, `layoutId`) need
   `domMax`, which is not loaded: an indicator moves by transform instead.
-- Tabs and segmented controls follow `SegmentedControl` (`components/ui`),
-  whose motion is ddoemonn's
+- Tabs and segmented controls reuse `SegmentedControl` (`components/ui`),
+  whose motion follows ddoemonn's
   [Segmented Control](https://21st.dev/@ddoemonn/components/segmented-control)
-  on 21st.dev, the owner's pick, rebuilt with styled-components, the theme and
-  `m` elements. Its segments share one width, so the thumb lands on segment
-  *i* at `translateX(i × 100%)` with nothing measured, on `springs.snappy`
-  (the reference's spring). The thumb holds a copy of all labels in the
-  selected colour that moves the opposite way, so it stays over the labels
-  below: text takes the selected colour exactly where the thumb covers it.
-  The thumb is the only filled shape: an option under the pointer changes its
-  text from `muted` to `text` over `fast`, and a press dims it to `soft`, with
-  no background; keyboard focus draws an outline. #108's segmented tabs reuse
-  it.
+  on 21st.dev, the owner's pick: equal segments, a thumb moved by transform
+  on `springs.snappy`, and the thumb as the only filled shape. Hover and press
+  change only the text colour; keyboard focus draws an outline. #108's
+  segmented tabs reuse it.
 - What animates and how:
-  - Tabs and segmented controls: the thumb slides as above; the panel below
-    swaps with a `base` crossfade, without sliding.
+  - Tabs and segmented controls: the thumb slides; the panel below swaps
+    with a `base` crossfade, without sliding.
   - Sheets and dialogs: in from their edge by `y` on `springs.gentle`, the
     scrim fading over `base`; out with `tween('base', 'exit')`.
   - Menus and popovers: opacity and a scale from 0.96, with
@@ -132,25 +127,18 @@ focus); motion (`motion/react`) carries enter and exit, indicators and springs.
     mode="wait"` with the old value leaving and the new one arriving, opacity
     and 4 px of `y` over `fast`, as the shell's update status does. The key
     names the meaning, not the text: re-key when the meaning changes, never
-    on every value. A value inside one meaning (a download's percent, a
-    count) updates in place. A download reports progress every 500 ms
-    (`PROGRESS_INTERVAL` in `src-tauri/src/updater/engine.rs`), and a key per
-    value would replay the swap each time: the line would blink for the whole
-    download.
+    on every value; a value inside one meaning (a download's percent, a
+    count) updates in place.
   - Hover, press, focus: CSS on the element. Colour and background change
     over `fast`; a button's press scales it to 0.96 inside `MOTION_OK`; the
     focus outline appears at once. Segmented options take neither a fill nor
-    a scale (see above); a scaled label would also slip out from under its
-    copy in the thumb.
-  - Every theme change goes through `changeThemeSmoothly(apply)`: a click on
-    the switch, an OS switch in system mode, and a change made in the other
-    window. Where the webview has View Transitions, the old window crossfades
-    into the new one over `base`; the theme switch is left out of the
-    snapshot, so its thumb slides once. Clicks made during those 200 ms are
-    lost: hit testing skips what a transition captured, and a theme change
-    captures the whole window. Where View Transitions are missing (WebKitGTK
-    may lack them), the theme switches at once. Colours never transition one
-    by one, because muted text would pass through the background's grey.
+    a scale.
+  - Every theme change crossfades: `setMode` goes through
+    `changeThemeSmoothly` (`styles/themeTransition.ts` says how and why), and
+    so do an OS switch in system mode and a change made in the other window.
+    Callers just call `setMode`. With View Transitions the window crossfades
+    over `base`, and clicks made during it are lost; without them the theme
+    switches at once. Colours never transition one by one.
   - Values that change every frame (audio levels, the ring) stay outside
     motion and React; see Styling.
 - Reduced motion: `MotionProvider` sets `reducedMotion="user"`, so transform

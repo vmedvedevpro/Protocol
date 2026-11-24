@@ -1,7 +1,7 @@
 import styled from 'styled-components'
 import {SegmentedControl} from '@/components/ui/SegmentedControl'
 import {THEME_MODES, useThemeModeStore} from '@/styles/themeMode'
-import {changeThemeSmoothly, THEME_SWITCH_TRANSITION_NAME} from '@/styles/themeTransition'
+import {THEME_SWITCH_TRANSITION_NAME} from '@/styles/themeTransition'
 
 // Out of the theme crossfade, shown only live (GlobalStyle): the thumb slides
 // once instead of also standing still on the old option in the old frame.
@@ -21,7 +21,7 @@ export function ThemeSwitch() {
                 label="Theme"
                 options={THEME_MODES}
                 value={mode}
-                onChange={(next) => changeThemeSmoothly(() => setMode(next))}
+                onChange={setMode}
             />
         </Frame>
     )

@@ -1,6 +1,6 @@
 import {useState} from 'react'
 import type {Meta, StoryObj} from '@storybook/react-vite'
-import {MotionProvider} from '@/app/MotionProvider'
+import {MotionConfig} from 'motion/react'
 import {SegmentedControl} from './SegmentedControl'
 
 const RANGES = [
@@ -33,5 +33,5 @@ export const Dark: Story = {globals: {theme: 'dark'}}
 /** What reduced motion looks like: the thumb jumps, colours still fade. */
 export const ReducedMotion: Story = {
     globals: {theme: 'light'},
-    decorators: [(Story) => <MotionProvider reducedMotion="always"><Story/></MotionProvider>],
+    decorators: [(Story) => <MotionConfig reducedMotion="always"><Story/></MotionConfig>],
 }

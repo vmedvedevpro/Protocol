@@ -1,13 +1,9 @@
 import {act, renderHook} from '@testing-library/react'
-import {afterEach, describe, expect, it, vi} from 'vitest'
+import {describe, expect, it, vi} from 'vitest'
 import {setSystemDark} from '@/test/matchMedia'
 import {readThemeMode, THEME_STORAGE_KEY, useResolvedTheme, useThemeModeStore} from './themeMode'
 
 type StartViewTransition = (update: () => void) => unknown
-
-afterEach(() => {
-    delete (document as { startViewTransition?: StartViewTransition }).startViewTransition
-})
 
 describe('theme mode', () => {
     it('reads what the old app stored, including the names from before #96', () => {
@@ -70,7 +66,18 @@ describe('theme mode', () => {
         expect(startViewTransition).toHaveBeenCalledOnce()
 
         act(() => useThemeModeStore.getState().setMode('light'))
+        startViewTransition.mockClear()
         act(() => setSystemDark(false))
+        expect(startViewTransition).not.toHaveBeenCalled()
+    })
+
+    it('crossfades every change of mode, whoever sets it', () => {
+        const startViewTransition = vi.fn<StartViewTransition>((update) => update())
+        Object.assign(document, {startViewTransition})
+
+        useThemeModeStore.getState().setMode('dark')
+
         expect(startViewTransition).toHaveBeenCalledOnce()
+        expect(useThemeModeStore.getState().mode).toBe('dark')
     })
 })
