@@ -17,7 +17,7 @@ describe('mock IPC', () => {
     })
 
     it('rejects a command nobody mocked, naming the file to add it to', async () => {
-        const call = command('api_get_meetings')
+        const call = command('no_such_command')
 
         await expect(call).rejects.toBeInstanceOf(CommandError)
         await expect(call).rejects.toThrow(/src\/mocks\/handlers\.ts/)

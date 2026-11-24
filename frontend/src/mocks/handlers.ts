@@ -1,6 +1,7 @@
 import type {Platform} from '@/lib/platform'
 import {audioHandlers} from './audio'
 import {devicesHandlers} from './devices'
+import {meetingsHandlers} from './meetings'
 import {modelsHandlers} from './models'
 import {notesHandlers} from './notes'
 import {macosPermissionsHandlers, permissionsHandlers} from './permissions'
@@ -62,6 +63,9 @@ export const handlers: Record<string, MockHandler> = {
 
     // src-tauri/src/audio/retranscription.rs, diarization/mod.rs
     ...postCallHandlers(mockState),
+
+    // Meetings, transcripts, folders, summaries, action items, speaker labels (src/mocks/meetings.ts)
+    ...meetingsHandlers(mockState),
 }
 
 /**

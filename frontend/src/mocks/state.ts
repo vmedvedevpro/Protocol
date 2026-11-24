@@ -5,6 +5,7 @@ import type {UpdaterSnapshot} from '@/api/updater'
 import {platform} from '@/lib/platform'
 import packageJson from '../../package.json'
 import {createMockDevices} from './devices'
+import {createMockMeetings} from './meetings'
 import {createMockModels} from './models'
 import {createMockNotes} from './notes'
 import {createMockPostCall} from './postCall'
@@ -81,6 +82,8 @@ function createMockState() {
         },
         // The retranscription running, if any (src/mocks/postCall.ts).
         postCall: createMockPostCall(),
+        // The meetings library (src/mocks/meetings.ts).
+        meetings: createMockMeetings(),
     }
 }
 
