@@ -80,6 +80,34 @@ router's list goes to `/`.
   before the bundle runs, repeats the theme key and values of `themeMode.ts`;
   `themeBoot.test.ts` runs it against them.
 
+## Primitives
+
+`components/ui` holds the building blocks every screen uses, each with Light
+and Dark stories. Behaviour and accessibility come from Radix (Dialog, Select,
+DropdownMenu, Switch, Tooltip) or from native elements; the look from the
+theme; the motion from the Motion section.
+
+- `Button` (filled, secondary, ghost; `sm` 28 px in rows, `md` 30 px in
+  footers) and `IconButton`, whose required `label` is its accessible name
+  and its tooltip. `Kbd` shows a shortcut on the window, a grey field or a
+  filled button.
+- `SegmentedControl`, and `Tabs` with `TabList` and `TabPanels` (see Motion).
+- `Switch`, `Select`, `TextField` and `TextArea`. `SettingsGroup`,
+  `SettingsRow` and `SettingsNavRow` lay out a settings card; a control in a
+  row without a label of its own is named by the row's label and described
+  by its description.
+- `Menu` with `MenuItem`, `MenuCheckboxItem`, `MenuRadioGroup` and
+  `MenuRadioItem`, `MenuGroup`, `MenuSub` and `MenuSeparator`.
+- `Sheet`: a dialog over the dimmed window, opened through `open`. On close
+  it returns focus to the control that opened it; for a menu item, which
+  has gone with its menu, that is the menu's button.
+- `Tooltip` shares its open delay through `TooltipProvider`.
+- `UiProviders` (`app/`) is what the primitives expect above them besides
+  the theme: `MotionProvider`, the icon defaults and `TooltipProvider`. App,
+  Storybook's decorator and the tests' `renderUi` (`src/test/`) mount it.
+- `StatusLine` and `ProgressBar`. The bar scales its fill by transform from
+  an inline style, so a ticking value makes no new class.
+
 ## Motion
 
 Motion shows what changed: where a selection went, what arrived, what left. It
@@ -99,7 +127,7 @@ focus); motion (`motion/react`) carries enter and exit, indicators and springs.
   frame would lay the window out again. Something that has to grow appears
   with a fade and a small rise, and the layout moves once.
 - Animated elements are `m.*` (`import * as m from 'motion/react-m'`) under
-  `MotionProvider` (in `App` and in Storybook's decorator). It loads
+  `MotionProvider` (through `UiProviders`). It loads
   `domAnimation` (`app/motionFeatures.ts`) as its own chunk after the first
   render; until then an `m` element keeps the values it mounted with and
   catches up when the chunk arrives. Its `strict` mode rejects the full
@@ -107,20 +135,33 @@ focus); motion (`motion/react`) carries enter and exit, indicators and springs.
   motion's imperative API (`animate()`, `useAnimate`): it puts the engine back
   into the first chunk. Layout animations (`layout`, `layoutId`) need
   `domMax`, which is not loaded: an indicator moves by transform instead.
-- Tabs and segmented controls reuse `SegmentedControl` (`components/ui`),
-  whose motion follows ddoemonn's
+- Segmented controls and tabs share one track (`SegmentedControl.tsx` in
+  `components/ui`), whose motion follows ddoemonn's
   [Segmented Control](https://21st.dev/@ddoemonn/components/segmented-control)
   on 21st.dev, the owner's pick: equal segments, a thumb moved by transform
   on `springs.snappy`, and the thumb as the only filled shape. Hover and press
-  change only the text colour; keyboard focus draws an outline. #108's
-  segmented tabs reuse it.
+  change only the text colour; keyboard focus draws an outline.
+  `SegmentedControl` is a radio group on the window (the theme);
+  `Tabs` with `TabList` and `TabPanels` is a tab list on a grey track over
+  its views (the meeting's Notes · Transcript · Summary).
+- Radix gives the overlays their behaviour; motion animates them. Sheet,
+  Menu and Tooltip hold their open state, and AnimatePresence keeps their
+  `forceMount`ed content until the exit has played (Radix's guide to
+  JavaScript animation). Select cannot: closed, Radix keeps its items in a
+  detached fragment, which shows the current label and selects by typing, so
+  its list stays forced in for `fast` after it closes.
 - What animates and how:
   - Tabs and segmented controls: the thumb slides; the panel below swaps
     with a `base` crossfade, without sliding.
   - Sheets and dialogs: in from their edge by `y` on `springs.gentle`, the
-    scrim fading over `base`; out with `tween('base', 'exit')`.
-  - Menus and popovers: opacity and a scale from 0.96, with
-    `transform-origin` on the side of their anchor, over `fast`.
+    scrim fading over `base`; out with `tween('base', 'exit')`. A sheet hangs
+    under the window's header, so it arrives from above.
+  - Menus, select lists and tooltips: opacity and a scale from `SCALE_FROM`
+    (0.96), with `transform-origin` on the side of their anchor, over
+    `fast`. Inside a menu or a select list one highlight slides between the
+    items on `springs.snappy` (`SlidingHighlight`); it stays on the last
+    item while the pointer crosses a separator, and fades when the pointer
+    leaves the list.
   - Lists: a new row fades in rising 4 px over `base`, a removed row fades
     out; no stagger, and no reordering animation (it needs layout).
   - Status changes (a status line, a badge, a count): `AnimatePresence
@@ -128,10 +169,12 @@ focus); motion (`motion/react`) carries enter and exit, indicators and springs.
     and 4 px of `y` over `fast`, as the shell's update status does. The key
     names the meaning, not the text: re-key when the meaning changes, never
     on every value; a value inside one meaning (a download's percent, a
-    count) updates in place.
+    count) updates in place. That value also stays outside the
+    `role="status"` live region, beside it, so screen readers announce a
+    change of meaning and not every tick; `StatusLine` does both.
   - Hover, press, focus: CSS on the element. Colour and background change
-    over `fast`; a button's press scales it to 0.96 inside `MOTION_OK`; the
-    focus outline appears at once. Segmented options take neither a fill nor
+    over `fast`; a button's press scales it to `SCALE_FROM` inside
+    `MOTION_OK`; the focus outline appears at once. Segmented options take neither a fill nor
     a scale.
   - Every theme change crossfades: `setMode` goes through
     `changeThemeSmoothly` (`styles/themeTransition.ts` says how and why), and
@@ -351,9 +394,13 @@ export const Light: Story = {globals: {theme: 'light'}}
 export const Dark: Story = {globals: {theme: 'dark'}}
 ```
 
-The decorator in `.storybook/preview.tsx` provides the theme, `GlobalStyle`, the
-icon defaults and a query client on the mock IPC. The toolbar switches the theme
-for stories that do not set it.
+The decorator in `.storybook/preview.tsx` provides the theme, `GlobalStyle`,
+`UiProviders` and a query client on the mock IPC. The toolbar switches the
+theme for stories that do not set it.
+
+`@storybook/addon-a11y` runs axe on every story in its Accessibility panel, in
+both themes; a violation there is fixed in the component, not hidden in the
+story.
 
 ## Tests
 
@@ -376,6 +423,8 @@ for stories that do not set it.
 - jsdom has no `matchMedia`; `setSystemDark()` from `src/test/matchMedia.ts`
   flips the OS theme.
 - Test behavior through the UI: roles and visible text, `userEvent` for input.
+  `renderUi` (`src/test/renderUi.ts`) renders under the light theme and
+  `UiProviders`, as the app does; its `rerender` keeps them.
   Give each test its own client from `createTestQueryClient()`
   (`src/test/queryClient.ts`): it does not retry, so a rejected command shows
   as an error at once instead of after Query's 7 s of retries.
