@@ -3,6 +3,7 @@ import {act, render, screen, waitFor, within} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import {describe, expect, it, vi} from 'vitest'
 import type {PendingCrashReport} from '@/api/crashReport'
+import {FIRST_LAUNCH_DETECTED_EVENT} from '@/api/onboarding'
 import {TRAY_NAVIGATE_EVENT, TRAY_START_RECORDING_EVENT} from '@/api/tray'
 import {handlers} from '@/mocks/handlers'
 import {emitMockEvent, installMockIpc} from '@/mocks/ipc'
@@ -81,6 +82,37 @@ describe('App startup', () => {
         } finally {
             vi.useRealTimers()
         }
+    })
+
+    it('offers Retry when the database cannot be set up, and checks again when native reports a first launch', async () => {
+        mockState.database.exists = false
+        mockState.onboarding = null
+        const check = vi.spyOn(handlers, 'check_first_launch').mockImplementation(() => {
+            throw 'Failed to check first launch: permission denied'
+        })
+        renderApp()
+
+        expect(await screen.findByText('Unable to set up the meetings database. Please retry.')).toBeInTheDocument()
+        expect(screen.getByRole('button', {name: 'Retry'})).toBeInTheDocument()
+        check.mockRestore()
+        await listenersRegistered()
+
+        await emitMockEvent(FIRST_LAUNCH_DETECTED_EVENT, null)
+
+        await heading('Welcome to Protocol')
+        expect(mockState.database.setUps).toEqual(['fresh'])
+    })
+
+    it('says when the meetings of an old database were not imported', async () => {
+        mockState.database.exists = false
+        mockState.database.legacyPath = '/data/meeting_minutes.db'
+        mockState.database.importError = 'Migration failed: database disk image is malformed'
+        mockState.onboarding = null
+        renderApp()
+
+        await heading('Welcome to Protocol')
+        expect(screen.getByText('Your meetings from Meetily were not imported')).toBeInTheDocument()
+        expect(mockState.database.setUps).toEqual(['fresh'])
     })
 
     it('shows first launch until it is done, and starts nothing meanwhile', async () => {

@@ -9,6 +9,7 @@ import {createMockMeetings} from './meetings'
 import {createMockCatalog} from './modelCatalog'
 import {createMockModels} from './models'
 import {createMockNotes} from './notes'
+import {completedOnboarding, createMockDatabase} from './onboarding'
 import {createMockPostCall} from './postCall'
 import {createMockPreferences} from './preferences'
 import {createMockUpdater, createMockUpdateRelease} from './updater'
@@ -20,13 +21,18 @@ import {createMockUpdater, createMockUpdateRelease} from './updater'
  * types in src/api; see docs/UI_ARCHITECTURE.md, Mock IPC.
  */
 function createMockState() {
+    const search = new URLSearchParams(window.location.search)
+    const firstLaunch = search.has('firstLaunch')
+
     return {
         appVersion: packageJson.version,
         // The main window as the window plugin sees it.
         window: {maximized: false},
-        // A machine that finished first launch; a test or story of first
-        // launch sets it to null (a new install).
-        onboarding: {completed: true} as OnboardingStatus | null,
+        // A machine that finished first launch, with its database
+        // (src/mocks/onboarding.ts). A test or story of first launch sets the
+        // status to null; `?firstLaunch` in pnpm dev starts as a new install.
+        onboarding: (firstLaunch ? null : completedOnboarding()) as OnboardingStatus | null,
+        database: {...createMockDatabase(), exists: !firstLaunch},
         // What the previous session left (`crashReport`; null after a clean
         // exit), the ZIPs written from it, and what the save dialog answers
         // (null: the user cancelled).
@@ -60,8 +66,8 @@ function createMockState() {
         // The summary model and the meeting language native holds (src/mocks/preferences.ts).
         preferences: createMockPreferences(),
         // Speech and summary models (src/mocks/models.ts), all installed;
-        // `?models=fresh` in pnpm dev starts without them.
-        models: createMockModels({fresh: new URLSearchParams(window.location.search).get('models') === 'fresh'}),
+        // `?models=fresh` in pnpm dev starts without them, as a new install does.
+        models: createMockModels({fresh: firstLaunch || search.get('models') === 'fresh'}),
         // What the system answers (src/mocks/permissions.ts): the microphone
         // opens; on macOS the Audio Capture record, what its first prompt is
         // answered with, and whether audio plays while a probe listens.
