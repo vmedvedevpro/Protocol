@@ -235,8 +235,11 @@ theme; the motion from the Motion section.
   `SettingsRow` and `SettingsNavRow` lay out a settings card; a control in a
   row without a name of its own (`label`, `aria-label`, `aria-labelledby`)
   is named by the row's label and described by its description. A focused
-  field adds a 1 px ring in the text colour to its border
-  (`fieldFocusRing`), so focus differs from hover's `muted` border. An
+  field draws a 2 px stroke in the text colour on its edge
+  (`fieldFocusRing`), so focus differs from hover's `muted` border. The
+  stroke is one outline over the border, never a border plus a spread
+  shadow: the two snap to device pixels separately, and at a fractional
+  display scale (175 %) one side comes out thinner. An
   external `SettingsNavRow` says "(opens in browser)" to screen readers.
 - `VisuallyHidden` holds text only assistive technology reads.
 - Menu and select rows keep the design's faint highlight; the keyboard's row
