@@ -3,7 +3,9 @@ import type {OnboardingStatus} from '@/api/onboarding'
 import type {UpdaterSnapshot} from '@/api/updater'
 import {platform} from '@/lib/platform'
 import packageJson from '../../package.json'
+import {createMockDevices} from './devices'
 import {createMockNotes} from './notes'
+import {createMockPreferences} from './preferences'
 
 /**
  * Everything the mock IPC answers from, and nothing a handler does not read.
@@ -56,6 +58,10 @@ function createMockState() {
         },
         // `meeting_notes` rows by meeting id (src/mocks/notes.ts).
         meetingNotes: createMockNotes(),
+        // Audio devices and the stored recording preferences (src/mocks/devices.ts).
+        devices: createMockDevices(platform),
+        // The summary model and the meeting language native holds (src/mocks/preferences.ts).
+        preferences: createMockPreferences(),
     }
 }
 

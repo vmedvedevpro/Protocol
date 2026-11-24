@@ -1,5 +1,6 @@
 import {useEffect, useState} from 'react'
 import {createBrowserRouter, RouterProvider} from 'react-router-dom'
+import {usePreferencesSync} from '@/api/preferences'
 import {AppThemeProvider} from './AppThemeProvider'
 import {routes} from './routes'
 import {UiProviders} from './UiProviders'
@@ -17,6 +18,7 @@ function useNoContextMenuInRelease() {
 
 export function App() {
     useUpdaterStatusSync()
+    usePreferencesSync()
     useNoContextMenuInRelease()
     // One router per mount, reading the location it starts at (each test
     // sets its own path first).

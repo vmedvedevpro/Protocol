@@ -2,7 +2,8 @@ import {listen} from '@tauri-apps/api/event'
 import {waitFor} from '@testing-library/react'
 import {describe, expect, it, vi} from 'vitest'
 import {type AudioLevelUpdate, levelOf, startAudioLevelMonitoring, stopAudioLevelMonitoring} from '@/api/audio'
-import {MOCK_MICROPHONE, MOCK_SPEAKERS, mockLevel, sampleFor} from './audio'
+import {mockLevel, sampleFor} from './audio'
+import {MOCK_MICROPHONE, MOCK_SPEAKERS} from './devices'
 import {mockState, resetMockState} from './state'
 
 describe('fake audio levels', () => {

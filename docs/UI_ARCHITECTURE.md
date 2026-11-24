@@ -425,6 +425,20 @@ enter and exit, indicators and springs.
   `meetily-speaker-edits:<meetingId>`) belongs to no store: the feature's api
   file reads and writes each key with `localStorage` directly, under the old
   name and format, since `persist` keeps a whole store under one key.
+- The user's preferences that several screens read sit in
+  `src/api/preferences.ts`: the name, the meeting language, the automatic
+  summary and the summary language are one small store each, under the old
+  keys and formats; the summary model is a query. `usePreferencesSync`
+  (mounted in `App`) reads a change made in the other window again and sends
+  the meeting language to native at startup and on every change, since native
+  keeps it in memory only. Pin a summary language with
+  `pinSummaryLanguage`, which keeps it on the recent list.
+- The recording preferences (`src/api/devices.ts`) are one native object that
+  `set_recording_preferences` replaces whole. Change them only with
+  `updateRecordingPreferencesMutation()`: its updates share a mutation scope,
+  so they run one at a time, and each reads the stored object again before
+  writing it, so fields no screen shows and changes made at once all
+  survive; it keeps the legacy single-app fields on the first chosen app.
 - Data that native code pushes whole by event gets `staleTime: Infinity`, and
   only the event writes it (see Events). Other data keeps the default
   `staleTime` and is invalidated after the mutations that change it.
