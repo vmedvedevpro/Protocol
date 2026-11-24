@@ -543,6 +543,13 @@ export function meetingsHandlers(state: { meetings: MockMeetings }): Record<stri
                 ? {language: state.meetings.summaryLanguages[meeting.id] ?? null, storage: 'metadata'}
                 : {language: null, storage: 'local_fallback'}
         },
+        api_save_meeting_summary_language: ({meetingId, summaryLanguage}) => {
+            const meeting = meetingOf(state.meetings, meetingId)
+            const language = typeof summaryLanguage === 'string' ? summaryLanguage : null
+            if (!meeting.folder_path) return {language, storage: 'local_fallback'}
+            state.meetings.summaryLanguages[meeting.id] = language
+            return {language, storage: 'metadata'}
+        },
         api_get_meeting_detected_summary_language: ({meetingId}) => {
             const meeting = meetingOf(state.meetings, meetingId)
             return meeting.folder_path

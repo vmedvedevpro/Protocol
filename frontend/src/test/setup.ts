@@ -1,4 +1,7 @@
 import '@testing-library/jest-dom/vitest'
+// IndexedDB for the recording's crash copy; each test gets an empty one.
+import 'fake-indexeddb/auto'
+import {IDBFactory} from 'fake-indexeddb'
 import {cleanup} from '@testing-library/react'
 import {clearMocks} from '@tauri-apps/api/mocks'
 import {MotionGlobalConfig} from 'motion/react'
@@ -7,6 +10,7 @@ import {postCallJobs} from '@/api/postCall'
 import {rereadPreferences} from '@/api/preferences'
 import {recordingPhase} from '@/api/recordingPhase'
 import {useKeepOnTopStore} from '@/app/shell/keepOnTop'
+import {resetRecording} from '@/features/recording/store/reset'
 import {useAdvancedSettingsStore} from '@/features/settings/store/advanced'
 import {resetToasts} from '@/components/ui/toastStore'
 import {installMockIpc} from '@/mocks/ipc'
@@ -41,6 +45,8 @@ afterEach(async () => {
     // runs its stop. Both need the mock IPC, so they get a macrotask, which
     // runs every microtask before it, while the mocks still exist.
     await new Promise((resolve) => setTimeout(resolve, 0))
+    await resetRecording()
+    globalThis.indexedDB = new IDBFactory()
     clearMocks()
     useThemeModeStore.setState({mode: 'system'})
     useKeepOnTopStore.setState({onTop: false})

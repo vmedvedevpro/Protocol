@@ -6,6 +6,9 @@ import {TRAY_NAVIGATE_EVENT, TRAY_START_RECORDING_EVENT} from '@/api/tray'
 import {RecordBarContext} from '@/components/screen/recordBar'
 import {FirstLaunch} from '@/features/onboarding/pages/FirstLaunch'
 import {RecordingBar} from '@/features/recording/components/RecordingBar'
+import {RecordingRuntime} from '@/features/recording/components/RecordingRuntime'
+import {toggleRecording} from '@/features/recording/store/runtime'
+import {startRecording} from '@/features/recording/store/start'
 import {useHotkey} from '@/lib/hotkeys'
 import {platform} from '@/lib/platform'
 import {paths} from '@/lib/paths'
@@ -37,17 +40,17 @@ const Window = styled.div`
 /**
  * The shell's own commands, mounted once first launch is done: no recording
  * may start before it, so the tray's Start and ⌘R are not heard until then.
+ * ⌘R starts a recording, or stops the one that runs; the recording's runtime
+ * hears native from here on every screen.
  */
 function ShellCommands() {
     const navigate = useNavigate()
-    // #112 replaces the navigation with its start order; until then Record,
-    // ⌘R and the tray open the recording screen.
-    const startRecording = () => void navigate(paths.recording)
 
-    useNativeEvent(TRAY_START_RECORDING_EVENT, startRecording)
-    useHotkey({code: 'KeyR', mod: true}, startRecording, {level: 'app'})
+    // The tray asks only while nothing records; its Stop is native's.
+    useNativeEvent(TRAY_START_RECORDING_EVENT, () => void startRecording())
+    useHotkey({code: 'KeyR', mod: true}, toggleRecording, {level: 'app'})
     useHotkey({code: 'Comma', mod: true}, () => void navigate(paths.settings()), {level: 'app'})
-    return null
+    return <RecordingRuntime/>
 }
 
 /**

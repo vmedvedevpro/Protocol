@@ -1,14 +1,16 @@
 /**
  * The live transcript: lines native pushes while a recording runs
  * (`transcript-update`, audio/transcription/worker.rs), the history it keeps
- * for a WebView that reloads mid-recording, and the save that turns the
- * lines into the meeting after Stop (api.rs `api_save_transcript`).
+ * for a WebView that reloads mid-recording, and the shapes the save after
+ * Stop and the transcript list take them in.
  *
  * Times are seconds from the start of the recording, pauses left out, as
  * the saved audio has them.
  */
 import {command} from '@/api/core'
 import type {NativeEvent} from '@/api/events'
+import type {TranscriptSegment} from '@/api/meetings'
+import type {TranscriptLine} from '@/components/transcript/turns'
 
 /** Mirrors `TranscriptUpdate`: one line, final unless `is_partial`. */
 export interface TranscriptUpdate {
@@ -94,19 +96,12 @@ export function lineFromHistory(segment: TranscriptHistorySegment, speaker: stri
     }
 }
 
-/** Mirrors api.rs `TranscriptSegment`, what the save reads. */
-interface SavedSegment {
-    id: string
-    text: string
-    timestamp: string
-    audio_start_time: number
-    audio_end_time: number
-    duration: number
-    /** Kept on every line: diarization later finds the user by the microphone's "You" ranges. */
-    speaker?: string
-}
-
-const toSaved = (line: LiveLine): SavedSegment => ({
+/**
+ * A line as the meeting saves it (`saveTranscript` in src/api/meetings.ts).
+ * The speaker goes with every line: diarization after the call finds the
+ * user by the microphone's "You" ranges.
+ */
+export const toSegment = (line: LiveLine): TranscriptSegment => ({
     id: String(line.sequenceId),
     text: line.text,
     timestamp: line.timestamp,
@@ -116,27 +111,14 @@ const toSaved = (line: LiveLine): SavedSegment => ({
     speaker: line.speaker || undefined,
 })
 
-/**
- * Saves a recording as a meeting with these lines and returns its id. Native
- * takes the start time from the folder's metadata when it has one, else from
- * `recordingStartedAt` (RFC 3339); a title starting "Meeting · " is saved as
- * automatic, so the summary may rename it.
- */
-export async function saveTranscript(
-    title: string,
-    lines: readonly LiveLine[],
-    folderPath: string | null,
-    recordingStartedAt: string | null,
-): Promise<string> {
-    const reply = await command<{ meeting_id?: string }>('api_save_transcript', {
-        meetingTitle: title,
-        transcripts: lines.map(toSaved),
-        folderPath,
-        recordingStartedAt,
-    })
-    if (!reply.meeting_id) throw new Error('The meeting was saved without an id')
-    return reply.meeting_id
-}
+/** A line as the transcript list shows it. */
+export const toTranscriptLine = (line: LiveLine): TranscriptLine => ({
+    id: String(line.sequenceId),
+    text: line.text,
+    start: line.start,
+    end: line.end,
+    speaker: line.speaker || null,
+})
 
 /**
  * Lines in transcript order: by start, then by sequence for lines that start
