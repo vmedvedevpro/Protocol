@@ -2,13 +2,14 @@ import {useSyncExternalStore} from 'react'
 import {create} from 'zustand'
 import {persist, type PersistStorage} from 'zustand/middleware'
 import type {ThemeName} from './theme'
+import {changeThemeSmoothly} from './themeTransition'
 
 export type ThemeMode = ThemeName | 'system'
 
-export const THEME_MODES: readonly {mode: ThemeMode; label: string}[] = [
-    {mode: 'light', label: 'Light'},
-    {mode: 'dark', label: 'Dark'},
-    {mode: 'system', label: 'Match system'},
+export const THEME_MODES: readonly {value: ThemeMode; label: string}[] = [
+    {value: 'light', label: 'Light'},
+    {value: 'dark', label: 'Dark'},
+    {value: 'system', label: 'Match system'},
 ]
 
 /**
@@ -62,7 +63,8 @@ export const useThemeModeStore = create<ThemeModeState>()(
     persist(
         (set) => ({
             mode: 'system',
-            setMode: (mode) => set({mode}),
+            // Every change of mode crossfades; callers just set it.
+            setMode: (mode) => changeThemeSmoothly(() => set({mode})),
         }),
         {
             name: THEME_STORAGE_KEY,
@@ -80,8 +82,14 @@ const systemDarkQuery = () => (darkQuery ??= window.matchMedia('(prefers-color-s
 
 function subscribeToSystemTheme(onChange: () => void) {
     const query = systemDarkQuery()
-    query.addEventListener('change', onChange)
-    return () => query.removeEventListener('change', onChange)
+    // The OS theme shows only in system mode, and there it crossfades like a
+    // click on the switch; otherwise nothing visible changes.
+    const onSystemChange = () => {
+        if (useThemeModeStore.getState().mode === 'system') changeThemeSmoothly(onChange)
+        else onChange()
+    }
+    query.addEventListener('change', onSystemChange)
+    return () => query.removeEventListener('change', onSystemChange)
 }
 
 const systemIsDark = () => systemDarkQuery().matches

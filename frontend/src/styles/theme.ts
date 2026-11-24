@@ -6,6 +6,8 @@
  * never branches on the mode.
  */
 
+import {cubicBezier, durations, easings} from './motion'
+
 export type ThemeName = 'light' | 'dark'
 
 export interface ThemeColors {
@@ -142,6 +144,20 @@ const sizes = {
     bar: {header: '44px', footer: '56px'},
 }
 
+/** Motion tokens for CSS transitions; the values live in ./motion.ts. */
+const motion = {
+    duration: {
+        fast: `${durations.fast}ms`,
+        base: `${durations.base}ms`,
+        slow: `${durations.slow}ms`,
+    },
+    easing: {
+        standard: cubicBezier(easings.standard),
+        enter: cubicBezier(easings.enter),
+        exit: cubicBezier(easings.exit),
+    },
+}
+
 function makeTheme(name: ThemeName) {
     return {
         name,
@@ -153,6 +169,7 @@ function makeTheme(name: ThemeName) {
         radii,
         space,
         sizes,
+        motion,
     }
 }
 
