@@ -4633,7 +4633,6 @@ dependencies = [
  "env_logger",
  "esaxx-rs",
  "ffmpeg-sidecar",
- "flate2",
  "futures",
  "futures-util",
  "infer 0.15.0",

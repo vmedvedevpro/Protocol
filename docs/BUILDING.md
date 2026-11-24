@@ -55,11 +55,11 @@ A clean build downloads and verifies what the speech models run on, so it
 needs network access:
 
 - ONNX Runtime 1.24.4 (`build/onnxruntime.rs`, exact sizes and SHA-256): on
-  Windows Microsoft's DirectML NuGet packages, on Linux x64 Microsoft's
-  `onnxruntime-linux-x64-1.24.4` release archive. The app loads it from
-  `binaries/onnxruntime/` (the installer's, deb's or AppImage's resources),
-  never from `PATH` or the system library path. macOS builds link the runtime
-  `ort` downloads instead.
+  Windows Microsoft's DirectML NuGet packages, on Linux x64 the linux-x64
+  library of Microsoft's `Microsoft.ML.OnnxRuntime` NuGet package. The app
+  loads it from `binaries/onnxruntime/` (the installer's, deb's or AppImage's
+  resources), never from `PATH` or the system library path. macOS builds link
+  the runtime `ort` downloads instead.
   - Only `x86_64-pc-windows-msvc` and `x86_64-unknown-linux-gnu` have a pinned
     runtime; the build script stops with an error for any other Windows or
     Linux target (Linux aarch64 or musl, for example).

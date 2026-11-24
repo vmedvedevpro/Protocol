@@ -12,7 +12,6 @@ use std::os::windows::fs::MetadataExt;
 
 enum ArchiveKind {
     Zip,
-    TarGz,
 }
 
 struct Archive {
@@ -96,29 +95,33 @@ const WINDOWS_X64: Runtime = Runtime {
 
 // Microsoft's CPU build: glibc 2.27 and no AVX2 requirement (ort's own Linux
 // binaries need glibc 2.38 and AVX2). The shared-provider library only serves
-// GPU execution providers, so it is not staged.
+// GPU execution providers, so it is not staged. It comes from Microsoft's
+// NuGet package, like the Windows runtime: the GitHub release it used to come
+// from disappeared with the microsoft/onnxruntime repository in November 2026
+// (#104), and the package's linux-x64 library is that release's
+// libonnxruntime.so.1.24.4 byte for byte. Its LICENSE has CRLF line endings.
 const LINUX_X64: Runtime = Runtime {
     target: "x86_64-unknown-linux-gnu",
     archives: &[Archive {
-        url: "https://github.com/microsoft/onnxruntime/releases/download/v1.24.4/onnxruntime-linux-x64-1.24.4.tgz",
-        size: 8_155_822,
-        sha256: "3a211fbea252c1e66290658f1b735b772056149f28321e71c308942cdb54b747",
-        kind: ArchiveKind::TarGz,
+        url: "https://www.nuget.org/api/v2/package/Microsoft.ML.OnnxRuntime/1.24.4",
+        size: 125_194_303,
+        sha256: "4b978d5065b85e7004b6c6f60ca494bd978fbe6836cbf0a0b52d82b61ab99638",
+        kind: ArchiveKind::Zip,
     }],
     artifacts: &[
         Artifact {
             archive: 0,
-            archive_path: "onnxruntime-linux-x64-1.24.4/lib/libonnxruntime.so.1.24.4",
+            archive_path: "runtimes/linux-x64/native/libonnxruntime.so",
             output_name: "libonnxruntime.so",
             size: 22_159_232,
             sha256: "d132535d051344ff5c64c9c200004150559049a81ed330eb4422c1962fb6b7e4",
         },
         Artifact {
             archive: 0,
-            archive_path: "onnxruntime-linux-x64-1.24.4/LICENSE",
+            archive_path: "LICENSE",
             output_name: "onnxruntime-LICENSE.txt",
-            size: 1_073,
-            sha256: "2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c",
+            size: 1_094,
+            sha256: "c250d6278f0b47a6439fb7592b08b58a55eb9f535aa49a1db63211c3f982b674",
         },
     ],
 };
@@ -308,7 +311,6 @@ fn stage_runtime(runtime: &Runtime, archive_path: &Path, destination: &Path) -> 
             runtime.artifacts.iter().filter(|artifact| artifact.archive == index).collect();
         match pin.kind {
             ArchiveKind::Zip => extract_zip(archive_path, &artifacts, destination)?,
-            ArchiveKind::TarGz => extract_tar_gz(archive_path, &artifacts, destination)?,
         }
         for artifact in artifacts {
             verify_file(
@@ -336,40 +338,6 @@ fn extract_zip(archive_path: &Path, artifacts: &[&Artifact], destination: &Path)
             )
         })?;
         extract_entry(&mut source, artifact, destination)?;
-    }
-    Ok(())
-}
-
-// Only regular entries with a pinned path are written; links and every other
-// entry are skipped, so the archive cannot place files outside the stage.
-fn extract_tar_gz(archive_path: &Path, artifacts: &[&Artifact], destination: &Path) -> Result<(), String> {
-    let archive_file = File::open(archive_path)
-        .map_err(|error| format!("failed to open {}: {error}", archive_path.display()))?;
-    let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(archive_file));
-    let mut extracted = Vec::new();
-    let entries = archive
-        .entries()
-        .map_err(|error| format!("failed to read ONNX Runtime archive: {error}"))?;
-    for entry in entries {
-        let mut entry = entry.map_err(|error| format!("failed to read ONNX Runtime archive: {error}"))?;
-        if !entry.header().entry_type().is_file() {
-            continue;
-        }
-        let path = entry
-            .path()
-            .map_err(|error| format!("invalid path in ONNX Runtime archive: {error}"))?
-            .to_string_lossy()
-            .into_owned();
-        if let Some(artifact) = artifacts.iter().find(|artifact| artifact.archive_path == path) {
-            extract_entry(&mut entry, artifact, destination)?;
-            extracted.push(artifact.archive_path);
-        }
-    }
-    if let Some(missing) = artifacts
-        .iter()
-        .find(|artifact| !extracted.contains(&artifact.archive_path))
-    {
-        return Err(format!("missing {} in ONNX Runtime archive", missing.archive_path));
     }
     Ok(())
 }
