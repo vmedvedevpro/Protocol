@@ -1,5 +1,5 @@
 import {useEffect, useEffectEvent} from 'react'
-import {platform, type Platform} from '@/lib/platform'
+import {platform, type Platform} from './platform'
 
 /**
  * The window's keyboard shortcuts: one keydown listener and the hotkeys that

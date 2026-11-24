@@ -5,7 +5,7 @@ import styled from 'styled-components'
 import {Button, IconButton} from '@/components/ui/Button'
 import {formatShortcut} from '@/lib/platform'
 import {paths} from '@/lib/paths'
-import {Screen} from '../shell/Screen'
+import {Screen} from '@/components/screen/Screen'
 import {ThemeSwitch} from './ThemeSwitch'
 
 // Stand-ins for the screens until their tasks replace them in the route

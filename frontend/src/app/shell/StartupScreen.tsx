@@ -4,7 +4,7 @@ import styled from 'styled-components'
 import {Button} from '@/components/ui/Button'
 import {type Status, StatusLine} from '@/components/ui/StatusLine'
 import {tween} from '@/styles/motion'
-import {Screen} from './Screen'
+import {Screen} from '@/components/screen/Screen'
 import type {StartupPhase} from './startup'
 
 type Checking = Exclude<StartupPhase, 'firstLaunch' | 'ready'>

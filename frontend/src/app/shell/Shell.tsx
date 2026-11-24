@@ -2,8 +2,10 @@ import {Outlet, useMatches, useNavigate} from 'react-router-dom'
 import styled from 'styled-components'
 import {useNativeEvent} from '@/api/events'
 import {TRAY_NAVIGATE_EVENT, TRAY_START_RECORDING_EVENT} from '@/api/tray'
+import {RecordBarContext} from '@/components/screen/recordBar'
+import {RecordingBar} from '@/features/recording/components/RecordingBar'
+import {useHotkey} from '@/lib/hotkeys'
 import {platform} from '@/lib/platform'
-import {useHotkey} from '../hotkeys'
 import {paths} from '@/lib/paths'
 import {FirstLaunchPlaceholder} from '../placeholder/Screens'
 import {useModelDownloadSync} from '../useModelDownloadSync'
@@ -20,6 +22,9 @@ export interface ShellRouteHandle {
     /** The title Linux shows in the middle of the strip; Protocol by default. */
     title?: string
 }
+
+// The bar every screen docks (Screen): the recording's.
+const renderRecordBar = (idle: boolean) => <RecordingBar idle={idle}/>
 
 const Window = styled.div`
     display: flex;
@@ -68,25 +73,27 @@ export function Shell() {
     useNativeEvent(TRAY_NAVIGATE_EVENT, (path) => void navigate(path))
 
     return (
-        <Window>
-            <TitleBar
-                platform={platform}
-                title={handle.title ?? 'Protocol'}
-                onBack={handle.back ? () => void navigate(paths.home) : undefined}
-                onTop={onTop}
-                onTopChange={setOnTop}
-            />
-            {phase === 'ready' && (
-                <>
-                    <ShellCommands/>
-                    <Outlet/>
-                    <CrashReportSheet/>
-                </>
-            )}
-            {phase === 'firstLaunch' && <FirstLaunchPlaceholder/>}
-            {(phase === 'checking' || phase === 'slow' || phase === 'failed') && (
-                <StartupScreen phase={phase} onRetry={retry}/>
-            )}
-        </Window>
+        <RecordBarContext value={renderRecordBar}>
+            <Window>
+                <TitleBar
+                    platform={platform}
+                    title={handle.title ?? 'Protocol'}
+                    onBack={handle.back ? () => void navigate(paths.home) : undefined}
+                    onTop={onTop}
+                    onTopChange={setOnTop}
+                />
+                {phase === 'ready' && (
+                    <>
+                        <ShellCommands/>
+                        <Outlet/>
+                        <CrashReportSheet/>
+                    </>
+                )}
+                {phase === 'firstLaunch' && <FirstLaunchPlaceholder/>}
+                {(phase === 'checking' || phase === 'slow' || phase === 'failed') && (
+                    <StartupScreen phase={phase} onRetry={retry}/>
+                )}
+            </Window>
+        </RecordBarContext>
     )
 }
