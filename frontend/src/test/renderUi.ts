@@ -1,7 +1,7 @@
 import {createElement, type ReactElement} from 'react'
 import {render} from '@testing-library/react'
 import {ThemeProvider} from 'styled-components'
-import {UiProviders} from '@/app/UiProviders'
+import {UiProviders} from '@/components/ui/UiProviders'
 import {lightTheme} from '@/styles/theme'
 
 const withProviders = (ui: ReactElement) =>

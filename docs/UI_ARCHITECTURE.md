@@ -292,10 +292,10 @@ theme; the motion from the Motion section.
   replaces it where it stands (a loading toast and its outcome); the
   Toaster announces the new text, since Radix announces a toast only when
   it appears. A mouse drag never dismisses one.
-- `UiProviders` (`app/`) is what the primitives expect above them besides
-  the theme: `MotionProvider`, the icon defaults, `TooltipProvider` and the
-  `Toaster`. App, Storybook's decorator and the tests' `renderUi`
-  (`src/test/`) mount it.
+- `UiProviders` (`components/ui/`) is what the primitives expect above
+  them besides the theme: `MotionProvider`, the icon defaults,
+  `TooltipProvider` and the `Toaster`. App, Storybook's decorator and the
+  tests' `renderUi` (`src/test/`) mount it.
 - `StatusLine`, whose `busy` status turns a spinner before its text, and
   `ProgressBar`. The bar scales its fill by transform from an inline
   style, so a ticking value makes no new class. `Spinner` marks a wait of
@@ -331,8 +331,8 @@ enter and exit, indicators and springs.
   short block in a sheet or a settings card, so laying it out each frame
   is cheap.
 - Animated elements are `m.*` (`import * as m from 'motion/react-m'`) under
-  `MotionProvider` (through `UiProviders`). It loads
-  `domAnimation` (`app/motionFeatures.ts`) as its own chunk after the first
+  `MotionProvider` (through `UiProviders`). It loads `domAnimation`
+  (`components/ui/motionFeatures.ts`) as its own chunk after the first
   render; until then an `m` element keeps the values it mounted with and
   catches up when the chunk arrives. Its `strict` mode rejects the full
   `motion.*`. Import nothing from

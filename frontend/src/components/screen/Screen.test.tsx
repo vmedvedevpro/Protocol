@@ -6,29 +6,24 @@ import {renderUi} from '@/test/renderUi'
 import {RecordBarContext} from './recordBar'
 import {Screen} from './Screen'
 
-// Stands in for the recording's bar, which the shell provides.
-const fakeRecordBar = (idle: boolean) => <div role="group" aria-label={idle ? 'Record' : 'Recording'}/>
+// Stands in for the recording's bar, which the shell provides: idle, it
+// shows only where the screen docks it.
+const fakeRecordBar = (idle: boolean) => idle && <div role="group" aria-label="Record"/>
 
-function renderScreen(element: ReactNode, {withBar = true} = {}) {
+function renderScreen(element: ReactNode) {
     const router = createMemoryRouter([{path: '/', element}])
-    const page = <RouterProvider router={router}/>
-    return renderUi(withBar ? <RecordBarContext value={fakeRecordBar}>{page}</RecordBarContext> : page)
+    return renderUi(<RecordBarContext value={fakeRecordBar}><RouterProvider router={router}/></RecordBarContext>)
 }
 
 describe('Screen', () => {
-    it('tells the recording bar whether the screen docks it while idle', () => {
-        renderScreen(<Screen recordBar><h1>Meetings</h1></Screen>)
-        expect(screen.getByRole('group', {name: 'Record'})).toBeInTheDocument()
-    })
-
     it('docks the recording bar above the screen’s own bar', () => {
-        renderScreen(<Screen bar={<div role="group" aria-label="Playback"/>}><h1>Meeting</h1></Screen>)
+        renderScreen(<Screen recordBar bar={<div role="group" aria-label="Playback"/>}><h1>Meetings</h1></Screen>)
         const bars = screen.getAllByRole('group')
-        expect(bars.map((bar) => bar.getAttribute('aria-label'))).toEqual(['Recording', 'Playback'])
+        expect(bars.map((bar) => bar.getAttribute('aria-label'))).toEqual(['Record', 'Playback'])
     })
 
     it('hides an empty footer from screen readers', () => {
-        renderScreen(<Screen><h1>Settings</h1></Screen>, {withBar: false})
+        renderScreen(<Screen><h1>Settings</h1></Screen>)
         expect(screen.queryByRole('contentinfo')).not.toBeInTheDocument()
     })
 })
