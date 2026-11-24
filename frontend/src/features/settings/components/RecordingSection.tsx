@@ -5,7 +5,7 @@
  * `useRecordingPreferences` so the fields no row shows are written back.
  */
 import {useEffect, useEffectEvent, useRef, useState} from 'react'
-import {useMutation, useQuery} from '@tanstack/react-query'
+import {useMutation} from '@tanstack/react-query'
 import {XIcon} from '@phosphor-icons/react'
 import {AnimatePresence} from 'motion/react'
 import * as m from 'motion/react-m'
@@ -13,7 +13,7 @@ import {useNavigate} from 'react-router-dom'
 import styled from 'styled-components'
 import {type LevelFeed, useAudioLevelMonitoring} from '@/api/audio'
 import {deviceLabel, MAX_GAIN, MIN_GAIN, type PerAppTarget, type RecordingPreferences} from '@/api/devices'
-import {useRecordingPhase} from '@/api/recordingPhase'
+import {type RecordingPhase, useRecordingPhase} from '@/api/recordingPhase'
 import {LevelMeter} from '@/components/ring/LevelMeter'
 import {Button} from '@/components/ui/Button'
 import {Collapse} from '@/components/ui/Collapse'
@@ -25,9 +25,10 @@ import {toast} from '@/components/ui/toastStore'
 import {paths} from '@/lib/paths'
 import {platform as currentPlatform, type Platform} from '@/lib/platform'
 import {tween} from '@/styles/motion'
-import {defaultRecordingsFolderQuery, openRecordingsFolder, pickRecordingsFolder} from '../api/recordingsFolder'
+import {openRecordingsFolder, pickRecordingsFolder} from '../api/recordingsFolder'
 import {DeviceRow} from './PreferenceRows'
-import {useRecordingPreferences} from './useRecordingPreferences'
+import {useRecordingPreferences} from '../hooks/useRecordingPreferences'
+import {Warning} from './styles'
 
 const Actions = styled.div`
     display: flex;
@@ -47,17 +48,9 @@ const Path = styled.code`
     overflow-wrap: anywhere;
 `
 
-const Warning = styled.p`
-    ${({theme}) => theme.text.small};
-    font-weight: ${({theme}) => theme.fontWeights.medium};
-    color: ${({theme}) => theme.colors.text};
-`
-
 /** The folder recordings go to, with Change and Open. */
 function FolderRow({preferences}: {preferences: RecordingPreferences}) {
     const {save} = useRecordingPreferences()
-    const fallback = useQuery(defaultRecordingsFolderQuery)
-    const folder = preferences.save_folder || fallback.data
     const change = useMutation({
         mutationFn: pickRecordingsFolder,
         onSuccess: (picked) => {
@@ -81,7 +74,7 @@ function FolderRow({preferences}: {preferences: RecordingPreferences}) {
                 </Actions>
             )}
         >
-            {folder && <Path>{folder}</Path>}
+            <Path>{preferences.save_folder}</Path>
         </SettingsRow>
     )
 }
@@ -323,14 +316,13 @@ function ComputerAudioGroup({platform}: {platform: Platform}) {
 }
 
 /**
- * The microphone's meter: the device preview while nothing records, the
- * recording's own microphone level while one runs (the preview would open
- * the device a second time), and at rest while it starts or is saved.
+ * The microphone meter's feed: the device preview while a test runs, the
+ * recording's own microphone level while one runs (nothing is opened for
+ * it), and at rest otherwise.
  */
-function useMicFeed(device: string | null): (gain: number) => LevelFeed | null {
-    const phase = useRecordingPhase()
+function micFeed(phase: RecordingPhase, testing: boolean, device: string | null): (gain: number) => LevelFeed | null {
     if (phase === 'recording' || phase === 'paused') return () => ({kind: 'recording', source: 'mic'})
-    if (phase !== 'idle') return () => null
+    if (!testing) return () => null
     return (gain) => ({kind: 'device', type: 'input', device: device ?? undefined, gain})
 }
 
@@ -342,18 +334,35 @@ interface RecordingSectionProps {
 export function RecordingSection({platform = currentPlatform}: RecordingSectionProps) {
     const {preferences} = useRecordingPreferences()
     const phase = useRecordingPhase()
-    const mic = preferences?.preferred_mic_device ? deviceLabel(preferences.preferred_mic_device) : null
-    // The chosen microphone by name, or the default devices; none while a
-    // recording has the devices.
-    useAudioLevelMonitoring(preferences && phase === 'idle' ? (mic ? [mic] : []) : null)
-    const micFeed = useMicFeed(mic)
+    const idle = phase === 'idle'
+    const chosen = preferences?.preferred_mic_device ?? null
+    const mic = chosen ? deviceLabel(chosen) : null
+
+    // Only Test opens the microphone. A test belongs to the device it was
+    // started for: choosing another ends it, and the next one uses the new
+    // device. A recording ends it too, since it takes the device; it does
+    // not come back on its own afterwards.
+    const [testedFor, setTestedFor] = useState<string | null>(null)
+    const device = chosen ?? 'default'
+    if (!idle && testedFor !== null) setTestedFor(null)
+    const testing = idle && testedFor === device
+    // The chosen microphone by name; with the default one, native's defaults,
+    // which open the default output too (its level is not shown). Leaving the
+    // section stops it.
+    useAudioLevelMonitoring(testing ? (mic ? [mic] : []) : null)
+
+    const test = (
+        <Button size="sm" disabled={!preferences || !idle} onClick={() => setTestedFor(testing ? null : device)}>
+            {testing ? 'Stop' : 'Test'}
+        </Button>
+    )
 
     return (
         <>
             <SavingGroup/>
             <SettingsGroup title="Microphone">
-                <DeviceRow type="Input" description="Your voice, labeled “You”"/>
-                <GainRow label="Mic volume" field="mic_gain" meter={micFeed}/>
+                <DeviceRow type="Input" description="Your voice, labeled “You”" action={test}/>
+                <GainRow label="Mic volume" field="mic_gain" meter={micFeed(phase, testing, mic)}/>
             </SettingsGroup>
             <ComputerAudioGroup platform={platform}/>
             <SettingsGroup title="Import">

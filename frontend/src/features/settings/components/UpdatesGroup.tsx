@@ -9,9 +9,10 @@ import {useMutation, useQuery} from '@tanstack/react-query'
 import {CaretDownIcon} from '@phosphor-icons/react'
 import {AnimatePresence} from 'motion/react'
 import * as m from 'motion/react-m'
+import {useSearchParams} from 'react-router-dom'
 import styled from 'styled-components'
 import {useEventQuerySync} from '@/api/events'
-import {openExternalUrl} from '@/api/links'
+import {openLink} from '@/api/links'
 import {
     catalogStatusQuery,
     checkForModelUpdates,
@@ -47,6 +48,7 @@ import {
 } from '@/lib/updateText'
 import {tween} from '@/styles/motion'
 import {ReleaseNotes} from './ReleaseNotes'
+import {Warning} from './styles'
 import {appUpdateStatus, catalogStatus} from './updateStatus'
 
 /** How long a refused Restart and update keeps saying why. */
@@ -61,8 +63,6 @@ function useNow() {
     }, [])
     return now
 }
-
-const open = (url: string) => void openExternalUrl(url).catch(() => undefined)
 
 const Actions = styled(m.div)`
     display: flex;
@@ -83,13 +83,6 @@ const Notes = styled.div`
     gap: ${({theme}) => theme.space[1]};
     ${({theme}) => theme.text.small};
     color: ${({theme}) => theme.colors.muted};
-`
-
-// The window is greyscale: a failure is told by weight and the alert role.
-const Failure = styled.p`
-    ${({theme}) => theme.text.small};
-    font-weight: ${({theme}) => theme.fontWeights.medium};
-    color: ${({theme}) => theme.colors.text};
 `
 
 const Disclosure = styled.button`
@@ -141,7 +134,7 @@ function WhatsNew({version, notes}: {version: string; notes: string | null}) {
             <Collapse open={shown}>
                 <WhatsNewBody>
                     {notes ? <ReleaseNotes notes={notes}/> : <Notes>This release has no notes.</Notes>}
-                    <Button variant="ghost" size="sm" onClick={() => open(releaseUrl(version))}>Open on GitHub</Button>
+                    <Button variant="ghost" size="sm" onClick={() => openLink(releaseUrl(version))}>Open on GitHub</Button>
                 </WhatsNewBody>
             </Collapse>
         </div>
@@ -185,11 +178,11 @@ function AppUpdateRow({snapshot}: {snapshot: UpdaterSnapshot}) {
 
     let actions: {key: string; buttons: ReactNode}
     if (support.kind === 'off') {
-        actions = {key: 'off', buttons: <Button size="sm" onClick={() => open(RELEASES_URL)}>Open releases</Button>}
+        actions = {key: 'off', buttons: <Button size="sm" onClick={() => openLink(RELEASES_URL)}>Open releases</Button>}
     } else if (offer?.manualOnly) {
         actions = {
             key: 'manual',
-            buttons: <Button variant="filled" size="sm" onClick={() => open(releaseUrl(offer.release.version))}>Download from GitHub</Button>,
+            buttons: <Button variant="filled" size="sm" onClick={() => openLink(releaseUrl(offer.release.version))}>Download from GitHub</Button>,
         }
     } else if (offer?.downloaded) {
         actions = {
@@ -254,12 +247,12 @@ function AppUpdateRow({snapshot}: {snapshot: UpdaterSnapshot}) {
             </Collapse>
             <Collapse open={notes.length > 0 || blocked !== null}>
                 <Notes>
-                    {blocked && <Failure>{blocked}</Failure>}
+                    {blocked && <Warning>{blocked}</Warning>}
                     {notes.map((note) => <p key={note}>{note}</p>)}
                 </Notes>
             </Collapse>
             <Collapse open={alert !== null}>
-                <Failure role="alert">{alert}</Failure>
+                <Warning role="alert">{alert}</Warning>
             </Collapse>
             {offer && <WhatsNew key={offer.release.version} version={offer.release.version} notes={offer.release.notes}/>}
         </SettingsRow>
@@ -297,7 +290,7 @@ function ModelUpdatesRow() {
             control={<Button size="sm" disabled={!status.data || checking} onClick={() => check.mutate()}>Check</Button>}
         >
             <Collapse open={failure !== null}>
-                <Failure role="alert">{failure}</Failure>
+                <Warning role="alert">{failure}</Warning>
             </Collapse>
             {hidden > 0 && <Notes>{hidden === 1 ? '1 entry' : `${hidden} entries`} of the model list can’t be used by this version.</Notes>}
         </SettingsRow>
@@ -309,22 +302,21 @@ const Anchor = styled.div`
     scroll-margin-top: ${({theme}) => theme.space[3]};
 `
 
-interface UpdatesGroupProps {
-    /** Scrolls the group into view once mounted, then calls `onRevealed`. */
-    reveal?: boolean
-    onRevealed?: () => void
-}
-
-/** Settings › General › Updates. */
-export function UpdatesGroup({reveal = false, onRevealed}: UpdatesGroupProps) {
+/**
+ * Settings › General › Updates. The old About held the updates, and the
+ * tray's Check for Updates… still opens `?section=about`: the group scrolls
+ * itself into view, then the id becomes `general`, so going back does not
+ * scroll again.
+ */
+export function UpdatesGroup() {
     const updater = useQuery(updaterStatusQuery)
     const anchor = useRef<HTMLDivElement>(null)
+    const [search, setSearch] = useSearchParams()
     useEffect(() => {
-        if (!reveal) return
-        // jsdom has no scrollIntoView.
-        anchor.current?.scrollIntoView?.({block: 'start'})
-        onRevealed?.()
-    }, [reveal, onRevealed])
+        if (search.get('section') !== 'about') return
+        anchor.current?.scrollIntoView({block: 'start'})
+        setSearch({section: 'general'}, {replace: true})
+    }, [search, setSearch])
     return (
         <Anchor ref={anchor}>
             <SettingsGroup title="Updates">

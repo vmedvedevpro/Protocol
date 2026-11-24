@@ -2,7 +2,7 @@ import {type ReactNode, useState} from 'react'
 import {createMemoryRouter, RouterProvider} from 'react-router-dom'
 import styled from 'styled-components'
 import {useUpdaterStatusSync} from '@/api/updater'
-import {SettingsSubpage} from '../pages/SettingsSubpage'
+import {settingsRoutes} from './settingsRoutes'
 
 // The main window's size, so a story lays out as the app does.
 const Frame = styled.div`
@@ -30,13 +30,6 @@ interface StoryWindowProps {
  */
 export function StoryWindow({path = '/settings', children}: StoryWindowProps) {
     useUpdaterStatusSync()
-    const [router] = useState(() => createMemoryRouter(
-        [
-            {path: '/', element: <h1>Meetings</h1>},
-            {path: '/settings', element: children},
-            {path: '/settings/:page', element: <SettingsSubpage/>},
-        ],
-        {initialEntries: [path]},
-    ))
+    const [router] = useState(() => createMemoryRouter(settingsRoutes(children), {initialEntries: [path]}))
     return <Frame><RouterProvider router={router}/></Frame>
 }

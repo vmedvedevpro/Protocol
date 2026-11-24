@@ -264,7 +264,7 @@ such a command only on its platform
 | --- | --- | --- | --- | --- |
 | `get_audio_devices` | command | `components/RecordingControls.tsx`, `components/onboarding/steps/AudioTestStep.tsx`, `hooks/usePermissionCheck.ts` | #114 | Device lists (moved from the record card); also the bar's "Change inputs" (#112) and the mic test (#115). |
 | `get_database_directory` | command | `components/RecordingControls.tsx`, `contexts/ConfigContext.tsx` | #117 | Advanced › Local AI › Models and recordings; also builds the `stop_recording` save path (#112). |
-| `get_default_recordings_folder_path` | command | `components/RecordingSettings.tsx`, `contexts/ConfigContext.tsx` | #114 | Shown when no folder is saved. |
+| `get_default_recordings_folder_path` | command | `components/RecordingSettings.tsx`, `contexts/ConfigContext.tsx` | #114 | Shown when no folder is saved. Not called since #114: `get_recording_preferences` already answers the default folder in `save_folder` when none is stored, and `set_recording_preferences` rejects an empty one. |
 | `get_recordable_apps` | command | `hooks/useAppAudio.ts` | #117 | Chosen apps subpage. |
 | `get_recording_preferences` | command | `components/RecordingControls.tsx`, `components/RecordingSettings.tsx`, `components/TranscriptSettings.tsx` +3 | #114 | Save audio, folder, devices, volumes, chosen apps, Faster live text. |
 | `open_external_url` | command | `components/About.tsx`, `components/AboutSettings.tsx`, `components/CudaReconfigurationNotice.tsx` +6 | #106 | Links (About, credits, driver pages); one wrapper in `src/api`: `openExternalUrl` in `src/api/links.ts`. |

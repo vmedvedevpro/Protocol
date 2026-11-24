@@ -6,8 +6,6 @@ import type {MockHandler} from './handlers'
 export interface MockDevices {
     list: AudioDevice[]
     recordingPreferences: RecordingPreferences
-    /** Native's fallback folder, by platform. */
-    defaultFolder: string
     /** What the folder picker answers; null is Cancel. */
     pickedFolder: string | null
     /** Folders `open_recordings_folder` opened, in order, instead of a file manager. */
@@ -30,9 +28,7 @@ function mockDefaultRecordingsFolder(platform: Platform): string {
  * and native's defaults for the preferences: nothing chosen yet.
  */
 export function createMockDevices(platform: Platform): MockDevices {
-    const defaultFolder = mockDefaultRecordingsFolder(platform)
     return {
-        defaultFolder,
         pickedFolder: platform === 'windows' ? 'D:\\Meetings' : '/home/preview/Meetings',
         openedFolders: [],
         list: [
@@ -44,7 +40,7 @@ export function createMockDevices(platform: Platform): MockDevices {
             {name: 'Studio Display Speakers', device_type: 'Output'},
         ],
         recordingPreferences: {
-            save_folder: defaultFolder,
+            save_folder: mockDefaultRecordingsFolder(platform),
             auto_save: true,
             file_format: 'mp4',
             preferred_mic_device: null,
@@ -94,7 +90,6 @@ export function devicesHandlers(state: {devices: MockDevices}): Record<string, M
             state.devices.recordingPreferences = next
             return null
         },
-        get_default_recordings_folder_path: () => state.devices.defaultFolder,
         select_recording_folder: () => state.devices.pickedFolder,
         open_recordings_folder: () => {
             state.devices.openedFolders.push(state.devices.recordingPreferences.save_folder)

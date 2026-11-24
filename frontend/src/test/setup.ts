@@ -23,6 +23,10 @@ Element.prototype.hasPointerCapture ??= () => false
 Element.prototype.setPointerCapture ??= () => {}
 Element.prototype.releasePointerCapture ??= () => {}
 
+// jsdom does not scroll: Radix Select and Settings › Updates call
+// scrollIntoView.
+Element.prototype.scrollIntoView ??= () => {}
+
 // Every test runs on the same mock IPC as the browser, from a fresh state.
 beforeEach(() => {
     installMatchMedia()

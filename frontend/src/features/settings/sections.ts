@@ -35,9 +35,3 @@ export function sectionFromParam(param: string | null): SettingsSection | null {
     // Own keys only: `toString` and its kind are on every object.
     return param !== null && Object.hasOwn(SECTION_IDS, param) ? SECTION_IDS[param] : null
 }
-
-/**
- * The old About held the updates; the tray opens it to check for one, so it
- * lands on General › Updates.
- */
-export const opensUpdates = (param: string | null) => param === 'about'

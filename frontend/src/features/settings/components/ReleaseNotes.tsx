@@ -1,6 +1,7 @@
 import {Fragment, type ReactNode} from 'react'
 import styled from 'styled-components'
-import {openExternalUrl} from '@/api/links'
+import {openLink} from '@/api/links'
+import {focusRing} from '@/components/ui/styles'
 import {parseReleaseNotes} from './releaseNotes'
 
 const INLINE = /\*\*(.+?)\*\*|`([^`]+)`|\[([^\]]+)\]\(([^)\s]+)\)/g
@@ -16,10 +17,7 @@ const Link = styled.button`
     text-underline-offset: 2px;
     cursor: pointer;
 
-    &:focus-visible {
-        outline: 2px solid ${({theme}) => theme.colors.text};
-        outline-offset: 1px;
-    }
+    ${focusRing};
 `
 
 const Code = styled.code`
@@ -37,7 +35,7 @@ function inline(text: string): ReactNode[] {
         else if (code !== undefined) parts.push(<Code key={match.index}>{code}</Code>)
         else if (/^https?:\/\//.test(url)) {
             parts.push(
-                <Link key={match.index} type="button" onClick={() => void openExternalUrl(url).catch(() => undefined)}>
+                <Link key={match.index} type="button" onClick={() => openLink(url)}>
                     {label}
                 </Link>,
             )

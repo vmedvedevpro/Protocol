@@ -249,6 +249,9 @@ theme; the motion from the Motion section.
   and its tooltip. `Kbd` shows a shortcut on the window, a grey field or a
   filled button.
 - `SegmentedControl`, and `Tabs` with `TabList` and `TabPanels` (see Motion).
+  `Crossfade` with `CrossfadeView` swaps any two views in one place the way
+  `TabPanels` swaps panels: one grid cell, a `base` fade, and the leaving view
+  `inert` while it fades.
 - `Switch`, `Select`, `TextField` and `TextArea`. `SettingsGroup`,
   `SettingsRow` and `SettingsNavRow` lay out a settings card; a control in a
   row without a name of its own (`label`, `aria-label`, `aria-labelledby`)
@@ -377,7 +380,8 @@ enter and exit, indicators and springs.
     Send Report, Save ZIP and Ignore use it.
 - What animates and how:
   - Tabs and segmented controls: the thumb slides; the panel below swaps
-    with a `base` crossfade, without sliding.
+    with a `base` crossfade (`Crossfade`), without sliding. Other views that
+    replace each other in one place use `Crossfade` too.
   - Sheets and dialogs: in from their edge by `y` on `springs.gentle`, the
     scrim fading over `base`; out with `tween('base', 'exit')`. A sheet hangs
     under the window's header, so it arrives from above.
@@ -721,36 +725,43 @@ levels) skip Query and React state; see Styling and the next section.
 - `features/settings` owns `/settings` and `/settings/:page`. The page shows
   the simple settings, or with the Advanced switch on (stored under
   `protocol-settings-advanced`) the four sections in tabs: General,
-  Recording, AI and Advanced. Both views use the same rows
-  (`components/PreferenceRows.tsx`), so turning Advanced off only hides
-  sections and every value stays.
+  Recording, AI and Advanced; the two views swap through `Crossfade`. Both
+  use the same rows (`components/PreferenceRows.tsx`), so turning Advanced
+  off only hides sections and every value stays.
 - `?section=` names the tab, written with `replace`. `sections.ts` maps the
-  old UI's nine ids onto the four; one in a link turns Advanced on, and
-  `about` (the tray's Check for Updates…) lands on General › Updates, which
-  scrolls itself into view and turns the id into `general`. Turning Advanced
-  off drops the id.
-- The recording preferences are changed through `useRecordingPreferences`,
-  which saves with `updateRecordingPreferencesMutation()` and shows a toast
-  if native refuses. A volume slider saves 250 ms after it rests, and on
-  unmount if it has not. The microphone meter beside it follows the device
-  preview (`useAudioLevelMonitoring`: the chosen microphone, or the default
-  devices) while nothing records. During a recording it follows the
-  recording's own level, since a preview would open the device a second
-  time. The meeting language is disabled from Record until the meeting is
-  saved (`useRecordingBusy`).
+  old UI's nine ids onto the four; one in a link turns Advanced on. `about`
+  (the tray's Check for Updates…) lands on General › Updates: `UpdatesGroup`
+  reads it, scrolls itself into view and turns the id into `general`.
+  Turning Advanced off drops the id.
+- The recording preferences are changed through
+  `hooks/useRecordingPreferences`, which saves with
+  `updateRecordingPreferencesMutation()` and shows a toast if native refuses.
+  A volume slider saves 250 ms after it rests, and on unmount if it has not.
+- Nothing in Settings opens a device by itself (owner decision 2026-11-25).
+  The microphone's Test starts the device preview (`useAudioLevelMonitoring`,
+  the chosen microphone by name, or native's default devices) and the meter
+  beside Mic volume. The test ends on a second press, when another
+  microphone is chosen, when the section or Settings closes, and when a
+  recording starts; it never comes back on its own. During a recording the
+  meter shows the recording's own microphone level, which opens nothing. The
+  meeting language is disabled from Record until the meeting is saved
+  (`useRecordingBusy`).
 - General › Updates shows the updater snapshot that `updater-status` keeps
   current (App mounts `useUpdaterStatusSync` from `src/api/updater.ts`;
-  stories and tests mount it themselves): its status line, the one action of the state, the download's
-  progress, the release's notes behind "What's new" (`ReleaseNotes` renders
-  the changelog's Markdown subset, never HTML), and a busy refusal kept for
-  10 s. Model updates checks the model list (`src/api/modelCatalog.ts`,
-  kept current from `model-catalog-changed`); each model's own update is
-  offered on the models' pages (#117).
+  stories and tests mount it themselves): its status line, the one action
+  of the state, the download's progress, the release's notes behind
+  "What's new" (`ReleaseNotes` renders the changelog's Markdown subset,
+  never HTML), and a busy refusal kept for 10 s. Model updates checks the
+  model list (`src/api/modelCatalog.ts`, kept current from
+  `model-catalog-changed`); each model's own update is offered on the
+  models' pages (#117). Links open with `openLink` (`src/api/links.ts`),
+  which logs a failure.
 - #117 adds the AI and Advanced panels in `SectionView`
   (`pages/SettingsPage.tsx`), the search beside the tabs, and the pages in
-  `pages/SettingsSubpage.tsx` (`PAGES`, `paths.settingsPage`). A page
-  opened from the simple page goes back to it; with Advanced on, it goes
-  back to its section.
+  `pages/SettingsSubpage.tsx` (`PAGES`, `paths.settingsPage`) and in
+  `stories/settingsRoutes.ts`, the routes Settings' stories and tests share.
+  A page opened from the simple page goes back to it; with Advanced on, it
+  goes back to its section.
 
 ## Mock IPC
 

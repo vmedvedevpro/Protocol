@@ -1,5 +1,5 @@
 import {createElement} from 'react'
-import {screen, waitFor, within} from '@testing-library/react'
+import {screen, waitFor} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import {describe, expect, it} from 'vitest'
 import type {UpdaterSnapshot} from '@/api/updater'
@@ -10,8 +10,6 @@ import {UpdatesGroup} from './UpdatesGroup'
 import {appUpdateStatus, catalogStatus} from './updateStatus'
 
 const renderUpdates = () => renderSettings(createElement(UpdatesGroup))
-const app = () => screen.findByText(/^Protocol \d/)
-const row = async () => (await app()).closest('div[class]')?.parentElement?.parentElement as HTMLElement
 
 const offered = (patch: Partial<UpdaterSnapshot['offer'] & object> = {}): UpdaterSnapshot => ({
     ...mockState.updater,
@@ -21,7 +19,8 @@ const offered = (patch: Partial<UpdaterSnapshot['offer'] & object> = {}): Update
 describe('Updates', () => {
     it('checks, downloads on a click and restarts on another', async () => {
         renderUpdates()
-        expect(await screen.findByText('Not checked yet')).toBeInTheDocument()
+        expect(await screen.findByText(`Protocol ${mockState.updater.currentVersion}`)).toBeInTheDocument()
+        expect(screen.getByText('Not checked yet')).toBeInTheDocument()
 
         await userEvent.click(screen.getByRole('button', {name: 'Check now'}))
         expect(await screen.findByText('0.7.0 is available')).toBeInTheDocument()
@@ -96,17 +95,13 @@ describe('Updates', () => {
 
     it('checks the model list', async () => {
         renderUpdates()
-        const models = within((await screen.findByText('Model updates')).closest('div[class]')!.parentElement!.parentElement!)
 
-        await userEvent.click(models.getByRole('button', {name: 'Check'}))
+        await userEvent.click(await screen.findByRole('button', {name: 'Check'}))
 
-        expect(await models.findByText('Up to date, checked')).toBeInTheDocument()
+        // The app's own row still says it has not checked.
+        expect(await screen.findByText('Up to date, checked')).toBeInTheDocument()
+        expect(screen.getByText('Not checked yet')).toBeInTheDocument()
         expect(mockState.catalog.source).toBe('remote')
-    })
-
-    it('names the version in the row', async () => {
-        renderUpdates()
-        expect(await row()).toHaveTextContent(`Protocol ${mockState.updater.currentVersion}`)
     })
 })
 

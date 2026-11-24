@@ -2,6 +2,7 @@
  * The rows the simple page and the sections share. Both views show the same
  * stored values, so a change in one is in the other.
  */
+import type {ReactNode} from 'react'
 import {useQuery} from '@tanstack/react-query'
 import {useNavigate} from 'react-router-dom'
 import styled from 'styled-components'
@@ -19,15 +20,14 @@ import {useRecordingBusy} from '@/api/recordingPhase'
 import {SegmentedControl} from '@/components/ui/SegmentedControl'
 import {Select, type SelectOption} from '@/components/ui/Select'
 import {SettingsNavRow, SettingsRow} from '@/components/ui/SettingsRow'
-import {StatusLine} from '@/components/ui/StatusLine'
 import {Switch} from '@/components/ui/Switch'
 import {TextField} from '@/components/ui/TextField'
 import {MEETING_LANGUAGES, SUMMARY_LANGUAGES} from '@/lib/languages'
 import {paths} from '@/lib/paths'
 import {THEME_MODES, useThemeModeStore} from '@/styles/themeMode'
 import {THEME_SWITCH_TRANSITION_NAME} from '@/styles/themeTransition'
+import {useRecordingPreferences} from '../hooks/useRecordingPreferences'
 import {describeSummaryModel} from './summaryModel'
-import {useRecordingPreferences} from './useRecordingPreferences'
 
 const NameField = styled.div`
     flex: none;
@@ -84,7 +84,21 @@ const DEFAULT_DEVICE = 'default'
  * is used again once it is back, and only a choice the user makes writes
  * the preference.
  */
-export function DeviceRow({type, description}: {type: 'Input' | 'Output'; description?: string}) {
+const DeviceControls = styled.div`
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: ${({theme}) => theme.space[1.5]};
+`
+
+interface DeviceRowProps {
+    type: 'Input' | 'Output'
+    description?: string
+    /** A button beside the choice, such as the microphone's Test. */
+    action?: ReactNode
+}
+
+export function DeviceRow({type, description, action}: DeviceRowProps) {
     const devices = useQuery(audioDevicesQuery)
     const {preferences, save} = useRecordingPreferences()
     const field = type === 'Input' ? 'preferred_mic_device' : 'preferred_system_device'
@@ -105,12 +119,15 @@ export function DeviceRow({type, description}: {type: 'Input' | 'Output'; descri
             label={type === 'Input' ? 'Microphone' : 'System audio'}
             description={description}
             control={(
-                <Select
-                    options={options}
-                    value={preferences ? saved ?? DEFAULT_DEVICE : undefined}
-                    disabled={!preferences}
-                    onValueChange={(value) => save({[field]: value === DEFAULT_DEVICE ? null : value})}
-                />
+                <DeviceControls>
+                    <Select
+                        options={options}
+                        value={preferences ? saved ?? DEFAULT_DEVICE : undefined}
+                        disabled={!preferences}
+                        onValueChange={(value) => save({[field]: value === DEFAULT_DEVICE ? null : value})}
+                    />
+                    {action}
+                </DeviceControls>
             )}
         />
     )
@@ -123,32 +140,28 @@ const MEETING_LANGUAGE_OPTIONS: SelectOption<string>[] = MEETING_LANGUAGES.map((
  * A recording keeps the language it started with, so the choice is locked
  * from Record until the meeting is saved.
  */
-export function MeetingLanguageRow({description}: {description?: string}) {
+export function MeetingLanguageRow() {
     const language = useMeetingLanguageStore((state) => state.value)
     const setLanguage = useMeetingLanguageStore((state) => state.set)
     const locked = useRecordingBusy()
     const options = MEETING_LANGUAGE_OPTIONS.some((option) => option.value === language)
         ? MEETING_LANGUAGE_OPTIONS
         : [...MEETING_LANGUAGE_OPTIONS, {value: language, label: language}]
-    const status = locked
-        ? {key: 'locked', text: 'Can’t change during a recording'}
-        : description && {key: 'about', text: description}
     return (
         <SettingsRow
             label="Meeting language"
-            description={status ? <StatusLine status={status}/> : undefined}
+            description={locked ? 'Can’t change during a recording' : undefined}
             control={<Select options={options} value={language} disabled={locked} onValueChange={setLanguage}/>}
         />
     )
 }
 
-export function AutoSummaryRow({description}: {description?: string}) {
+export function AutoSummaryRow() {
     const on = useAutoSummaryStore((state) => state.value)
     const setOn = useAutoSummaryStore((state) => state.set)
     return (
         <SettingsRow
             label="Summarize automatically"
-            description={description}
             control={<Switch checked={on} onCheckedChange={setOn}/>}
         />
     )

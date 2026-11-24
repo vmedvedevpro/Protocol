@@ -14,7 +14,8 @@ const PAGES = {
     'chosen-apps': {title: 'Chosen apps', section: 'recording'},
 } as const satisfies Record<Parameters<typeof paths.settingsPage>[0], {title: string; section: SettingsSection}>
 
-const isPage = (page: string | undefined): page is keyof typeof PAGES => page !== undefined && page in PAGES
+// Own keys only: `in` would also take `constructor` and its kind.
+const isPage = (page: string | undefined): page is keyof typeof PAGES => page !== undefined && Object.hasOwn(PAGES, page)
 
 const Head = styled.div`
     display: flex;

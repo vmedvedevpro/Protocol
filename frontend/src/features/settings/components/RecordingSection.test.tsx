@@ -1,9 +1,11 @@
 import {createElement} from 'react'
-import {fireEvent, screen, waitFor, within} from '@testing-library/react'
+import {act, fireEvent, screen, waitFor, within} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import {beforeAll, describe, expect, it} from 'vitest'
+import {describe, expect, it} from 'vitest'
+import {recordingPhase} from '@/api/recordingPhase'
 import type {Platform} from '@/lib/platform'
 import {mockState} from '@/mocks/state'
+import {settleIpc} from '@/test/ipc'
 import {renderSettings} from '../testing'
 import {RecordingSection} from './RecordingSection'
 
@@ -26,13 +28,6 @@ describe('Recording › Saving', () => {
         await waitFor(() => expect(stored().auto_save).toBe(false))
         expect(screen.getByText(/Audio isn’t being saved/)).toBeInTheDocument()
         await waitFor(() => expect(screen.queryByText('Where recordings are saved')).not.toBeInTheDocument())
-    })
-
-    it('falls back to the default folder when none is saved', async () => {
-        mockState.devices.recordingPreferences = {...stored(), save_folder: ''}
-        renderRecording()
-
-        expect(await screen.findByText(mockState.devices.defaultFolder)).toBeInTheDocument()
     })
 
     it('changes the folder to the one picked, and keeps it on Cancel', async () => {
@@ -126,12 +121,6 @@ describe('Recording › Computer audio', () => {
 })
 
 describe('Recording › devices', () => {
-    // jsdom lacks what Radix Select calls while its list opens.
-    beforeAll(() => {
-        Element.prototype.scrollIntoView = () => {}
-        Element.prototype.hasPointerCapture = () => false
-    })
-
     it('stores the chosen microphone with its type, and shows a missing one as such', async () => {
         mockState.devices.recordingPreferences = {...stored(), preferred_system_device: 'USB Headset (output)'}
         renderRecording()
@@ -145,10 +134,52 @@ describe('Recording › devices', () => {
         expect(stored().preferred_system_device).toBe('USB Headset (output)')
     })
 
-    it('previews the chosen microphone while nothing records', async () => {
+    it('opens no device until Test, and stops on a second press', async () => {
         mockState.devices.recordingPreferences = {...stored(), preferred_mic_device: 'Studio Display Microphone (input)'}
         renderRecording()
+        const test = await screen.findByRole('button', {name: 'Test'})
+        await waitFor(() => expect(test).toBeEnabled())
+        await settleIpc()
+        expect(mockState.audio.monitoring).toBeNull()
 
+        await userEvent.click(test)
         await waitFor(() => expect(mockState.audio.monitoring).toEqual(['Studio Display Microphone']))
+
+        await userEvent.click(screen.getByRole('button', {name: 'Stop'}))
+        await waitFor(() => expect(mockState.audio.monitoring).toBeNull())
+    })
+
+    it('ends the test when another microphone is chosen, and tests that one next', async () => {
+        renderRecording()
+        await userEvent.click(await screen.findByRole('button', {name: 'Test'}))
+        await waitFor(() => expect(mockState.audio.monitoring).not.toBeNull())
+
+        await userEvent.click(screen.getByRole('combobox', {name: 'Microphone'}))
+        await userEvent.click(await screen.findByRole('option', {name: 'Studio Display Microphone'}))
+
+        await waitFor(() => expect(mockState.audio.monitoring).toBeNull())
+        // The rest of the window is hidden from assistive technology until the list has closed.
+        await userEvent.click(await screen.findByRole('button', {name: 'Test'}))
+        await waitFor(() => expect(mockState.audio.monitoring).toEqual(['Studio Display Microphone']))
+    })
+
+    it('ends the test when the section closes or a recording starts', async () => {
+        const {unmount} = renderRecording()
+        await userEvent.click(await screen.findByRole('button', {name: 'Test'}))
+        await waitFor(() => expect(mockState.audio.monitoring).not.toBeNull())
+
+        act(() => recordingPhase.set('starting'))
+        await waitFor(() => expect(mockState.audio.monitoring).toBeNull())
+        expect(screen.getByRole('button', {name: 'Test'})).toBeDisabled()
+
+        act(() => recordingPhase.set('idle'))
+        await settleIpc()
+        // It does not come back on its own.
+        expect(mockState.audio.monitoring).toBeNull()
+
+        await userEvent.click(screen.getByRole('button', {name: 'Test'}))
+        await waitFor(() => expect(mockState.audio.monitoring).not.toBeNull())
+        unmount()
+        await waitFor(() => expect(mockState.audio.monitoring).toBeNull())
     })
 })

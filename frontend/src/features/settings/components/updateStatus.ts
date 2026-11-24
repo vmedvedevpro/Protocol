@@ -35,7 +35,7 @@ export function appUpdateStatus(snapshot: UpdaterSnapshot, now: number): Status 
     return {key: 'not-checked', text: 'Not checked yet'}
 }
 
-export const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? '' : 's'}`
+const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? '' : 's'}`
 
 /** What the model updates row says. Per-model updates are offered on the models' own pages (#117). */
 export function catalogStatus(status: CatalogStatus, now: number): Status {
