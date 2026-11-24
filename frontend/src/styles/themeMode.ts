@@ -72,15 +72,19 @@ export const useThemeModeStore = create<ThemeModeState>()(
     ),
 )
 
-const DARK_QUERY = '(prefers-color-scheme: dark)'
+// One query object for the page: useSyncExternalStore reads the snapshot on
+// every render. Created on first use, not on import, so tests can install
+// their matchMedia first.
+let darkQuery: MediaQueryList | undefined
+const systemDarkQuery = () => (darkQuery ??= window.matchMedia('(prefers-color-scheme: dark)'))
 
 function subscribeToSystemTheme(onChange: () => void) {
-    const query = window.matchMedia(DARK_QUERY)
+    const query = systemDarkQuery()
     query.addEventListener('change', onChange)
     return () => query.removeEventListener('change', onChange)
 }
 
-const systemIsDark = () => window.matchMedia(DARK_QUERY).matches
+const systemIsDark = () => systemDarkQuery().matches
 
 export function resolveThemeMode(mode: ThemeMode, systemDark: boolean): ThemeName {
     if (mode !== 'system') return mode

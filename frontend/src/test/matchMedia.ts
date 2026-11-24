@@ -1,5 +1,7 @@
 // jsdom has no matchMedia. This one answers the dark-scheme query from a
-// switch the test controls and tells subscribers when it flips.
+// switch the test controls and tells subscribers when it flips. themeMode.ts
+// keeps the first query object it gets for the whole test file, so the state
+// lives here, shared by every object, and each install resets it.
 
 const DARK_QUERY = '(prefers-color-scheme: dark)'
 
