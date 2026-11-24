@@ -10,6 +10,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { invoke } from '@tauri-apps/api/core';
 import { AudioLines, Bot, Cpu, FileAudio, FlaskConical, Info, Mic, Radar, Settings2, Sparkles, type LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { MEETING_DETECTION_AVAILABLE } from '@/lib/meeting-detection';
 import { useConfig } from '@/contexts/ConfigContext';
 import { useImportDialog } from '@/contexts/ImportDialogContext';
 import { useRecordingState } from '@/contexts/RecordingStateContext';
@@ -28,7 +29,7 @@ import { AppAudioCard } from '@/components/recording/AppAudioSource';
 
 type SectionId = 'general' | 'recording' | 'transcription' | 'summaries' | 'agents' | 'detection' | 'local' | 'labs' | 'about';
 
-const SECTIONS: Array<{ id: SectionId; label: string; hint: string; description: string; icon: LucideIcon }> = [
+const ALL_SECTIONS: Array<{ id: SectionId; label: string; hint: string; description: string; icon: LucideIcon }> = [
   { id: 'general', label: 'General', hint: 'Theme, name, notifications', description: 'How Protocol looks, what it calls you, and when it notifies you.', icon: Settings2 },
   { id: 'recording', label: 'Recording', hint: 'Saving, computer audio', description: 'Where recordings are saved, and which computer audio they capture.', icon: Mic },
   { id: 'transcription', label: 'Transcription', hint: 'Models, language, speakers', description: 'How speech becomes text during and after a meeting, and how voices are told apart.', icon: AudioLines },
@@ -39,6 +40,9 @@ const SECTIONS: Array<{ id: SectionId; label: string; hint: string; description:
   { id: 'labs', label: 'Labs', hint: 'Experimental features', description: 'Experimental features. Each stays off until you turn it on, and may change in later versions.', icon: FlaskConical },
   { id: 'about', label: 'About', hint: 'Version, updates', description: 'Version, updates and links.', icon: Info },
 ];
+
+/** Meeting detection is hidden while it is turned off (#102); its links open General. */
+const SECTIONS = ALL_SECTIONS.filter((section) => section.id !== 'detection' || MEETING_DETECTION_AVAILABLE);
 
 /** Older links used tab names. */
 const LEGACY_TABS: Record<string, SectionId> = {
@@ -91,7 +95,8 @@ function SettingsInner() {
     const legacy = sessionStorage.getItem('meetily-settings-tab');
     if (legacy) {
       sessionStorage.removeItem('meetily-settings-tab');
-      if (LEGACY_TABS[legacy]) setActive(LEGACY_TABS[legacy]);
+      const mapped = LEGACY_TABS[legacy];
+      if (mapped && isSection(mapped)) setActive(mapped);
     }
   }, [params]);
 

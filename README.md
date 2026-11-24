@@ -88,9 +88,8 @@ Everything Meetily – Actually Free offers is here, plus:
 
   ![Ctrl+K search for "retention" finds an action item and a line said in a meeting; Enter opens the meeting at that line](docs/media/search-jump-to-moment.gif)
 
-- **Labs.** Opt-in meeting detection and automatic recording, waveform
-  scrubbing, clean transcripts, a Whisper silence guard, and Parakeet on the
-  GPU through DirectML.
+- **Labs.** Opt-in waveform scrubbing, clean transcripts, a Whisper silence
+  guard, and Parakeet on the GPU through DirectML.
 
 ## Install
 

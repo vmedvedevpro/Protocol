@@ -17,7 +17,8 @@ recording-relative transcript turn times, and process-based meeting prompts.
 All switches are in Settings > Labs, and each feature also shows where it is
 used:
 
-- Meeting automation: a switch in Settings > Meeting detection as well. A
+- Meeting automation: a switch in Settings > Meeting detection as well
+  (both hidden in Protocol while meeting detection is turned off, #102). A
   notice says when a call starts a recording (with an option to keep it going
   after the call) and when the call's end stops it. The stop runs the
   recorder's normal stop and save from any page, without reloading.

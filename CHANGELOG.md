@@ -23,6 +23,12 @@ restart.
   system does, for example on a schedule. Charcoal is gone: a saved Midnight
   or Charcoal becomes Dark and Vanilla becomes Light. Without a saved choice,
   Protocol now follows the system.
+- **Meeting detection is off for now**
+  ([#102](https://github.com/vmedvedevpro/Protocol/issues/102)). It kept
+  repeating "meeting detected" while a call app was open, and on macOS and
+  Linux an app idle in the tray was enough. Settings › Meeting detection and
+  Labs › Meeting automation are hidden, and detection no longer runs even if
+  you had turned it on. It comes back once it is fixed.
 
 ### Fixed
 

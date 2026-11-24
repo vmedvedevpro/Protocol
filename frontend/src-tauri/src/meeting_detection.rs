@@ -21,6 +21,12 @@ static MONITOR_GENERATION: AtomicU64 = AtomicU64::new(0);
 /// Current settings, shared with the running loop so changes apply live.
 static SETTINGS: Mutex<Option<MeetingDetectionSettings>> = Mutex::new(None);
 
+/// Meeting detection is turned off until it stops repeating its prompt
+/// (#102). The monitor never starts, whatever the saved settings say;
+/// the WebView hides its settings with `MEETING_DETECTION_AVAILABLE` in
+/// `lib/meeting-detection.ts`. Turning it back on means flipping both.
+const AVAILABLE: bool = false;
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MeetingDetectionSettings {
     /// Master on/off switch.
@@ -405,6 +411,10 @@ fn start_monitor<R: Runtime>(app: &AppHandle<R>) {
         let guard = SETTINGS.lock().unwrap();
         guard.clone().unwrap_or_default()
     };
+    if !AVAILABLE {
+        log::info!("Meeting detection is turned off in this build (#102); monitor not started");
+        return;
+    }
     if !settings.enabled {
         log::info!("Meeting detection disabled; monitor not started");
         return;
