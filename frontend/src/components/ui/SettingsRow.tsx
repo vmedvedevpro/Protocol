@@ -99,7 +99,8 @@ const Badge = styled.span`
 
 interface SettingsRowProps {
     label: string
-    description?: string
+    /** A line under the label; a StatusLine there animates a status that changes. */
+    description?: ReactNode
     /** A short tag after the label, such as "Labs". */
     badge?: string
     /**

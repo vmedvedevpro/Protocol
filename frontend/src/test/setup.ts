@@ -7,6 +7,7 @@ import {postCallJobs} from '@/api/postCall'
 import {rereadPreferences} from '@/api/preferences'
 import {recordingPhase} from '@/api/recordingPhase'
 import {useKeepOnTopStore} from '@/app/shell/keepOnTop'
+import {useAdvancedSettingsStore} from '@/features/settings/store/advanced'
 import {resetToasts} from '@/components/ui/toastStore'
 import {installMockIpc} from '@/mocks/ipc'
 import {resetMockState} from '@/mocks/state'
@@ -34,6 +35,7 @@ afterEach(() => {
     clearMocks()
     useThemeModeStore.setState({mode: 'system'})
     useKeepOnTopStore.setState({onTop: false})
+    useAdvancedSettingsStore.setState({advanced: false})
     resetToasts()
     postCallJobs.reset()
     recordingPhase.set('idle')
