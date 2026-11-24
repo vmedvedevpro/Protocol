@@ -3,7 +3,9 @@ import {cleanup} from '@testing-library/react'
 import {clearMocks} from '@tauri-apps/api/mocks'
 import {MotionGlobalConfig} from 'motion/react'
 import {afterEach, beforeEach} from 'vitest'
+import {postCallJobs} from '@/api/postCall'
 import {rereadPreferences} from '@/api/preferences'
+import {recordingPhase} from '@/api/recordingPhase'
 import {useKeepOnTopStore} from '@/app/shell/keepOnTop'
 import {resetToasts} from '@/components/ui/toastStore'
 import {installMockIpc} from '@/mocks/ipc'
@@ -33,6 +35,8 @@ afterEach(() => {
     useThemeModeStore.setState({mode: 'system'})
     useKeepOnTopStore.setState({onTop: false})
     resetToasts()
+    postCallJobs.reset()
+    recordingPhase.set('idle')
     // Tests that fake View Transitions install the method on document.
     delete (document as { startViewTransition?: unknown }).startViewTransition
     localStorage.clear()

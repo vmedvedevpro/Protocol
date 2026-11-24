@@ -22,7 +22,7 @@ pnpm run tauri:dev     the desktop app; Tauri starts Vite on 3118 (devUrl)
 ```text
 src/
   main.tsx             entry: mock IPC outside Tauri in dev, QueryClientProvider, App
-  app/                 App, routes and paths, hotkeys, AppThemeProvider, app-wide sync hooks
+  app/                 App, routes, hotkeys, AppThemeProvider, app-wide sync hooks
     shell/             the main window's frame (Window shell below)
     placeholder/       stand-ins for the screens until their tasks replace them
   api/                 native domains shared by several features (see below)
@@ -36,7 +36,7 @@ src/
     pages/             route components
     store/             Zustand stores of client state
     types/
-  lib/                 framework-free helpers (queryClient, platform)
+  lib/                 framework-free helpers (queryClient, platform, paths)
   styles/              tokens, GlobalStyle, fonts, icon defaults, theme mode
   mocks/               the in-memory mock IPC and its state
   test/                Vitest setup and fakes
@@ -101,8 +101,8 @@ shell's own commands. The minibar window has none of it.
 
 ### Routes and screens
 
-- `routes.tsx` is the route table of both windows and `paths.ts` names every
-  path: `/` the meetings, `/meetings/:meetingId` a meeting, `/recording` the
+- `routes.tsx` is the route table of both windows and `lib/paths.ts` (in
+  `lib` so that features can navigate too) names every path: `/` the meetings, `/meetings/:meetingId` a meeting, `/recording` the
   recording screen, `/settings` with an optional `?section=` (the old UI's
   section ids, which the tray still sends; it replaces the old
   `meetily-settings-*` sessionStorage keys), and `/minibar` outside the shell.
@@ -113,12 +113,15 @@ shell's own commands. The minibar window has none of it.
 - A screen renders `Screen`: its `<main>`, with its own h1 first (in
   `theme.text.screen`), and the
   `<footer>` under it, both siblings of the title bar's `<header>`, so every
-  screen has the banner, main and contentinfo landmarks. `Screen`'s `bar`
-  docks at the bottom: `DockedBar` (the ring, what is happening, Record or
-  Stop; the recording, #112, fills it), the meeting's player (#113), or
-  nothing. The status line of model downloads (#117) goes in the same footer
-  on every screen; with nothing in it, the footer is `:empty` and hidden
-  from the eye and from screen readers.
+  screen has the banner, main and contentinfo landmarks. The footer docks
+  the recording bar (`RecordingBar`, laid out by `DockedBar`, both in
+  `features/recording`: the ring, what is happening, Record or Stop) over the
+  screen's own `bar`, the meeting's player (#113). The recording bar shows
+  on every screen while a recording starts, runs or is being saved, and
+  idle (Record) only where the screen sets `recordBar`: Home. The status
+  line of model downloads (#117) goes in the same footer on every screen;
+  with nothing in it, the footer is `:empty` and hidden from the eye and
+  from screen readers.
 - A screen arrives with a fade and a 4 px rise over `base`; the screen it
   replaces leaves at once, so a click never waits for an exit.
 - A screen opened by a navigation focuses its `<main>` (`tabIndex={-1}`,
@@ -483,6 +486,38 @@ enter and exit, indicators and springs.
   (summaries, through `active_summary_count`). A command that does neither
   (today `ask_live_assistant` and `ask_person`) gets that added in Rust,
   never a UI lease.
+
+## Recording state other screens read
+
+Two small stores in `src/api` let screens outside the recording feature
+follow it without importing it. The recording feature is the only writer of
+both; its session and its post-call runner come with the recording screen
+(#112), so until then nothing writes them.
+
+- `recordingPhase.ts`: where the main window's recording is: `idle`,
+  `starting`, `recording`, `paused` or `finishing` (Stop pressed, the
+  meeting being saved). `useRecordingPhase()` reads it, `useRecordingBusy()`
+  says whether it is anything but idle (Settings locks the meeting language
+  then), `recordingPhase.get()` reads it outside React. It changes with the
+  recording's own events, before the updater's busy snapshot would.
+- `postCall.ts`: the pass after a recording is saved (retranscription,
+  diarization, the automatic summary), one job per meeting:
+  `usePostCallJob(meetingId)` is the meeting's job while it is queued, runs
+  or failed, and null once it has ended. #112's runner, mounted once by
+  the shell above navigation, is to write it (`postCallJobs`); a screen
+  asks it to cancel, retry or skip a step through `postCallControls`, never
+  by writing a job. When a step ends the runner is to invalidate the
+  meeting's queries. The file also holds the retranscription and
+  diarization commands and events, which Enhance transcript (#119) and
+  "N speakers · change" (#113) call, and `RETRANSCRIPTION_BANDS`: native's
+  percent is not linear in time, and only its chunks' band (25 to 80) has a
+  pace, so the time left is measured there.
+  `features/meetings/components/processing` draws a job (#113 owns it once
+  merged): `ProcessingStatus` (the strip under a meeting's header),
+  `ProcessingSteps` (the steps where the summary will be) and
+  `ProcessingLine` (Home's row); each renders nothing without a job.
+  `progress.ts` beside them has the words, the share of the pass done and
+  the time left.
 
 ## Events
 
