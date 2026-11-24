@@ -32,7 +32,7 @@ describe('Crossfade', () => {
         MotionGlobalConfig.skipAnimations = false
         // MotionProvider loads motion's animation features by a dynamic import:
         // loaded first, they are in place one macrotask after the render.
-        await import('@/app/motionFeatures')
+        await import('./motionFeatures')
         const {rerender} = renderUi(<Views view="Simple"/>)
         await settleIpc()
 

@@ -1,7 +1,7 @@
 import {useEffect} from 'react'
 import {useSearchParams} from 'react-router-dom'
 import styled from 'styled-components'
-import {Screen} from '@/app/shell/Screen'
+import {Screen} from '@/components/screen/Screen'
 import {Crossfade, CrossfadeView} from '@/components/ui/Crossfade'
 import {TabList, TabPanels, Tabs} from '@/components/ui/SegmentedControl'
 import {Switch} from '@/components/ui/Switch'

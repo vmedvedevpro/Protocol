@@ -1,7 +1,7 @@
 import {CaretLeftIcon} from '@phosphor-icons/react'
 import {Navigate, useNavigate, useParams} from 'react-router-dom'
 import styled from 'styled-components'
-import {Screen} from '@/app/shell/Screen'
+import {Screen} from '@/components/screen/Screen'
 import {Button} from '@/components/ui/Button'
 import {paths} from '@/lib/paths'
 import type {SettingsSection} from '../sections'
