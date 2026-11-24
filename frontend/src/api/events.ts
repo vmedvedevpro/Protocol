@@ -1,4 +1,5 @@
 import {useEffect, useEffectEvent} from 'react'
+import {type DataTag, type QueryKey, useQueryClient} from '@tanstack/react-query'
 import {listen, type Options, type UnlistenFn} from '@tauri-apps/api/event'
 
 declare const payloadType: unique symbol
@@ -27,6 +28,11 @@ export function listenNative<T>(
 export interface NativeEventOptions {
     /** A window or webview label; see listenNative. */
     target?: string
+    /**
+     * Called once the listener is registered. Events sent before that went
+     * nowhere, so this is the moment to read again what they would have changed.
+     */
+    onListening?: () => void
 }
 
 /**
@@ -36,9 +42,10 @@ export interface NativeEventOptions {
 export function useNativeEvent<T>(
     event: NativeEvent<T>,
     handler: (payload: T) => void,
-    {target}: NativeEventOptions = {},
+    {target, onListening}: NativeEventOptions = {},
 ) {
     const onEvent = useEffectEvent(handler)
+    const onRegistered = useEffectEvent(() => onListening?.())
 
     useEffect(() => {
         // listen() registers asynchronously: an unmount before it resolves
@@ -47,8 +54,12 @@ export function useNativeEvent<T>(
         let unlisten: UnlistenFn | undefined
         listenNative(event, (payload: T) => onEvent(payload), {target}).then(
             (stop) => {
-                if (disposed) stop()
-                else unlisten = stop
+                if (disposed) {
+                    stop()
+                    return
+                }
+                unlisten = stop
+                onRegistered()
             },
             (error: unknown) => console.error(`Failed to listen to ${event}:`, error),
         )
@@ -57,4 +68,31 @@ export function useNativeEvent<T>(
             unlisten?.()
         }
     }, [event, target])
+}
+
+/**
+ * Keeps a query current from an event that carries its whole value. The event
+ * becomes the only writer of that query (docs/UI_ARCHITECTURE.md, Events):
+ *
+ * - A read still in flight when an event arrives is cancelled first. Replies
+ *   and events reach the webview on separate channels in no fixed order, so
+ *   the reply may hold an older value and would land over the event's.
+ * - Once the listener is registered the query is read again, because events
+ *   sent before that went nowhere.
+ */
+export function useEventQuerySync<T>(
+    event: NativeEvent<T>,
+    queryKey: DataTag<QueryKey, T, unknown>,
+    {target}: Pick<NativeEventOptions, 'target'> = {},
+) {
+    const queryClient = useQueryClient()
+
+    useNativeEvent(
+        event,
+        async (value) => {
+            await queryClient.cancelQueries({queryKey})
+            queryClient.setQueryData(queryKey, value)
+        },
+        {target, onListening: () => void queryClient.invalidateQueries({queryKey})},
+    )
 }

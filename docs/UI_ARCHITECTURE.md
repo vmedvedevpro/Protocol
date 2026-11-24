@@ -101,8 +101,9 @@ router's list goes to `/`.
   owns is read with `useQuery` and changed with `useMutation`, never copied into
   a store. Zustand holds client state only: UI choices, drafts, the theme mode.
   A store that must survive a restart uses `persist`.
-- `staleTime: Infinity` fits data that native code pushes by event; otherwise
-  keep the default and invalidate after mutations.
+- Data that native code pushes whole by event gets `staleTime: Infinity`, and
+  only the event writes it (see Events). Other data keeps the default
+  `staleTime` and is invalidated after the mutations that change it.
 
 ## Events
 
@@ -122,18 +123,24 @@ one window. To use an event:
    after an unmount. Without a `target`, a listener also hears events native
    code sent to the other window; an event meant for one window is heard with
    `{target: getCurrentWindow().label}`.
-3. Write the payload into the cache instead of refetching. When the event
-   carries the whole value, `setQueryData`; when it only says something
-   changed, `invalidateQueries`:
+3. When the event carries the whole value, keep its query with
+   `useEventQuerySync` instead of refetching:
 
    ```ts
    export function useUpdaterStatusSync() {
-       const queryClient = useQueryClient()
-       useNativeEvent(UPDATER_STATUS_EVENT, (snapshot) => {
-           queryClient.setQueryData(updaterStatusQuery.queryKey, snapshot)
-       })
+       useEventQuerySync(UPDATER_STATUS_EVENT, updaterStatusQuery.queryKey)
    }
    ```
+
+   It cancels a read still in flight before it writes the payload with
+   `setQueryData`: a reply and an event reach the webview on separate
+   channels in no fixed order, so the reply may hold an older value and land
+   over the event's. Once the listener is registered it reads the query again,
+   because events sent before that went nowhere. From then on the event is the
+   only writer of that query: no `setQueryData` from a mutation's reply and no
+   `invalidateQueries` for it, since either can bring back an older value.
+4. When the event only says that something changed, `invalidateQueries` the
+   keys it affects in a `useNativeEvent` handler.
 
 Mount a sync hook once, in the layout of the screens that read the data, or in
 `App` when every window needs it. Values that arrive many times a second (audio
