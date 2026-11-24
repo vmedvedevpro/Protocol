@@ -4,6 +4,7 @@ import {IconContext} from '@phosphor-icons/react'
 import {QueryClient, QueryClientProvider} from '@tanstack/react-query'
 import {ThemeProvider} from 'styled-components'
 import {MotionProvider} from '../src/app/MotionProvider'
+import {TooltipProvider} from '../src/components/ui/Tooltip'
 import {installMockIpc} from '../src/mocks/ipc'
 import {resetMockState} from '../src/mocks/state'
 import {GlobalStyle} from '../src/styles/GlobalStyle'
@@ -25,7 +26,9 @@ const withAppProviders: Decorator = (Story, context) => {
                 <GlobalStyle/>
                 <MotionProvider>
                     <IconContext.Provider value={ICON_DEFAULTS}>
-                        <Story/>
+                        <TooltipProvider>
+                            <Story/>
+                        </TooltipProvider>
                     </IconContext.Provider>
                 </MotionProvider>
             </ThemeProvider>
