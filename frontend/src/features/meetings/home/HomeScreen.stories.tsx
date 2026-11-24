@@ -1,10 +1,10 @@
 import type {Meta, StoryObj} from '@storybook/react-vite'
+import {StoryWindow} from '@/components/screen/StoryWindow'
 import {mockState} from '@/mocks/state'
-import {StoryWindow} from '../StoryWindow'
-import {HomeScreen} from './HomeScreen'
+import {meetingsStoryRoutes} from '../storyRoutes'
 
 function HomeDemo({url}: { url: string }) {
-    return <StoryWindow url={url} path="/" element={<HomeScreen/>}/>
+    return <StoryWindow url={url} routes={meetingsStoryRoutes()}/>
 }
 
 const meta = {

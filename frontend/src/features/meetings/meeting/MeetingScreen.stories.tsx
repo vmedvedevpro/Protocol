@@ -1,11 +1,11 @@
 import type {Meta, StoryObj} from '@storybook/react-vite'
 import {postCallJobs} from '@/api/postCall'
+import {StoryWindow} from '@/components/screen/StoryWindow'
 import {mockState} from '@/mocks/state'
-import {StoryWindow} from '../StoryWindow'
-import {MeetingRoute} from './MeetingScreen'
+import {meetingsStoryRoutes} from '../storyRoutes'
 
 function MeetingDemo({meetingId, tab}: { meetingId: string, tab: 'notes' | 'transcript' | 'summary' }) {
-    return <StoryWindow url={`/meetings/${meetingId}?tab=${tab}`} path="/meetings/:meetingId" element={<MeetingRoute/>}/>
+    return <StoryWindow url={`/meetings/${meetingId}?tab=${tab}`} routes={meetingsStoryRoutes()}/>
 }
 
 const meta = {

@@ -4,6 +4,7 @@ import {useMutation, useQuery, useQueryClient} from '@tanstack/react-query'
 import {useNavigate, useParams, useSearchParams} from 'react-router-dom'
 import styled from 'styled-components'
 import {actionItemsQuery} from '@/api/actionItems'
+import {errorMessage} from '@/api/core'
 import {
     foldersQuery,
     isSummaryRunning,
@@ -102,8 +103,6 @@ const Muted = styled.p`
     color: ${({theme}) => theme.colors.muted};
 `
 
-const message = (error: unknown) => (error instanceof Error ? error.message : String(error))
-
 /** `/meetings/:meetingId`: the route reads the id; the screen renders once per meeting. */
 export function MeetingRoute() {
     const {meetingId = ''} = useParams()
@@ -122,13 +121,17 @@ export function MeetingScreen({meetingId}: { meetingId: string }) {
     const userName = useUserName()
 
     const meeting = useQuery(meetingQuery(meetingId))
+    // Only the list knows a meeting's length (its last line's end).
     const listed = useQuery({...meetingsQuery, select: (list) => list.find((item) => item.id === meetingId)})
     const folder = useQuery(meetingFolderQuery(meetingId))
     const folders = useQuery(foldersQuery)
     const transcript = useQuery(meetingTranscriptsQuery(meetingId))
     const summary = useQuery(summaryQuery(meetingId))
     const job = usePostCallJob(meetingId)
-    const move = useMutation(setMeetingFolderMutation(meetingId))
+    const move = useMutation({
+        ...setMeetingFolderMutation(meetingId),
+        onError: (error) => toast.error('Couldn’t move the meeting', {description: error.message}),
+    })
     const {player, state: playback} = useMeetingPlayer(meetingId)
     const hasAudio = playback.status !== 'unavailable' && playback.status !== 'error'
     const speakers = useIdentifySpeakers(meetingId, hasAudio)
@@ -152,8 +155,8 @@ export function MeetingScreen({meetingId}: { meetingId: string }) {
     useHotkey({code: 'Digit3', mod: true}, () => selectTab('summary'))
     useHotkey({code: 'F2'}, () => setRenaming(true), {enabled: meeting.isSuccess})
 
-    const title = meeting.data?.title ?? listed.data?.title ?? ''
-    const createdAt = parseDate(meeting.data?.created_at ?? listed.data?.created_at)
+    const title = meeting.data?.title ?? ''
+    const createdAt = parseDate(meeting.data?.created_at)
     const lines = transcript.data ?? []
     const summaryText = completeSummaryMarkdown(parseSummaryData(summary.data?.data)).trim()
     const summaryBusy = !!job || starting || isSummaryRunning(summary.data?.status)
@@ -175,7 +178,7 @@ export function MeetingScreen({meetingId}: { meetingId: string }) {
             await navigator.clipboard.writeText(meetingDocument(title, createdAt, [[what === 'transcript' ? 'Transcript' : 'Summary', body]]))
             toast.success(what === 'transcript' ? 'Transcript copied' : 'Summary copied')
         } catch (error) {
-            toast.error(`Couldn’t copy the ${what}`, {description: message(error)})
+            toast.error(`Couldn’t copy the ${what}`, {description: errorMessage(error)})
         }
     }
 
@@ -189,7 +192,7 @@ export function MeetingScreen({meetingId}: { meetingId: string }) {
             <Screen>
                 <Centered role="alert">
                     <Heading>This meeting isn’t available</Heading>
-                    <Muted>{message(meeting.error)}</Muted>
+                    <Muted>{errorMessage(meeting.error)}</Muted>
                     <Button size="sm" onClick={() => void navigate(paths.home)}>Back to meetings</Button>
                 </Centered>
             </Screen>
@@ -211,14 +214,12 @@ export function MeetingScreen({meetingId}: { meetingId: string }) {
                 hasSummary={!!summaryText}
                 canIdentifySpeakers={speakers.available && !speakers.running}
                 onRename={() => setRenaming(true)}
-                onMove={(folderId) => move.mutate(folderId, {
-                    onError: (error) => toast.error('Couldn’t move the meeting', {description: error.message}),
-                })}
+                onMove={(folderId) => move.mutate(folderId)}
                 onNewFolder={() => setNaming(true)}
                 onCopyTranscript={() => void copy('transcript')}
                 onCopySummary={() => void copy('summary')}
                 onOpenRecordingFolder={() => void openMeetingFolder(meetingId).catch((error: unknown) =>
-                    toast.error('Couldn’t open the recording folder', {description: message(error)}))}
+                    toast.error('Couldn’t open the recording folder', {description: errorMessage(error)}))}
                 onIdentifySpeakers={speakers.identify}
                 onDelete={() => setDeleting(true)}
             />

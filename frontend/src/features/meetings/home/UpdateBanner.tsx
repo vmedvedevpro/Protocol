@@ -1,6 +1,7 @@
 import {useState} from 'react'
 import {DownloadSimpleIcon} from '@phosphor-icons/react'
 import styled from 'styled-components'
+import {errorMessage} from '@/api/core'
 import {openLink} from '@/api/links'
 import {installRefusal, installUpdate, type Offer, type UpdaterSnapshot} from '@/api/updater'
 import {Button} from '@/components/ui/Button'
@@ -45,7 +46,7 @@ export function UpdateBanner({snapshot, offer}: { snapshot: UpdaterSnapshot, off
             const refusal = installRefusal(error)
             if (refusal?.kind === 'busy' && refusal.reasons.length > 0) setWaitingFor(busySentence(refusal.reasons[0]))
             else if (refusal?.kind === 'notReady') toast.info('The update isn’t ready to install yet')
-            else toast.error('Couldn’t install the update', {description: error instanceof Error ? error.message : String(error)})
+            else toast.error('Couldn’t install the update', {description: errorMessage(error)})
         } finally {
             setInstalling(false)
         }

@@ -16,8 +16,6 @@ import {colorTransition, focusRing} from '@/components/ui/styles'
 import {TextField} from '@/components/ui/TextField'
 import {toast} from '@/components/ui/toastStore'
 
-const message = (error: unknown) => (error instanceof Error ? error.message : String(error))
-
 const Section = styled.section`
     margin-top: ${({theme}) => theme.space[5]};
 `
@@ -107,7 +105,7 @@ export function ActionItems({meetingId, onPlayFrom}: ActionItemsProps) {
     const [editing, setEditing] = useState<{ open: boolean, item: ActionItem | null }>({open: false, item: null})
 
     const toggle = (item: ActionItem) => update.mutate({...item, done: !item.done}, {
-        onError: (error) => toast.error('Couldn’t update the action item', {description: message(error)}),
+        onError: (error) => toast.error('Couldn’t update the action item', {description: error.message}),
     })
 
     return (
@@ -171,7 +169,7 @@ function ActionItemSheet({meetingId, open, item, onOpenChange}: {
                             pending={remove.isPending}
                             onClick={() => remove.mutate(item.id, {
                                 onSuccess: () => onOpenChange(false),
-                                onError: (error) => toast.error('Couldn’t delete the action item', {description: message(error)}),
+                                onError: (error) => toast.error('Couldn’t delete the action item', {description: error.message}),
                             })}
                         >
                             Delete
@@ -199,7 +197,7 @@ function ItemForm({meetingId, item, onDone}: { meetingId: string, item: ActionIt
         if (create.isPending || update.isPending) return
         const fields = {text: text.trim(), ownerLabel: owner.trim() || undefined, dueText: due.trim() || undefined}
         if (!fields.text) return
-        const onError = (error: unknown) => toast.error('Couldn’t save the action item', {description: message(error)})
+        const onError = (error: Error) => toast.error('Couldn’t save the action item', {description: error.message})
         // A new owner name is matched to a contact again by native.
         if (item) update.mutate({...item, ...fields, personId: fields.ownerLabel === item.ownerLabel ? item.personId : undefined}, {onSuccess: onDone, onError})
         else create.mutate(fields, {onSuccess: onDone, onError})

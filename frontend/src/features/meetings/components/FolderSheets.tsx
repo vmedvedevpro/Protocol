@@ -7,8 +7,6 @@ import {Sheet, SheetClose} from '@/components/ui/Sheet'
 import {TextField} from '@/components/ui/TextField'
 import {toast} from '@/components/ui/toastStore'
 
-const message = (error: unknown) => (error instanceof Error ? error.message : String(error))
-
 const Problem = styled.p`
     margin: ${({theme}) => theme.space[1.5]} 0 0;
     ${({theme}) => theme.text.small};
@@ -94,7 +92,7 @@ function NameForm({folder, onDone, onCreated}: {
                     rename.reset()
                 }}
             />
-            {error && <Problem role="alert">{message(error)}</Problem>}
+            {error && <Problem role="alert">{error.message}</Problem>}
         </form>
     )
 }
@@ -124,7 +122,7 @@ export function DeleteFolderSheet({open, folder, onOpenChange, onDeleted}: {
                                 onOpenChange(false)
                                 onDeleted(folder)
                             },
-                            onError: (error) => toast.error('Couldn’t delete the folder', {description: message(error)}),
+                            onError: (error) => toast.error('Couldn’t delete the folder', {description: error.message}),
                         })}
                     >
                         Delete folder

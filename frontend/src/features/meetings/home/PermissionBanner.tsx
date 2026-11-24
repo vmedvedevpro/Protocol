@@ -1,6 +1,7 @@
 import {useState} from 'react'
 import {WarningCircleIcon} from '@phosphor-icons/react'
 import {useQuery, useQueryClient} from '@tanstack/react-query'
+import {errorMessage} from '@/api/core'
 import {deviceKeys} from '@/api/devices'
 import {
     openPrivacySettings,
@@ -54,7 +55,7 @@ export function PermissionBanner({access, on = currentPlatform}: { access: Audio
 
     const open = (pane: PrivacyPane) => {
         openPrivacySettings(pane).catch((error: unknown) =>
-            toast.error('Couldn’t open System Settings', {description: error instanceof Error ? error.message : String(error)}))
+            toast.error('Couldn’t open System Settings', {description: errorMessage(error)}))
     }
 
     const checkAgain = async () => {

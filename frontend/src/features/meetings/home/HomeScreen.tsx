@@ -120,6 +120,8 @@ export function HomeScreen() {
 
     const needle = query.trim().toLowerCase()
     const names = useMemo(() => new Map(folderList.map((folder) => [folder.id, folder.name])), [folderList])
+    // Stable, so the memoized rows render again only when they change.
+    const renameMeeting = useCallback((meeting: MeetingListItem) => setRenaming({open: true, meeting}), [])
     const shows = useCallback((meeting: MeetingListItem) =>
         (!folderId || meeting.group_id === folderId) &&
         (!needle || matches(meeting.title, needle) || matches(meeting.group_id ? names.get(meeting.group_id) : undefined, needle)),
@@ -187,8 +189,8 @@ export function HomeScreen() {
                     <MeetingList
                         meetings={meetings.data}
                         shows={shows}
-                        folders={folderList}
-                        onRename={(meeting) => setRenaming({open: true, meeting})}
+                        folderNames={names}
+                        onRename={renameMeeting}
                         empty={(
                             <NoMatch>
                                 {needle ? `No meetings match “${query.trim()}”.` : 'No meetings in this folder yet.'}

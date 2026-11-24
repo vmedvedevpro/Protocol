@@ -1,6 +1,7 @@
 import {useMemo} from 'react'
 import {useMutation, useQuery} from '@tanstack/react-query'
 import styled from 'styled-components'
+import {errorMessage} from '@/api/core'
 import {meetingTranscriptsQuery, renameSpeakerMutation} from '@/api/meetings'
 import {usePostCallJob} from '@/api/postCall'
 import {useUserName} from '@/api/preferences'
@@ -83,7 +84,7 @@ export function TranscriptPanel({meetingId, playback, playing, onSeek}: Transcri
                 onSeek={onSeek}
                 // The pass replaces the lines and their labels; a name given meanwhile would be lost.
                 onRenameSpeaker={job ? undefined : (from, to) => rename.mutateAsync({from, to}).catch((error: unknown) => {
-                    toast.error('Couldn’t rename the speaker', {description: error instanceof Error ? error.message : String(error)})
+                    toast.error('Couldn’t rename the speaker', {description: errorMessage(error)})
                     throw error
                 })}
                 before={job ? <Note>This is the live text. A cleaner transcript with speakers replaces it in a moment.</Note> : undefined}

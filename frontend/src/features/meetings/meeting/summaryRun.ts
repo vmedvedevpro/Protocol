@@ -1,14 +1,13 @@
 import {useState} from 'react'
 import {useQueryClient} from '@tanstack/react-query'
 import {useNavigate} from 'react-router-dom'
+import {errorMessage} from '@/api/core'
 import {useNativeEvent} from '@/api/events'
 import {meetingKeys, startSummary, SUMMARY_PROGRESS_EVENT} from '@/api/meetings'
 import {type BuiltInModelStatus, isBuiltInModelReady, listBuiltInModels} from '@/api/models'
 import {summaryModelQuery} from '@/api/preferences'
 import {toast} from '@/components/ui/toastStore'
 import {paths} from '@/lib/paths'
-
-const message = (error: unknown) => (error instanceof Error ? error.message : String(error))
 
 /** Why a built-in model cannot write now, for a toast; null when the status allows it. */
 function builtInProblem(model: string, status: BuiltInModelStatus | undefined): { title: string, description: string } | null {
@@ -77,7 +76,7 @@ export function useWriteSummary(meetingId: string) {
                 })
             }
         } catch (error) {
-            toast.error(again ? 'Couldn’t write the summary again' : 'Couldn’t write the summary', {description: message(error)})
+            toast.error(again ? 'Couldn’t write the summary again' : 'Couldn’t write the summary', {description: errorMessage(error)})
         } finally {
             setStarting(false)
             await client.invalidateQueries({queryKey: meetingKeys.summary(meetingId)})

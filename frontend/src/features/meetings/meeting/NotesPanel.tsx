@@ -30,13 +30,15 @@ const Problem = styled.p`
 export function NotesPanel({meetingId}: { meetingId: string }) {
     const notes = useQuery(meetingNotesQuery(meetingId))
     const saving = useSaving(`notes:${meetingId}`)
-    const save = useMutation(saveMeetingNotesMutation(meetingId))
+    // The error toast is the mutation's own: the last edit is saved as the
+    // panel unmounts, and mutate()'s callbacks die with it.
+    const save = useMutation({
+        ...saveMeetingNotesMutation(meetingId),
+        onError: (error) => toast.error('Couldn’t save your notes', {description: error.message}),
+    })
     const autosave = useAutosave((content: { markdown: string, json: unknown[] }) => {
         const blank = !content.markdown.trim()
-        save.mutate(
-            {markdown: blank ? null : content.markdown, json: blank ? null : content.json},
-            {onError: (error) => toast.error('Couldn’t save your notes', {description: error.message})},
-        )
+        save.mutate({markdown: blank ? null : content.markdown, json: blank ? null : content.json})
     })
 
     // Once the editor is up it stays: its own saves must not unmount it.

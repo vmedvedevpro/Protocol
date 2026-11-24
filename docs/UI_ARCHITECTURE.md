@@ -1005,9 +1005,10 @@ another meeting starts from fresh state).
   waits until the pass is over, since the pass replaces the labels.
 - Tests: `home/*.test.tsx`, `meeting/*.test.tsx` and `lib/*.test.ts` on the
   mock IPC; the notes test holds a save in flight and checks the editor
-  waits for it. Stories: `Meetings/HomeScreen`, `Meetings/PermissionBanner`
-  and `Meetings/MeetingScreen`, each in a window-sized frame
-  (`StoryWindow.tsx`).
+  waits for it, and the summary's edits are written into its cache.
+  Stories: `Meetings/HomeScreen`, `Meetings/PermissionBanner` and
+  `Meetings/MeetingScreen`; the screens' stories share `storyRoutes.ts`, so
+  a row opens its meeting.
 - Not carried over: the player's waveform, Labs' clean transcript, the
   Ollama model check before a run (native's error shows), and the speaker
   dialog's engine-specific wording (`diarization_get_status` is #117's;
@@ -1073,6 +1074,11 @@ export const Dark: Story = {globals: {theme: 'dark'}}
 The decorator in `.storybook/preview.tsx` provides the theme, `GlobalStyle`,
 `UiProviders` and a query client on the mock IPC. The toolbar switches the
 theme for stories that do not set it.
+
+A screen's story renders in `StoryWindow` (`components/screen/`): a frame
+of the main window's 460×700 with a memory router made once from the
+feature's routes, as Settings (`SettingsStoryWindow`) and the meetings
+screens do.
 
 `@storybook/addon-a11y` runs axe on every story in its Accessibility panel, in
 both themes; a violation there is fixed in the component, not hidden in the

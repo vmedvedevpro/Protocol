@@ -1,11 +1,11 @@
 import type {Meta, StoryObj} from '@storybook/react-vite'
 import {recordingPhase} from '@/api/recordingPhase'
 import {useAdvancedSettingsStore} from '../store/advanced'
-import {StoryWindow} from '../stories/StoryWindow'
+import {SettingsStoryWindow} from '../stories/SettingsStoryWindow'
 import {SettingsPage} from './SettingsPage'
 
 function Page({path}: {path?: string}) {
-    return <StoryWindow path={path}><SettingsPage/></StoryWindow>
+    return <SettingsStoryWindow path={path}><SettingsPage/></SettingsStoryWindow>
 }
 
 const meta = {

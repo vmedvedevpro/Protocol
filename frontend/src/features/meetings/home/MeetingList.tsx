@@ -2,7 +2,7 @@ import {type KeyboardEvent, memo, type ReactNode, useMemo, useState} from 'react
 import * as m from 'motion/react-m'
 import {Link} from 'react-router-dom'
 import styled, {css} from 'styled-components'
-import type {Folder, MeetingListItem} from '@/api/meetings'
+import type {MeetingListItem} from '@/api/meetings'
 import {usePostCallJob} from '@/api/postCall'
 import {colorTransition, focusRing} from '@/components/ui/styles'
 import {paths} from '@/lib/paths'
@@ -135,7 +135,8 @@ interface MeetingListProps {
     meetings: readonly MeetingListItem[]
     /** Which of them the list shows (the folder and the search). */
     shows: (meeting: MeetingListItem) => boolean
-    folders: readonly Folder[]
+    /** Folder names by id, for a row's second line. */
+    folderNames: ReadonlyMap<string, string>
     onRename: (meeting: MeetingListItem) => void
     /** Shown instead of the sections while no meeting matches. */
     empty: ReactNode
@@ -148,8 +149,7 @@ interface MeetingListProps {
  * its folder. A meeting that arrives while the list is open (a recording
  * just saved) fades in; filtering shows and hides rows at once.
  */
-export function MeetingList({meetings, shows, folders, onRename, empty}: MeetingListProps) {
-    const names = useMemo(() => new Map(folders.map((folder) => [folder.id, folder.name])), [folders])
+export function MeetingList({meetings, shows, folderNames, onRename, empty}: MeetingListProps) {
     const shown = useMemo(() => meetings.filter(shows), [meetings, shows])
     const sections = useMemo(() => {
         const now = new Date()
@@ -178,7 +178,7 @@ export function MeetingList({meetings, shows, folders, onRename, empty}: Meeting
                             <MeetingRow
                                 key={meeting.id}
                                 meeting={meeting}
-                                folderName={meeting.group_id ? names.get(meeting.group_id) : undefined}
+                                folderName={meeting.group_id ? folderNames.get(meeting.group_id) : undefined}
                                 arriving={!initialIds.has(meeting.id)}
                                 onRename={onRename}
                             />

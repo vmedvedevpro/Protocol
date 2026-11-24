@@ -1,4 +1,4 @@
-import {screen, waitFor, within} from '@testing-library/react'
+import {act, screen, waitFor, within} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import {beforeEach, describe, expect, it} from 'vitest'
 import {mockState} from '@/mocks/state'
@@ -108,6 +108,19 @@ describe('MeetingScreen', () => {
         await userEvent.click(await screen.findByRole('button', {name: /speakers found\. Change the count/}))
         await userEvent.click(screen.getByRole('menuitem', {name: '4 speakers'}))
         expect(await screen.findByText('Found 4 speakers')).toBeInTheDocument()
+    })
+
+    it('keeps a speaker run it started when the user leaves the meeting and comes back', async () => {
+        mockState.postCall.stepMs = 100
+        const {router} = renderMeeting('meeting-acme-review', '?tab=transcript')
+        await userEvent.click(await screen.findByRole('button', {name: /speakers found\. Change the count/}))
+        await userEvent.click(screen.getByRole('menuitem', {name: '4 speakers'}))
+
+        await act(() => router.navigate('/'))
+        await act(() => router.navigate('/meetings/meeting-acme-review?tab=transcript'))
+        expect(await screen.findByRole('button', {name: /speakers found\. Change the count/})).toBeDisabled()
+        expect(await screen.findByText('Found 4 speakers')).toBeInTheDocument()
+        await waitFor(() => expect(screen.getByRole('button', {name: /speakers found\. Change the count/})).toBeEnabled())
     })
 
     it('deletes the meeting after asking, and returns to the list', async () => {

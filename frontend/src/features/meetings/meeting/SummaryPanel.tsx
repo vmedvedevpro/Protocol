@@ -168,12 +168,13 @@ function WrittenSummary({meetingId, summary, onPlayFrom}: {
 }) {
     const client = useQueryClient()
     const saving = useSaving(`summary:${meetingId}`)
-    const save = useMutation(saveSummaryMutation(meetingId))
+    // As in NotesPanel: the toast outlives the panel, which saves as it unmounts.
+    const save = useMutation({
+        ...saveSummaryMutation(meetingId),
+        onError: (error) => toast.error('Couldn’t save the summary', {description: error.message}),
+    })
     const autosave = useAutosave((content: { markdown: string, json: unknown[] }) => {
-        save.mutate(
-            {markdown: content.markdown, summary_json: content.json},
-            {onError: (error) => toast.error('Couldn’t save the summary', {description: error.message})},
-        )
+        save.mutate({markdown: content.markdown, summary_json: content.json})
     })
 
     const pendingSync = summary.status === 'completed' && !summary.userEdited && hasActionSection(summary.data)

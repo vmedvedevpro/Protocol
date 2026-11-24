@@ -1,5 +1,5 @@
 import {QueryClientProvider} from '@tanstack/react-query'
-import {act, screen} from '@testing-library/react'
+import {act, fireEvent, screen, within} from '@testing-library/react'
 import {beforeAll, describe, expect, it, vi} from 'vitest'
 import {meetingNotesQuery, saveMeetingNotesMutation} from '@/api/notes'
 import {handlers} from '@/mocks/handlers'
@@ -44,5 +44,21 @@ describe('NotesPanel', () => {
         const notes = await screen.findByRole('textbox', {name: 'Notes'})
         expect(notes).toHaveTextContent('Saved just now')
         expect(mockState.meetingNotes['meeting-roadmap']?.markdown).toBe('# Saved just now')
+    })
+
+    it('says so when the edit saved as the panel closes is refused', async () => {
+        const client = createTestQueryClient()
+        const view = renderUi(<QueryClientProvider client={client}><NotesPanel meetingId="meeting-acme-review"/></QueryClientProvider>)
+        const notes = await screen.findByRole('textbox', {name: 'Notes'})
+        vi.spyOn(handlers, 'api_save_meeting_notes').mockImplementation(() => {
+            throw 'Meeting not found'
+        })
+        // An edit, its save still waiting for typing to stop.
+        fireEvent.click(within(notes).getAllByRole('checkbox')[0])
+        await act(() => new Promise((resolve) => setTimeout(resolve, 50)))
+
+        // Another tab: the panel saves the edit as it goes, and is gone when native refuses.
+        view.rerender(<QueryClientProvider client={client}><p>Transcript</p></QueryClientProvider>)
+        expect(await screen.findByText('Couldn’t save your notes')).toBeInTheDocument()
     })
 })

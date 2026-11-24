@@ -1,4 +1,4 @@
-import {useMutation, useQuery} from '@tanstack/react-query'
+import {useIsMutating, useMutation, useQuery} from '@tanstack/react-query'
 import {diarizationAvailableQuery, meetingKeys, type TranscriptSegment} from '@/api/meetings'
 import {diarizeMeeting, usePostCallJob} from '@/api/postCall'
 import {speakerKey, speakerParts} from '@/components/transcript/turns'
@@ -31,8 +31,11 @@ export const speakerCountLabel = (count: number) => `${count} ${count === 1 ? 's
 export function useIdentifySpeakers(meetingId: string, hasAudio: boolean) {
     const engine = useQuery(diarizationAvailableQuery)
     const job = usePostCallJob(meetingId)
+    const mutationKey = [...meetingKeys.all, 'diarize', meetingId]
+    // A run started before the screen was left and opened again is still this meeting's.
+    const running = useIsMutating({mutationKey}) > 0
     const run = useMutation({
-        mutationKey: [...meetingKeys.all, 'diarize', meetingId],
+        mutationKey,
         mutationFn: (count: number | null) => diarizeMeeting(meetingId, count),
         onMutate: () => {
             toast.loading('Identifying speakers…', {id: `diarize-${meetingId}`, description: 'Listening to the recording on this computer.'})
@@ -50,7 +53,7 @@ export function useIdentifySpeakers(meetingId: string, hasAudio: boolean) {
     })
     return {
         available: engine.data === true && hasAudio && !job,
-        running: run.isPending,
+        running,
         identify: (count: number | null) => run.mutate(count),
     }
 }

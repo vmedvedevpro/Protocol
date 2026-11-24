@@ -45,9 +45,7 @@ function TitleForm({meeting, onDone}: { meeting: { id: string, title: string }, 
         if (!trimmed || trimmed === meeting.title) return onDone()
         rename.mutate(trimmed, {
             onSuccess: onDone,
-            onError: (error) => toast.error('Couldn’t rename the meeting', {
-                description: error instanceof Error ? error.message : String(error),
-            }),
+            onError: (error) => toast.error('Couldn’t rename the meeting', {description: error.message}),
         })
     }
 
