@@ -32,4 +32,10 @@ describe('SettingsRow', () => {
         await userEvent.click(screen.getByRole('button', {name: /Summary model/}))
         expect(open).toHaveBeenCalledOnce()
     })
+
+    it('says that an external row opens in the browser', () => {
+        renderUi(<SettingsNavRow label="Report a bug" external onClick={() => {}}/>)
+
+        expect(screen.getByRole('button', {name: 'Report a bug (opens in browser)'})).toBeInTheDocument()
+    })
 })

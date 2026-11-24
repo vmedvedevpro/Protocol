@@ -136,6 +136,22 @@ describe('App navigation', () => {
         await heading('Recording')
     })
 
+    it('moves focus to the new screen after a navigation, and leaves it on the first screen', async () => {
+        renderApp()
+        await heading('Meetings')
+        expect(screen.getByRole('main')).not.toHaveFocus()
+
+        screen.getByRole('button', {name: 'Settings'}).focus()
+        await userEvent.keyboard('{Enter}')
+        await heading('Settings')
+        await waitFor(() => expect(screen.getByRole('main')).toHaveFocus())
+
+        screen.getByRole('button', {name: 'Back to meetings'}).focus()
+        await userEvent.keyboard('{Enter}')
+        await heading('Meetings')
+        await waitFor(() => expect(screen.getByRole('main')).toHaveFocus())
+    })
+
     it('sends an unknown route home', async () => {
         renderApp('/contacts')
 
@@ -230,6 +246,19 @@ describe('Crash report', () => {
 
         expect(await within(sheet).findByRole('alert')).toHaveTextContent("Couldn't save the crash report.")
         expect(mockState.crashReport).toEqual(report)
+    })
+
+    it('leaves the title strip working while the sheet is open', async () => {
+        mockState.crashReport = report
+        renderApp()
+        await screen.findByRole('dialog')
+
+        // The modal sheet hides the window from assistive technology meanwhile.
+        const pin = screen.getByRole('button', {name: 'Keep on top', hidden: true})
+        await userEvent.click(pin)
+
+        expect(pin).toHaveAttribute('aria-pressed', 'true')
+        expect(screen.getByRole('dialog')).toBeInTheDocument()
     })
 
     it('keeps the report for the next launch when closed without a choice', async () => {

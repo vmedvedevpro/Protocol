@@ -51,6 +51,7 @@ import {
     TextUnderlineIcon,
     TrashIcon,
 } from '@phosphor-icons/react'
+import {formatShortcut, type Platform, platform} from '@/lib/platform'
 
 /*
  * BlockNote draws react-icons; the app draws Phosphor. These swap them where
@@ -88,11 +89,30 @@ const blockIcons: Partial<Record<string, Icon>> = {
     divider: MinusIcon,
 }
 
-/** The slash menu's items, as BlockNote builds them, with Phosphor icons. */
+const MAC_MODIFIERS: Record<string, string> = {Alt: '⌥', Shift: '⇧'}
+
+/**
+ * A slash menu badge as the app writes shortcuts (`formatShortcut`).
+ * BlockNote writes "Ctrl-Alt-1", or "⌘-Alt-1" on a Mac by its own check;
+ * here it is "Ctrl Alt 1" or "⌘⌥1", by the app's platform.
+ */
+export function formatBadge(badge: string, on: Platform = platform): string {
+    const keys = badge.split('-').filter((key) => key !== 'Ctrl' && key !== '⌘')
+    const key = (keys.pop() ?? '').toUpperCase()
+    return on === 'macos'
+        ? formatShortcut(keys.map((modifier) => MAC_MODIFIERS[modifier] ?? modifier).join('') + key, on)
+        : formatShortcut([...keys, key].join(' '), on)
+}
+
+/** The slash menu's items, as BlockNote builds them, with Phosphor icons and the app's shortcut style. */
 export function slashMenuItems(editor: BlockNoteEditor): DefaultReactSuggestionItem[] {
     return getDefaultSlashMenuItems(editor).map((item) => {
         const ItemIcon = blockIcons[item.key]
-        return ItemIcon ? {...item, icon: <ItemIcon/>} : item
+        return {
+            ...item,
+            ...(ItemIcon && {icon: <ItemIcon/>}),
+            ...(item.badge && {badge: formatBadge(item.badge)}),
+        }
     })
 }
 

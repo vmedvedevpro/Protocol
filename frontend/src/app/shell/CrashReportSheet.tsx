@@ -118,13 +118,14 @@ const Disclosure = styled.button`
     cursor: pointer;
     ${focusRing};
 
-    svg {
-        transition: transform ${({theme}) => theme.motion.duration.fast} ${({theme}) => theme.motion.easing.standard};
+    /* The turned caret is the open state, so it shows under reduced motion too; only the turn animates. */
+    &[aria-expanded='true'] svg {
+        transform: rotate(90deg);
     }
 
     ${MOTION_OK} {
-        &[aria-expanded='true'] svg {
-            transform: rotate(90deg);
+        svg {
+            transition: transform ${({theme}) => theme.motion.duration.fast} ${({theme}) => theme.motion.easing.standard};
         }
     }
 `

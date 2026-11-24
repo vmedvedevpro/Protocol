@@ -1,7 +1,7 @@
 import {type ComponentProps, type ReactNode, useContext, useId} from 'react'
 import styled, {css} from 'styled-components'
 import {ControlLabelContext} from './controlLabelling'
-import {colorTransition} from './styles'
+import {colorTransition, fieldFocusRing} from './styles'
 
 /** sm: 28 px inside a settings row; md: 32 px, most fields; lg: 36 px, a field that stands alone. */
 export type FieldSize = 'sm' | 'md' | 'lg'
@@ -10,9 +10,10 @@ export type FieldSize = 'sm' | 'md' | 'lg'
 export type FieldTone = 'outline' | 'soft'
 
 // The border darkens on hover and turns to the text colour on focus, over
-// `fast`; a field shows focus by its border rather than an outline, since it
-// already has one. A field with an icon draws this box around the icon and a
-// bare input, so it follows the focus inside it.
+// `fast`, with fieldFocusRing doubling it at once; a field shows focus by its
+// border rather than an outline, since it already has one. A field with an
+// icon draws this box around the icon and a bare input, so it follows the
+// focus inside it.
 const fieldBox = (focus: '&:focus' | '&:focus-within') => css<{ $tone: FieldTone }>`
     width: 100%;
     min-width: 0;
@@ -29,6 +30,7 @@ const fieldBox = (focus: '&:focus' | '&:focus-within') => css<{ $tone: FieldTone
     ${focus} {
         border-color: ${({theme}) => theme.colors.text};
         outline: none;
+        ${fieldFocusRing};
     }
 `
 

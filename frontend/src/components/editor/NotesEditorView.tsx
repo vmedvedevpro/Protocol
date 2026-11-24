@@ -43,6 +43,7 @@ import {durations, tween} from '@/styles/motion'
 import {notesComponents, slashMenuItems, withBlockTypeIcons} from './editorIcons'
 import {editorStyles} from './editorStyles'
 import type {NotesEditorProps} from './NotesEditor'
+import {notesSchema} from './notesSchema'
 
 /**
  * BlockNote with the old editor's menus: the formatting toolbar on a
@@ -63,6 +64,7 @@ export default function NotesEditorView({
     onReady,
 }: NotesEditorProps) {
     const editor = useCreateBlockNote({
+        schema: notesSchema,
         dictionary: {
             ...en,
             placeholders: {

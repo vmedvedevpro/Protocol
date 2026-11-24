@@ -36,6 +36,8 @@ describe('NotesEditor', () => {
         const [draft, shared] = within(notes).getAllByRole('checkbox')
         expect(draft).not.toBeChecked()
         expect(shared).toBeChecked()
+        // Each checkbox is named by its item's text.
+        expect(draft).toHaveAccessibleName('Draft the retention statement')
     })
 
     it('reads the Markdown when no blocks were saved', async () => {

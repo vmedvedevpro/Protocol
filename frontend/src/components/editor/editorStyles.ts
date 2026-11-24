@@ -1,5 +1,12 @@
 import {css, keyframes} from 'styled-components'
-import {colorTransition, focusRing, popoverItem, popoverSurface} from '@/components/ui/styles'
+import {
+    colorTransition,
+    fieldFocusRing,
+    focusRing,
+    keyboardRowRing,
+    popoverItem,
+    popoverSurface,
+} from '@/components/ui/styles'
 import {ICON_DEFAULTS} from '@/styles/icons'
 import {MOTION_OK, SCALE_FROM} from '@/styles/motion'
 
@@ -315,10 +322,13 @@ export const editorStyles = css`
     }
 
     /* Menu rows: the slash menu, the block type and colour menus, the drag
-       handle's menu. They are the app's menu rows, except that the row under
-       the pointer or the keyboard fills itself: the app's sliding highlight
-       is a Radix menu's. Ariakit's lists are flex columns that scroll, so the
-       rows keep their height instead of shrinking to fit. */
+       handle's menu. They are the app's menu rows, except that the row the
+       pointer or the keyboard picked fills itself: the app's sliding
+       highlight is a Radix menu's. Only that row fills, never the one under
+       the pointer as well: Ariakit's menus pick the hovered row themselves,
+       and the slash menu's pick is the row Enter inserts. Ariakit's lists
+       are flex columns that scroll, so the rows keep their height instead of
+       shrinking to fit. */
     &&& .bn-ak-menu-item,
     &&& .bn-ak-select-item {
         ${popoverItem};
@@ -326,15 +336,21 @@ export const editorStyles = css`
         background: transparent;
     }
 
-    &&& .bn-ak-menu-item:hover,
     &&& .bn-ak-menu-item[data-active-item],
     &&& .bn-ak-menu-item[aria-selected='true'],
     &&& .bn-ak-menu-item[aria-expanded='true'],
-    &&& .bn-ak-menu-item:active,
-    &&& .bn-ak-menu-item[data-active],
     &&& .bn-ak-select-item[data-active-item] {
         background: ${({theme}) => theme.colors.surface};
         color: ${({theme}) => theme.colors.text};
+    }
+
+    /* The keyboard's row also gets the app's row ring (popoverItem): Ariakit
+       marks it data-focus-visible, and the slash menu's pick moves only by
+       the keyboard (its arrows, or typing). */
+    &&& .bn-ak-menu-item[data-focus-visible],
+    &&& .bn-ak-select-item[data-focus-visible],
+    &&& .bn-suggestion-menu-item[aria-selected='true'] {
+        ${keyboardRowRing};
     }
 
     /* A slash menu row also has a line that says what the block is. */
@@ -416,6 +432,7 @@ export const editorStyles = css`
     &&& .bn-ak-input[data-focus-visible] {
         border-color: ${({theme}) => theme.colors.text};
         outline: none;
+        ${fieldFocusRing};
     }
 
     &&& .bn-ak-input::placeholder {

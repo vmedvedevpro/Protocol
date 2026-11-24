@@ -39,7 +39,7 @@ interface Mark {
  * nothing, and the shared highlight flew to the active item and back while
  * the pointer crossed a divider. Here a focus that lands on no item leaves
  * the highlight on the last one, so crossing a divider slides it straight to
- * the next; only leaving the list hides it.
+ * the next; only leaving the list or pointing at a disabled item hides it.
  */
 export function useSlidingHighlight(itemSelector: string) {
     const [mark, setMark] = useState<Mark | null>(null)
@@ -51,9 +51,20 @@ export function useSlidingHighlight(itemSelector: string) {
     useEffect(() => {
         if (!list) return
         const leave = () => setMark((last) => last && {...last, visible: false})
+        // Radix focuses the list, not a disabled item, under the pointer, so
+        // the highlight would stay on the last item, where Enter does
+        // nothing. It hides there, and lands on the next item it reaches.
+        const over = (event: PointerEvent) => {
+            const item = event.target instanceof Element ? event.target.closest(itemSelector) : null
+            if (item?.hasAttribute('data-disabled')) leave()
+        }
         list.addEventListener('pointerleave', leave)
-        return () => list.removeEventListener('pointerleave', leave)
-    }, [list])
+        list.addEventListener('pointerover', over)
+        return () => {
+            list.removeEventListener('pointerleave', leave)
+            list.removeEventListener('pointerover', over)
+        }
+    }, [list, itemSelector])
 
     const handlers = {
         ref: setList,

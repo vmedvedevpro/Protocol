@@ -27,7 +27,8 @@ src/
     placeholder/       stand-ins for the screens until their tasks replace them
   api/                 native domains shared by several features (see below)
   components/ui/       design-system primitives, no feature knowledge
-  components/editor/   the notes editor (BlockNote), loaded as its own chunk
+  components/editor/   the notes editor (BlockNote), loaded as its own chunk; its
+                       schema names checklist checkboxes by their item's text
   features/<x>/
     api/               native domains only this feature uses
     components/
@@ -120,6 +121,10 @@ shell's own commands. The minibar window has none of it.
   from the eye and from screen readers.
 - A screen arrives with a fade and a 4 px rise over `base`; the screen it
   replaces leaves at once, so a click never waits for an exit.
+- A screen opened by a navigation focuses its `<main>` (`tabIndex={-1}`,
+  `preventScroll`): the control that navigated, such as Settings or Back to
+  meetings, leaves with the old screen, and focus would fall to `<body>`.
+  The first screen of the page (location key `default`) leaves focus alone.
 - Screens are placeholders in `app/placeholder/Screens.tsx` until their tasks
   replace them in the route table; the theme switch sits on the Settings
   placeholder until #114.
@@ -228,13 +233,23 @@ theme; the motion from the Motion section.
 - `SegmentedControl`, and `Tabs` with `TabList` and `TabPanels` (see Motion).
 - `Switch`, `Select`, `TextField` and `TextArea`. `SettingsGroup`,
   `SettingsRow` and `SettingsNavRow` lay out a settings card; a control in a
-  row without a label of its own is named by the row's label and described
-  by its description.
+  row without a name of its own (`label`, `aria-label`, `aria-labelledby`)
+  is named by the row's label and described by its description. A focused
+  field adds a 1 px ring in the text colour to its border
+  (`fieldFocusRing`), so focus differs from hover's `muted` border. An
+  external `SettingsNavRow` says "(opens in browser)" to screen readers.
+- `VisuallyHidden` holds text only assistive technology reads.
+- Menu and select rows keep the design's faint highlight; the keyboard's row
+  also gets an inset `muted` ring on `:focus-visible` (`keyboardRowRing`),
+  which the pointer never shows. The notes editor's menus do the same.
 - `Menu` with `MenuItem`, `MenuCheckboxItem`, `MenuRadioGroup` and
   `MenuRadioItem`, `MenuGroup`, `MenuSub` and `MenuSeparator`.
 - `Sheet`: a dialog over the dimmed window, opened through `open`. On close
   it returns focus to the control that opened it; for a menu item, which
-  has gone with its menu, that is the menu's button.
+  has gone with its menu, that is the menu's button. Its scrim starts under
+  the title strip, which stays live (`pointer-events: auto` against Radix's
+  lock on `<body>`), and a press there does not close the sheet, so the
+  window still moves, minimizes and closes on Windows and Linux.
 - `Tooltip` shares its open delay through `TooltipProvider`.
 - `UiProviders` (`app/`) is what the primitives expect above them besides
   the theme: `MotionProvider`, the icon defaults and `TooltipProvider`. App,
@@ -295,7 +310,8 @@ focus); motion (`motion/react`) carries enter and exit, indicators and springs.
     `fast`. Inside a menu or a select list one highlight slides between the
     items on `springs.snappy` (`SlidingHighlight`); it stays on the last
     item while the pointer crosses a separator, and fades when the pointer
-    leaves the list.
+    leaves the list or rests on a disabled item, where Enter would do
+    nothing.
   - Lists: a new row fades in rising 4 px over `base`, a removed row fades
     out; no stagger, and no reordering animation (it needs layout).
   - Status changes (a status line, a badge, a count): `AnimatePresence
@@ -459,7 +475,10 @@ levels) skip Query and React state; see Styling and the next section.
   it, `idle` is greyed and slow and does not listen, `paused` is flat and
   grey. `LevelMeter` is the five bars;
   `SourceMeter` is the mute toggle of the recording bar and the minibar, with
-  the bars or, muted, "Muted" on an inverted fill. The button around the ring
+  the bars or, muted, "Muted" on an inverted fill. Its name comes from its
+  content, so it holds the visible "Muted" (WCAG 2.5.3): "Mute microphone"
+  while on, "Muted microphone" while muted, with `aria-pressed`; its
+  Tooltip says what a click does. The button around the ring
   (pause) and the native mute calls belong to the screens.
 - The ring's cost is bounded in `ringLoop.ts`: one requestAnimationFrame loop
   per ring, running only while the canvas is on screen, the document is
@@ -476,7 +495,9 @@ levels) skip Query and React state; see Styling and the next section.
   in its mode's grey; the meters still show the level, without easing.
 - The meters write `transform: scaleY(…)` on their bars at each sample and
   let a CSS transition smooth it; they fall to rest 300 ms after the last
-  sample, since native stops sending when a recording stops.
+  sample, since native stops sending when a recording stops. The ring's
+  loop reads the level as 0 after the same 300 ms, and `Ring` resets it
+  when its feed ends.
 - The mock fakes both events (`src/mocks/audio.ts`): outside tests a fake
   conversation emits `recording-audio-levels` from the start, and the preview
   commands emit `audio-levels` for the devices asked for.

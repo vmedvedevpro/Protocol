@@ -27,6 +27,9 @@ const Strip = styled.header<{ $platform: Platform }>`
     flex: none;
     align-items: center;
     user-select: none;
+    /* An open sheet sets pointer-events: none on <body>; the strip stays
+       live, so the window still moves, minimizes and closes (Sheet). */
+    pointer-events: auto;
 
     ${({$platform}) => {
         switch ($platform) {
