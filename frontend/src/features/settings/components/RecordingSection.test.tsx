@@ -1,0 +1,154 @@
+import {createElement} from 'react'
+import {fireEvent, screen, waitFor, within} from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import {beforeAll, describe, expect, it} from 'vitest'
+import type {Platform} from '@/lib/platform'
+import {mockState} from '@/mocks/state'
+import {renderSettings} from '../testing'
+import {RecordingSection} from './RecordingSection'
+
+const renderRecording = (platform: Platform = 'windows') =>
+    renderSettings(createElement(RecordingSection, {platform}))
+const group = (name: string) => screen.findByRole('region', {name})
+const stored = () => mockState.devices.recordingPreferences
+
+const zoom = {id: 'Zoom.exe', name: 'Zoom', executable: 'Zoom.exe'}
+const teams = {id: 'ms-teams.exe', name: 'Microsoft Teams', executable: 'ms-teams.exe'}
+
+describe('Recording › Saving', () => {
+    it('shows the folder, and warns instead when audio is not saved', async () => {
+        renderRecording()
+        expect(await screen.findByText(stored().save_folder)).toBeInTheDocument()
+        expect(screen.getByText('Saved as MP4')).toBeInTheDocument()
+
+        await userEvent.click(screen.getByRole('switch', {name: 'Save audio'}))
+
+        await waitFor(() => expect(stored().auto_save).toBe(false))
+        expect(screen.getByText(/Audio isn’t being saved/)).toBeInTheDocument()
+        await waitFor(() => expect(screen.queryByText('Where recordings are saved')).not.toBeInTheDocument())
+    })
+
+    it('falls back to the default folder when none is saved', async () => {
+        mockState.devices.recordingPreferences = {...stored(), save_folder: ''}
+        renderRecording()
+
+        expect(await screen.findByText(mockState.devices.defaultFolder)).toBeInTheDocument()
+    })
+
+    it('changes the folder to the one picked, and keeps it on Cancel', async () => {
+        const picked = mockState.devices.pickedFolder
+        renderRecording()
+        await userEvent.click(await screen.findByRole('button', {name: 'Change'}))
+
+        await waitFor(() => expect(stored().save_folder).toBe(picked))
+        expect(await screen.findByText('Recordings folder changed')).toBeInTheDocument()
+
+        mockState.devices.pickedFolder = null
+        await userEvent.click(screen.getByRole('button', {name: 'Change'}))
+        expect(stored().save_folder).toBe(picked)
+    })
+
+    it('opens the folder', async () => {
+        renderRecording()
+        await userEvent.click(await screen.findByRole('button', {name: 'Open'}))
+
+        await waitFor(() => expect(mockState.devices.openedFolders).toEqual([stored().save_folder]))
+    })
+})
+
+describe('Recording › volumes', () => {
+    it('saves the mic volume once the slider rests, keeping the other fields', async () => {
+        mockState.devices.recordingPreferences = {...stored(), real_time_transcription: true}
+        renderRecording()
+        const slider = await screen.findByRole('slider', {name: 'Mic volume'})
+        await waitFor(() => expect(slider).toBeEnabled())
+
+        fireEvent.change(slider, {target: {value: '1.6'}})
+        fireEvent.change(slider, {target: {value: '1.8'}})
+
+        expect(screen.getByText('1.8×')).toBeInTheDocument()
+        await waitFor(() => expect(stored().mic_gain).toBe(1.8))
+        expect(stored().real_time_transcription).toBe(true)
+    })
+
+    it('keeps a change made just before the page is left', async () => {
+        const {unmount} = renderRecording()
+        const slider = await screen.findByRole('slider', {name: 'System volume'})
+        await waitFor(() => expect(slider).toBeEnabled())
+
+        fireEvent.change(slider, {target: {value: '2.5'}})
+        unmount()
+
+        await waitFor(() => expect(stored().system_gain).toBe(2.5))
+    })
+})
+
+describe('Recording › Computer audio', () => {
+    it('records only chosen apps, and removes one', async () => {
+        mockState.devices.recordingPreferences = {...stored(), per_app_targets: [zoom, teams]}
+        renderRecording()
+        const audio = within(await group('Computer audio'))
+
+        // The radio is hidden under its label, which takes the click.
+        await userEvent.click(audio.getByRole('radio', {name: 'Only chosen apps'}).closest('label')!)
+        await waitFor(() => expect(stored().per_app_recording_enabled).toBe(true))
+        await userEvent.click(await audio.findByRole('button', {name: 'Remove Zoom'}))
+
+        await waitFor(() => expect(stored().per_app_targets).toEqual([teams]))
+        // Native's legacy fields follow the first app.
+        expect(stored().per_app_target_app).toBe('ms-teams.exe')
+    })
+
+    it('adds apps on their own page', async () => {
+        mockState.devices.recordingPreferences = {...stored(), per_app_recording_enabled: true}
+        const {router} = renderRecording()
+
+        await userEvent.click(await screen.findByRole('button', {name: '+ Add app'}))
+
+        expect(router.state.location.pathname).toBe('/settings/chosen-apps')
+    })
+
+    it('has no app choice on Linux', async () => {
+        renderRecording('linux')
+        const audio = within(await group('Computer audio'))
+
+        expect(audio.queryByRole('radiogroup', {name: 'Record'})).not.toBeInTheDocument()
+        expect(audio.getByRole('combobox', {name: 'System audio'})).toBeInTheDocument()
+    })
+
+    it('records the current output on macOS', async () => {
+        renderRecording('macos')
+        const audio = await group('Computer audio')
+
+        expect(within(audio).queryByRole('combobox', {name: 'System audio'})).not.toBeInTheDocument()
+        expect(audio).toHaveTextContent('macOS records the current system output.')
+    })
+})
+
+describe('Recording › devices', () => {
+    // jsdom lacks what Radix Select calls while its list opens.
+    beforeAll(() => {
+        Element.prototype.scrollIntoView = () => {}
+        Element.prototype.hasPointerCapture = () => false
+    })
+
+    it('stores the chosen microphone with its type, and shows a missing one as such', async () => {
+        mockState.devices.recordingPreferences = {...stored(), preferred_system_device: 'USB Headset (output)'}
+        renderRecording()
+
+        const output = await screen.findByRole('combobox', {name: 'System audio'})
+        await waitFor(() => expect(output).toHaveTextContent('USB Headset (not connected)'))
+        await userEvent.click(screen.getByRole('combobox', {name: 'Microphone'}))
+        await userEvent.click(await screen.findByRole('option', {name: 'Studio Display Microphone'}))
+
+        await waitFor(() => expect(stored().preferred_mic_device).toBe('Studio Display Microphone (input)'))
+        expect(stored().preferred_system_device).toBe('USB Headset (output)')
+    })
+
+    it('previews the chosen microphone while nothing records', async () => {
+        mockState.devices.recordingPreferences = {...stored(), preferred_mic_device: 'Studio Display Microphone (input)'}
+        renderRecording()
+
+        await waitFor(() => expect(mockState.audio.monitoring).toEqual(['Studio Display Microphone']))
+    })
+})
