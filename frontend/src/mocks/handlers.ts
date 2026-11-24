@@ -1,6 +1,7 @@
 import type {Platform} from '@/lib/platform'
 import {audioHandlers} from './audio'
 import {devicesHandlers} from './devices'
+import {liveHandlers} from './live'
 import {meetingsHandlers} from './meetings'
 import {modelCatalogHandlers} from './modelCatalog'
 import {modelsHandlers} from './models'
@@ -75,6 +76,9 @@ export const handlers: Record<string, MockHandler> = {
 
     // First launch and its database: onboarding.rs, database/commands.rs
     ...onboardingHandlers(mockState),
+
+    // The recorder, its live transcript and the save hand-over (src/mocks/live.ts)
+    ...liveHandlers(mockState),
 }
 
 /**

@@ -5,6 +5,7 @@ import type {Release} from '@/api/updater'
 import {platform} from '@/lib/platform'
 import packageJson from '../../package.json'
 import {createMockDevices} from './devices'
+import {createMockLive} from './live'
 import {createMockMeetings} from './meetings'
 import {createMockCatalog} from './modelCatalog'
 import {createMockModels} from './models'
@@ -83,6 +84,8 @@ function createMockState() {
         postCall: createMockPostCall(),
         // The meetings library (src/mocks/meetings.ts).
         meetings: createMockMeetings(),
+        // The recorder and its live transcript (src/mocks/live.ts).
+        live: createMockLive(),
     }
 }
 

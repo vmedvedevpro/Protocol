@@ -67,6 +67,7 @@
         "eslint": "^10.2.1",
         "eslint-plugin-react-hooks": "^7.1.1",
         "eslint-plugin-react-refresh": "^0.5.2",
+        "fake-indexeddb": "6.0.0",
         "globals": "^17.5.0",
         "jsdom": "^31.0.1",
         "storybook": "^10.6.8",

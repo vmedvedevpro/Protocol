@@ -469,6 +469,19 @@ export async function getMeetingSummaryLanguage(meetingId: string): Promise<stri
     return reply.language
 }
 
+/**
+ * Chooses the language of this meeting's summary; null goes back to Auto.
+ * The recording applies the pinned default to a meeting it saves (#112);
+ * Summary options sets it per meeting (#119).
+ */
+export async function saveMeetingSummaryLanguage(meetingId: string, language: string | null): Promise<void> {
+    const reply = await command<MeetingLanguageReply>('api_save_meeting_summary_language', {
+        meetingId,
+        summaryLanguage: language,
+    })
+    writeFallback(LANGUAGE_FALLBACK_PREFIX, meetingId, reply.storage === 'local_fallback' ? language : null)
+}
+
 /** The language Auto detected for this meeting before, so it is not detected again. */
 export async function getDetectedSummaryLanguage(meetingId: string): Promise<string | null> {
     const reply = await command<MeetingLanguageReply>('api_get_meeting_detected_summary_language', {meetingId})

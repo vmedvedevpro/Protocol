@@ -17,7 +17,7 @@ import {STARTUP_PATIENCE_MS} from './shell/startup'
 // The radio itself is invisible to the pointer; a user clicks its label.
 const option = (name: string) => screen.getByRole('radio', {name}).closest('label') as HTMLElement
 
-const heading = (name: string) => screen.findByRole('heading', {level: 1, name})
+const heading = (name: string | RegExp) => screen.findByRole('heading', {level: 1, name})
 
 // listen() registers asynchronously; an event sent before that goes nowhere.
 const listenersRegistered = () => new Promise((resolve) => setTimeout(resolve, 0))
@@ -148,17 +148,19 @@ describe('App navigation', () => {
         expect(screen.queryByRole('contentinfo')).not.toBeInTheDocument()
     })
 
-    it("opens the recording screen from the tray's Start", async () => {
+    it("records from the tray's Start, on the recording screen", async () => {
         renderApp()
         await heading('Meetings')
         await listenersRegistered()
 
         await emitMockEvent(TRAY_START_RECORDING_EVENT, null)
 
-        await heading('Recording')
+        await heading(/^Meeting · /)
+        expect(within(screen.getByRole('contentinfo')).getByRole('group', {name: 'Recording'})).toBeInTheDocument()
+        expect(mockState.live.recording).not.toBeNull()
     })
 
-    it('opens Settings and the recording screen from the keyboard, and goes back to the meetings', async () => {
+    it('opens Settings from the keyboard, goes back, and starts and stops a recording with Ctrl R', async () => {
         renderApp()
         await heading('Meetings')
 
@@ -168,7 +170,11 @@ describe('App navigation', () => {
         await heading('Meetings')
         // The key, not the letter: Ctrl R on a Russian layout types к.
         await userEvent.keyboard('{Control>}[KeyR]{/Control}')
-        await heading('Recording')
+        await heading(/^Meeting · /)
+
+        // A take this short is discarded.
+        await userEvent.keyboard('{Control>}[KeyR]{/Control}')
+        await waitFor(() => expect(mockState.live.saveAnswers).toEqual([{stopId: 1, outcome: 'discarded'}]))
     })
 
     it('moves focus to the new screen after a navigation, and leaves it on the first screen', async () => {

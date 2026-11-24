@@ -14,6 +14,7 @@ use crate::database::repositories::person::{
 };
 use crate::database::repositories::setting::SettingsRepository;
 use crate::summary::llm_client::{generate_summary, LLMProvider};
+use crate::updater::busy::{self, BusyReason};
 use sqlx::SqlitePool;
 use std::path::PathBuf;
 use tauri::{AppHandle, Runtime, State};
@@ -150,6 +151,9 @@ pub async fn ask_live_assistant<R: Runtime>(
     if question.trim().is_empty() {
         return Err("Question is empty".to_string());
     }
+    // "Summarize so far" can still be answering after Stop, when the
+    // recording no longer holds the app busy; an update must not restart it.
+    let _busy = busy::hold(BusyReason::Summary);
 
     let model = resolve_assistant_model(state.db_manager.pool()).await?;
     let _ = &app;

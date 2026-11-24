@@ -15,6 +15,7 @@ import {
     type BuiltInModelStatus,
     whisperModelsQuery,
 } from '@/api/models'
+import {errorMessage} from '@/api/core'
 import {isFirstLaunchDone, onboardingStatusQuery} from '@/api/onboarding'
 import {toast} from '@/components/ui/toastStore'
 import {type FirstLaunchDownload, firstLaunchDownloads} from '../api/downloads'
@@ -35,8 +36,6 @@ function stateOf(download: FirstLaunchDownload, lists: Lists, downloads: Downloa
     const status = lists[download.engine]?.find(({name}) => name === download.model)?.status
     return modelState(status, downloads[downloadKey(download.engine, download.model)])
 }
-
-const message = (error: unknown) => (error instanceof Error ? error.message : String(error))
 
 // One run per window, kept by the app's QueryClient: it goes on after the
 // screen closes, and each test, with its own client, gets its own.
@@ -64,7 +63,7 @@ function startDownloads(queryClient: QueryClient, downloads: FirstLaunchDownload
                 // Running already (a window reloaded during first launch): native goes on with it.
                 if (isAlreadyDownloading(error)) continue
                 if (isFirstLaunchDone(queryClient.getQueryData(onboardingStatusQuery.queryKey))) {
-                    toast.error(`Could not download ${download.detail}`, {description: message(error)})
+                    toast.error(`Could not download ${download.detail}`, {description: errorMessage(error)})
                 }
             }
         }

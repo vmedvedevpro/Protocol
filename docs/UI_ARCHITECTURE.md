@@ -132,7 +132,7 @@ minibar window has none of it.
   `Screen` imports no feature; a story or a test without the provider
   docks none. The recording bar shows on every screen while a recording
   starts, runs or is being saved, and idle (Record) only where the screen
-  sets `recordBar`: Home. The status
+  sets `recordBar`: Home and the recording screen. The status
   line of model downloads (#117) goes in the same footer on every screen;
   with nothing in it, the footer is `:empty` and hidden from the eye and
   from screen readers.
@@ -221,8 +221,9 @@ minibar window has none of it.
   no longer shows "Starting Recording…" for it: the menu keeps Start until
   `start_recording` succeeds and updates it, so a refused or failed start
   leaves no stale item, and a second click sends the request again. The
-  start itself, with its order (PARITY.md › Recording start order), is
-  #112's: until then the request, ⌘R and Record open the recording screen.
+  request runs the recording's start (Recording › Start), the same as Record
+  and ⌘R; the tray's Stop, Pause and Resume stay native, and the window
+  follows them by their events.
 
 ### Hotkeys
 
@@ -235,9 +236,11 @@ minibar window has none of it.
   the physical key, so Ctrl R is Ctrl R on a Russian layout too. Hints write
   them with `formatShortcut`.
 - On the same keys a `screen` hotkey wins over an `app` one, and within a
-  level the latest registration wins. The shell's are ⌘R (start a recording;
-  the recording's own ⌘R, Stop, overrides it while it runs) and ⌘, (Settings);
-  ⌘K is search's (#118).
+  level the latest registration wins. The shell's are ⌘R (start a
+  recording, or stop the one that runs: `toggleRecording`; nothing while one
+  starts or is saved) and ⌘, (Settings); ⌘K is search's (#118). The
+  recording screen adds ⌘1, ⌘2 and ⌘3 for Notes, Transcript and Summary
+  while it records.
 - A ⌘ hotkey works from a text field too, and always stops the browser's own
   action (Ctrl R would reload the page), even while it does not run: while a
   sheet is open (`role="dialog"`), or for a key held down. ⌘R is blocked even
@@ -556,15 +559,16 @@ enter and exit, indicators and springs.
   natively and needs no lease: it holds `updater::busy::hold(…)` while it runs
   (model downloads), or `busy::current()` reads it through its owner's getter
   (summaries, through `active_summary_count`). A command that does neither
-  (today `ask_live_assistant` and `ask_person`) gets that added in Rust,
-  never a UI lease.
+  gets that added in Rust, never a UI lease: `ask_live_assistant` ("Summarize
+  so far") holds `BusyReason::Summary` while it answers, since an answer can
+  outlive Stop; `ask_person` still holds nothing.
 
 ## Recording state other screens read
 
 Two small stores in `src/api` let screens outside the recording feature
 follow it without importing it. The recording feature is the only writer of
-both; its session and its post-call runner come with the recording screen
-(#112), so until then nothing writes them.
+both: its session store mirrors its phase into `recordingPhase`, and its
+post-call runner writes `postCallJobs` (Recording below).
 
 - `recordingPhase.ts`: where the main window's recording is: `idle`,
   `starting`, `recording`, `paused` or `finishing` (Stop pressed, the
@@ -575,11 +579,12 @@ both; its session and its post-call runner come with the recording screen
 - `postCall.ts`: the pass after a recording is saved (retranscription,
   diarization, the automatic summary), one job per meeting:
   `usePostCallJob(meetingId)` is the meeting's job while it is queued, runs
-  or failed, and null once it has ended. #112's runner, mounted once by
-  the shell above navigation, is to write it (`postCallJobs`); a screen
+  or failed, and null once it has ended; `usePostCallBusy()` is whether any
+  job is queued or runs. The recording's runner, mounted
+  once by the shell above navigation, writes it (`postCallJobs`); a screen
   asks it to cancel, retry or skip a step through `postCallControls`, never
-  by writing a job. When a step ends the runner is to invalidate the
-  meeting's queries. The file also holds the retranscription and
+  by writing a job. When a step ends the runner invalidates the meeting's
+  queries. The file also holds the retranscription and
   diarization commands and events, which Enhance transcript (#119) and
   "N speakers · change" (#113) call, and `RETRANSCRIPTION_BANDS`: native's
   percent is not linear in time, and only its chunks' band (25 to 80) has a
@@ -701,8 +706,17 @@ levels) skip Query and React state; see Styling and the next section.
   the bars or, muted, "Muted" on an inverted fill. Its name comes from its
   content, so it holds the visible "Muted" (WCAG 2.5.3): "Mute microphone"
   while on, "Muted microphone" while muted, with `aria-pressed`; its
-  Tooltip says what a click does. The button around the ring
-  (pause) and the native mute calls belong to the screens.
+  Tooltip says what a click does. A `warning` (`'loud'` or `'quiet'`) puts a
+  warning icon in the source's place, outlines the button in the text colour
+  (no hue: red is the recording's), adds "too loud" or "low audio" to its
+  name, and its Tooltip says what to do. `useSystemAudioWarning(active)`
+  (`levelAdvice.ts`) computes it for computer audio from
+  `recording-audio-levels`, as docs/SYSTEM_AUDIO_LEVEL_ADVICE.md describes:
+  Too loud after 750 ms of limiter hits no more than 250 ms apart, cleared
+  1.5 s after the last; Low audio after 5 s of RMS between -80 and -45 dBFS
+  with peaks under -30 dBFS, cleared after 1 s without samples. The
+  microphone gets no advice. The button around the ring (pause) and the
+  native mute calls belong to the screens.
 - The ring's cost is bounded in `ringLoop.ts`: one requestAnimationFrame loop
   per ring, running only while the canvas is on screen, the document is
   visible and motion is allowed; under reduced motion it draws one frame and
@@ -726,6 +740,110 @@ levels) skip Query and React state; see Styling and the next section.
   commands emit `audio-levels` for the devices asked for.
   `mockState.audio.level` holds both sources at one level instead (the
   stories' level slider). Tests emit the samples they need.
+
+## Recording
+
+`features/recording` owns a recording from Record to the saved meeting and
+the pass after it. The shell mounts `RecordingRuntime` once (in
+`ShellCommands`, after first launch), so every screen of the main window
+hears native's recording events and a Stop from the tray, the minibar or a
+quit is saved whatever screen is open. The minibar window mounts none of it.
+
+- **Session** (`store/session.ts`): one Zustand store, client state only:
+  the phase (`idle`, `starting`, `recording`, `paused`, `finishing`), what a
+  start or a save is doing (`step`), the timer (`clock`: seconds at a
+  moment, so it renders without native calls and stops at the take's length
+  when capture ends), the mutes, the crash copy's id (`recoveryId`,
+  `meeting-<ms>`), the title and whether the user typed it, the folder the
+  meeting will be filed in, the live lines and the notes. The phase is
+  mirrored into `recordingPhase`. Native is the truth: the phase moves on
+  `recording-started`, `-paused`, `-resumed`, `-stopped` and `-error`, and a
+  pause or resume reads `get_recording_state` again for the timer.
+- **Start** (`store/start.ts`), from Record, ⌘R and the tray alike, in
+  PARITY.md's order: `check_transcription_runtime`; the live model loaded
+  (Parakeet unless Settings chose Whisper, `api_get_transcript_config`); an
+  automatic title (`lib/titles.ts`, after the folder when one is picked);
+  then `start_recording_with_devices_and_meeting` with the preferred devices.
+  A start opens the recording screen at once and says what it waits for. A
+  missing, downloading or damaged model, a runtime that cannot load, or a
+  device that cannot open ends in a toast and idle; the model ones offer
+  Speech models.
+- **A reload during a recording** (`syncWithNative`): `is_recording`,
+  `get_recording_state`, the name and `get_transcript_history` bring the
+  timer, mutes, title and lines back; the notes come from `af-live-notes`;
+  the crash copy is found again by its title, or a new one is made. When
+  `is_recording` itself fails the bar says recording is unavailable.
+- **Live lines** (`transcript-update`) are kept in order by start time, once
+  per sequence id, with this recording's speaker names replayed
+  (`lib/speakerEdits.ts`, `meetily-speaker-edits:<recoveryId>`), and each is
+  copied into the crash copy. Renaming a voice in the Transcript view names
+  it on every line, present and to come; "You" is never renamed.
+- **Notes** live in the session (every edit) and in `af-live-notes`
+  (written at most every 500 ms, and when the window hides). The editor
+  mounts from the session, keyed by the recording, so a view switch never
+  mounts it from an older copy; from Stop on it is read-only, so the notes
+  saved are the ones on screen. When they do not reach a meeting (the notes
+  save failed, or the meeting was not saved at all, since recovery brings
+  back only the transcript) a toast waits to copy them.
+- **Stop and save** (`store/save.ts`) follows PARITY.md › Stop and save
+  order: `stop_recording` with the save path, then on
+  `recording-stop-complete` a take under 10 s is discarded (folder and crash
+  copy too); otherwise `get_transcription_status` is polled every 500 ms for
+  up to 60 s, late lines get 4 s, and only a completed wait saves: the
+  transcript (`saveTranscript`), the folder, the notes, the pinned summary
+  language or the detected one (`store/summaryLanguage.ts`), the crash copy
+  marked saved. The answer goes to `recording_save_finished` before anything
+  refreshes; when it says Protocol is not quitting, the meeting opens at
+  `/meetings/:id` and its pass is queued (the old `source=recording` is not
+  needed: the meeting screen reads the job). A timeout or a failed poll
+  saves nothing and answers `notSaved`; the crash copy stays for recovery.
+  `SAVE_TIMING` holds the waits (tests shorten them).
+- **Post-call pass** (`store/postCallRunner.ts`): retranscription when the
+  audio was saved (with the post-call model: `api_get_post_call_transcript_config`,
+  else the live one, else any downloaded, Parakeet first), then speakers
+  when a speaker engine is installed, then the automatic summary when it is
+  on. One meeting at a time; each step waits for the one before. A failed
+  step waits for Retry or Skip; a skipped one leaves the list. Cancel stops
+  native between chunks. A retranscription past 30 minutes is cancelled.
+  Its listeners are registered (`listenNative`, awaited) before the start,
+  since a missing audio file fails at once; after a cancel, an error or the
+  limit the step waits until `is_retranscription_in_progress_command` says
+  native let go of the model, so the next meeting or a Retry does not fail
+  with "Retranscription already in progress".
+- **Recovery** (`api/recovery.ts`, `store/recover.ts`, `RecoverySheet`):
+  IndexedDB `MeetilyRecoveryDB` v1 as the old UI wrote it. A recording's
+  record is made at its start; every line is added. Once per page load the
+  sheet offers unsaved meetings updated within 7 days and more than 2 s ago
+  that have lines (one without lines has nothing to save, so it is not
+  offered); Recover saves it with audio rebuilt from the checkpoints when
+  there are some, Delete asks first. Old copies are pruned (7 days, saved
+  ones after a day), never while recording.
+- **The bar** (`RecordingBar`): idle, Record and the inputs; starting and
+  finishing, what is happening; recording, the ring (pause, Space on the
+  recording screen), the timer, the microphone and computer audio with
+  their levels and level advice (a click mutes), Change inputs (`InputsMenu`:
+  the device switches at once with `attempt_device_reconnect`; on failure
+  the old one keeps recording) and Stop.
+- **The screen** (`pages/RecordingPage`): the title (click to rename), when it
+  started, the folder picker, More actions (copy the transcript, recording
+  settings), then Notes, Transcript (live, with speaker naming) and Summary
+  ("Summarize so far": `ask_live_assistant` with the newest lines within
+  12 000 characters and, to steer it, the first 3 000 characters of the
+  notes, the old UI's budgets, since native sends the context to the model
+  in one request; not saved).
+- **Busy and the updater**: the save reports `recordingSave` and a running
+  or queued pass `postCall` (Native data above; `usePostCallBusy` reads it
+  from the jobs); a failed pass waiting for the user holds nothing.
+- `store/queries.ts`: the store works outside React, on the query client
+  `RecordingRuntime` registers (the app's, a test's or a story's).
+  `store/reset.ts` forgets every module's state; `src/test/setup.ts` runs it
+  after each test, with an empty `fake-indexeddb`.
+- Mock: `src/mocks/live.ts` (from `162e8be`'s `dev/preview/live.ts`). A start
+  emits `recording-started`; outside tests a line of the script every 2.6 s;
+  tests speak with `speakMockLine(mockState)`. Stop hands over with a
+  `stop_id`, so the real save runs into the sample library.
+  `mockState.live` sets the runtime error, a start error, the transcription
+  status after Stop, quitting, checkpoints, and records the answers.
 
 ## Meetings and the transcript
 

@@ -1,25 +1,83 @@
-import {act, screen} from '@testing-library/react'
-import {MemoryRouter} from 'react-router-dom'
+import {screen, waitFor, within} from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import {describe, expect, it} from 'vitest'
-import {recordingPhase} from '@/api/recordingPhase'
-import {renderUi} from '@/test/renderUi'
+import {mockState} from '@/mocks/state'
+import {settleIpc} from '@/test/ipc'
+import {session} from '../store/session'
+import {startRecording} from '../store/start'
+import {renderRecording} from '../test/renderRecording'
 import {RecordingBar} from './RecordingBar'
+import {RecordingRuntime} from './RecordingRuntime'
 
-const renderBar = (idle: boolean) => renderUi(<MemoryRouter><RecordingBar idle={idle}/></MemoryRouter>)
+/** The bar with the runtime that feeds it, as the shell mounts both. */
+const renderBar = (idle = false) => renderRecording(<><RecordingRuntime/><RecordingBar idle={idle}/></>)
 
 describe('RecordingBar', () => {
-    it('shows Record while idle only where the screen docks it', () => {
+    it('offers Record with the inputs while idle, only where the screen docks it', async () => {
         const {rerender} = renderBar(true)
-        expect(screen.getByRole('group', {name: 'Record'})).toHaveTextContent('Ready to record')
-        expect(screen.getByRole('button', {name: /Record/})).toBeInTheDocument()
+        const bar = screen.getByRole('group', {name: 'Record'})
+        expect(bar).toHaveTextContent('Ready to record')
+        expect(await within(bar).findByRole('button', {name: 'Inputs: Default microphone + all apps. Change'})).toBeInTheDocument()
+        expect(within(bar).getByRole('button', {name: /Record/})).toBeEnabled()
 
-        rerender(<MemoryRouter><RecordingBar idle={false}/></MemoryRouter>)
-        expect(screen.queryByRole('group')).not.toBeInTheDocument()
+        rerender(<><RecordingRuntime/><RecordingBar idle={false}/></>)
+        expect(screen.queryByRole('group', {name: 'Record'})).not.toBeInTheDocument()
     })
 
-    it('shows on every screen while a recording runs', () => {
-        renderBar(false)
-        act(() => recordingPhase.set('recording'))
-        expect(screen.getByRole('group', {name: 'Recording'})).toBeInTheDocument()
+    it('records from Record, then shows the timer, both sources and Stop on any screen', async () => {
+        renderBar(true)
+        await userEvent.click(await screen.findByRole('button', {name: /Record/}))
+
+        const bar = await screen.findByRole('group', {name: 'Recording'})
+        expect(within(bar).getByRole('timer', {name: 'Recording time'})).toHaveTextContent('0:00')
+        expect(within(bar).getByRole('button', {name: 'Mute microphone'})).toBeInTheDocument()
+        expect(within(bar).getByRole('button', {name: 'Mute computer audio'})).toBeInTheDocument()
+        expect(within(bar).getByRole('button', {name: /Stop/})).toBeInTheDocument()
+        expect(mockState.live.recording).not.toBeNull()
+    })
+
+    it('pauses and resumes from the ring, and mutes each source on its own', async () => {
+        renderBar()
+        await startRecording()
+        const bar = await screen.findByRole('group', {name: 'Recording'})
+
+        await userEvent.click(within(bar).getByRole('button', {name: 'Pause recording'}))
+        await waitFor(() => expect(session.get().phase).toBe('paused'))
+        expect(within(bar).getByText('Paused')).toBeInTheDocument()
+        expect(mockState.live.recording?.pausedAt).not.toBeNull()
+        await userEvent.click(within(bar).getByRole('button', {name: 'Resume recording'}))
+        await waitFor(() => expect(session.get().phase).toBe('recording'))
+
+        await userEvent.click(within(bar).getByRole('button', {name: 'Mute computer audio'}))
+        expect(await within(bar).findByRole('button', {name: 'Muted computer audio'})).toHaveAttribute('aria-pressed', 'true')
+        expect(within(bar).getByRole('button', {name: 'Mute microphone'})).toHaveAttribute('aria-pressed', 'false')
+        expect(mockState.live.recording).toMatchObject({systemMuted: true, micMuted: false})
+    })
+
+    it('stops from Stop and says what the save is doing', async () => {
+        renderBar()
+        await startRecording()
+        const bar = await screen.findByRole('group', {name: 'Recording'})
+        // A short take, so the save ends at once.
+        await userEvent.click(within(bar).getByRole('button', {name: /Stop/}))
+
+        await waitFor(() => expect(mockState.live.saveAnswers).toEqual([{stopId: 1, outcome: 'discarded'}]))
+        await settleIpc()
+        expect(screen.queryByRole('group', {name: 'Recording'})).not.toBeInTheDocument()
+    })
+
+    it('says recording is unavailable when native cannot answer', async () => {
+        const {handlers} = await import('@/mocks/handlers')
+        const original = handlers.is_recording
+        handlers.is_recording = () => {
+            throw 'recording manager unavailable'
+        }
+        try {
+            renderBar(true)
+            expect(await screen.findByText('Recording is unavailable')).toBeInTheDocument()
+            expect(screen.getByRole('button', {name: /Record/})).toBeDisabled()
+        } finally {
+            handlers.is_recording = original
+        }
     })
 })

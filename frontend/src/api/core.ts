@@ -20,6 +20,9 @@ export class CommandError extends Error {
     }
 }
 
+/** What a rejection says, for a toast or a job's error: a command's rejects with a CommandError. */
+export const errorMessage = (error: unknown) => (error instanceof Error ? error.message : String(error))
+
 function describe(command: string, detail: unknown): string {
     if (typeof detail === 'string') return detail
     if (detail instanceof Error) return detail.message

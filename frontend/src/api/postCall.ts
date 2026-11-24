@@ -11,12 +11,13 @@
  *
  * - the native commands and events of retranscription and diarization,
  *   which Enhance transcript (#119) and "N speakers · change" (#113) call too;
- * - the state of each meeting's pass (`usePostCallJob`). #112's runner
- *   (to come with the recording screen), mounted once by the shell above
- *   navigation, will be its only writer; screens read it and ask the runner
- *   to cancel, retry or skip a step through `postCallControls`.
+ * - the state of each meeting's pass (`usePostCallJob`). The recording's
+ *   runner (features/recording/store/postCallRunner.ts), mounted through
+ *   RecordingRuntime by the shell above navigation, is its only writer;
+ *   screens read it and ask the runner to cancel, retry or skip a step
+ *   through `postCallControls`.
  *
- * When a step ends the runner is to invalidate the meeting's queries, so a
+ * When a step ends the runner invalidates the meeting's queries, so a
  * screen that shows the meeting needs nothing more than the hook. The words
  * and the estimate a screen shows live with the components that draw a job
  * (features/meetings/components/processing).
@@ -259,6 +260,14 @@ export const postCallJobs = {
 export function usePostCallJob(meetingId: string | null | undefined): PostCallJob | null {
     return usePostCallStore((state) => (meetingId ? state.jobs[meetingId] ?? null : null))
 }
+
+/**
+ * A pass runs or waits its turn, for the updater's activity report. One that
+ * failed and waits for Retry or Skip holds no native work, so it does not
+ * keep an update from installing.
+ */
+export const usePostCallBusy = () =>
+    usePostCallStore((state) => Object.values(state.jobs).some((job) => job.state !== 'failed'))
 
 /** What a screen may ask of the runner. */
 export interface PostCallControls {

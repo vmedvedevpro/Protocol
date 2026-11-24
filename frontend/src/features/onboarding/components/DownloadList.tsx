@@ -3,6 +3,7 @@ import {FileTextIcon, TextAlignLeftIcon, WaveformIcon} from '@phosphor-icons/rea
 import {AnimatePresence} from 'motion/react'
 import * as m from 'motion/react-m'
 import styled from 'styled-components'
+import {errorMessage} from '@/api/core'
 import {isAlreadyDownloading} from '@/api/models'
 import {Button} from '@/components/ui/Button'
 import {ProgressBar} from '@/components/ui/ProgressBar'
@@ -101,7 +102,7 @@ function DownloadItem({row: {download, state}}: { row: DownloadRow }) {
         download.retry()
             .catch((error: unknown) => {
                 if (isAlreadyDownloading(error)) return
-                toast.error('Download retry failed', {description: error instanceof Error ? error.message : String(error)})
+                toast.error('Download retry failed', {description: errorMessage(error)})
             })
             .finally(() => setRetrying(false))
     }
