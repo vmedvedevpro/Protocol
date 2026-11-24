@@ -1,7 +1,7 @@
 import type {PendingCrashReport} from '@/api/crashReport'
 import type {OnboardingStatus} from '@/api/onboarding'
 import type {SystemAudioPermission} from '@/api/permissions'
-import type {UpdaterSnapshot} from '@/api/updater'
+import type {Release} from '@/api/updater'
 import {platform} from '@/lib/platform'
 import packageJson from '../../package.json'
 import {createMockDevices} from './devices'
@@ -10,6 +10,7 @@ import {createMockModels} from './models'
 import {createMockNotes} from './notes'
 import {createMockPostCall} from './postCall'
 import {createMockPreferences} from './preferences'
+import {createMockUpdater, createMockUpdateRelease} from './updater'
 
 /**
  * Everything the mock IPC answers from, and nothing a handler does not read.
@@ -18,20 +19,6 @@ import {createMockPreferences} from './preferences'
  * types in src/api; see docs/UI_ARCHITECTURE.md, Mock IPC.
  */
 function createMockState() {
-    const updater: UpdaterSnapshot = {
-        currentVersion: packageJson.version,
-        platform,
-        // What a `tauri dev` build reports.
-        support: {kind: 'off', reason: 'dev'},
-        autoCheck: true,
-        lastCheckedAt: null,
-        activity: {state: 'idle'},
-        offer: null,
-        error: null,
-        busyReasons: [],
-        updatedFrom: null,
-    }
-
     return {
         appVersion: packageJson.version,
         // The main window as the window plugin sees it.
@@ -52,7 +39,10 @@ function createMockState() {
         // Links `open_external_url` opened, in order, instead of a browser tab
         // (jsdom has no window.open); `__PROTOCOL_MOCK__.state` in pnpm dev.
         openedUrls: [] as string[],
-        updater,
+        // The updater's snapshot and the release a check finds, null for
+        // none (src/mocks/updater.ts).
+        updater: createMockUpdater(platform),
+        updateRelease: createMockUpdateRelease() as Release | null,
         // Fake audio levels (src/mocks/audio.ts): the devices the preview
         // monitors (null while it is stopped), and a level from 0 to 1 that
         // holds both sources still instead of the fake conversation.

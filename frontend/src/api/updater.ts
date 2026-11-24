@@ -5,7 +5,7 @@
  * `Snapshot` in updater/mod.rs.
  */
 import {queryOptions} from '@tanstack/react-query'
-import {command} from './core'
+import {command, CommandError} from './core'
 import type {NativeEvent} from './events'
 
 export type BusyReason =
@@ -98,3 +98,42 @@ export const updaterStatusQuery = queryOptions({
     // refetch would only repeat what the event already delivered.
     staleTime: Infinity,
 })
+
+/**
+ * Why `updater_install_now` refused: nothing verified to install (or another
+ * update operation runs), or work that must not be interrupted, named by its
+ * reasons. Mirrors `install::Refusal`; an install that was tried and failed
+ * resolves instead, with the error in the snapshot.
+ */
+export type InstallRefusal =
+    | {kind: 'notReady'}
+    | {kind: 'busy'; reasons: BusyReason[]}
+
+/** The refusal an `installUpdate()` rejection carries; null for any other error. */
+export function installRefusal(error: unknown): InstallRefusal | null {
+    if (!(error instanceof CommandError)) return null
+    const {detail} = error
+    return typeof detail === 'object' && detail !== null && 'kind' in detail ? detail as InstallRefusal : null
+}
+
+/** Asks GitHub for a newer release now (Check now). */
+export const checkForUpdates = () => command<UpdaterSnapshot>('updater_check_now')
+
+/** Downloads the offered release. Only a click calls it: nothing downloads on its own. */
+export const downloadUpdate = () => command<UpdaterSnapshot>('updater_download_now')
+
+/**
+ * Restart and update: installs the downloaded release and restarts, unless
+ * work is running; then it rejects with an `InstallRefusal` (the
+ * CommandError's `detail`).
+ */
+export const installUpdate = () => command<UpdaterSnapshot>('updater_install_now')
+
+/** The daily check for app and model updates (`updater.json`). */
+export const setUpdateAutoCheck = (enabled: boolean) => command<UpdaterSnapshot>('updater_set_auto_check', {enabled})
+
+/** How much of a running download has arrived, 0 to 100; null when the size is unknown. */
+export function downloadPercent(activity: UpdateActivity): number | null {
+    if (activity.state !== 'downloading' || !activity.total) return null
+    return Math.min(100, Math.round((activity.received / activity.total) * 100))
+}
