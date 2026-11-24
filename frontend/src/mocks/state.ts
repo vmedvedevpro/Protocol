@@ -1,9 +1,11 @@
 import type {PendingCrashReport} from '@/api/crashReport'
 import type {OnboardingStatus} from '@/api/onboarding'
+import type {SystemAudioPermission} from '@/api/permissions'
 import type {UpdaterSnapshot} from '@/api/updater'
 import {platform} from '@/lib/platform'
 import packageJson from '../../package.json'
 import {createMockDevices} from './devices'
+import {createMockModels} from './models'
 import {createMockNotes} from './notes'
 import {createMockPreferences} from './preferences'
 
@@ -62,6 +64,21 @@ function createMockState() {
         devices: createMockDevices(platform),
         // The summary model and the meeting language native holds (src/mocks/preferences.ts).
         preferences: createMockPreferences(),
+        // Speech and summary models (src/mocks/models.ts), all installed;
+        // `?models=fresh` in pnpm dev starts without them.
+        models: createMockModels({fresh: new URLSearchParams(window.location.search).get('models') === 'fresh'}),
+        // What the system answers (src/mocks/permissions.ts): the microphone
+        // opens; on macOS the Audio Capture record, what its first prompt is
+        // answered with, and whether audio plays while a probe listens.
+        // `asked` and `openedPanes` record the requests, for tests.
+        permissions: {
+            microphone: true,
+            systemAudio: 'granted' as SystemAudioPermission,
+            answer: 'granted' as SystemAudioPermission,
+            audioPlaying: true,
+            asked: [] as ('microphone' | 'systemAudio')[],
+            openedPanes: [] as string[],
+        },
     }
 }
 
