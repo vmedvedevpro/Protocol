@@ -1,8 +1,11 @@
 import {QueryClientProvider} from '@tanstack/react-query'
-import {render, screen, waitFor} from '@testing-library/react'
+import {render, screen, waitFor, within} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import {describe, expect, it, vi} from 'vitest'
+import {UPDATER_STATUS_EVENT, type UpdaterSnapshot} from '@/api/updater'
 import {handlers} from '@/mocks/handlers'
+import {emitMockEvent} from '@/mocks/ipc'
+import {mockState} from '@/mocks/state'
 import {THEME_STORAGE_KEY} from '@/styles/themeMode'
 import {createTestQueryClient} from '@/test/queryClient'
 import packageJson from '../../package.json'
@@ -22,6 +25,24 @@ describe('App', () => {
 
         expect(await screen.findByText(new RegExp(`^${packageJson.version} · `))).toBeInTheDocument()
         expect(await screen.findByText('Updates are off in development builds')).toBeInTheDocument()
+    })
+
+    it('shows what the updater is doing, a failed check and the result', async () => {
+        renderApp()
+        const status = await screen.findByRole('status')
+        await within(status).findByText('Updates are off in development builds')
+        const installed: UpdaterSnapshot = {...mockState.updater, support: {kind: 'updatable', install: 'nsis'}}
+
+        await emitMockEvent(UPDATER_STATUS_EVENT, {...installed, activity: {state: 'checking', manual: true}})
+        expect(await within(status).findByText('Checking for updates…')).toBeInTheDocument()
+
+        const failure = {kind: 'network', action: 'check', message: 'offline', at: 1, background: false} as const
+        await emitMockEvent(UPDATER_STATUS_EVENT, {...installed, lastCheckedAt: 1, error: failure})
+        expect(await within(status).findByText("Couldn't check for updates")).toBeInTheDocument()
+
+        // An automatic check that failed is news only in Settings.
+        await emitMockEvent(UPDATER_STATUS_EVENT, {...installed, lastCheckedAt: 1, error: {...failure, background: true}})
+        expect(await within(status).findByText('Up to date')).toBeInTheDocument()
     })
 
     it('saves the chosen theme and forces it on the native window', async () => {

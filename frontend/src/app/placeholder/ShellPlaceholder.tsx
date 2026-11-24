@@ -2,7 +2,7 @@ import {useQuery} from '@tanstack/react-query'
 import {MagnifyingGlassIcon} from '@phosphor-icons/react'
 import styled from 'styled-components'
 import {appVersionQuery} from '@/api/app'
-import {type UpdaterSnapshot, updaterStatusQuery} from '@/api/updater'
+import {type UpdateError, type UpdaterSnapshot, updaterStatusQuery} from '@/api/updater'
 import {formatShortcut, platform, type Platform} from '@/lib/platform'
 import {ThemeSwitch} from './ThemeSwitch'
 
@@ -12,16 +12,34 @@ import {ThemeSwitch} from './ThemeSwitch'
 
 const PLATFORM_NAMES: Record<Platform, string> = {macos: 'macOS', windows: 'Windows', linux: 'Linux'}
 
-function describeUpdates(snapshot: UpdaterSnapshot | undefined): string {
-    if (!snapshot) return 'Checking for updates…'
-    if (snapshot.support.kind === 'off') {
-        return snapshot.support.reason === 'dev' ? 'Updates are off in development builds' : 'Updates are off'
+const FAILED: Record<UpdateError['action'], string> = {
+    check: "Couldn't check for updates",
+    download: "Couldn't download the update",
+    install: "Couldn't start the update",
+}
+
+// The order of Settings › About on main: what the updater is doing, then a
+// failure the user saw happen, then the offer, then the last check.
+function describeUpdates(snapshot: UpdaterSnapshot | undefined, unavailable: boolean): string {
+    if (!snapshot) return unavailable ? 'Update status unavailable' : 'Reading update status…'
+    const {support, activity, error, offer} = snapshot
+    if (support.kind === 'off') {
+        return support.reason === 'dev' ? 'Updates are off in development builds' : 'Updates are off in this copy'
     }
-    if (snapshot.offer) {
-        const {version} = snapshot.offer.release
-        return snapshot.offer.downloaded ? `Update ${version} is ready` : `Update ${version} is available`
+    if (activity.state === 'checking') return 'Checking for updates…'
+    if (activity.state === 'installing') return 'Starting the update…'
+    if (activity.state === 'downloading') {
+        const percent = activity.total ? ` ${Math.floor((activity.received / activity.total) * 100)}%` : ''
+        return `Downloading ${offer?.release.version ?? 'the update'}…${percent}`
     }
-    return 'Up to date'
+    // A failed automatic check shows only in Settings (status.rs).
+    if (error && !error.background) return FAILED[error.action]
+    if (offer) {
+        const {version} = offer.release
+        if (offer.waitingForRecording) return `Update ${version} downloads after the recording`
+        return offer.downloaded && !offer.manualOnly ? `Update ${version} is ready` : `Update ${version} is available`
+    }
+    return snapshot.lastCheckedAt === null ? 'Not checked for updates yet' : 'Up to date'
 }
 
 const Page = styled.div`
@@ -130,7 +148,7 @@ const Kbd = styled.kbd`
 
 export function ShellPlaceholder() {
     const {data: version} = useQuery(appVersionQuery)
-    const {data: updater} = useQuery(updaterStatusQuery)
+    const {data: updater, isError: updaterUnavailable} = useQuery(updaterStatusQuery)
 
     return (
         <Page>
@@ -162,7 +180,7 @@ export function ShellPlaceholder() {
                         Search
                         <Kbd>{formatShortcut('K')}</Kbd>
                     </Hint>
-                    <Muted role="status">{describeUpdates(updater)}</Muted>
+                    <Muted role="status">{describeUpdates(updater, updaterUnavailable)}</Muted>
                 </Footer>
             </Frame>
         </Page>
