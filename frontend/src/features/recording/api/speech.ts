@@ -8,6 +8,7 @@
  */
 import {command, errorMessage} from '@/api/core'
 import {getParakeetModels, getWhisperModels, type SpeechModelStatus} from '@/api/models'
+import {getPostCallTranscriptConfig, getTranscriptConfig, isWhisperProvider, type PostCallTranscriptConfig} from '@/api/speech'
 
 /** The prefix native puts on a runtime that cannot start (onnx_runtime.rs `START_ERROR_CODE`). */
 const RUNTIME_ERROR = 'TRANSCRIPTION_RUNTIME_INITIALIZATION_FAILED'
@@ -68,14 +69,6 @@ export function describeStartError(error: unknown): { title: string, message: st
     return {title: 'Could not start recording', message: reason || 'Check your audio devices in Settings and try again.'}
 }
 
-/** Mirrors api.rs `TranscriptConfig`: the live model Settings chose (#117 owns choosing it). */
-interface TranscriptConfig {
-    provider: string
-    model: string
-}
-
-const getTranscriptConfig = () => command<TranscriptConfig | null>('api_get_transcript_config')
-
 const isAvailable = (status: SpeechModelStatus) => status === 'Available'
 const isDownloading = (status: SpeechModelStatus) => typeof status === 'object' && 'Downloading' in status
 
@@ -100,8 +93,7 @@ export async function prepareSpeech(): Promise<SpeechProblem | null> {
 
     try {
         const config = await getTranscriptConfig().catch(() => null)
-        const provider = (config?.provider ?? 'parakeet').toLowerCase()
-        if (provider.includes('whisper')) {
+        if (isWhisperProvider(config?.provider)) {
             await command<null>('whisper_init')
             if (!(await command<boolean>('whisper_has_available_models'))) return {kind: 'missing'}
             if (!(await command<boolean>('whisper_is_model_loaded'))) {
@@ -126,12 +118,6 @@ export async function prepareSpeech(): Promise<SpeechProblem | null> {
     }
 }
 
-/** Mirrors api.rs `PostCallTranscriptConfig`: `live` follows the live model. */
-interface PostCallTranscriptConfig {
-    provider: 'live' | 'whisper' | 'parakeet'
-    model: string
-}
-
 /** The model that improves a transcript after the call. */
 export interface PostCallModel {
     provider: 'parakeet' | 'whisper'
@@ -146,7 +132,7 @@ export interface PostCallModel {
  */
 export async function resolvePostCallModel(): Promise<PostCallModel> {
     const [postCall, live, parakeet, whisper] = await Promise.all([
-        command<PostCallTranscriptConfig>('api_get_post_call_transcript_config').catch(() => ({provider: 'live' as const, model: ''})),
+        getPostCallTranscriptConfig().catch((): PostCallTranscriptConfig => ({provider: 'live', model: ''})),
         getTranscriptConfig().catch(() => null),
         getParakeetModels().catch(() => []),
         getWhisperModels().catch(() => []),

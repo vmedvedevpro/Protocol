@@ -6,6 +6,7 @@ import {cleanup} from '@testing-library/react'
 import {clearMocks} from '@tauri-apps/api/mocks'
 import {MotionGlobalConfig} from 'motion/react'
 import {afterEach, beforeEach} from 'vitest'
+import {DEFAULT_LABS, useLabsStore} from '@/api/labs'
 import {postCallJobs} from '@/api/postCall'
 import {rereadPreferences} from '@/api/preferences'
 import {recordingPhase} from '@/api/recordingPhase'
@@ -51,6 +52,7 @@ afterEach(async () => {
     useThemeModeStore.setState({mode: 'system'})
     useKeepOnTopStore.setState({onTop: false})
     useAdvancedSettingsStore.setState({advanced: false})
+    useLabsStore.setState({labs: DEFAULT_LABS})
     resetToasts()
     postCallJobs.reset()
     recordingPhase.set('idle')

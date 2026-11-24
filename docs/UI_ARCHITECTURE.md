@@ -663,6 +663,18 @@ levels) skip Query and React state; see Styling and the next section.
   `downloadWhisperModel(POST_CALL_WHISPER_MODEL, {enablePostCall: true})`
   saves Whisper as the after-meeting model before it resolves, which
   survives a reload of the window; it needs the database.
+- `src/api/speech.ts` is the transcript config: the live model
+  (`parakeet` or `localWhisper`), the after-meeting model (`live` follows
+  the live one) and the words to recognize, read with Query and saved with
+  its mutations; `useSpeechConfigSync` reads the models again when native
+  code changes them itself (`transcript-config-changed`,
+  `post-call-transcript-config-changed`). A recording's start, the
+  post-call pass and Enhance transcript read it there.
+  `src/api/labs.ts` is Labs: Waveform scrubbing and Clean transcript live
+  only in `meetily-labs-v1` (`useLab`); the three native switches are
+  queries, and a change native took is mirrored into that object, which
+  keeps the old app's shape. `lib/cleanTranscript.ts` is what Clean
+  transcript shows.
 - `src/api/permissions.ts` asks for the microphone and, on macOS, Audio
   Capture, reads the Audio Capture record and opens the privacy panes (macOS
   only). A microphone is usable when the device list has an input. The
