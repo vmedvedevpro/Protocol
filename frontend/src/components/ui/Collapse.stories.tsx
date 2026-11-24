@@ -4,17 +4,12 @@ import {MotionConfig} from 'motion/react'
 import styled from 'styled-components'
 import {Button} from './Button'
 import {Collapse} from './Collapse'
-import {TextField} from './TextField'
 
 const Column = styled.div`
     display: flex;
     flex-direction: column;
     align-items: flex-start;
     width: 320px;
-`
-
-const FieldRow = styled.div`
-    margin-top: ${({theme}) => theme.space[2]};
 `
 
 const Text = styled.p`
@@ -24,8 +19,8 @@ const Text = styled.p`
 `
 
 // A disclosure over a paragraph: opening slides the paragraph down as the
-// content grows, closing slides it back. The field shows that a focus ring
-// at the content's edge is not clipped once it is open.
+// content grows, closing slides it back. Reset's focus ring, drawn outside
+// the button at the content's edge, shows that the clip lets go once open.
 function Disclosure() {
     const [open, setOpen] = useState(false)
     return (
@@ -39,9 +34,7 @@ function Disclosure() {
                     and rounded memory size.
                 </Text>
                 <Text>No audio, recordings, transcripts, summaries or meeting names.</Text>
-                <FieldRow>
-                    <TextField size="sm" aria-label="Model folder" defaultValue="~/Protocol/models"/>
-                </FieldRow>
+                <Button size="sm">Reset</Button>
             </Collapse>
             <Text>What follows the disclosure slides instead of jumping.</Text>
         </Column>

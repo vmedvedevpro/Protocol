@@ -1,5 +1,5 @@
 import type {ComponentProps, ReactNode} from 'react'
-import styled, {css} from 'styled-components'
+import styled, {css, keyframes} from 'styled-components'
 import {ICON_DEFAULTS} from '@/styles/icons'
 import {MOTION_OK, SCALE_FROM} from '@/styles/motion'
 import {Spinner} from './Spinner'
@@ -111,15 +111,26 @@ const StyledButton = styled.button<{ $variant: ButtonVariant, $size: ButtonSize,
     `};
 `
 
+const hide = keyframes`
+    to {
+        opacity: 0;
+    }
+`
+
 // The label and what goes with it, laid out as the button lays out its
-// children. While pending it turns transparent at once, never fading (text
-// ending an opacity animation blinks), and keeps the button's width; it
-// stays in the accessibility tree, so the button keeps its name.
+// children. While pending it turns transparent when the delayed spinner
+// arrives, in one step and never by fading (text ending an opacity animation
+// blinks), so an action that ends at once never swaps the label out. It
+// keeps the button's width and stays in the accessibility tree, so the
+// button keeps its name.
 const Content = styled.span<{ $pending: boolean }>`
     display: inline-flex;
     align-items: center;
     gap: inherit;
-    opacity: ${({$pending}) => $pending ? 0 : 1};
+
+    ${({$pending}) => $pending && css`
+        animation: ${hide} 0s ${({theme}) => theme.motion.spinner.delay} forwards;
+    `};
 `
 
 const Pending = styled.span`
@@ -138,9 +149,9 @@ type ButtonProps = ComponentProps<'button'> & {
     /** After the label, usually a `<Kbd tone="fill">` shortcut. */
     trailing?: ReactNode
     /**
-     * What the click started is still running: a spinner stands in for the
-     * label at the button's width, and the button is disabled and
-     * `aria-busy` until it ends.
+     * What the click started is still running: the button is disabled and
+     * `aria-busy` at once, and if it runs past `theme.motion.spinner.delay` a
+     * spinner stands in for the label at the button's width until it ends.
      */
     pending?: boolean
 }
@@ -169,7 +180,7 @@ export function Button({
                 {children}
                 {trailing}
             </Content>
-            {pending && <Pending><Spinner size={ICON_DEFAULTS.size}/></Pending>}
+            {pending && <Pending><Spinner delayed size={ICON_DEFAULTS.size}/></Pending>}
         </StyledButton>
     )
 }

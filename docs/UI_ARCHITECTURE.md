@@ -327,14 +327,16 @@ enter and exit, indicators and springs.
   and keeps turning under reduced motion. Where waits show:
   - `StatusLine` turns one before a `busy` status, such as "Checking for
     updates…" or the startup gate's "Checking setup…".
-  - `Button`'s `pending` puts one in place of the label for as long as what
-    the click started runs: the label turns transparent at once and keeps
-    the button's width, and the button is disabled and `aria-busy`. The
-    crash report sheet's Send Report, Save ZIP and Ignore use it.
-  - A spinner standing in for content that usually arrives at once is
-    `delayed`: it fades in only after `spinner.delay`, so a fast load shows
-    nothing rather than a flash. The notes editor's fallback, while its
-    BlockNote chunk loads, turns one on the notes' first line.
+  - A spinner standing in for something that usually ends at once is
+    `delayed`: it fades in only after `spinner.delay`, so a fast load or
+    action shows nothing rather than a flash. The notes editor's fallback,
+    while its BlockNote chunk loads, turns one on the notes' first line.
+  - `Button`'s `pending` disables the button and sets `aria-busy` at once;
+    if what the click started runs past `spinner.delay`, the label turns
+    transparent in one step (never fading), keeping the button's width, and
+    a delayed spinner fades in over it until the action ends. So Ignore,
+    which usually ends at once, keeps its label. The crash report sheet's
+    Send Report, Save ZIP and Ignore use it.
 - What animates and how:
   - Tabs and segmented controls: the thumb slides; the panel below swaps
     with a `base` crossfade, without sliding.

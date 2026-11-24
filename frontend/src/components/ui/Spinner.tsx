@@ -20,14 +20,9 @@ const Turning = styled(CircleNotchIcon)<{ $delayed: boolean }>`
     flex: none;
     /* Centres a text-sized icon on the line when it sits inline. */
     vertical-align: -0.125em;
-    animation: ${turn} ${({theme}) => theme.motion.spinner.turn} linear infinite;
-
-    ${({$delayed}) => $delayed && css`
-        animation:
-            ${turn} ${({theme}) => theme.motion.spinner.turn} linear infinite,
-            ${appear} ${({theme}) => theme.motion.duration.base} ${({theme}) => theme.motion.easing.enter}
-            ${({theme}) => theme.motion.spinner.delay} both;
-    `};
+    animation: ${turn} ${({theme}) => theme.motion.spinner.turn} linear infinite${({$delayed}) => $delayed && css`,
+        ${appear} ${({theme}) => theme.motion.duration.base} ${({theme}) => theme.motion.easing.enter}
+        ${({theme}) => theme.motion.spinner.delay} both`};
 `
 
 interface SpinnerProps {
@@ -35,7 +30,8 @@ interface SpinnerProps {
     size?: number | string
     /**
      * Shows after `theme.motion.spinner.delay`: for a spinner standing in for
-     * content that usually arrives at once, so a fast load does not flash it.
+     * something that usually ends at once (a lazy chunk, a pending button),
+     * so it never flashes.
      */
     delayed?: boolean
 }

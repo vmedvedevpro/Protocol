@@ -46,8 +46,9 @@ export const springs = {
 /**
  * A spinner, the sign of a wait of unknown length (components/ui/Spinner):
  * one `turn` in milliseconds, at a constant speed. One that stands in for
- * content which usually arrives at once, such as a lazy chunk, shows only
- * after `delay` milliseconds, so a fast load does not flash it.
+ * something which usually ends at once, such as a lazy chunk or a pending
+ * button's action, shows only after `delay` milliseconds, so it never
+ * flashes.
  */
 export const spinner = {turn: 900, delay: 400} as const
 
