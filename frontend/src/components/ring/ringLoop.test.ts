@@ -13,6 +13,14 @@ let loop: RingLoop | null
 const canvas = document.createElement('canvas')
 const palette = lightTheme.ring
 
+function reduceMotion() {
+    vi.spyOn(window, 'matchMedia').mockReturnValue({
+        matches: true,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+    } as unknown as MediaQueryList)
+}
+
 function nextFrame(now: number) {
     const pending = frames.splice(0)
     pending.forEach((callback) => callback(now))
@@ -44,14 +52,6 @@ describe('the ring frame loop', () => {
         expect(frames).toHaveLength(1)
     })
 
-    it('draws one still frame for the logo and runs no loop', () => {
-        loop = startRingLoop(canvas, {mode: 'still', size: 96, palette}, vi.fn())
-
-        expect(frames).toHaveLength(0)
-        expect(renderer.draw).toHaveBeenCalledTimes(1)
-        expect(renderer.draw.mock.lastCall?.[0]).toMatchObject({time: STILL_FRAME.time, level: STILL_FRAME.level})
-    })
-
     it('stops while the document is hidden and resumes after', () => {
         loop = startRingLoop(canvas, {mode: 'rec', size: 48, palette}, vi.fn())
         const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(true)
@@ -63,29 +63,30 @@ describe('the ring frame loop', () => {
         expect(frames).toHaveLength(1)
     })
 
-    it('stands still under reduced motion, in its mode’s grey', () => {
-        vi.spyOn(window, 'matchMedia').mockReturnValue({
-            matches: true,
-            addEventListener: vi.fn(),
-            removeEventListener: vi.fn(),
-        } as unknown as MediaQueryList)
-        loop = startRingLoop(canvas, {mode: 'paused', size: 48, palette}, vi.fn())
-
+    it('draws one frame under reduced motion, in its mode’s grey, and runs no loop', () => {
+        reduceMotion()
+        loop = startRingLoop(canvas, {mode: 'rec', size: 48, palette}, vi.fn())
         expect(frames).toHaveLength(0)
+        expect(renderer.draw).toHaveBeenCalledTimes(1)
+        expect(renderer.draw.mock.lastCall?.[0]).toMatchObject({time: STILL_FRAME.time, level: STILL_FRAME.level, mono: 0})
+
+        loop?.update({mode: 'paused', size: 48, palette})
         expect(renderer.draw.mock.lastCall?.[0]).toMatchObject({mono: 1, level: 0})
     })
 
     it('scales the canvas to the device pixels, at most twice the CSS size', () => {
         vi.spyOn(window, 'devicePixelRatio', 'get').mockReturnValue(3)
-        loop = startRingLoop(canvas, {mode: 'still', size: 48, palette}, vi.fn())
+        reduceMotion()
+        loop = startRingLoop(canvas, {mode: 'paused', size: 48, palette}, vi.fn())
 
         expect(renderer.draw.mock.lastCall?.[1]).toBe(96)
     })
 
-    it('takes a new palette and redraws a still ring when the theme changes', () => {
-        loop = startRingLoop(canvas, {mode: 'still', size: 48, palette}, vi.fn())
+    it('takes a new palette and redraws a ring held still when the theme changes', () => {
+        reduceMotion()
+        loop = startRingLoop(canvas, {mode: 'paused', size: 48, palette}, vi.fn())
         const dark = {...palette, violet: '#996BFF'}
-        loop?.update({mode: 'still', size: 48, palette: dark})
+        loop?.update({mode: 'paused', size: 48, palette: dark})
 
         expect(renderer.setPalette).toHaveBeenLastCalledWith(dark)
         expect(renderer.draw).toHaveBeenCalledTimes(2)

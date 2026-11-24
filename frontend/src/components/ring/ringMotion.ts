@@ -8,12 +8,11 @@
  * - `test`: the mic test; livelier, so a quiet voice still visibly moves it.
  * - `idle`: ready; greyed, slow, breathing on its own.
  * - `paused`: flat and grey.
- * - `still`: the logo's frame, drawn once.
  */
-export type RingMode = 'rec' | 'test' | 'idle' | 'paused' | 'still'
+export type RingMode = 'rec' | 'test' | 'idle' | 'paused'
 
 export interface RingState {
-    /** The shader's clock in seconds; each mode runs it at its own speed. */
+    /** The shader's clock in seconds, from 0 to RING_PERIOD_S; each mode runs it at its own speed. */
     time: number
     /** The drawn level, 0 to 1, easing toward what the mode follows. */
     level: number
@@ -30,13 +29,6 @@ interface ModeMotion {
     follow: (heard: number, seconds: number) => number
 }
 
-/**
- * The logo's frame: at time 5.08 the highlight sits at the top left, and level
- * 0.18 keeps the edge calm but alive. `still` draws it, and so does every mode
- * under reduced motion, in that mode's grey.
- */
-export const STILL_FRAME = {time: 5.08, level: 0.18}
-
 /** The design's Ring, mode by mode. */
 export const RING_MODES: Record<RingMode, ModeMotion> = {
     rec: {speed: 1, mono: 0, follow: (heard) => heard},
@@ -46,8 +38,24 @@ export const RING_MODES: Record<RingMode, ModeMotion> = {
     // The clock keeps creeping, so the highlight still moves and the ring does
     // not look frozen.
     paused: {speed: 0.15, mono: 1, follow: () => 0},
-    still: {speed: 0, mono: 0, follow: () => STILL_FRAME.level},
 }
+
+/**
+ * The logo's frame: at time 5.08 the highlight sits at the top left, and level
+ * 0.18 keeps the edge calm but alive. Under reduced motion every mode holds
+ * it, in that mode's grey.
+ */
+export const STILL_FRAME = {time: 5.08, level: 0.18}
+
+/**
+ * Every time term of the shader turns at a multiple of 0.05 rad/s (0.35, 0.5,
+ * 0.6, 0.7, 0.8, 1.9, 2.6 and 3.3), so the whole ring repeats every
+ * 2π / 0.05 = 40π s, about two minutes. The clock wraps there: the frames
+ * match across the seam, and the shader never sees a large time: a 16-bit
+ * mediump float, where the GPU has no highp, steps by 1/16 s at most within
+ * the period, where an unwrapped clock would step by seconds after an hour.
+ */
+export const RING_PERIOD_S = 40 * Math.PI
 
 // Per-frame easing at 60 fps from the design: the level closes 12 % of its gap
 // each frame (95 % of the way in about 0.4 s), the grey 8 % (0.6 s). Raised to
@@ -63,9 +71,9 @@ export function restingRing(mode: RingMode): RingState {
     return {time: STILL_FRAME.time, level: mode === 'idle' ? 0.04 : 0, mono: RING_MODES[mode].mono}
 }
 
-/** The one frame a mode shows when the ring does not move. */
+/** The one frame a mode shows under reduced motion. */
 export function stillRing(mode: RingMode): RingState {
-    const level = mode === 'rec' || mode === 'test' || mode === 'still' ? STILL_FRAME.level : restingRing(mode).level
+    const level = mode === 'rec' || mode === 'test' ? STILL_FRAME.level : restingRing(mode).level
     return {time: STILL_FRAME.time, level, mono: RING_MODES[mode].mono}
 }
 
@@ -76,7 +84,7 @@ export function stillRing(mode: RingMode): RingState {
 export function advanceRing(state: RingState, mode: RingMode, heard: number, seconds: number, dt: number): RingState {
     const motion = RING_MODES[mode]
     return {
-        time: state.time + dt * motion.speed,
+        time: (state.time + dt * motion.speed) % RING_PERIOD_S,
         level: eased(state.level, motion.follow(heard, seconds), LEVEL_EASE, dt),
         mono: eased(state.mono, motion.mono, MONO_EASE, dt),
     }

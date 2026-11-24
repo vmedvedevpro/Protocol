@@ -80,14 +80,12 @@ export function LevelMeter({level, label, className}: LevelMeterProps) {
         silence.current = setTimeout(() => drawLevel(bars.current, 0, seed), SILENCE_MS)
     })
 
-    // A meter that stops listening (paused) settles at rest.
+    // A meter that stops listening (paused) settles at rest. The cleanup drops
+    // a pending fall to rest, on that change and on unmount.
     useEffect(() => {
-        if (listening) return
-        clearTimeout(silence.current)
-        drawLevel(bars.current, 0, 0)
+        if (!listening) drawLevel(bars.current, 0, 0)
+        return () => clearTimeout(silence.current)
     }, [listening])
-
-    useEffect(() => () => clearTimeout(silence.current), [])
 
     return (
         <Bars {...(label ? {role: 'img', 'aria-label': label} : {'aria-hidden': true})} className={className}>

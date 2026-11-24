@@ -5,7 +5,7 @@ import {Ring, type RingMode} from './Ring'
 import {StaticRing} from './StaticRing'
 import {useMockLevel} from './storyLevels'
 
-const MODES: RingMode[] = ['rec', 'test', 'idle', 'paused', 'still']
+const MODES: RingMode[] = ['rec', 'test', 'idle', 'paused']
 
 // What each mode follows in the app: the recording ring both sources of the
 // recording, the mic test the microphone's preview. The mock fakes both.
@@ -48,7 +48,7 @@ const Caption = styled.figcaption`
 `
 
 // The sizes the design uses: the minibar, the recording bar, the mic test,
-// first launch, and a large one for the logo artboards.
+// first launch, and a large one.
 const SIZES = [48, 56, 72, 96, 128]
 
 const meta = {
@@ -82,9 +82,6 @@ export const Idle: Story = {args: {mode: 'idle', size: 96}}
 
 /** Flat and grey; the highlight still creeps. */
 export const Paused: Story = {args: {mode: 'paused', size: 56}}
-
-/** The logo's frame, drawn once: no frame loop runs. */
-export const Still: Story = {args: {mode: 'still', size: 128}}
 
 function AllModes({size}: { size: number }) {
     return (

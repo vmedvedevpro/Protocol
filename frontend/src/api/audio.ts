@@ -12,9 +12,8 @@
  * that shows a level (recording bar, minibar, mic test) needs them.
  */
 import {useEffect, useEffectEvent} from 'react'
-import type {UnlistenFn} from '@tauri-apps/api/event'
 import {command} from './core'
-import {listenNative, type NativeEvent} from './events'
+import {type NativeEvent, subscribeNative} from './events'
 
 /** Your microphone, or the computer audio (the other participants). */
 export type AudioSource = 'mic' | 'system'
@@ -122,54 +121,6 @@ export type LevelFeed =
 // device went away) must not hold the level up.
 const FRESH_MS = 250
 
-/**
- * One native listener per event, shared by every subscriber and removed after
- * the last one leaves. listen() registers asynchronously; a registration that
- * a later one replaced ignores what it still hears until it is removed, so a
- * subscriber never gets a sample twice.
- */
-function sharedListener<T>(event: NativeEvent<T>) {
-    interface Registration {
-        unlisten?: UnlistenFn
-        removed: boolean
-    }
-
-    const subscribers = new Set<(payload: T) => void>()
-    let current: Registration | null = null
-    // Typed as returning nothing, unlisten() returns a promise that rejects
-    // when the IPC has gone away.
-    const remove = (unlisten: UnlistenFn) => Promise.resolve(unlisten() as unknown)
-        .catch((error: unknown) => console.error(`Failed to stop listening to ${event}:`, error))
-
-    return (subscriber: (payload: T) => void) => {
-        subscribers.add(subscriber)
-        if (!current) {
-            const registration: Registration = {removed: false}
-            current = registration
-            listenNative(event, (payload: T) => {
-                if (current === registration) subscribers.forEach((notify) => notify(payload))
-            }).then(
-                (unlisten) => {
-                    if (registration.removed) void remove(unlisten)
-                    else registration.unlisten = unlisten
-                },
-                (error: unknown) => console.error(`Failed to listen to ${event}:`, error),
-            )
-        }
-        return () => {
-            subscribers.delete(subscriber)
-            if (subscribers.size > 0 || !current) return
-            // Removed at once when registered, otherwise as soon as it is.
-            current.removed = true
-            if (current.unlisten) void remove(current.unlisten)
-            current = null
-        }
-    }
-}
-
-const onRecordingLevels = sharedListener(RECORDING_AUDIO_LEVELS_EVENT)
-const onDeviceLevels = sharedListener(AUDIO_LEVELS_EVENT)
-
 // A stored device and native's name for it can differ by a suffix: the
 // settings keep "JBL Tune 770NC (System Audio) (output)" and the old UI asked
 // for it without " (output)". As the old preview did, either name containing
@@ -187,16 +138,15 @@ function deviceLevel(update: AudioLevelUpdate, feed: Extract<LevelFeed, { kind: 
 
 /**
  * Calls `onLevel` with each new level (0 to 1) of `feed` until the returned
- * function is called. No React: the ring's frame loop and the tests use it
- * directly.
+ * function is called. No React: useAudioLevel and the tests call it.
  */
 export function subscribeAudioLevel(feed: LevelFeed, onLevel: (level: number) => void): () => void {
     if (feed.kind === 'device') {
-        return onDeviceLevels((update) => onLevel(deviceLevel(update, feed)))
+        return subscribeNative(AUDIO_LEVELS_EVENT, (update) => onLevel(deviceLevel(update, feed)))
     }
     if (feed.source !== 'both') {
         const source = feed.source
-        return onRecordingLevels((sample) => {
+        return subscribeNative(RECORDING_AUDIO_LEVELS_EVENT, (sample) => {
             if (sample.source === source) onLevel(levelOf(sample.rms, sample.peak))
         })
     }
@@ -204,7 +154,7 @@ export function subscribeAudioLevel(feed: LevelFeed, onLevel: (level: number) =>
         mic: {level: 0, at: -Infinity},
         system: {level: 0, at: -Infinity},
     }
-    return onRecordingLevels((sample) => {
+    return subscribeNative(RECORDING_AUDIO_LEVELS_EVENT, (sample) => {
         const now = performance.now()
         latest[sample.source] = {level: levelOf(sample.rms, sample.peak), at: now}
         const fresh = (source: AudioSource) => (now - latest[source].at <= FRESH_MS ? latest[source].level : 0)

@@ -3,6 +3,7 @@ import {afterEach, describe, expect, it, vi} from 'vitest'
 import {handlers} from '@/mocks/handlers'
 import {sampleFor} from '@/mocks/audio'
 import {emitMockEvent} from '@/mocks/ipc'
+import {settleIpc, spyOnIpc} from '@/test/ipc'
 import {
     AUDIO_LEVELS_EVENT,
     type AudioSource,
@@ -13,18 +14,8 @@ import {
     useAudioLevelMonitoring,
 } from './audio'
 
-// The mock IPC answers on microtasks, so one macrotask later listen() has
-// registered (or unregistered) its listener.
-const settleIpc = () => new Promise((resolve) => setTimeout(resolve, 0))
-
 function recordingSample(source: AudioSource, level: number) {
     return emitMockEvent(RECORDING_AUDIO_LEVELS_EVENT, {source, ...sampleFor(level), limiter_hit: false})
-}
-
-function spyOnIpc() {
-    const internals = (window as unknown as { __TAURI_INTERNALS__: { invoke: (...call: unknown[]) => unknown } })
-        .__TAURI_INTERNALS__
-    return vi.spyOn(internals, 'invoke')
 }
 
 const unsubscribes: (() => void)[] = []
@@ -130,29 +121,15 @@ describe('subscribeAudioLevel', () => {
         expect(louder.mock.lastCall?.[0]).toBeCloseTo(levelOf(rms, peak, 2))
     })
 
-    it('shares one native listener and removes it after the last subscriber', async () => {
-        const ipc = spyOnIpc()
-        const listens = () => ipc.mock.calls.filter(([command, args]) =>
-            command === 'plugin:event|listen' && (args as { event: string }).event === RECORDING_AUDIO_LEVELS_EVENT)
-        const unlistens = () => ipc.mock.calls.filter(([command]) => command === 'plugin:event|unlisten')
-
-        const first = vi.fn()
-        const second = vi.fn()
-        const stopFirst = subscribeAudioLevel({kind: 'recording', source: 'mic'}, first)
-        const stopSecond = subscribeAudioLevel({kind: 'recording', source: 'both'}, second)
+    it('stops hearing a feed once unsubscribed', async () => {
+        const heard = vi.fn()
+        const unsubscribe = subscribeAudioLevel({kind: 'recording', source: 'mic'}, heard)
         await settleIpc()
-        expect(listens()).toHaveLength(1)
+        unsubscribe()
 
-        stopFirst()
-        await settleIpc()
-        expect(unlistens()).toHaveLength(0)
         await recordingSample('mic', 0.5)
-        expect(first).not.toHaveBeenCalled()
-        expect(second).toHaveBeenCalledTimes(1)
 
-        stopSecond()
-        await settleIpc()
-        expect(unlistens()).toHaveLength(1)
+        expect(heard).not.toHaveBeenCalled()
     })
 })
 

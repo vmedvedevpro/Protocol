@@ -1,11 +1,7 @@
-import type {ReactNode} from 'react'
 import {render, screen} from '@testing-library/react'
-import {ThemeProvider} from 'styled-components'
 import {describe, expect, it} from 'vitest'
-import {lightTheme} from '@/styles/theme'
+import {inTheme} from '@/test/theme'
 import {Ring} from './Ring'
-
-const inTheme = (node: ReactNode) => <ThemeProvider theme={lightTheme}>{node}</ThemeProvider>
 
 describe('Ring', () => {
     // jsdom has no WebGL, so these render the static ring.

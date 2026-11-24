@@ -1,5 +1,13 @@
 import {describe, expect, it} from 'vitest'
-import {advanceRing, restingRing, type RingMode, type RingState, STILL_FRAME, stillRing} from './ringMotion'
+import {
+    advanceRing,
+    restingRing,
+    RING_PERIOD_S,
+    type RingMode,
+    type RingState,
+    STILL_FRAME,
+    stillRing,
+} from './ringMotion'
 
 function run(mode: RingMode, heard: number, seconds: number, from: RingState = restingRing('rec')) {
     let state = from
@@ -34,9 +42,19 @@ describe('ring motion', () => {
         expect(oneFrame.level).toBeCloseTo(twoFrames.level)
     })
 
-    it('starts settled in its mode and stands still on the logo frame', () => {
+    it('starts settled in its mode and holds the logo frame under reduced motion', () => {
         expect(restingRing('paused').mono).toBe(1)
-        expect(stillRing('still')).toEqual({time: STILL_FRAME.time, level: STILL_FRAME.level, mono: 0})
+        expect(stillRing('rec')).toEqual({time: STILL_FRAME.time, level: STILL_FRAME.level, mono: 0})
         expect(stillRing('paused')).toEqual({time: STILL_FRAME.time, level: 0, mono: 1})
+    })
+
+    it('wraps its clock where the shader repeats, so a long recording keeps small times', () => {
+        const late = advanceRing({time: RING_PERIOD_S - 0.01, level: 0, mono: 0}, 'rec', 0, 0, 0.02)
+        expect(late.time).toBeCloseTo(0.01)
+        // Every time term of the shader turns a whole number of times per period.
+        for (const rate of [0.35, 0.5, 0.6, 0.7, 0.8, 1.9, 2.6, 3.3]) {
+            const turns = rate * RING_PERIOD_S / (2 * Math.PI)
+            expect(turns).toBeCloseTo(Math.round(turns))
+        }
     })
 })

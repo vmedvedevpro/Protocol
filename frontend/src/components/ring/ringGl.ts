@@ -6,8 +6,16 @@ import type {RingState} from './ringMotion'
 // works out how far it is from a circle whose edge wobbles with the level.
 const VERTEX = 'attribute vec2 p; void main() { gl_Position = vec4(p, 0.0, 1.0); }'
 
+// highp where the GPU has it in fragment shaders (every desktop GPU does):
+// mediump may be 16-bit, too coarse for a clock in seconds. The clock also
+// wraps (RING_PERIOD_S in ringMotion.ts), so where only mediump exists its
+// error stays bounded instead of growing over a long recording.
 const FRAGMENT = `
+#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
 precision mediump float;
+#endif
 uniform vec2 uRes;
 uniform float uTime;
 uniform float uLevel;
@@ -125,6 +133,11 @@ export function createRingRenderer(canvas: HTMLCanvasElement): RingRenderer | nu
     gl.clearColor(0, 0, 0, 0)
 
     const uniforms = Object.fromEntries(UNIFORMS.map((name) => [name, gl.getUniformLocation(program, name)])) as Uniforms
+    // The size this program last drew at. Kept here, not read off the canvas:
+    // a program built on a canvas that is already the right size (after a
+    // restored context, or a second mount under StrictMode) still needs its
+    // own viewport and uRes.
+    let drawnPixels = 0
 
     return {
         setPalette(palette) {
@@ -135,7 +148,8 @@ export function createRingRenderer(canvas: HTMLCanvasElement): RingRenderer | nu
             gl.uniform1f(uniforms.uHalo, palette.halo)
         },
         draw(state, pixels) {
-            if (canvas.width !== pixels) {
+            if (drawnPixels !== pixels) {
+                drawnPixels = pixels
                 canvas.width = pixels
                 canvas.height = pixels
                 gl.viewport(0, 0, pixels, pixels)

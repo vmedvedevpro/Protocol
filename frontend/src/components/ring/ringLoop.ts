@@ -10,7 +10,7 @@ export interface RingInputs {
 }
 
 export interface RingLoop {
-    /** New props: a mode change eases over the next frames; a still ring draws again. */
+    /** New props: a mode change eases over the next frames; a ring held still draws again. */
     update(inputs: RingInputs): void
     /** The latest level heard, 0 to 1; read on the next frame. */
     hear(level: number): void
@@ -27,10 +27,10 @@ const MAX_STEP_S = 0.05
 /**
  * Runs one ring's requestAnimationFrame loop on `canvas`, or returns null when
  * there is no WebGL. The loop runs only while the ring can move and be seen:
- * it stops while the canvas is off screen, the document is hidden, the mode is
- * `still` or the user asked for reduced motion; a ring that does not move gets
- * one frame, drawn again when an input changes. `onWebgl` reports a lost and a
- * restored context, so the ring can show its static form meanwhile.
+ * it stops while the canvas is off screen, the document is hidden or the user
+ * asked for reduced motion. Under reduced motion it draws one frame, again
+ * whenever an input changes. `onWebgl` reports a lost and a restored
+ * context, so the ring can show its static form meanwhile.
  */
 export function startRingLoop(
     canvas: HTMLCanvasElement,
@@ -50,7 +50,7 @@ export function startRingLoop(
     const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)') ?? null
 
     const pixels = () => Math.round(inputs.size * Math.min(window.devicePixelRatio || 1, MAX_PIXEL_RATIO))
-    const moves = () => inputs.mode !== 'still' && !reducedMotion?.matches
+    const held = () => reducedMotion?.matches === true
 
     const tick = (now: number) => {
         const dt = Math.min(MAX_STEP_S, Math.max(0, (now - last) / 1000))
@@ -62,7 +62,7 @@ export function startRingLoop(
 
     // Every change that can start or stop the loop comes through here.
     const sync = () => {
-        if (renderer && onScreen && !document.hidden && moves()) {
+        if (renderer && onScreen && !document.hidden && !held()) {
             if (!frame) {
                 last = performance.now()
                 frame = requestAnimationFrame(tick)
@@ -71,7 +71,7 @@ export function startRingLoop(
         }
         cancelAnimationFrame(frame)
         frame = 0
-        if (renderer && !moves()) {
+        if (renderer && held()) {
             state = stillRing(inputs.mode)
             renderer.draw(state, pixels())
         }

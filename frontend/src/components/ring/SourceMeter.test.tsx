@@ -1,17 +1,14 @@
-import type {ReactNode} from 'react'
 import {render, screen, waitFor} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import {ThemeProvider} from 'styled-components'
 import {describe, expect, it, vi} from 'vitest'
 import {RECORDING_AUDIO_LEVELS_EVENT} from '@/api/audio'
 import {sampleFor} from '@/mocks/audio'
 import {emitMockEvent} from '@/mocks/ipc'
-import {lightTheme} from '@/styles/theme'
+import {settleIpc} from '@/test/ipc'
+import {inTheme} from '@/test/theme'
 import {LevelMeter} from './LevelMeter'
 import {SourceMeter} from './SourceMeter'
 
-const inTheme = (node: ReactNode) => <ThemeProvider theme={lightTheme}>{node}</ThemeProvider>
-const settleIpc = () => new Promise((resolve) => setTimeout(resolve, 0))
 const MIC = {kind: 'recording', source: 'mic'} as const
 
 describe('SourceMeter', () => {

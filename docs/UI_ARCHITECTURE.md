@@ -270,24 +270,30 @@ levels) skip Query and React state; see Styling and the next section.
   slider moves the meter at once.
   `useAudioLevel(feed, onLevel)` hands each level to a callback that writes a
   ref or a canvas, never state; `subscribeAudioLevel` is the same without
-  React. Every subscriber shares one native listener per event.
+  React, on `subscribeNative` (`src/api/events.ts`). Each subscriber has
+  its own listener: Tauri sends an event to a webview once, with every
+  listener's id, so more listeners cost only their callbacks.
   `useAudioLevelMonitoring(deviceNames)` runs the device preview while mounted
   and stops it on unmount; its starts and stops wait for each other, because
   native's start stops the old preview and waits before it opens the devices,
   so a stop arriving meanwhile would be undone.
 - `components/ring` holds what draws them. `Ring` is the design's WebGL ring
-  in five modes: `rec` follows the level, `test` (the mic test) exaggerates
+  in four modes: `rec` follows the level, `test` (the mic test) exaggerates
   it, `idle` is greyed and slow and does not listen, `paused` is flat and
-  grey, `still` is the logo's frame. `LevelMeter` is the five bars;
+  grey. `LevelMeter` is the five bars;
   `SourceMeter` is the mute toggle of the recording bar and the minibar, with
   the bars or, muted, "Muted" on an inverted fill. The button around the ring
   (pause) and the native mute calls belong to the screens.
 - The ring's cost is bounded in `ringLoop.ts`: one requestAnimationFrame loop
   per ring, running only while the canvas is on screen, the document is
-  visible, the mode moves and motion is allowed; otherwise it draws one frame
-  and draws it again when a prop or the theme changes. The canvas is the CSS
+  visible and motion is allowed; under reduced motion it draws one frame and
+  draws it again when a prop or the theme changes. The canvas is the CSS
   size times the device pixel ratio, capped at 2, on a context without
-  antialiasing, depth or stencil that asks for the low-power GPU. Without
+  antialiasing, depth or stencil that asks for the low-power GPU. The shader
+  runs in highp where the GPU has it, and its clock wraps every 40π s, the
+  period on which every time term repeats, so on a GPU with only a 16-bit
+  mediump its error stays under 1/16 s instead of growing with the
+  recording. Without
   WebGL, or while the context is lost, `StaticRing` shows a still gradient
   ring greyed per mode. Under reduced motion the ring holds the logo's frame
   in its mode's grey; the meters still show the level, without easing.
