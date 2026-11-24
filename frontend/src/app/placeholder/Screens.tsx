@@ -1,10 +1,6 @@
 import type {ReactNode} from 'react'
-import {GearIcon} from '@phosphor-icons/react'
-import {useNavigate, useParams} from 'react-router-dom'
+import {useParams} from 'react-router-dom'
 import styled from 'styled-components'
-import {Button, IconButton} from '@/components/ui/Button'
-import {formatShortcut} from '@/lib/platform'
-import {paths} from '@/lib/paths'
 import {Screen} from '@/components/screen/Screen'
 
 // Stand-ins for the screens until their tasks replace them in the route
@@ -55,25 +51,6 @@ function Placeholder({title, actions, recordBar, children}: {
             </Head>
             <Body>{children}</Body>
         </Screen>
-    )
-}
-
-export function HomePlaceholder() {
-    const navigate = useNavigate()
-
-    return (
-        <Placeholder
-            title="Meetings"
-            actions={(
-                <IconButton label="Settings" shortcut={formatShortcut(',')} onClick={() => void navigate(paths.settings())}>
-                    <GearIcon size={17}/>
-                </IconButton>
-            )}
-            recordBar
-        >
-            <Note>The meetings list arrives with #113.</Note>
-            <Button size="sm" onClick={() => void navigate(paths.meeting('sample'))}>Open a sample meeting</Button>
-        </Placeholder>
     )
 }
 

@@ -4,6 +4,7 @@ import {useNativeEvent} from '@/api/events'
 import {useModelDownloadSync} from '@/api/modelDownloadSync'
 import {TRAY_NAVIGATE_EVENT, TRAY_START_RECORDING_EVENT} from '@/api/tray'
 import {RecordBarContext} from '@/components/screen/recordBar'
+import {UpdateToasts} from '@/features/meetings/home/UpdateToasts'
 import {FirstLaunch} from '@/features/onboarding/pages/FirstLaunch'
 import {RecordingBar} from '@/features/recording/components/RecordingBar'
 import {RecordingRuntime} from '@/features/recording/components/RecordingRuntime'
@@ -90,6 +91,7 @@ export function Shell() {
                         <ShellCommands/>
                         <Outlet/>
                         <CrashReportSheet/>
+                        <UpdateToasts/>
                     </>
                 )}
                 {phase === 'firstLaunch' && <FirstLaunch/>}
