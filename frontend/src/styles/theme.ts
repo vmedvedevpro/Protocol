@@ -72,6 +72,26 @@ const shadows: Record<ThemeName, ThemeShadows> = {
     },
 }
 
+/**
+ * The recording ring (components/ring), the window's only colored element:
+ * the three stops its gradient turns through, the highlight that walks around
+ * it, and how strongly its halo shows (0 to 1). The colors are those of the
+ * design's shader; the small static ring uses the same three stops.
+ */
+export interface RingPalette {
+    violet: string
+    blue: string
+    cyan: string
+    highlight: string
+    halo: number
+}
+
+const ring: Record<ThemeName, RingPalette> = {
+    light: {violet: '#7845F2', blue: '#2E66F2', cyan: '#0599BF', highlight: '#9EB3FF', halo: 0.1},
+    // Lighter stops and a stronger halo: on black the glow is what reads.
+    dark: {violet: '#996BFF', blue: '#5C94FF', cyan: '#6BE0FA', highlight: '#FFFFFF', halo: 0.22},
+}
+
 // The family names @fontsource-variable registers; the fonts ship with the app
 // (src/styles/fonts.ts), so every platform renders the same glyphs.
 const fonts = {
@@ -163,6 +183,7 @@ function makeTheme(name: ThemeName) {
         name,
         colors: colors[name],
         shadows: shadows[name],
+        ring: ring[name],
         fonts,
         text,
         fontWeights,
