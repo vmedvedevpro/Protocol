@@ -131,6 +131,10 @@ const text = {
     heading: {fontSize: '15px', lineHeight: '22px', fontWeight: 600},
     title: {fontSize: '18px', lineHeight: '24px', fontWeight: 600, letterSpacing: '-0.01em'},
     display: {fontSize: '22px', lineHeight: '28px', fontWeight: 600, letterSpacing: '-0.02em'},
+    /** What the user writes in the notes editor. */
+    notes: {fontSize: '14px', lineHeight: '23px'},
+    /** A top-level heading inside the notes. */
+    notesHeading: {fontSize: '16px', lineHeight: '22px', fontWeight: 600},
 }
 
 const fontWeights = {

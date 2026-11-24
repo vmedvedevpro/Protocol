@@ -25,6 +25,7 @@ src/
   app/                 App, routes, AppThemeProvider, app-wide sync hooks
   api/                 native domains shared by several features (see below)
   components/ui/       design-system primitives, no feature knowledge
+  components/editor/   the notes editor (BlockNote), loaded as its own chunk
   features/<x>/
     api/               native domains only this feature uses
     components/
@@ -366,9 +367,18 @@ Outside Tauri, `pnpm dev`, Storybook and every test run on
   sample data from the old browser preview, `162e8be:frontend/src/dev/preview/`
   (`index.ts`: the handlers; `fixtures.ts`: meetings, groups, people,
   transcripts, summaries; `live.ts`: recording; `models.ts`: speech models;
-  `intel.ts`: Intel GPUs), into `handlers.ts` and `createMockState`.
-  It types the data with the domain's payload types from `src/api` or
-  `features/<x>/api`, never with interfaces of its own, so a field that
+  `intel.ts`: Intel GPUs), into a domain file of its own,
+  `src/mocks/<domain>.ts`, as `src/mocks/notes.ts` does: `<domain>Handlers(state)`
+  returns the handlers, spread into `handlers`, and `createMock<Domain>()`
+  builds the sample data, called from `createMockState`. The handlers take
+  the state as an argument because `state.ts` imports the domain file, so
+  importing `mockState` back would make a cycle. A domain with no sample
+  data of its own, as `src/mocks/audio.ts`, keeps its few fields inline in
+  `createMockState` and exports its handlers as an object that reads
+  `mockState`, since `state.ts` does not import it. Parallel tasks then add one
+  line each to `handlers.ts` and `state.ts` instead of editing the same
+  blocks. It types the data with the domain's payload types from `src/api`
+  or `features/<x>/api`, never with interfaces of its own, so a field that
   changes in the payload type stops the stale sample data from compiling.
 - A command native code registers on one platform only (`#[cfg]` in
   `generate_handler!`; "Windows only" or "macOS only" in PARITY.md) goes into

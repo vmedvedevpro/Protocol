@@ -1,6 +1,7 @@
 import type {UpdaterSnapshot} from '@/api/updater'
 import {platform} from '@/lib/platform'
 import packageJson from '../../package.json'
+import {createMockNotes} from './notes'
 
 /**
  * Everything the mock IPC answers from, and nothing a handler does not read.
@@ -40,6 +41,8 @@ function createMockState() {
             monitoring: null as string[] | null,
             level: null as number | null,
         },
+        // `meeting_notes` rows by meeting id (src/mocks/notes.ts).
+        meetingNotes: createMockNotes(),
     }
 }
 
