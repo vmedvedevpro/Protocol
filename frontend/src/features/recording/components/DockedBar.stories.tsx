@@ -56,7 +56,7 @@ function Bar({recording}: { recording: boolean }) {
 }
 
 const meta = {
-    title: 'Shell/DockedBar',
+    title: 'Recording/DockedBar',
     component: Bar,
     args: {recording: false},
 } satisfies Meta<typeof Bar>

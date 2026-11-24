@@ -24,14 +24,16 @@ describe('ProcessingStatus', () => {
     it('says what runs, how long is left and how far the pass has got', async () => {
         const controls = runner()
         postCallJobs.queue('m1', ['transcript', 'speakers', 'summary'])
-        postCallJobs.run('m1', 'transcript', Date.now() - 40_000)
-        postCallJobs.progress('m1', 25)
+        postCallJobs.run('m1', 'transcript')
+        // The chunks started 40 s ago and are at 40 %: 15 % in 40 s, 40 % to go.
+        postCallJobs.progress('m1', 25, Date.now() - 40_000)
+        postCallJobs.progress('m1', 40)
         renderUi(<ProcessingStatus meetingId="m1"/>)
 
         expect(screen.getByRole('status')).toHaveTextContent('Improving the transcript')
         expect(screen.getByText('· about 2 min')).toBeInTheDocument()
-        // Saved, plus a quarter of the first of three steps: 1.25 of 4.
-        expect(screen.getByRole('progressbar', {name: 'Processing the meeting'})).toHaveAttribute('aria-valuenow', '31')
+        // Saved, plus 40 % of the first of three steps: 1.4 of 4.
+        expect(screen.getByRole('progressbar', {name: 'Processing the meeting'})).toHaveAttribute('aria-valuenow', '35')
 
         await userEvent.click(screen.getByRole('button', {name: 'Cancel'}))
         expect(controls.cancel).toHaveBeenCalledWith('m1')
@@ -93,8 +95,10 @@ describe('ProcessingSteps', () => {
 describe('ProcessingLine', () => {
     it('reads as Home shows it, and goes once the pass ends', () => {
         postCallJobs.queue('m1', ['transcript'])
-        postCallJobs.run('m1', 'transcript', Date.now() - 40_000)
-        postCallJobs.progress('m1', 25)
+        postCallJobs.run('m1', 'transcript')
+        // The chunks started 40 s ago and are at 40 %: 15 % in 40 s, 40 % to go.
+        postCallJobs.progress('m1', 25, Date.now() - 40_000)
+        postCallJobs.progress('m1', 40)
         const {container, rerender} = renderUi(<ProcessingLine meetingId="m1"/>)
         expect(container).toHaveTextContent('Improving the transcript· about 2 min')
 

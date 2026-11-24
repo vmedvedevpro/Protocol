@@ -4,7 +4,7 @@ import {useNavigate, useParams, useSearchParams} from 'react-router-dom'
 import styled from 'styled-components'
 import {Button, IconButton} from '@/components/ui/Button'
 import {formatShortcut} from '@/lib/platform'
-import {paths} from '../paths'
+import {paths} from '@/lib/paths'
 import {Screen} from '../shell/Screen'
 import {ThemeSwitch} from './ThemeSwitch'
 

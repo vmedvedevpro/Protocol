@@ -11,9 +11,26 @@ import type {MockArgs, MockHandler} from './handlers'
 import type {MockState} from './state'
 
 /**
+ * The readings a mock retranscription sends, in native's bands
+ * (`RETRANSCRIPTION_BANDS`): decoding and speech detection below 25, 25 as
+ * the model loads and again as the first chunk starts, the chunks evenly
+ * up to 80, then the save.
+ */
+export const MOCK_RETRANSCRIPTION_READINGS: readonly { stage: string, percent: number }[] = [
+    {stage: 'decoding', percent: 5},
+    {stage: 'vad', percent: 15},
+    {stage: 'transcribing', percent: 25},
+    ...Array.from({length: 11}, (_, chunk) => ({stage: 'transcribing', percent: 25 + chunk * 5})),
+    {stage: 'saving', percent: 80},
+    {stage: 'saving', percent: 90},
+    {stage: 'complete', percent: 100},
+]
+
+/**
  * Retranscription and diarization as native runs them, faster: a
- * retranscription climbs 10 % a step and then completes, or ends with
- * "Retranscription cancelled" after a cancel, one meeting at a time.
+ * retranscription sends `MOCK_RETRANSCRIPTION_READINGS` one step apart and
+ * then completes, or ends with "Retranscription cancelled" after a cancel,
+ * one meeting at a time.
  */
 export function createMockPostCall() {
     return {
@@ -41,7 +58,7 @@ export function postCallHandlers(state: MockState): Record<string, MockHandler> 
 
     async function retranscribe(meetingId: string) {
         const run = state.postCall
-        for (let percent = 0; percent <= 100; percent += 10) {
+        for (const {stage, percent} of MOCK_RETRANSCRIPTION_READINGS) {
             await wait(run.stepMs)
             if (!owns(meetingId, run)) return
             if (run.cancelled) {
@@ -49,12 +66,7 @@ export function postCallHandlers(state: MockState): Record<string, MockHandler> 
                 send(RETRANSCRIPTION_ERROR_EVENT, {meeting_id: meetingId, error: 'Retranscription cancelled'})
                 return
             }
-            send(RETRANSCRIPTION_PROGRESS_EVENT, {
-                meeting_id: meetingId,
-                stage: percent < 10 ? 'decoding' : percent < 100 ? 'transcribing' : 'saving',
-                progress_percentage: percent,
-                message: `Transcribing ${percent}%`,
-            })
+            send(RETRANSCRIPTION_PROGRESS_EVENT, {meeting_id: meetingId, stage, progress_percentage: percent, message: `${stage} ${percent}%`})
         }
         run.retranscribing = null
         send(RETRANSCRIPTION_COMPLETE_EVENT, {meeting_id: meetingId, segments_count: 12, duration_seconds: 2712, language: 'en'})
@@ -68,11 +80,13 @@ export function postCallHandlers(state: MockState): Record<string, MockHandler> 
             void retranscribe(id)
             return {meeting_id: id, message: 'Retranscription started'}
         },
+        // In native's order (retranscription.rs, cancel_retranscription_command):
+        // a meeting id is checked first, even with nothing running.
         cancel_retranscription_command: ({meetingId}: MockArgs) => {
-            if (state.postCall.retranscribing === null) throw 'No retranscription in progress'
             if (meetingId != null && state.postCall.retranscribing !== meetingId) {
                 throw 'This meeting has no active retranscription'
             }
+            if (state.postCall.retranscribing === null) throw 'No retranscription in progress'
             state.postCall.cancelled = true
             return null
         },

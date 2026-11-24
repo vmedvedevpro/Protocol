@@ -1,17 +1,14 @@
 import {describe, expect, it, vi} from 'vitest'
+import {MOCK_RETRANSCRIPTION_READINGS} from '@/mocks/postCall'
 import {mockState} from '@/mocks/state'
 import {settleIpc, spyOnIpc} from '@/test/ipc'
 import {subscribeNative} from './events'
 import {
     cancelRetranscription,
     diarizeMeeting,
-    formatRemaining,
     isRetranscriptionInProgress,
     postCallControls,
     postCallJobs,
-    postCallProgress,
-    postCallRemainingMs,
-    postCallStatusText,
     registerPostCallControls,
     RETRANSCRIPTION_COMPLETE_EVENT,
     RETRANSCRIPTION_ERROR_EVENT,
@@ -20,24 +17,21 @@ import {
 } from './postCall'
 
 describe('the post-call jobs', () => {
-    it('queue, run, report progress, fail and end', () => {
+    it('queue, run, take readings, fail and end', () => {
         postCallJobs.queue('m1', ['transcript', 'speakers', 'summary'])
-        expect(postCallJobs.get('m1')).toMatchObject({state: 'queued', step: 'transcript', percent: null})
-        expect(postCallStatusText(postCallJobs.get('m1')!)).toBe('Waiting for another meeting to finish')
+        expect(postCallJobs.get('m1')).toMatchObject({state: 'queued', step: 'transcript', reading: null})
 
-        postCallJobs.run('m1', 'transcript', 1_000)
-        postCallJobs.progress('m1', 140)
-        expect(postCallJobs.get('m1')).toMatchObject({state: 'running', percent: 100, stepStartedAt: 1_000})
+        postCallJobs.run('m1', 'transcript')
+        postCallJobs.progress('m1', 140, 1_000)
+        expect(postCallJobs.get('m1')).toMatchObject({state: 'running', reading: {percent: 100, at: 1_000}})
 
         postCallJobs.run('m1', 'speakers')
-        expect(postCallJobs.get('m1')?.percent).toBeNull()
+        expect(postCallJobs.get('m1')).toMatchObject({reading: null, paceFrom: null})
         postCallJobs.fail('m1', 'No audio file')
-        expect(postCallStatusText(postCallJobs.get('m1')!)).toBe('Could not find speakers')
-        expect(postCallJobs.get('m1')?.error).toBe('No audio file')
+        expect(postCallJobs.get('m1')).toMatchObject({state: 'failed', error: 'No audio file'})
 
         postCallJobs.end('m1')
         expect(postCallJobs.get('m1')).toBeNull()
-        expect(postCallJobs.all()).toEqual([])
     })
 
     it('ignore writes to a meeting without a job', () => {
@@ -46,28 +40,25 @@ describe('the post-call jobs', () => {
         expect(postCallJobs.get('nobody')).toBeNull()
     })
 
-    it('count "Recording saved" as the first step of the progress', () => {
-        postCallJobs.queue('m1', ['transcript', 'speakers', 'summary'])
-        expect(postCallProgress(postCallJobs.get('m1')!)).toBe(1 / 4)
+    it('measure the pace from the start of the chunks, after the model has loaded', () => {
+        postCallJobs.queue('m1', ['transcript'])
         postCallJobs.run('m1', 'transcript')
-        postCallJobs.progress('m1', 40)
-        expect(postCallProgress(postCallJobs.get('m1')!)).toBeCloseTo(1.4 / 4)
-        postCallJobs.run('m1', 'summary')
-        expect(postCallProgress(postCallJobs.get('m1')!)).toBe(3 / 4)
+        postCallJobs.progress('m1', 5, 0)
+        postCallJobs.progress('m1', 15, 2_000)
+        expect(postCallJobs.get('m1')?.paceFrom).toBeNull()
+        // 25 as the model loads, and 25 again as the first chunk starts.
+        postCallJobs.progress('m1', 25, 3_000)
+        postCallJobs.progress('m1', 25, 20_000)
+        postCallJobs.progress('m1', 30, 30_000)
+        expect(postCallJobs.get('m1')?.paceFrom).toEqual({percent: 25, at: 20_000})
     })
 
-    it('estimate the time left only once the step has a pace', () => {
+    it('measure from the first reading inside the chunks after a re-attach', () => {
         postCallJobs.queue('m1', ['transcript'])
-        postCallJobs.run('m1', 'transcript', 0)
-        postCallJobs.progress('m1', 2)
-        expect(postCallRemainingMs(postCallJobs.get('m1')!, 60_000)).toBeNull()
-        postCallJobs.progress('m1', 25)
-        expect(postCallRemainingMs(postCallJobs.get('m1')!, 2_000)).toBeNull()
-        // 25 % in 40 s: 120 s to go.
-        expect(postCallRemainingMs(postCallJobs.get('m1')!, 40_000)).toBe(120_000)
-        expect(formatRemaining(120_000)).toBe('about 2 min')
-        expect(formatRemaining(140_000)).toBe('about 2 min')
-        expect(formatRemaining(25_000)).toBe('under a minute')
+        postCallJobs.run('m1', 'transcript')
+        postCallJobs.progress('m1', 50, 7_000)
+        postCallJobs.progress('m1', 55, 9_000)
+        expect(postCallJobs.get('m1')?.paceFrom).toEqual({percent: 50, at: 7_000})
     })
 })
 
@@ -107,9 +98,10 @@ describe('the native post-call commands', () => {
 
     it('report a retranscription by event until it completes', async () => {
         mockState.postCall.stepMs = 0
-        const progress: number[] = []
+        const progress: { stage: string, percent: number }[] = []
         const done = vi.fn()
-        const stopProgress = subscribeNative(RETRANSCRIPTION_PROGRESS_EVENT, (event) => progress.push(event.progress_percentage))
+        const stopProgress = subscribeNative(RETRANSCRIPTION_PROGRESS_EVENT, (event) =>
+            progress.push({stage: event.stage, percent: event.progress_percentage}))
         const stopDone = subscribeNative(RETRANSCRIPTION_COMPLETE_EVENT, done)
         await settleIpc()
 
@@ -118,7 +110,8 @@ describe('the native post-call commands', () => {
         await expect(startRetranscription({meetingId: 'm2', meetingFolderPath: '/rec/m2', language: null, model: null, provider: null}))
             .rejects.toThrow('Retranscription already in progress')
         await vi.waitFor(() => expect(done).toHaveBeenCalledWith(expect.objectContaining({meeting_id: 'm1'})))
-        expect(progress.at(-1)).toBe(100)
+        // In native's bands: decoding and speech detection, the chunks from 25 to 80, the save.
+        expect(progress).toEqual(MOCK_RETRANSCRIPTION_READINGS)
         expect(await isRetranscriptionInProgress('m1')).toBe(false)
         stopProgress()
         stopDone()
@@ -130,6 +123,8 @@ describe('the native post-call commands', () => {
         const stop = subscribeNative(RETRANSCRIPTION_ERROR_EVENT, failed)
         await settleIpc()
 
+        // Native checks the meeting first, even with nothing running.
+        await expect(cancelRetranscription('m1')).rejects.toThrow('This meeting has no active retranscription')
         await startRetranscription({meetingId: 'm1', meetingFolderPath: '/rec/m1', language: null, model: null, provider: null})
         await expect(cancelRetranscription('m2')).rejects.toThrow('This meeting has no active retranscription')
         await cancelRetranscription('m1')

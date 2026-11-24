@@ -11,15 +11,16 @@
  *
  * - the native commands and events of retranscription and diarization,
  *   which Enhance transcript (#119) and "N speakers · change" (#113) call too;
- * - the state of each meeting's pass (`usePostCallJob`). The recording
- *   feature's runner, mounted once by the shell above navigation, is its
- *   only writer; screens read it and ask the runner to cancel, retry or
- *   skip a step through `postCallControls`.
+ * - the state of each meeting's pass (`usePostCallJob`). #112's runner
+ *   (to come with the recording screen), mounted once by the shell above
+ *   navigation, will be its only writer; screens read it and ask the runner
+ *   to cancel, retry or skip a step through `postCallControls`.
  *
- * When a step ends the runner invalidates the meeting's queries, so a screen
- * that shows the meeting needs nothing more than the hook.
+ * When a step ends the runner is to invalidate the meeting's queries, so a
+ * screen that shows the meeting needs nothing more than the hook. The words
+ * and the estimate a screen shows live with the components that draw a job
+ * (features/meetings/components/processing).
  */
-import {useEffect, useState} from 'react'
 import {create} from 'zustand'
 import {command} from './core'
 import type {NativeEvent} from './events'
@@ -46,10 +47,13 @@ export interface RetranscriptionStarted {
     message: string
 }
 
-/** Mirrors `RetranscriptionProgress`; `progress_percentage` is 0 to 100. */
+/**
+ * Mirrors `RetranscriptionProgress`; `progress_percentage` is 0 to 100, in
+ * the bands of `RETRANSCRIPTION_BANDS`.
+ */
 export interface RetranscriptionProgress {
     meeting_id: string
-    /** `decoding`, `transcribing` or `saving`. */
+    /** `decoding`, `vad`, `transcribing`, `saving` or `complete`. */
     stage: string
     progress_percentage: number
     message: string
@@ -68,6 +72,21 @@ export interface RetranscriptionError {
     meeting_id: string
     error: string
 }
+
+/**
+ * What native's percent means (retranscription.rs). It is not linear in
+ * time: decoding and speech detection take 5 to 25 (from 5 at once, :296
+ * and :339), 25 is said before the speech model loads (:389), the chunks
+ * take 25 to 80 evenly (:447), and saving goes from 80 to 100 in about a
+ * second (:498, :630, :652). Only the chunks' band has a pace that tells
+ * the time left.
+ */
+export const RETRANSCRIPTION_BANDS = {
+    /** The first chunk starts here, after the model has loaded. */
+    transcribeFrom: 25,
+    /** The last chunk ends here; the save after it takes about a second. */
+    transcribeTo: 80,
+} as const
 
 export const RETRANSCRIPTION_PROGRESS_EVENT = 'retranscription-progress' as NativeEvent<RetranscriptionProgress>
 export const RETRANSCRIPTION_COMPLETE_EVENT = 'retranscription-complete' as NativeEvent<RetranscriptionComplete>
@@ -143,6 +162,12 @@ export const POST_CALL_STEPS: readonly PostCallStep[] = ['transcript', 'speakers
  */
 export type PostCallState = 'queued' | 'running' | 'cancelling' | 'failed'
 
+/** A percent native reported, and when it arrived (Date.now()). */
+export interface PostCallReading {
+    percent: number
+    at: number
+}
+
 export interface PostCallJob {
     meetingId: string
     /**
@@ -154,10 +179,15 @@ export interface PostCallJob {
     /** The step running, being cancelled or failed; the first step while queued. */
     step: PostCallStep
     state: PostCallState
-    /** How much of `step` is done, 0 to 100, when native says (retranscription does); else null. */
-    percent: number | null
-    /** When `step` started (Date.now()), for the time left. */
-    stepStartedAt: number
+    /** How far `step` has got, when native says (retranscription does); else null. */
+    reading: PostCallReading | null
+    /**
+     * Where the pace of `step` is measured from: the last reading at the
+     * start of the chunks' band (`RETRANSCRIPTION_BANDS`). Native says 25
+     * before the model loads and again as the first chunk starts, so the
+     * load is left out of the pace. Null before the band.
+     */
+    paceFrom: PostCallReading | null
     /** Why `step` failed, in native's words. */
     error: string | null
 }
@@ -168,10 +198,10 @@ interface PostCallStore {
 
 const usePostCallStore = create<PostCallStore>(() => ({jobs: {}}))
 
-function patch(meetingId: string, change: Partial<PostCallJob>) {
+function patch(meetingId: string, change: (job: PostCallJob) => Partial<PostCallJob>) {
     usePostCallStore.setState(({jobs}) => {
         const job = jobs[meetingId]
-        return job ? {jobs: {...jobs, [meetingId]: {...job, ...change}}} : {jobs}
+        return job ? {jobs: {...jobs, [meetingId]: {...job, ...change(job)}}} : {jobs}
     })
 }
 
@@ -181,29 +211,35 @@ function patch(meetingId: string, change: Partial<PostCallJob>) {
  * is not in.
  */
 export const postCallJobs = {
-    /** A meeting's pass is waiting to start with these steps. */
+    /** A meeting's pass is waiting to start with these steps (at least one). */
     queue(meetingId: string, steps: readonly PostCallStep[]) {
-        const first = steps[0] ?? 'transcript'
         usePostCallStore.setState(({jobs}) => ({
             jobs: {
                 ...jobs,
-                [meetingId]: {meetingId, steps, step: first, state: 'queued', percent: null, stepStartedAt: Date.now(), error: null},
+                [meetingId]: {meetingId, steps, step: steps[0], state: 'queued', reading: null, paceFrom: null, error: null},
             },
         }))
     },
-    /** `step` starts now, or started at `startedAt` (re-attaching to native work). */
-    run(meetingId: string, step: PostCallStep, startedAt = Date.now()) {
-        patch(meetingId, {step, state: 'running', percent: null, stepStartedAt: startedAt, error: null})
+    /** `step` starts. */
+    run(meetingId: string, step: PostCallStep) {
+        patch(meetingId, () => ({step, state: 'running', reading: null, paceFrom: null, error: null}))
     },
-    /** How far the running step has got, 0 to 100. */
-    progress(meetingId: string, percent: number) {
-        patch(meetingId, {percent: Math.min(100, Math.max(0, percent))})
+    /** Native says the running step is at `percent` (0 to 100); `at` is for tests and stories. */
+    progress(meetingId: string, percent: number, at = Date.now()) {
+        const reading = {percent: Math.min(100, Math.max(0, percent)), at}
+        patch(meetingId, ({paceFrom}) => {
+            const inBand = reading.percent >= RETRANSCRIPTION_BANDS.transcribeFrom
+            // Re-anchored while the percent stands still (the model loading),
+            // or first seen inside the band (re-attached after a reload).
+            const anchor = inBand && (paceFrom === null || paceFrom.percent === reading.percent)
+            return {reading, paceFrom: anchor ? reading : paceFrom}
+        })
     },
     cancelling(meetingId: string) {
-        patch(meetingId, {state: 'cancelling'})
+        patch(meetingId, () => ({state: 'cancelling'}))
     },
     fail(meetingId: string, error: string) {
-        patch(meetingId, {state: 'failed', error})
+        patch(meetingId, () => ({state: 'failed', error}))
     },
     /** The pass ended (done, cancelled or skipped): the meeting shows as usual again. */
     end(meetingId: string) {
@@ -213,9 +249,6 @@ export const postCallJobs = {
         })
     },
     get: (meetingId: string): PostCallJob | null => usePostCallStore.getState().jobs[meetingId] ?? null,
-    all: (): PostCallJob[] => Object.values(usePostCallStore.getState().jobs),
-    /** Calls `listener` after every change; returns the unsubscribe. */
-    subscribe: (listener: () => void) => usePostCallStore.subscribe(listener),
     /** Drops every job: tests and stories, between cases. */
     reset() {
         usePostCallStore.setState({jobs: {}})
@@ -225,11 +258,6 @@ export const postCallJobs = {
 /** The meeting's pass while one is queued, runs or failed; null otherwise. */
 export function usePostCallJob(meetingId: string | null | undefined): PostCallJob | null {
     return usePostCallStore((state) => (meetingId ? state.jobs[meetingId] ?? null : null))
-}
-
-/** Whether any meeting's pass is queued, runs or failed. */
-export function usePostCallBusy(): boolean {
-    return usePostCallStore((state) => Object.keys(state.jobs).length > 0)
 }
 
 /** What a screen may ask of the runner. */
@@ -260,99 +288,4 @@ export const postCallControls: PostCallControls = {
     cancel: (meetingId) => controls?.cancel(meetingId),
     retry: (meetingId) => controls?.retry(meetingId),
     skip: (meetingId) => controls?.skip(meetingId),
-}
-
-// ---------------------------------------------------------------------------
-// Words and numbers for screens
-
-const RUNNING: Record<PostCallStep, string> = {
-    transcript: 'Improving the transcript',
-    speakers: 'Finding speakers',
-    summary: 'Writing the summary',
-}
-
-const FAILED: Record<PostCallStep, string> = {
-    transcript: 'Could not improve the transcript',
-    speakers: 'Could not find speakers',
-    summary: 'Could not write the summary',
-}
-
-const SKIP: Record<PostCallStep, string> = {
-    transcript: 'Keep live transcript',
-    speakers: 'Skip speakers',
-    summary: 'Skip summary',
-}
-
-/** The step's name in a list of steps: "Improving the transcript". */
-export const postCallStepLabel = (step: PostCallStep) => RUNNING[step]
-
-/** What Skip does after `step` failed: "Keep live transcript". */
-export const postCallSkipLabel = (step: PostCallStep) => SKIP[step]
-
-/** One line for the job: what runs, waits or failed. */
-export function postCallStatusText(job: PostCallJob): string {
-    switch (job.state) {
-        case 'queued':
-            return 'Waiting for another meeting to finish'
-        case 'cancelling':
-            return 'Stopping…'
-        case 'failed':
-            return FAILED[job.step]
-        case 'running':
-            return RUNNING[job.step]
-    }
-}
-
-/**
- * The share of the whole pass done, 0 to 1, counting "Recording saved" as
- * its first step: the steps behind the current one, plus the current one's
- * percent when native reports it.
- */
-export function postCallProgress(job: PostCallJob): number {
-    const total = job.steps.length + 1
-    const index = Math.max(0, job.steps.indexOf(job.step))
-    const current = job.state === 'running' || job.state === 'cancelling' ? (job.percent ?? 0) / 100 : 0
-    return (1 + index + current) / total
-}
-
-// An estimate from the first percent or seconds swings wildly: a model loads
-// before the first chunk, so the early rate understates the rest.
-const ESTIMATE_MIN_PERCENT = 5
-const ESTIMATE_MIN_MS = 5_000
-
-/**
- * The time left in the running step, in ms, from how fast its percent has
- * climbed so far; null while there is too little to go on, or for a step
- * without a percent.
- */
-export function postCallRemainingMs(job: PostCallJob, now: number): number | null {
-    if (job.state !== 'running' || job.percent === null) return null
-    const elapsed = now - job.stepStartedAt
-    if (job.percent < ESTIMATE_MIN_PERCENT || elapsed < ESTIMATE_MIN_MS) return null
-    return (elapsed * (100 - job.percent)) / job.percent
-}
-
-/** "about 2 min", or "under a minute"; an estimate, so rounded to the nearest minute. */
-export function formatRemaining(ms: number): string {
-    const minutes = Math.round(ms / 60_000)
-    return minutes < 1 ? 'under a minute' : `about ${minutes} min`
-}
-
-// The estimate changes with every percent; a tick keeps it moving between
-// them, and a few seconds is as fine as "about 2 min" needs.
-const ESTIMATE_TICK_MS = 5_000
-
-/** The time left for a job, as words, kept current while it runs; null when unknown. */
-export function useRemainingText(job: PostCallJob | null): string | null {
-    const [now, setNow] = useState(() => Date.now())
-    const running = job?.state === 'running' && job.percent !== null
-    useEffect(() => {
-        if (!running) return
-        const timer = setInterval(() => setNow(Date.now()), ESTIMATE_TICK_MS)
-        return () => clearInterval(timer)
-    }, [running])
-    if (!job) return null
-    // A new percent is a fresh reading: measure against the render's time then.
-    const remaining = postCallRemainingMs(job, Math.max(now, job.stepStartedAt))
-    return remaining === null ? null : formatRemaining(remaining)
 }

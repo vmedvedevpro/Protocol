@@ -3,17 +3,11 @@ import {CheckCircleIcon, CircleIcon, WarningCircleIcon} from '@phosphor-icons/re
 import {AnimatePresence} from 'motion/react'
 import * as m from 'motion/react-m'
 import styled from 'styled-components'
-import {
-    type PostCallJob,
-    type PostCallStep,
-    postCallStatusText,
-    postCallStepLabel,
-    usePostCallJob,
-    useRemainingText,
-} from '@/api/postCall'
+import {type PostCallJob, type PostCallStep, usePostCallJob} from '@/api/postCall'
 import {Spinner} from '@/components/ui/Spinner'
 import {VisuallyHidden} from '@/components/ui/VisuallyHidden'
 import {tween} from '@/styles/motion'
+import {postCallStatusText, postCallStepLabel, useRemainingText} from './progress'
 
 const Card = styled(m.div)`
     display: flex;

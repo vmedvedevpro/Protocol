@@ -2,19 +2,12 @@ import {WarningCircleIcon} from '@phosphor-icons/react'
 import {AnimatePresence} from 'motion/react'
 import * as m from 'motion/react-m'
 import styled from 'styled-components'
-import {
-    type PostCallJob,
-    postCallControls,
-    postCallProgress,
-    postCallSkipLabel,
-    postCallStatusText,
-    usePostCallJob,
-    useRemainingText,
-} from '@/api/postCall'
+import {type PostCallJob, postCallControls, usePostCallJob} from '@/api/postCall'
 import {Button} from '@/components/ui/Button'
 import {ProgressBar} from '@/components/ui/ProgressBar'
 import {StatusLine} from '@/components/ui/StatusLine'
 import {tween} from '@/styles/motion'
+import {postCallProgress, postCallSkipLabel, postCallStatusText, useRemainingText} from './progress'
 
 const Strip = styled(m.div)`
     flex: none;

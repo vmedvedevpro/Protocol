@@ -1,5 +1,6 @@
-import {postCallStatusText, usePostCallJob, useRemainingText} from '@/api/postCall'
+import {usePostCallJob} from '@/api/postCall'
 import {StatusLine} from '@/components/ui/StatusLine'
+import {postCallStatusText, useRemainingText} from './progress'
 
 /**
  * One line for a meeting in a list while its post-call pass runs, as Home's

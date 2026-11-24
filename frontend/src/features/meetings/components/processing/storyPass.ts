@@ -5,6 +5,7 @@ import {
     type PostCallState,
     type PostCallStep,
     registerPostCallControls,
+    RETRANSCRIPTION_BANDS,
 } from '@/api/postCall'
 
 /** The meeting the stories process. */
@@ -24,7 +25,7 @@ export interface StoryPass {
 }
 
 const STEP_MS = 400
-// A transcript step that started a while ago, so the time left shows.
+// When a still story's chunks started, so the time left shows.
 const STARTED_AGO_MS = 40_000
 
 /**
@@ -39,9 +40,13 @@ export function useStoryPass({state, step, percent, noSummary, noAudio, play}: S
         const first = steps.includes(step) ? step : steps[0]
         postCallJobs.queue(STORY_MEETING, steps)
         if (state !== 'queued') {
-            // A still story's step is back-dated, so its time left shows at once.
-            postCallJobs.run(STORY_MEETING, first, percent === undefined || play ? Date.now() : Date.now() - STARTED_AGO_MS)
-            if (percent !== undefined) postCallJobs.progress(STORY_MEETING, percent)
+            postCallJobs.run(STORY_MEETING, first)
+            if (percent !== undefined) {
+                // A still story's chunks started a while ago, so its time left shows at once.
+                const inBand = percent > RETRANSCRIPTION_BANDS.transcribeFrom && !play
+                if (inBand) postCallJobs.progress(STORY_MEETING, RETRANSCRIPTION_BANDS.transcribeFrom, Date.now() - STARTED_AGO_MS)
+                postCallJobs.progress(STORY_MEETING, percent)
+            }
             if (state === 'cancelling') postCallJobs.cancelling(STORY_MEETING)
             if (state === 'failed') postCallJobs.fail(STORY_MEETING, 'The speech model ran out of memory on chunk 14 of 31.')
         }
@@ -68,8 +73,9 @@ export function useStoryPass({state, step, percent, noSummary, noAudio, play}: S
             ? setInterval(() => {
                 const job = postCallJobs.get(STORY_MEETING)
                 if (!job || job.state !== 'running') return
-                if (job.step === 'transcript' && (job.percent ?? 0) < 100) {
-                    postCallJobs.progress(STORY_MEETING, (job.percent ?? 0) + 4)
+                const percent = job.reading?.percent ?? 0
+                if (job.step === 'transcript' && percent < 100) {
+                    postCallJobs.progress(STORY_MEETING, percent + 4)
                 } else {
                     next(STORY_MEETING)
                 }

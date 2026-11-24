@@ -26,11 +26,6 @@ export const recordingPhase = {
     get: (): RecordingPhase => usePhaseStore.getState().phase,
     /** The recording session's write; nothing else sets it. */
     set: (phase: RecordingPhase) => usePhaseStore.setState({phase}),
-    /** Calls `listener` with each new phase; returns the unsubscribe. */
-    subscribe: (listener: (phase: RecordingPhase) => void) =>
-        usePhaseStore.subscribe((state, previous) => {
-            if (state.phase !== previous.phase) listener(state.phase)
-        }),
 }
 
 /** The recording's phase, re-rendering when it changes. */

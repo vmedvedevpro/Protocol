@@ -4,8 +4,8 @@ import {type RecordingPhase, useRecordingPhase} from '@/api/recordingPhase'
 import {Ring} from '@/components/ring/Ring'
 import {Button} from '@/components/ui/Button'
 import {Kbd} from '@/components/ui/Kbd'
-import {paths} from '@/app/paths'
-import {DockedBar} from '@/app/shell/DockedBar'
+import {paths} from '@/lib/paths'
+import {DockedBar} from './DockedBar'
 import {formatShortcut} from '@/lib/platform'
 
 const Status = styled.span`
