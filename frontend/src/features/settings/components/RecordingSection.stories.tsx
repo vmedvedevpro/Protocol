@@ -2,7 +2,7 @@ import type {Meta, StoryObj} from '@storybook/react-vite'
 import styled from 'styled-components'
 import type {Platform} from '@/lib/platform'
 import {mockState} from '@/mocks/state'
-import {StoryWindow} from '../stories/StoryWindow'
+import {SettingsStoryWindow} from '../stories/SettingsStoryWindow'
 import {RecordingSection} from './RecordingSection'
 
 const Pad = styled.div`
@@ -14,7 +14,7 @@ const Pad = styled.div`
 `
 
 function Recording({platform}: {platform: Platform}) {
-    return <StoryWindow><Pad><RecordingSection platform={platform}/></Pad></StoryWindow>
+    return <SettingsStoryWindow><Pad><RecordingSection platform={platform}/></Pad></SettingsStoryWindow>
 }
 
 const meta = {

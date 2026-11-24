@@ -35,5 +35,14 @@ export default defineConfig({
         setupFiles: ['./src/test/setup.ts'],
         include: ['src/**/*.test.{ts,tsx}'],
         restoreMocks: true,
+        env: {
+            // styled-components outside production appends each new rule as
+            // text to its <style>, and jsdom then parses the whole sheet
+            // again: a screen's first render cost grows with every style
+            // already on the page (about 200 ms for Settings after Home).
+            // Speedy mode inserts each rule through the CSSOM instead, which
+            // jsdom parses alone.
+            SC_DISABLE_SPEEDY: 'false',
+        },
     },
 })

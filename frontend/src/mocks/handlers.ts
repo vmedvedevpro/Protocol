@@ -71,7 +71,7 @@ export const handlers: Record<string, MockHandler> = {
     // src-tauri/src/audio/retranscription.rs, diarization/mod.rs
     ...postCallHandlers(mockState),
 
-    // Meetings, transcripts, folders, summaries, speaker labels (src/mocks/meetings.ts)
+    // Meetings, transcripts, folders, summaries, action items, speaker labels (src/mocks/meetings.ts)
     ...meetingsHandlers(mockState),
 
     // First launch and its database: onboarding.rs, database/commands.rs

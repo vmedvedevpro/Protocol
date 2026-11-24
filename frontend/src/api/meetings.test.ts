@@ -20,6 +20,7 @@ import {
     renameFolderMutation,
     renameMeetingMutation,
     renameMeetingSpeaker,
+    saveSummaryMutation,
     saveTranscript,
     setMeetingFolderMutation,
     startSummary,
@@ -173,6 +174,17 @@ describe('summaries', () => {
         expect((await client.fetchQuery(summaryQuery('meeting-acme-review'))).data).toMatchObject({markdown: expect.stringContaining('## Decisions')})
         expect(typeof (await client.fetchQuery(summaryQuery('meeting-roadmap'))).data).toBe('string')
         expect((await client.fetchQuery(summaryQuery('meeting-untitled'))).status).toBe('idle')
+    })
+
+    it('writes a saved edit into the cached summary, so an editor mounted later starts from it', async () => {
+        const client = createTestQueryClient()
+        await client.fetchQuery(summaryQuery('meeting-roadmap'))
+        const edit = {markdown: '## Decisions\n\n- Ship it', summary_json: null}
+
+        await run(client, saveSummaryMutation('meeting-roadmap'), edit)
+
+        expect(client.getQueryData(meetingKeys.summary('meeting-roadmap'))).toMatchObject({status: 'completed', data: edit, userEdited: true})
+        expect(mockState.meetings.summaries['meeting-roadmap']).toMatchObject({data: edit, userEdited: true})
     })
 
     it('sends the transcript with times and voices, and the language Auto detected', async () => {

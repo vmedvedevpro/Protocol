@@ -25,7 +25,7 @@ src/
   app/                 the composition root: App, routes, AppThemeProvider,
                        app-wide sync hooks
     shell/             the main window's frame (Window shell below)
-    placeholder/       stand-ins for the screens until their tasks replace them
+    placeholder/       the minibar's stand-in until #116 replaces it
   api/                 native domains shared by several features (see below)
   components/ui/       design-system primitives, no feature knowledge
   components/editor/   the notes editor (BlockNote), loaded as its own chunk; its
@@ -142,8 +142,8 @@ minibar window has none of it.
   `preventScroll`): the control that navigated, such as Settings or Back to
   meetings, leaves with the old screen, and focus would fall to `<body>`.
   The first screen of the page (location key `default`) leaves focus alone.
-- Screens are placeholders in `app/placeholder/Screens.tsx` until their tasks
-  replace them in the route table.
+- The minibar is a placeholder (`app/placeholder/MinibarPlaceholder.tsx`)
+  until #116 replaces it in the route table.
 
 ### Startup
 
@@ -589,8 +589,8 @@ post-call runner writes `postCallJobs` (Recording below).
   "N speakers · change" (#113) call, and `RETRANSCRIPTION_BANDS`: native's
   percent is not linear in time, and only its chunks' band (25 to 80) has a
   pace, so the time left is measured there.
-  `features/meetings/components/processing` draws a job (#113 owns it once
-  merged): `ProcessingStatus` (the strip under a meeting's header),
+  `features/meetings/components/processing` draws a job:
+  `ProcessingStatus` (the strip under a meeting's header),
   `ProcessingSteps` (the steps where the summary will be) and
   `ProcessingLine` (Home's row); each renders nothing without a job.
   `progress.ts` beside them has the words, the share of the pass done and
@@ -928,6 +928,92 @@ quit is saved whatever screen is open. The minibar window mounts none of it.
   A page opened from the simple page goes back to it; with Advanced on, it
   goes back to its section.
 
+## The meetings list and the meeting screen
+
+`features/meetings` holds Home (`home/`), the meeting screen (`meeting/`),
+what both use (`components/`: the processing views, the rename and folder
+sheets) and their helpers (`lib/`). The routes are `/` (`HomeScreen`) and
+`/meetings/:meetingId` (`MeetingRoute`, which keys the screen by id, so
+another meeting starts from fresh state).
+
+- **Home.** Search filters the list by title and folder name as the user
+  types; Escape clears it. Search in transcripts and summaries is #118's.
+  The folder chips filter by folder, kept in the URL (`?folder=`) so Back
+  from a meeting returns to it; a folder that no longer exists shows
+  everything. The selected folder's menu renames or deletes it; its
+  meetings stay, in no folder. Rows are grouped by date (`lib/dates.ts`);
+  a row's second line is the post-call pass while one runs
+  (`ProcessingLine`), else its folder. F2 on a row renames the meeting. A
+  meeting added while Home is open (a recording just saved) fades in;
+  filtering does not animate. Home docks the recording bar
+  (`Screen recordBar`) and draws no recording controls of its own.
+- **Home banners.** "Update ready" shows while `updaterStatusQuery` has an
+  offer that is downloaded and installable from the app
+  (`lib/updates.ts › readyOffer`). Restart and update calls
+  `installUpdate()`; a refusal while work runs says what it waits for
+  (`busySentence`), and a failed install shows the snapshot's error.
+  Release notes open in a sheet. The permission banner reads the devices
+  (no input listed means no microphone) and, on macOS, the Audio Capture
+  record or this session's probe (`home/audioAccess.ts`); Check again asks
+  the system again and reads both anew. Linux asks for nothing and shows
+  none.
+- **Update toasts.** `UpdateToasts`, mounted once in the shell, toasts a
+  release when it becomes available, a download finished in this session
+  (one restored at launch is the banner's alone) and an update that just
+  installed, once per version (`protocol-updater-seen-v1`, the old keys),
+  and not while a recording runs. Details opens Settings › Updates.
+- **Action items.** A finished summary's action section moves into rows
+  (`lib/actionItemSync.ts`): the meeting screen calls
+  `syncFinishedSummary` when it sees a completed summary, not edited by
+  the user, that still has one, whether the run ended there or while the
+  user was elsewhere. It reads the summary from native again, so a second
+  call finds no section and changes nothing; calls for one meeting share
+  one promise. Home runs the backfill of older summaries once per session.
+- **The meeting screen.** The header (title; when, how long, folder) and
+  its menu: Rename (also F2), Move to folder, Copy transcript, Copy summary,
+  Open recording folder, Identify speakers again with a count, Delete.
+  Export, Enhance transcript and the summary's options join it with #119.
+  Under it the post-call pass's status, then Notes, Transcript and Summary
+  (⌘1, ⌘2, ⌘3; `?tab=`, Summary by default), and the player as the
+  screen's bar.
+- **The player** (`meeting/player.ts`) is one `<audio>` outside React. The
+  position is not state: its `PlaybackClock` hands it to the transcript's
+  highlight and the player's time and scrubber on every frame while
+  playing, so playback renders nothing. Space plays and pauses unless a
+  control has focus; ← and → skip 5 s only while the scrubber has focus;
+  the speed steps 1×, 1.25×, 1.5×, 2×. A meeting without audio says so in
+  the bar.
+- **Notes and the edited summary** autosave 600 ms after typing stops and
+  at once when the tab or the screen closes (`lib/autosave.ts`). The
+  editor reads its content once, so it mounts only once the last save of
+  that text has landed (`useSaving` over the mutation's scope): the notes
+  are read back after each save, and a saved summary edit is written into
+  the cached summary. A new run's summary remounts the editor (keyed by
+  the run's end).
+- **Writing the summary** (`meeting/summaryRun.ts`): a provider must be
+  chosen, and a built-in model downloaded and whole, or a toast leads to
+  Settings; then `startSummary`. Writing it again over the user's edits
+  asks first. While it runs the tab says so with Cancel; a failure shows
+  native's words with Try again. Each `summary-progress` of the meeting
+  reads the summary again. Notes do not feed the summary natively, so the
+  footnote says "Written from the transcript."
+- **Speakers.** "N speakers ▾" on the Transcript tab and the menu's
+  Identify speakers again rerun diarization with a count or detecting it
+  (`diarizeMeeting`), offered only with a speaker engine, audio and no pass
+  running. Native holds the busy reason; the mutation's own callbacks
+  refresh the transcript even if the user left the meeting. Naming a voice
+  waits until the pass is over, since the pass replaces the labels.
+- Tests: `home/*.test.tsx`, `meeting/*.test.tsx` and `lib/*.test.ts` on the
+  mock IPC; the notes test holds a save in flight and checks the editor
+  waits for it, and the summary's edits are written into its cache.
+  Stories: `Meetings/HomeScreen`, `Meetings/PermissionBanner` and
+  `Meetings/MeetingScreen`; the screens' stories share `storyRoutes.ts`, so
+  a row opens its meeting.
+- Not carried over: the player's waveform, Labs' clean transcript, the
+  Ollama model check before a run (native's error shows), and the speaker
+  dialog's engine-specific wording (`diarization_get_status` is #117's;
+  Nemotron ignores the count natively).
+
 ## Mock IPC
 
 Outside Tauri, `pnpm dev`, Storybook and every test run on
@@ -988,6 +1074,11 @@ export const Dark: Story = {globals: {theme: 'dark'}}
 The decorator in `.storybook/preview.tsx` provides the theme, `GlobalStyle`,
 `UiProviders` and a query client on the mock IPC. The toolbar switches the
 theme for stories that do not set it.
+
+A screen's story renders in `StoryWindow` (`components/screen/`): a frame
+of the main window's 460×700 with a memory router made once from the
+feature's routes, as Settings (`SettingsStoryWindow`) and the meetings
+screens do.
 
 `@storybook/addon-a11y` runs axe on every story in its Accessibility panel, in
 both themes; a violation there is fixed in the component, not hidden in the

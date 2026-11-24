@@ -3,7 +3,7 @@ import styled from 'styled-components'
 import type {UpdaterSnapshot} from '@/api/updater'
 import {mockState} from '@/mocks/state'
 import {createMockUpdateRelease} from '@/mocks/updater'
-import {StoryWindow} from '../stories/StoryWindow'
+import {SettingsStoryWindow} from '../stories/SettingsStoryWindow'
 import {UpdatesGroup} from './UpdatesGroup'
 
 const Pad = styled.div`
@@ -12,7 +12,7 @@ const Pad = styled.div`
 `
 
 function Updates() {
-    return <StoryWindow><Pad><UpdatesGroup/></Pad></StoryWindow>
+    return <SettingsStoryWindow><Pad><UpdatesGroup/></Pad></SettingsStoryWindow>
 }
 
 const offer = (patch: Partial<NonNullable<UpdaterSnapshot['offer']>> = {}) => ({

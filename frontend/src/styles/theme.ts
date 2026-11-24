@@ -227,6 +227,8 @@ const sizes = {
      * first drawn (rows off screen are not laid out, see TranscriptList).
      */
     transcript: {time: '44px', timeLong: '56px', rowEstimate: '64px'},
+    /** A folder chip on the meetings list, and its New folder button. */
+    chip: '26px',
 }
 
 /** Motion tokens for CSS transitions; the values live in ./motion.ts. */

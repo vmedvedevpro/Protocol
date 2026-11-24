@@ -1,8 +1,9 @@
 import {Navigate, type RouteObject} from 'react-router-dom'
+import {HomeScreen} from '@/features/meetings/home/HomeScreen'
+import {MeetingRoute} from '@/features/meetings/meeting/MeetingScreen'
 import {RecordingPage} from '@/features/recording/pages/RecordingPage'
 import {SettingsPage} from '@/features/settings/pages/SettingsPage'
 import {SettingsSubpage} from '@/features/settings/pages/SettingsSubpage'
-import {HomePlaceholder, MeetingPlaceholder} from './placeholder/Screens'
 import {MinibarPlaceholder} from './placeholder/MinibarPlaceholder'
 import {Shell, type ShellRouteHandle} from './shell/Shell'
 
@@ -17,8 +18,8 @@ export const routes: RouteObject[] = [
     {
         element: <Shell/>,
         children: [
-            {index: true, element: <HomePlaceholder/>},
-            {path: 'meetings/:meetingId', element: <MeetingPlaceholder/>, handle: back},
+            {index: true, element: <HomeScreen/>},
+            {path: 'meetings/:meetingId', element: <MeetingRoute/>, handle: back},
             {path: 'recording', element: <RecordingPage/>, handle: back},
             {path: 'settings', element: <SettingsPage/>, handle: {...back, title: 'Settings'} satisfies ShellRouteHandle},
             {path: 'settings/:page', element: <SettingsSubpage/>, handle: {...back, title: 'Settings'} satisfies ShellRouteHandle},
