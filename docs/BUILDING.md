@@ -78,8 +78,9 @@ pnpm run build             # tsc -b, then vite build into frontend/out
 pnpm run build-storybook
 ```
 
-`pnpm dev` serves the UI alone at http://localhost:3118; outside Tauri every
-command and event goes to the in-memory mock in `src/mocks/`. `pnpm storybook`
+`pnpm dev` serves the UI alone at http://localhost:3119; outside Tauri every
+command and event goes to the in-memory mock in `src/mocks/`. `tauri dev`
+starts its own Vite server on 3118, so both can run at once. `pnpm storybook`
 serves the stories at http://localhost:6006. The layout and conventions are in
 [UI_ARCHITECTURE.md](UI_ARCHITECTURE.md).
 

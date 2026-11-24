@@ -7,13 +7,13 @@ is the set of rules for adding to it; the design canvas is the source for every
 screen.
 
 ```text
-pnpm dev               the UI alone at http://localhost:3118, on mock IPC
+pnpm dev               the UI alone at http://localhost:3119, on mock IPC
 pnpm storybook         stories at http://localhost:6006
 pnpm run lint
 pnpm test              Vitest, once (pnpm test:watch to keep watching)
 pnpm run build         tsc -b, then vite build into frontend/out
 pnpm run build-storybook
-pnpm run tauri:dev     the desktop app; Tauri starts the Vite dev server
+pnpm run tauri:dev     the desktop app; Tauri starts Vite on 3118 (devUrl)
 ```
 
 ## Folder layout

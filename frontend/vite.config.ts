@@ -18,6 +18,8 @@ export default defineConfig({
     clearScreen: false,
     server: {
         // tauri.conf.json `devUrl` points here; another port would load nothing.
+        // `pnpm dev`, the browser on mock IPC, takes 3119 instead, so it can
+        // keep running while `tauri dev` starts this one.
         port: 3118,
         strictPort: true,
         watch: {
