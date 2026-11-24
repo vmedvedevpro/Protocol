@@ -1,6 +1,6 @@
 import {BlockNoteEditor, type PartialBlock} from '@blocknote/core'
 import {fireEvent, screen, waitFor, within} from '@testing-library/react'
-import {describe, expect, it, vi} from 'vitest'
+import {beforeAll, describe, expect, it, vi} from 'vitest'
 import {SAMPLE_MARKDOWN_ONLY_NOTES, SAMPLE_NOTES_BLOCKS, SAMPLE_NOTES_MARKDOWN} from '@/mocks/notes'
 import {renderUi} from '@/test/renderUi'
 import {NotesEditor, type NotesEditorProps} from './NotesEditor'
@@ -20,6 +20,13 @@ describe('the stored format', () => {
 })
 
 describe('NotesEditor', () => {
+    // The editor is a lazy chunk (BlockNote, ProseMirror, Ariakit). On a cold
+    // CI runner importing it takes longer than findBy* waits, so it loads
+    // before the tests and each test waits only for its own render.
+    beforeAll(async () => {
+        await import('./NotesEditorView')
+    })
+
     it('shows notes saved as blocks', async () => {
         renderEditor({initialBlocks: SAMPLE_NOTES_BLOCKS, initialMarkdown: SAMPLE_NOTES_MARKDOWN})
 
