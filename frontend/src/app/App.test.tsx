@@ -108,7 +108,9 @@ describe('App navigation', () => {
         await emitMockEvent(TRAY_NAVIGATE_EVENT, '/settings?section=about')
 
         await heading('Settings')
-        expect(screen.getByText('Opened at the old section “about”.')).toBeInTheDocument()
+        // The old About is General › Updates now.
+        expect(await screen.findByRole('tab', {name: 'General', selected: true})).toBeInTheDocument()
+        expect(screen.getByRole('region', {name: 'Updates'})).toBeInTheDocument()
         // Settings docks no bar, and an empty footer is no landmark.
         expect(screen.queryByRole('contentinfo')).not.toBeInTheDocument()
     })
