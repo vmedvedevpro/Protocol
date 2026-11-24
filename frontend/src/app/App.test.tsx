@@ -1,5 +1,5 @@
 import {QueryClientProvider} from '@tanstack/react-query'
-import {render, screen, waitFor, within} from '@testing-library/react'
+import {act, render, screen, waitFor, within} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import {describe, expect, it, vi} from 'vitest'
 import {UPDATER_STATUS_EVENT, type UpdaterSnapshot} from '@/api/updater'
@@ -58,6 +58,20 @@ describe('App', () => {
         await userEvent.click(screen.getByText('Match system'))
 
         // null hands the window back to the OS theme.
+        await waitFor(() => expect(setTheme).toHaveBeenLastCalledWith(expect.objectContaining({value: null})))
+    })
+
+    it('follows the OS again when the other window removes the saved theme', async () => {
+        const setTheme = vi.spyOn(handlers, 'plugin:window|set_theme')
+        renderApp()
+        await userEvent.click(screen.getByText('Dark'))
+
+        localStorage.removeItem(THEME_STORAGE_KEY)
+        act(() => {
+            window.dispatchEvent(new StorageEvent('storage', {key: THEME_STORAGE_KEY, oldValue: 'dark', newValue: null}))
+        })
+
+        expect(await screen.findByRole('radio', {name: 'Match system', checked: true})).toBeInTheDocument()
         await waitFor(() => expect(setTheme).toHaveBeenLastCalledWith(expect.objectContaining({value: null})))
     })
 

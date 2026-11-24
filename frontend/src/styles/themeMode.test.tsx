@@ -11,8 +11,8 @@ describe('theme mode', () => {
         expect(readThemeMode('vanilla')).toBe('light')
         expect(readThemeMode('midnight')).toBe('dark')
         expect(readThemeMode('charcoal')).toBe('dark')
-        expect(readThemeMode('sepia')).toBeNull()
-        expect(readThemeMode(null)).toBeNull()
+        expect(readThemeMode('sepia')).toBe('system')
+        expect(readThemeMode(null)).toBe('system')
     })
 
     it('restores the mode from the old key', async () => {
@@ -29,12 +29,18 @@ describe('theme mode', () => {
         expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe('light')
     })
 
-    it('keeps the default when the stored value is unknown', async () => {
+    it('follows the OS when the stored value is unknown or gone', async () => {
+        useThemeModeStore.getState().setMode('dark')
         localStorage.setItem(THEME_STORAGE_KEY, '{"state":{"mode":"dark"}}')
-
         await useThemeModeStore.persist.rehydrate()
-
         expect(useThemeModeStore.getState().mode).toBe('system')
+
+        useThemeModeStore.getState().setMode('dark')
+        localStorage.removeItem(THEME_STORAGE_KEY)
+        await useThemeModeStore.persist.rehydrate()
+        expect(useThemeModeStore.getState().mode).toBe('system')
+        // Reading writes nothing back.
+        expect(localStorage.getItem(THEME_STORAGE_KEY)).toBeNull()
     })
 
     it('follows the OS for system, including a switch while the app is open', () => {

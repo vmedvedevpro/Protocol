@@ -19,13 +19,16 @@ export const THEME_MODES: readonly {mode: ThemeMode; label: string}[] = [
  */
 export const THEME_STORAGE_KEY = 'meetily_theme'
 
-/** Reads a stored value; `null` for nothing or something unknown. */
-export function readThemeMode(value: string | null): ThemeMode | null {
+/**
+ * Reads a stored value. Nothing stored, or something unknown, follows the OS,
+ * as the boot script does; so removing the key resets the mode.
+ */
+export function readThemeMode(value: string | null): ThemeMode {
     if (value === 'light' || value === 'dark' || value === 'system') return value
     // Stored before #96, when the old app had three named themes.
     if (value === 'vanilla') return 'light'
     if (value === 'midnight' || value === 'charcoal') return 'dark'
-    return null
+    return 'system'
 }
 
 interface ThemeModeState {
@@ -46,10 +49,7 @@ function safely<T>(action: () => T): T | null {
 }
 
 const bareStringStorage: PersistStorage<PersistedThemeMode> = {
-    getItem: (name) => {
-        const mode = readThemeMode(safely(() => localStorage.getItem(name)))
-        return mode ? {state: {mode}, version: 0} : null
-    },
+    getItem: (name) => ({state: {mode: readThemeMode(safely(() => localStorage.getItem(name)))}, version: 0}),
     setItem: (name, value) => {
         safely(() => localStorage.setItem(name, value.state.mode))
     },
