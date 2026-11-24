@@ -1,11 +1,12 @@
 import type {UpdaterSnapshot} from '@/api/updater'
 import {platform} from '@/lib/platform'
 import packageJson from '../../package.json'
-import * as fixtures from './fixtures'
 
 /**
- * Everything the mock IPC answers from. Handlers read and change it the way
- * native code changes the database, so a mutation shows up on the next query.
+ * Everything the mock IPC answers from, and nothing a handler does not read.
+ * Handlers read and change it the way native code changes the database, so a
+ * mutation shows up on the next query. Sample data is typed with the payload
+ * types in src/api; see docs/UI_ARCHITECTURE.md, Mock IPC.
  */
 function createMockState() {
     const updater: UpdaterSnapshot = {
@@ -25,10 +26,6 @@ function createMockState() {
     return {
         appVersion: packageJson.version,
         updater,
-        meetings: fixtures.meetings.map((meeting) => ({...meeting})),
-        groups: fixtures.groups.map((group) => ({...group})),
-        people: fixtures.people.map((person) => ({...person})),
-        speakerLinks: fixtures.speakerLinks.map((link) => ({...link})),
     }
 }
 
@@ -36,7 +33,7 @@ export type MockState = ReturnType<typeof createMockState>
 
 export const mockState: MockState = createMockState()
 
-/** Back to the fixtures; tests call it before each case. */
+/** Back to the initial state; tests and stories call it before each case. */
 export function resetMockState() {
     Object.assign(mockState, createMockState())
 }

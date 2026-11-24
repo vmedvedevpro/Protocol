@@ -4,7 +4,6 @@ import {command, CommandError} from '@/api/core'
 import {getUpdaterStatus} from '@/api/updater'
 import packageJson from '../../package.json'
 import {handlers} from './handlers'
-import {mockState} from './state'
 
 describe('mock IPC', () => {
     it('answers the shell commands from the in-memory state', async () => {
@@ -33,10 +32,5 @@ describe('mock IPC', () => {
             message: 'The updater is still starting',
             detail: 'The updater is still starting',
         })
-    })
-
-    it('starts every test from the fixtures', () => {
-        expect(mockState.meetings).toHaveLength(12)
-        expect(mockState.meetings[0].title).toMatch(/^Weekly Standup — /)
     })
 })

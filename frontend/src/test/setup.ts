@@ -7,7 +7,7 @@ import {resetMockState} from '@/mocks/state'
 import {useThemeModeStore} from '@/styles/themeMode'
 import {installMatchMedia} from './matchMedia'
 
-// Every test runs on the same mock IPC as the browser, from fresh fixtures.
+// Every test runs on the same mock IPC as the browser, from a fresh state.
 beforeEach(() => {
     installMatchMedia()
     resetMockState()

@@ -33,7 +33,7 @@ src/
     types/
   lib/                 framework-free helpers (queryClient, platform)
   styles/              tokens, GlobalStyle, fonts, icon defaults, theme mode
-  mocks/               the in-memory mock IPC and its fixtures
+  mocks/               the in-memory mock IPC and its state
   test/                Vitest setup and fakes
 ```
 
@@ -156,16 +156,20 @@ Outside Tauri, `pnpm dev`, Storybook and every test run on
   for what `@tauri-apps/api` sends. It reads and changes `mockState`
   (`src/mocks/state.ts`), so a mutation shows up on the next query; throwing
   rejects like an `Err`.
-- `mockState` is built from `src/mocks/fixtures.ts`, the old preview's sample
-  library. Add fields there and in `createMockState`; `resetMockState()`
-  restores the fixtures (tests and stories call it before each case).
+- `mockState` holds only what some handler reads; `createMockState()` builds
+  it and `resetMockState()` restores it (tests and stories call it before each
+  case).
+- The task that adds a domain's handlers ports that domain's sample data from
+  the old browser preview, `main:frontend/src/dev/preview/` (`fixtures.ts`:
+  meetings, groups, people, transcripts, summaries; `live.ts`: recording;
+  `models.ts`: speech models; `intel.ts`: Intel GPUs), into `createMockState`.
+  It types the data with the domain's payload types from `src/api` or
+  `features/<x>/api`, never with interfaces of its own, so a field that
+  changes in the payload type stops the stale sample data from compiling.
 - A command without a handler rejects with a message naming
   `src/mocks/handlers.ts`, so a screen never renders an empty reply as data.
-- To push an event, call `emitMockEvent(name, payload)`; in `pnpm dev`, the
+- To push an event, call `emitMockEvent(EVENT, payload)`; in `pnpm dev`, the
   console has `__PROTOCOL_MOCK__.emit(...)` and `__PROTOCOL_MOCK__.state`.
-- The old preview also mocked recording, speech models and Intel GPUs
-  (`live.ts`, `models.ts`, `intel.ts` in `main:frontend/src/dev/preview/`); the
-  tasks that build those screens port them.
 
 ## Storybook
 
@@ -185,7 +189,7 @@ for stories that do not set it.
 
 - Vitest with Testing Library on jsdom; files are `*.test.ts(x)` next to the
   code. Import `describe`, `it`, `expect` and `vi` from `vitest`.
-- `src/test/setup.ts` installs the mock IPC on fresh fixtures before each test
+- `src/test/setup.ts` installs the mock IPC on a fresh state before each test
   and clears the DOM, the theme mode and localStorage after it. Change a reply
   for one test with `vi.spyOn(handlers, 'command').mockImplementation(…)`; spies
   are restored after each test.
