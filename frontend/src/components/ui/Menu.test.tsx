@@ -140,4 +140,21 @@ describe('Menu', () => {
         fireEvent.pointerLeave(screen.getByRole('menu'))
         expect(highlight()).toHaveAttribute('data-visible', 'false')
     })
+
+    it('hides the highlight over a disabled item, where Enter would do nothing', async () => {
+        renderUi(
+            <Menu trigger={<IconButton label="More actions" tooltip={false}><DotsThreeIcon/></IconButton>}>
+                <MenuItem onSelect={() => {}}>Export</MenuItem>
+                <MenuItem onSelect={() => {}} disabled>Delete while processing</MenuItem>
+            </Menu>,
+        )
+        const user = userEvent.setup()
+
+        await user.click(screen.getByRole('button', {name: 'More actions'}))
+        await user.hover(await screen.findByRole('menuitem', {name: 'Export'}))
+        await waitFor(() => expect(highlight()).toHaveAttribute('data-visible', 'true'))
+
+        await user.hover(screen.getByRole('menuitem', {name: 'Delete while processing'}))
+        expect(highlight()).toHaveAttribute('data-visible', 'false')
+    })
 })

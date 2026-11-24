@@ -121,6 +121,24 @@ describe('subscribeAudioLevel', () => {
         expect(louder.mock.lastCall?.[0]).toBeCloseTo(levelOf(rms, peak, 2))
     })
 
+    it('matches a named device among devices of its own type only', async () => {
+        const mic = vi.fn()
+        subscribe({kind: 'device', type: 'input', device: 'Headset'}, mic)
+        await settleIpc()
+
+        const device = (device_name: string, device_type: 'input' | 'output', level: number) => {
+            const {rms, peak} = sampleFor(level)
+            return {device_name, device_type, rms_level: rms, peak_level: peak, is_active: true}
+        }
+        // The output comes first, as it can from native's HashMap.
+        await emitMockEvent(AUDIO_LEVELS_EVENT, {
+            timestamp: 0,
+            levels: [device('Headset (System Audio)', 'output', 0.8), device('Headset', 'input', 0)],
+        })
+
+        expect(mic.mock.lastCall?.[0]).toBe(0)
+    })
+
     it('stops hearing a feed once unsubscribed', async () => {
         const heard = vi.fn()
         const unsubscribe = subscribeAudioLevel({kind: 'recording', source: 'mic'}, heard)

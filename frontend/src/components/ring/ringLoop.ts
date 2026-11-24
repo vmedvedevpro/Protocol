@@ -12,7 +12,7 @@ export interface RingInputs {
 export interface RingLoop {
     /** New props: a mode change eases over the next frames; a ring held still draws again. */
     update(inputs: RingInputs): void
-    /** The latest level heard, 0 to 1; read on the next frame. */
+    /** The latest level heard, 0 to 1; read on the next frame, and as 0 once it is SILENCE_MS old. */
     hear(level: number): void
     stop(): void
 }
@@ -23,6 +23,10 @@ const MAX_PIXEL_RATIO = 2
 // A frame after a long gap (the loop was off) moves the clock by at most this,
 // as in the design.
 const MAX_STEP_S = 0.05
+// The level counts as 0 when no sample came for this long, as LevelMeter's
+// bars do: native stops sending when a recording stops or a device goes away,
+// and the edge must not stay swollen. Samples come every 40 to 80 ms.
+const SILENCE_MS = 300
 
 /**
  * Runs one ring's requestAnimationFrame loop on `canvas`, or returns null when
@@ -44,6 +48,7 @@ export function startRingLoop(
     let inputs = initial
     let state = restingRing(inputs.mode)
     let heard = 0
+    let heardAt = 0
     let frame = 0
     let last = 0
     let onScreen = true
@@ -55,7 +60,8 @@ export function startRingLoop(
     const tick = (now: number) => {
         const dt = Math.min(MAX_STEP_S, Math.max(0, (now - last) / 1000))
         last = now
-        state = advanceRing(state, inputs.mode, heard, now / 1000, dt)
+        const level = now - heardAt > SILENCE_MS ? 0 : heard
+        state = advanceRing(state, inputs.mode, level, now / 1000, dt)
         renderer?.draw(state, pixels())
         frame = requestAnimationFrame(tick)
     }
@@ -116,6 +122,7 @@ export function startRingLoop(
         },
         hear(level) {
             heard = level
+            heardAt = performance.now()
         },
         stop() {
             cancelAnimationFrame(frame)

@@ -4,6 +4,7 @@ import {XIcon} from '@phosphor-icons/react'
 import {AnimatePresence} from 'motion/react'
 import * as m from 'motion/react-m'
 import styled, {useTheme} from 'styled-components'
+import {platform} from '@/lib/platform'
 import {springs, tween} from '@/styles/motion'
 import {IconButton} from './Button'
 
@@ -13,9 +14,12 @@ import {IconButton} from './Button'
 // spring for the panel. Here the panel hangs under the window's header, as on
 // the design's sheets, and the spring and fades are the theme's.
 
+// The scrim starts under the window's title strip (TitleBar), which stays
+// live: on Windows and Linux it holds the window's own buttons and drags the
+// window, and the modal sheet must not take those away.
 const Scrim = styled(m.div)`
     position: fixed;
-    inset: 0;
+    inset: ${({theme}) => theme.sizes.titleBar[platform]} 0 0;
     background: ${({theme}) => theme.colors.scrim};
 `
 
@@ -109,7 +113,8 @@ function openerOf(focused: Element | null): HTMLElement | null {
  * A dialog over the dimmed window, opened by its owner through `open`. Focus
  * moves into it and stays there until it closes; Escape, the close button and
  * a click on the scrim close it, and focus goes back to the control that
- * opened it (`openerOf`). It arrives from above on
+ * opened it (`openerOf`). The window's title strip stays uncovered and
+ * working above the scrim. It arrives from above on
  * `springs.gentle` while the scrim fades in over `base`, and leaves with
  * `tween('base', 'exit')`.
  */
@@ -144,6 +149,11 @@ export function Sheet({open, onOpenChange, title, description, footer, children}
                             onCloseAutoFocus={(event) => {
                                 event.preventDefault()
                                 if (returnFocus.current?.isConnected) returnFocus.current.focus()
+                            }}
+                            // A press on the title strip is the window's (minimize,
+                            // close, drag), not a click outside that closes the sheet.
+                            onPointerDownOutside={(event) => {
+                                if (event.target instanceof Element && event.target.closest('header')) event.preventDefault()
                             }}
                         >
                             <Panel

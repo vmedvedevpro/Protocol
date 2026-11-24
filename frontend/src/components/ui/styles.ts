@@ -11,6 +11,26 @@ export const focusRing = css`
     }
 `
 
+/**
+ * A focused text field: its border turns to the text colour (the field's
+ * own rule) and this ring doubles it, so focus differs from hover's `muted`
+ * border by more than a shade. Drawn at once, like focusRing.
+ */
+export const fieldFocusRing = css`
+    box-shadow: 0 0 0 1px ${({theme}) => theme.colors.text};
+`
+
+/**
+ * The keyboard's row in a menu or a list: an inset ring in `muted`. The
+ * highlight's fill (`surface` on `raised`) barely shows, and the pointer has
+ * the row under it to go by; the keyboard gets this as well. Rows show it on
+ * `:focus-visible`, so the pointer's look stays the design's.
+ */
+export const keyboardRowRing = css`
+    outline: 1px solid ${({theme}) => theme.colors.muted};
+    outline-offset: -1px;
+`
+
 /** Colour feedback on hover and press, over `fast`. */
 export const colorTransition = css`
     transition-property: color, background-color, border-color;
@@ -50,6 +70,10 @@ export const popoverItem = css`
     outline: none;
     user-select: none;
     ${colorTransition};
+
+    &:focus-visible {
+        ${keyboardRowRing};
+    }
 
     &[data-disabled] {
         color: ${({theme}) => theme.colors.muted};

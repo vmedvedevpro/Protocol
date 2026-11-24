@@ -3,7 +3,10 @@ import {AnimatePresence} from 'motion/react'
 import * as m from 'motion/react-m'
 import styled, {css, useTheme} from 'styled-components'
 import type {AudioSource, LevelFeed} from '@/api/audio'
-import {MOTION_OK, tween} from '@/styles/motion'
+import {colorTransition, focusRing} from '@/components/ui/styles'
+import {Tooltip} from '@/components/ui/Tooltip'
+import {VisuallyHidden} from '@/components/ui/VisuallyHidden'
+import {MOTION_OK, SCALE_FROM, tween} from '@/styles/motion'
 import {LevelMeter} from './LevelMeter'
 
 const NAMES: Record<AudioSource, string> = {mic: 'microphone', system: 'computer audio'}
@@ -29,9 +32,7 @@ const Button = styled.button<{ $muted: boolean }>`
     ${({theme}) => theme.text.caption};
     font-weight: ${({theme}) => theme.fontWeights.medium};
     cursor: pointer;
-    transition-property: background-color, color;
-    transition-duration: ${({theme}) => theme.motion.duration.fast};
-    transition-timing-function: ${({theme}) => theme.motion.easing.standard};
+    ${colorTransition};
 
     ${({$muted}) => ($muted
         ? css`
@@ -51,14 +52,13 @@ const Button = styled.button<{ $muted: boolean }>`
             }
         `)}
 
-    &:focus-visible {
-        outline: 2px solid ${({theme}) => theme.colors.text};
-        outline-offset: 2px;
-    }
+    ${focusRing};
 
     ${MOTION_OK} {
+        transition-property: color, background-color, border-color, transform;
+
         &:active {
-            transform: scale(0.96);
+            transform: scale(${SCALE_FROM});
         }
     }
 `
@@ -85,26 +85,38 @@ interface SourceMeterProps {
  */
 export function SourceMeter({source, muted, level, onToggle}: SourceMeterProps) {
     const theme = useTheme()
-    // A toggle keeps one name and reports its state with aria-pressed
-    // ("Mute microphone, pressed"); the tooltip says what a click does.
-    const label = `Mute ${NAMES[source]}`
-    const hint = muted ? `Turn on ${NAMES[source]}` : label
+    const name = NAMES[source]
     const Icon = ICONS[source][muted ? 'muted' : 'on']
 
+    // The name comes from the content, so it holds the visible "Muted"
+    // (WCAG 2.5.3): "Mute microphone" while on, "Muted microphone" while
+    // muted, with aria-pressed for the state. The tooltip says what a click does.
     return (
-        <Button type="button" aria-pressed={muted} aria-label={label} title={hint} $muted={muted} onClick={onToggle}>
-            <AnimatePresence mode="wait" initial={false}>
-                <Content
-                    key={muted ? 'muted' : 'on'}
-                    initial={{opacity: 0, y: 4}}
-                    animate={{opacity: 1, y: 0}}
-                    exit={{opacity: 0, y: -4}}
-                    transition={tween('fast')}
-                >
-                    <Icon size={theme.sizes.meter.icon} aria-hidden="true"/>
-                    {muted ? <span>Muted</span> : <LevelMeter level={level}/>}
-                </Content>
-            </AnimatePresence>
-        </Button>
+        <Tooltip content={muted ? `Turn on ${name}` : `Mute ${name}`}>
+            <Button type="button" aria-pressed={muted} $muted={muted} onClick={onToggle}>
+                <AnimatePresence mode="wait" initial={false}>
+                    <Content
+                        key={muted ? 'muted' : 'on'}
+                        initial={{opacity: 0, y: 4}}
+                        animate={{opacity: 1, y: 0}}
+                        exit={{opacity: 0, y: -4}}
+                        transition={tween('fast')}
+                    >
+                        <Icon size={theme.sizes.meter.icon} aria-hidden="true"/>
+                        {muted ? (
+                            <>
+                                <span>Muted</span>
+                                <VisuallyHidden>{` ${name}`}</VisuallyHidden>
+                            </>
+                        ) : (
+                            <>
+                                <LevelMeter level={level}/>
+                                <VisuallyHidden>{`Mute ${name}`}</VisuallyHidden>
+                            </>
+                        )}
+                    </Content>
+                </AnimatePresence>
+            </Button>
+        </Tooltip>
     )
 }

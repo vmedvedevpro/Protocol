@@ -102,8 +102,8 @@ export function levelOf(rms: number, peak: number, gain = 1): number {
  *
  * - `recording`: one source of the recording, or `both` (the louder of the
  *   two), as the recording ring shows it.
- * - `device`: the device preview. `device` names the device to follow,
- *   matched loosely (see `deviceLevel`); without it, or when it is not in
+ * - `device`: the device preview. `device` names the device of `type` to
+ *   follow, matched loosely (see `deviceLevel`); without it, or when it is not in
  *   the update, the loudest device of `type` counts. `gain` is the volume
  *   slider beside the meter, so moving it changes the meter at once.
  */
@@ -131,8 +131,11 @@ const sameDevice = (name: string, wanted: string) =>
 /** The level of the device the feed follows in one update; 0 when none is in it. */
 function deviceLevel(update: AudioLevelUpdate, feed: Extract<LevelFeed, { kind: 'device' }>): number {
     const {device: wanted, type, gain} = feed
-    const named = wanted ? update.levels.find((device) => sameDevice(device.device_name, wanted)) : undefined
-    const candidates = named ? [named] : update.levels.filter((device) => device.device_type === type)
+    // Only devices of the feed's type: on Linux an output is named after its
+    // card ("X (System Audio)"), which the loose match takes for the input "X".
+    const ofType = update.levels.filter((device) => device.device_type === type)
+    const named = wanted ? ofType.find((device) => sameDevice(device.device_name, wanted)) : undefined
+    const candidates = named ? [named] : ofType
     return Math.max(0, ...candidates.map((device) => levelOf(device.rms_level, device.peak_level, gain)))
 }
 

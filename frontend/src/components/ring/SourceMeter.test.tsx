@@ -5,6 +5,7 @@ import {RECORDING_AUDIO_LEVELS_EVENT} from '@/api/audio'
 import {sampleFor} from '@/mocks/audio'
 import {emitMockEvent} from '@/mocks/ipc'
 import {settleIpc} from '@/test/ipc'
+import {renderUi} from '@/test/renderUi'
 import {inTheme} from '@/test/theme'
 import {LevelMeter} from './LevelMeter'
 import {SourceMeter} from './SourceMeter'
@@ -14,7 +15,7 @@ const MIC = {kind: 'recording', source: 'mic'} as const
 describe('SourceMeter', () => {
     it('is a mute toggle that shows the level while on', async () => {
         const onToggle = vi.fn()
-        render(inTheme(<SourceMeter source="mic" muted={false} level={MIC} onToggle={onToggle}/>))
+        renderUi(<SourceMeter source="mic" muted={false} level={MIC} onToggle={onToggle}/>)
 
         const button = screen.getByRole('button', {name: 'Mute microphone'})
         expect(button).toHaveAttribute('aria-pressed', 'false')
@@ -24,17 +25,20 @@ describe('SourceMeter', () => {
         expect(onToggle).toHaveBeenCalledTimes(1)
     })
 
-    it('says Muted and offers to turn the source back on when muted', () => {
-        render(inTheme(<SourceMeter source="system" muted level={null} onToggle={() => {}}/>))
+    it('says Muted, in its name too, and offers to turn the source back on when muted', async () => {
+        renderUi(<SourceMeter source="system" muted level={null} onToggle={() => {}}/>)
 
-        const button = screen.getByRole('button', {name: 'Mute computer audio'})
+        // The name holds the visible text (WCAG 2.5.3).
+        const button = screen.getByRole('button', {name: 'Muted computer audio'})
         expect(button).toHaveAttribute('aria-pressed', 'true')
-        expect(button).toHaveAttribute('title', 'Turn on computer audio')
-        expect(screen.getByText('Muted')).toBeInTheDocument()
+        expect(screen.getByText('Muted')).toBeVisible()
+
+        await userEvent.tab()
+        expect(await screen.findByRole('tooltip')).toHaveTextContent('Turn on computer audio')
     })
 
     it('moves its bars with its own source only', async () => {
-        render(inTheme(<SourceMeter source="mic" muted={false} level={MIC} onToggle={() => {}}/>))
+        renderUi(<SourceMeter source="mic" muted={false} level={MIC} onToggle={() => {}}/>)
         const bars = [...screen.getByRole('button').querySelectorAll<HTMLElement>('[aria-hidden="true"] > span')]
         expect(bars).toHaveLength(5)
         await settleIpc()

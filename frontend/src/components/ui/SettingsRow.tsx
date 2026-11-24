@@ -3,6 +3,7 @@ import {ArrowSquareOutIcon, CaretRightIcon} from '@phosphor-icons/react'
 import styled from 'styled-components'
 import {ControlLabelContext} from './controlLabelling'
 import {colorTransition} from './styles'
+import {VisuallyHidden} from './VisuallyHidden'
 
 const Section = styled.section`
     display: flex;
@@ -194,7 +195,11 @@ export function SettingsNavRow({label, description, value, external = false, onC
     return (
         <NavButton type="button" onClick={onClick}>
             <Text>
-                <Label>{label}</Label>
+                <Label>
+                    {label}
+                    {/* The arrow says it to the eye. */}
+                    {external && <VisuallyHidden> (opens in browser)</VisuallyHidden>}
+                </Label>
                 {description && <Description>{description}</Description>}
             </Text>
             {value && <Value>{value}</Value>}
