@@ -85,11 +85,3 @@ export function MeetingPlaceholder() {
         </Placeholder>
     )
 }
-
-export function RecordingPlaceholder() {
-    return (
-        <Placeholder title="Recording">
-            <Note>The recording screen arrives with #112.</Note>
-        </Placeholder>
-    )
-}
