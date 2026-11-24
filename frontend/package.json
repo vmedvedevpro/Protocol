@@ -30,6 +30,8 @@
         "tauri:build:hipblas": "tauri build -- --features hipblas"
     },
     "dependencies": {
+        "@blocknote/core": "0.57.0",
+        "@blocknote/react": "0.57.0",
         "@fontsource-variable/geist": "^5.3.0",
         "@fontsource-variable/geist-mono": "^5.3.0",
         "@phosphor-icons/react": "^2.1.10",
