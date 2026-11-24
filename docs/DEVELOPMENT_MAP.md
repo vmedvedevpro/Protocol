@@ -1265,7 +1265,8 @@ protocol scope). The other 63, by area:
   `is_audio_level_monitoring`, `is_recording_paused`, `poll_audio_device_events`,
   `get_reconnection_status`, `get_active_audio_output`.
 - Meeting detection: `start_meeting_detection`, `stop_meeting_detection`;
-  detection still starts at launch and follows its setting.
+  detection still starts at launch and follows its setting (turned off since
+  #102; see Labs below).
 - Diarization: `diarization_model_directory`, `diarization_download_size`,
   `get_diarization_engine`.
 - Other queries: `whisper_unload_model`, `is_compact_mode`,
@@ -1458,6 +1459,20 @@ Recording and the record card's system audio panel. Named profiles use
 WeSpeaker embeddings in Pyannote live sessions and as a separate identity
 matcher for Nemotron live and both post-call paths. Nemotron remains the selected
 diarizer; its channel numbers never establish persistent identity.
+
+**Meeting detection is turned off** (#102) because it kept repeating its
+prompt. Each scan returns the first process whose name matches, from a
+`sysinfo` `HashMap` with a new random order every time; when one app runs
+several matching processes (`zoom` and `zoomwebviewhost`), another one can come
+first, the monitor sees a new `(app, process, active_media)` and emits
+`meeting-detected` again, every 15 seconds. Without the Windows
+microphone/camera signal, an idle app in the tray also counts. `AVAILABLE` in
+`meeting_detection.rs` keeps the monitor from starting whatever
+`meeting_detection.json` says, and `MEETING_DETECTION_AVAILABLE`
+(`lib/meeting-detection.ts`) hides Settings > Meeting detection (old links open
+General) and Labs > Meeting automation, which only acts on detection's events.
+The code, the saved settings and the `layout.tsx` listeners stay; turning
+detection back on after a fix means flipping both constants. #6 waits for that.
 
 From `frontend/`, run all frontend test files in separate Bun processes. The
 portable runner discovers `tests/**/*.test.{js,mjs,ts,tsx}` and fails if any file
