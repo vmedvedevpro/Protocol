@@ -29,6 +29,7 @@ src/
   components/ui/       design-system primitives, no feature knowledge
   components/editor/   the notes editor (BlockNote), loaded as its own chunk; its
                        schema names checklist checkboxes by their item's text
+  components/transcript/  the transcript of a saved or a live meeting
   features/<x>/
     api/               native domains only this feature uses
     components/
@@ -648,6 +649,40 @@ levels) skip Query and React state; see Styling and the next section.
   commands emit `audio-levels` for the devices asked for.
   `mockState.audio.level` holds both sources at one level instead (the
   stories' level slider). Tests emit the samples they need.
+
+## Meetings and the transcript
+
+- `src/api/meetings.ts` is the meetings domain: the list, a meeting's
+  header, its transcript a page at a time, folders (native's groups; the
+  Groups page became folders on the list), the summary and its run, action
+  items and speaker labels. #112 saves a recording through `saveTranscript`,
+  files it with `setMeetingFolderMutation` and starts the automatic summary
+  with `startSummary`; the meeting screen (#113) uses the rest. A mutation
+  invalidates what it changed: a rename the list, the header and the
+  folders' counts; a delete drops the meeting's own queries instead, so a
+  screen still on it does not refetch "Meeting not found".
+- `startSummary` reads the whole transcript, writes it as
+  `[mm:ss] Speaker: text` lines, picks the language (the one chosen for the
+  meeting, else the one detected before, else it detects and keeps it, in
+  the old `…Fallback:<meetingId>` keys for a meeting without
+  metadata.json) and calls `api_process_transcript` with the
+  `standard_meeting` template until #117 stores a default. Checks of the
+  model itself (downloaded, installed) are the caller's. The run goes on
+  natively, which holds it as busy work for the updater: `summary-progress`
+  says it moved on, and `summaryQuery` also reads it again every 5 s while
+  it runs, since a run that fails before its first step sends no event.
+- `TranscriptList` (`components/transcript/`) shows a transcript, saved
+  or live: one row per turn, consecutive lines of one voice less than
+  2.5 s apart joined. Rows off screen are neither laid out nor painted
+  (`content-visibility: auto`), so a meeting of several hours costs about
+  what its visible rows cost, and rows re-render only when what they show
+  changes. The turn being played comes from a `PlaybackClock` the player
+  passes in; the list writes `data-active` and `aria-current` straight
+  onto that row, never through React state, and keeps it in view unless
+  the user scrolled in the last 4 s. A `live` list (#112) follows its end
+  until the user scrolls up, then offers Latest; its new rows fade in. A
+  voice other than the user's can be named in place (`onRenameSpeaker`);
+  the user's own label comes from the microphone and is never renamed here.
 
 ## Mock IPC
 
