@@ -256,9 +256,30 @@ theme; the motion from the Motion section.
   lock on `<body>`), and a press there does not close the sheet, so the
   window still moves, minimizes and closes on Windows and Linux.
 - `Tooltip` shares its open delay through `TooltipProvider`.
+- Toasts: `toast('Recording cancelled')`, or with a tone,
+  `toast.success | info | warning | error | loading(title, {description,
+  action: {label, onClick}, duration, id})` from `toastStore.ts`, callable
+  from anywhere, a mutation's callback or an event handler outside React;
+  `toast.dismiss(id?)` closes one or all. The window's one `Toaster`
+  (`Toast.tsx`) draws them under the title strip, newest on top, at most
+  three (a fourth closes the oldest), above an open sheet and usable over
+  it. The design draws no toast: it takes the Home banner's look, an icon
+  for the tone (none is red, which is the recording's), a medium title, a
+  muted line that wraps anywhere (a hash fits), one small action and the
+  close button. Radix's toast gives the behaviour: the time on screen
+  (5 s, `Infinity` for `loading` or to wait for the user, 30 s for a
+  warning that must not be missed) stops under the pointer, on focus and
+  while the window is in the background; Escape closes the focused toast,
+  F8 reaches them, errors and warnings interrupt screen readers and the
+  rest waits its turn. An action closes its toast; give it `altText` when
+  the same can be done elsewhere. Showing a toast again with its id
+  replaces it where it stands (a loading toast and its outcome); the
+  Toaster announces the new text, since Radix announces a toast only when
+  it appears. A mouse drag never dismisses one.
 - `UiProviders` (`app/`) is what the primitives expect above them besides
-  the theme: `MotionProvider`, the icon defaults and `TooltipProvider`. App,
-  Storybook's decorator and the tests' `renderUi` (`src/test/`) mount it.
+  the theme: `MotionProvider`, the icon defaults, `TooltipProvider` and the
+  `Toaster`. App, Storybook's decorator and the tests' `renderUi`
+  (`src/test/`) mount it.
 - `StatusLine`, whose `busy` status turns a spinner before its text, and
   `ProgressBar`. The bar scales its fill by transform from an inline
   style, so a ticking value makes no new class. `Spinner` marks a wait of
@@ -343,6 +364,9 @@ enter and exit, indicators and springs.
   - Sheets and dialogs: in from their edge by `y` on `springs.gentle`, the
     scrim fading over `base`; out with `tween('base', 'exit')`. A sheet hangs
     under the window's header, so it arrives from above.
+  - Toasts hang there too and move the same way, from above and back up. A
+    toast replaced where it stands swaps its content as a status change
+    does.
   - Menus, select lists and tooltips: opacity and a scale from `SCALE_FROM`
     (0.96), with `transform-origin` on the side of their anchor, over
     `fast`. Inside a menu or a select list one highlight slides between the
@@ -501,6 +525,32 @@ Mount a sync hook once, in the layout of the screens that read the data, or in
 `App` when every window needs it. Values that arrive many times a second (audio
 levels) skip Query and React state; see Styling and the next section.
 
+### Models and permissions
+
+- `src/api/models.ts` holds the speech models (Parakeet live, Whisper after
+  meetings) and the built-in summary models: their lists, the downloads and
+  retries, the recommended summary model, and the download events. Native
+  code owns every download and holds the `modelDownload` busy reason while
+  one runs; a download command resolves only when its download ends.
+- A download's progress, its Whisper activation and its last failure come
+  only by event. `useModelDownloadSync` (`app/`, mounted by the shell in
+  front of the startup gate, so first launch's downloads are heard and keep
+  being heard after it) writes them into `downloadsQuery`, which nothing
+  fetches, and reads a model's list again when its download ends.
+  `modelState(status, download)` folds a list's status and the download into
+  what a screen shows: `ready` only after the completion event, which comes
+  after verification, so a percent stays below 100 until then.
+- Native code activates a model after its download, never the UI:
+  `downloadWhisperModel(POST_CALL_WHISPER_MODEL, {enablePostCall: true})`
+  saves Whisper as the after-meeting model before it resolves, which
+  survives a reload of the window; it needs the database.
+- `src/api/permissions.ts` asks for the microphone and, on macOS, Audio
+  Capture, reads the Audio Capture record and opens the privacy panes (macOS
+  only). A microphone is usable when the device list has an input. The
+  Audio Capture probe (`systemAudioProbeQuery`) may prompt and listens for
+  5 s, so it runs only on a click (`refetch()`); its answer holds for the
+  session and stands in for a record that lags (`systemAudioAllowed`).
+
 ## Audio levels, the ring and the meters
 
 - Native code pushes two level events, declared in `src/api/audio.ts`:
@@ -628,7 +678,11 @@ story.
 - Vitest with Testing Library on jsdom; files are `*.test.ts(x)` next to the
   code. Import `describe`, `it`, `expect` and `vi` from `vitest`.
 - `src/test/setup.ts` installs the mock IPC on a fresh state before each test
-  and clears the DOM, the theme mode and localStorage after it. Change a reply
+  and clears the DOM, the theme mode, the toasts and localStorage after it.
+  It also gives jsdom the pointer capture methods Radix's toasts call. A
+  fake model download (`src/mocks/models.ts`) steps
+  `mockState.models.downloadStep` percent every 250 ms and fails halfway for
+  a key in `mockState.models.failing`. Change a reply
   for one test with `vi.spyOn(handlers, 'command').mockImplementation(…)`; spies
   are restored after each test.
 - Tests run as `linux`: jsdom's user agent names no other platform. To test
