@@ -74,7 +74,9 @@ router's list goes to `/`.
   another platform on mock IPC.
 - `index.html` gets no `<style>` element. Tauri gives inline styles in the
   HTML a nonce, and a nonce in `style-src` turns off the `'unsafe-inline'`
-  that styled-components needs.
+  that styled-components needs. Its boot script, which sets `color-scheme`
+  before the bundle runs, repeats the theme key and values of `themeMode.ts`;
+  `themeBoot.test.ts` runs it against them.
 
 ## Native data
 

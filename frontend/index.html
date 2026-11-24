@@ -7,7 +7,8 @@
     <!--
       Sets the page's color-scheme from the saved theme before the bundle runs,
       so a dark window never flashes white; AppThemeProvider takes over once it
-      mounts. Keep the key and the values in step with src/styles/themeMode.ts.
+      mounts. Keep the key and the values in step with src/styles/themeMode.ts;
+      src/styles/themeBoot.test.ts runs this script against it.
       Tauri's CSP admits this script by its hash. Put no <style> element here:
       Tauri gives it a nonce, and a nonce in style-src switches off the
       'unsafe-inline' that styled-components needs for its runtime styles.
