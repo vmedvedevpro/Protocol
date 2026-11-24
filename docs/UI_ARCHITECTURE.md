@@ -56,7 +56,8 @@ router's list goes to `/`.
 ## Styling
 
 - Values come from the theme only: `theme.colors`, `text`, `fonts`,
-  `fontWeights`, `radii`, `space`, `sizes`, `shadows` (`src/styles/theme.ts`).
+  `fontWeights`, `radii`, `space`, `sizes`, `shadows`, `motion`
+  (`src/styles/theme.ts`; Motion below).
   A literal color, size or radius in a component is a missing token; add it to
   both themes. Foundations/Tokens in Storybook shows them all.
 - Text styles are objects, used whole: `${({theme}) => theme.text.body};`.
@@ -78,6 +79,82 @@ router's list goes to `/`.
   that styled-components needs. Its boot script, which sets `color-scheme`
   before the bundle runs, repeats the theme key and values of `themeMode.ts`;
   `themeBoot.test.ts` runs it against them.
+
+## Motion
+
+Motion shows what changed: where a selection went, what arrived, what left. It
+is never decoration. CSS transitions carry state feedback (hover, press,
+focus); motion (`motion/react`) carries enter and exit, indicators and springs.
+
+- Tokens live in `src/styles/motion.ts`: durations `fast` (120 ms: hover,
+  press, focus), `base` (200 ms: most changes of state) and `slow` (320 ms:
+  large surfaces, the theme crossfade); easings `standard`, `enter` and
+  `exit`; springs `snappy` (indicators) and `gentle` (sheets, panels). CSS
+  reads `theme.motion.duration.*` and `theme.motion.easing.*`; motion/react
+  reads `tween(duration, easing)` and `springs.*`. A literal duration or curve
+  in a component is a missing token. Foundations/Tokens plays them side by
+  side.
+- Only `transform` and `opacity` animate, plus colours in state feedback and
+  the theme change. Width, height, top, left and margin never animate: each
+  frame would lay the window out again. Something that has to grow appears
+  with a fade and a small rise, and the layout moves once.
+- Animated elements are `m.*` (`import * as m from 'motion/react-m'`) under
+  `MotionProvider` (in `App` and in Storybook's decorator). It loads
+  `domAnimation` (`app/motionFeatures.ts`) as its own chunk after the first
+  render; until then an `m` element shows its `animate` values and animates
+  nothing. Its `strict` mode rejects the full `motion.*`. Import nothing from
+  motion's imperative API (`animate()`, `useAnimate`): it puts the engine back
+  into the first chunk. Layout animations (`layout`, `layoutId`) need
+  `domMax`, which is not loaded: an indicator moves by transform instead.
+- Tabs and segmented controls follow `SegmentedControl` (`components/ui`),
+  whose motion is ddoemonn's
+  [Segmented Control](https://21st.dev/@ddoemonn/components/segmented-control)
+  on 21st.dev, the owner's pick, rebuilt with styled-components, the theme and
+  `m` elements. Its segments share one width, so the thumb lands on segment
+  *i* at `translateX(i × 100%)` with nothing measured, on `springs.snappy`
+  (the reference's spring). The thumb holds a copy of all labels in the
+  selected colour that moves the opposite way, so it stays over the labels
+  below: text takes the selected colour exactly where the thumb covers it.
+  The thumb is the only filled shape: an option under the pointer changes its
+  text from `muted` to `text` over `fast`, and a press dims it to `soft`, with
+  no background; keyboard focus draws an outline. #108's segmented tabs reuse
+  it.
+- What animates and how:
+  - Tabs and segmented controls: the thumb slides as above; the panel below
+    swaps with a `base` crossfade, without sliding.
+  - Sheets and dialogs: in from their edge by `y` on `springs.gentle`, the
+    scrim fading over `base`; out with `tween('base', 'exit')`.
+  - Menus and popovers: opacity and a scale from 0.96, with
+    `transform-origin` on the side of their anchor, over `fast`.
+  - Lists: a new row fades in rising 4 px over `base`, a removed row fades
+    out; no stagger, and no reordering animation (it needs layout).
+  - Status changes (a status line, a badge, a count): `AnimatePresence
+    mode="wait"` with the old value leaving and the new one arriving, opacity
+    and 4 px of `y` over `fast`, as the shell's update status does.
+  - Hover, press, focus: CSS on the element. Colour and background change
+    over `fast`; a button's press scales it to 0.96 inside `MOTION_OK`; the
+    focus outline appears at once. Segmented options take neither a fill nor
+    a scale (see above); a scaled label would also slip out from under its
+    copy in the thumb.
+  - The theme change goes through `changeThemeSmoothly(apply)`: a View
+    Transition crossfade where the webview has them, found by feature
+    detection (WebView2 has them, WKWebView from Safari 18, WebKitGTK
+    depending on its version); elsewhere every element fades its colours over
+    `slow`.
+  - Values that change every frame (audio levels, the ring) stay outside
+    motion and React; see Styling.
+- Reduced motion: `MotionProvider` sets `reducedMotion="user"`, so transform
+  animations jump to their end while opacity still fades. CSS movement goes
+  inside `MOTION_OK` (`@media (prefers-reduced-motion: no-preference)`);
+  colour and opacity transitions stay outside it, and so does the theme
+  crossfade, which moves nothing. motion reads the setting when an element
+  mounts: a change while the window is open reaches elements mounted after it,
+  and all of them after a reload; CSS follows at once. The `ReducedMotion`
+  story of `SegmentedControl` shows it, and Orca's browser emulates the setting
+  with `orca set media --reduced-motion reduce`.
+- Tests run with `MotionGlobalConfig.skipAnimations` (`src/test/setup.ts`), so
+  every animation ends at once; motion writes styles on its next frame, so
+  assert them inside `waitFor`.
 
 ## Native data
 
