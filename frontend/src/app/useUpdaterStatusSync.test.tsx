@@ -6,6 +6,7 @@ import {UPDATER_STATUS_EVENT, type UpdaterSnapshot, updaterStatusQuery} from '@/
 import {handlers} from '@/mocks/handlers'
 import {emitMockEvent} from '@/mocks/ipc'
 import {mockState} from '@/mocks/state'
+import {settleIpc} from '@/test/ipc'
 import {createTestQueryClient} from '@/test/queryClient'
 import {useUpdaterStatusSync} from './useUpdaterStatusSync'
 
@@ -20,10 +21,6 @@ function useStatusOnScreen() {
     useQuery(updaterStatusQuery)
     useUpdaterStatusSync()
 }
-
-// The mock IPC answers on microtasks, so one macrotask later listen() has
-// registered its listener and an event's handler has finished.
-const settleIpc = () => new Promise((resolve) => setTimeout(resolve, 0))
 
 const readySnapshot = (): UpdaterSnapshot => ({
     ...mockState.updater,

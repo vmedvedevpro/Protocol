@@ -1,6 +1,7 @@
 import {emit} from '@tauri-apps/api/event'
 import {mockIPC, mockWindows} from '@tauri-apps/api/mocks'
 import type {NativeEvent} from '@/api/events'
+import {startMockRecordingLevels} from './audio'
 import {handlers, type MockArgs, platformHandlers} from './handlers'
 import {mockState, type MockState} from './state'
 
@@ -39,6 +40,9 @@ export function installMockIpc() {
     mockWindows(window.location.pathname.startsWith('/minibar') ? 'minibar' : 'main')
     mockIPC(handle, {shouldMockEvents: true})
     if (import.meta.env.DEV) window.__PROTOCOL_MOCK__ = {emit: emitMockEvent, state: mockState}
+    // Keeps the ring and the meters moving in pnpm dev and Storybook; tests
+    // emit the samples they need.
+    if (import.meta.env.MODE !== 'test') startMockRecordingLevels()
 }
 
 /** Delivers a native event to the page's listeners, as `app.emit` in Rust does. */

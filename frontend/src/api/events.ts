@@ -36,6 +36,36 @@ export interface NativeEventOptions {
 }
 
 /**
+ * Calls `handler` with each `event` payload until the returned function is
+ * called. Outside React; components use useNativeEvent.
+ */
+export function subscribeNative<T>(
+    event: NativeEvent<T>,
+    handler: (payload: T) => void,
+    {target, onListening}: NativeEventOptions = {},
+): () => void {
+    // listen() registers asynchronously: a stop before it resolves must still
+    // remove the listener once it exists.
+    let disposed = false
+    let unlisten: UnlistenFn | undefined
+    listenNative(event, handler, {target}).then(
+        (stop) => {
+            if (disposed) {
+                stop()
+                return
+            }
+            unlisten = stop
+            onListening?.()
+        },
+        (error: unknown) => console.error(`Failed to listen to ${event}:`, error),
+    )
+    return () => {
+        disposed = true
+        unlisten?.()
+    }
+}
+
+/**
  * Calls `handler` with each `event` payload while the component is mounted.
  * The handler always sees the latest props; the listener is registered once.
  */
@@ -47,27 +77,10 @@ export function useNativeEvent<T>(
     const onEvent = useEffectEvent(handler)
     const onRegistered = useEffectEvent(() => onListening?.())
 
-    useEffect(() => {
-        // listen() registers asynchronously: an unmount before it resolves
-        // must still remove the listener once it exists.
-        let disposed = false
-        let unlisten: UnlistenFn | undefined
-        listenNative(event, (payload: T) => onEvent(payload), {target}).then(
-            (stop) => {
-                if (disposed) {
-                    stop()
-                    return
-                }
-                unlisten = stop
-                onRegistered()
-            },
-            (error: unknown) => console.error(`Failed to listen to ${event}:`, error),
-        )
-        return () => {
-            disposed = true
-            unlisten?.()
-        }
-    }, [event, target])
+    useEffect(
+        () => subscribeNative(event, (payload: T) => onEvent(payload), {target, onListening: () => onRegistered()}),
+        [event, target],
+    )
 }
 
 /**
