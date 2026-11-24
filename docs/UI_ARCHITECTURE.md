@@ -135,7 +135,7 @@ one window. To use an event:
    code sent to the other window; an event meant for one window is heard with
    `{target: getCurrentWindow().label}`.
 3. When the event carries the whole value, keep its query with
-   `useEventQuerySync` instead of refetching:
+   `useEventQuerySync` (it takes the same `target`) instead of refetching:
 
    ```ts
    export function useUpdaterStatusSync() {
@@ -214,4 +214,6 @@ for stories that do not set it.
   (`src/test/queryClient.ts`): it does not retry, so a rejected command shows
   as an error at once instead of after Query's 7 s of retries.
 - `listen()` registers asynchronously; wait one macrotask
-  (`setTimeout(resolve, 0)`) after mounting before emitting an event.
+  (`setTimeout(resolve, 0)`) after mounting before emitting an event, and one
+  after emitting before reading what `useEventQuerySync` wrote: it awaits the
+  cancel first.
