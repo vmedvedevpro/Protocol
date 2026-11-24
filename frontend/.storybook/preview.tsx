@@ -3,6 +3,7 @@ import type {Decorator, Preview} from '@storybook/react-vite'
 import {QueryClient, QueryClientProvider} from '@tanstack/react-query'
 import {ThemeProvider} from 'styled-components'
 import {UiProviders} from '../src/app/UiProviders'
+import {resetToasts} from '../src/components/ui/toastStore'
 import {installMockIpc} from '../src/mocks/ipc'
 import {resetMockState} from '../src/mocks/state'
 import {GlobalStyle} from '../src/styles/GlobalStyle'
@@ -53,6 +54,7 @@ const preview: Preview = {
     },
     beforeEach: () => {
         resetMockState()
+        resetToasts()
         queryClient.clear()
     },
 }
