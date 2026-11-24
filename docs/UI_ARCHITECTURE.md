@@ -104,6 +104,15 @@ router's list goes to `/`.
 - Data that native code pushes whole by event gets `staleTime: Infinity`, and
   only the event writes it (see Events). Other data keeps the default
   `staleTime` and is invalidated after the mutations that change it.
+- Long work that only the WebView sees, saving a meeting after its recording
+  stopped (`recordingSave`) and the post-call pipeline between its native
+  steps (`postCall`), reports to the updater with
+  `updater_set_ui_activity({activities})`, as `markUiActivity` and
+  `UpdaterActivityReporter` did on `main`. Each call replaces the whole set,
+  and native code drops it 150 s after the last call (`UI_LEASE`, the UI
+  activity lease in `src-tauri/src/updater/busy.rs`), so the reporter sends a
+  non-empty set again every minute while the work runs and an empty one when
+  it ends. Otherwise an update can restart the app in the middle of the work.
 
 ## Events
 
