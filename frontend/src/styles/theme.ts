@@ -221,6 +221,12 @@ const sizes = {
      * so the button keeps its width when the bars give way to "Muted".
      */
     meter: {bar: '3px', height: '16px', icon: '14px', button: '76px'},
+    /**
+     * The transcript's time column, for `mm:ss` and, once a meeting passes
+     * an hour, `h:mm:ss`; and the height a row is taken to have until it is
+     * first drawn (rows off screen are not laid out, see TranscriptList).
+     */
+    transcript: {time: '44px', timeLong: '56px', rowEstimate: '64px'},
 }
 
 /** Motion tokens for CSS transitions; the values live in ./motion.ts. */
