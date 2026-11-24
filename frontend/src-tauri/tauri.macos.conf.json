@@ -1,4 +1,26 @@
 {
+    "app": {
+        "windows": [
+            {
+                "title": "Protocol",
+                "url": "/",
+                "width": 460,
+                "height": 700,
+                "minWidth": 360,
+                "minHeight": 480,
+                "center": true,
+                "resizable": true,
+                "fullscreen": false,
+                "decorations": true,
+                "titleBarStyle": "Overlay",
+                "hiddenTitle": true,
+                "trafficLightPosition": {
+                    "x": 13,
+                    "y": 17
+                }
+            }
+        ]
+    },
     "bundle": {
         "targets": [
             "app",

@@ -22,7 +22,9 @@ pnpm run tauri:dev     the desktop app; Tauri starts Vite on 3118 (devUrl)
 ```text
 src/
   main.tsx             entry: mock IPC outside Tauri in dev, QueryClientProvider, App
-  app/                 App, routes, AppThemeProvider, app-wide sync hooks
+  app/                 App, routes and paths, hotkeys, AppThemeProvider, app-wide sync hooks
+    shell/             the main window's frame (Window shell below)
+    placeholder/       stand-ins for the screens until their tasks replace them
   api/                 native domains shared by several features (see below)
   components/ui/       design-system primitives, no feature knowledge
   components/editor/   the notes editor (BlockNote), loaded as its own chunk
@@ -52,7 +54,135 @@ Two windows load the same `index.html`: the main window at `/`, and the minibar,
 which `minibar.rs` opens as `WebviewUrl::App("minibar")`, at `/minibar`. Tauri's
 asset resolver falls back to `index.html` for that path (as the Vite dev server
 does), so a new window needs a route, not a new entry. A route outside the
-router's list goes to `/`.
+router's list goes to `/`. Window shell below has the routes.
+
+## Window shell
+
+`app/shell/` is the frame every screen of the main window lives in (#110):
+the title bar, the screen, the bar docked under it, the startup gate and the
+shell's own commands. The minibar window has none of it.
+
+### Window and title bar
+
+- The main window opens at 460×700 and stays resizable, down to 360×480:
+  360 px keeps room for the docked bar's status beside its 56 px ring and
+  Record or Stop, and for the Windows strip beside its three 46 px caption
+  buttons; 480 px leaves the content room under the title bar, a screen's
+  header and the bar. `tauri.conf.json` holds the window for Windows and
+  Linux; `tauri.macos.conf.json` repeats the whole entry for its title bar,
+  since a platform file replaces the `windows` array.
+- The app draws the title strip (`TitleBar`, the `<header>`) on every
+  platform, as the design does: macOS keeps its traffic lights over an overlay
+  title bar (`titleBarStyle: Overlay`, `hiddenTitle`, `trafficLightPosition`
+  {13, 17}: tao makes the title bar the buttons' height plus `y` and leaves
+  the buttons at AppKit's offset from its bottom, which centres them on the
+  38 px strip; not yet checked on a Mac) and the strip starts after them;
+  Windows (`decorations: false`) gets Windows 11's caption buttons, Maximize
+  turning into Restore with every resize; Linux (`decorations: false`) gets
+  GNOME's round close button and the screen's title in the middle (a route's
+  `handle.title`). `?platform=` previews the others on mock IPC.
+- The strip is `data-tauri-drag-region="deep"`: it drags the window and
+  double-clicks to maximize, and Tauri's drag script leaves out buttons,
+  links and other controls, so nothing in it needs its own exception. The
+  window permissions it calls are in `tauri.conf.json`'s capability
+  (`allow-minimize`, `allow-toggle-maximize`, `allow-close`,
+  `allow-start-dragging`, `allow-internal-toggle-maximize`,
+  `allow-set-always-on-top`; `is-maximized` comes with `core:window:default`).
+  Close hides the main window to the tray (`lib.rs`); minimizing it during a
+  recording opens the minibar.
+- **Keep on top** is the pin in the strip, on every screen of the main window
+  so a pinned window can always be unpinned (the design draws it on the
+  recording screen). It is new, so it keeps Zustand's own format under a new
+  key, `protocol-keep-on-top`, and the shell applies it to the window at
+  startup (`keepOnTop.ts`).
+- "Back to meetings" shows on every screen but the meetings (a route's
+  `handle.back`) and goes to `/`.
+
+### Routes and screens
+
+- `routes.tsx` is the route table of both windows and `paths.ts` names every
+  path: `/` the meetings, `/meetings/:meetingId` a meeting, `/recording` the
+  recording screen, `/settings` with an optional `?section=` (the old UI's
+  section ids, which the tray still sends; it replaces the old
+  `meetily-settings-*` sessionStorage keys), and `/minibar` outside the shell.
+  It is a data router (`createBrowserRouter`), for `handle` and
+  `useMatches` now and `lazy` and `useBlocker` later. Native code knows
+  `/settings`, `/settings?section=about` and `/minibar`: they keep resolving,
+  or native changes with them.
+- A screen renders `Screen`: its `<main>`, with its own h1 first (in
+  `theme.text.screen`), and the
+  `<footer>` under it, both siblings of the title bar's `<header>`, so every
+  screen has the banner, main and contentinfo landmarks. `Screen`'s `bar`
+  docks at the bottom: `DockedBar` (the ring, what is happening, Record or
+  Stop; the recording, #112, fills it), the meeting's player (#113), or
+  nothing. The status line of model downloads (#117) goes in the same footer
+  on every screen; with nothing in it, the footer is `:empty` and hidden
+  from the eye and from screen readers.
+- A screen arrives with a fade and a 4 px rise over `base`; the screen it
+  replaces leaves at once, so a click never waits for an exit.
+- Screens are placeholders in `app/placeholder/Screens.tsx` until their tasks
+  replace them in the route table; the theme switch sits on the Settings
+  placeholder until #114.
+
+### Startup
+
+- Until native code says whether first launch is done
+  (`get_onboarding_status`, `src/api/onboarding.ts`) the main window shows
+  "Checking setup…" under the title bar; a failed read, or one still running
+  after 8 s (`STARTUP_PATIENCE_MS`), offers Retry, as the old layout did.
+  Then it shows first launch (#115; first launch invalidates
+  `onboardingKeys.all` when it is done) or the app.
+- Once first launch is done, a crash report the previous session left
+  (`src/api/crashReport.ts`) opens as a sheet over the app: Send Report and
+  Save ZIP save the ZIP through the save dialog (Send then opens a GitHub
+  issue to attach it to), Ignore dismisses it. Closing the sheet without a
+  choice leaves the report for the next launch; a failure says so in the
+  sheet and keeps it open.
+- In a release the webview's context menu is off in both windows, as in the
+  old app.
+
+### Tray
+
+- The tray (`tray.rs`) talks to the main window by event only, never by a
+  reload, which would drop a meeting still being saved and the queued
+  post-call jobs (`src/api/tray.ts`). `tray-navigate` carries a path and the
+  shell routes it, from startup on. Start Recording sends
+  `request-recording-toggle` (the old UI's name) instead of writing
+  sessionStorage `autoStartRecording` and reloading, which started a
+  recording without asking whether first launch was done.
+- The shell hears the start request only once first launch is done
+  (`ShellCommands`), so a Start during first launch does nothing. Native code
+  no longer shows "Starting Recording…" for it: the menu keeps Start until
+  `start_recording` succeeds and updates it, so a refused or failed start
+  leaves no stale item, and a second click sends the request again. The
+  start itself, with its order (PARITY.md › Recording start order), is
+  #112's: until then the request, ⌘R and Record open the recording screen.
+
+### Hotkeys
+
+- `app/hotkeys.ts` is the window's one keydown listener. A screen, or a part
+  of one, registers with `useHotkey({code, mod, shift}, run)` while mounted;
+  the shell registers its defaults with `level: 'app'`.
+- `mod` is ⌘ on macOS and Ctrl elsewhere, the other one must be up, and so
+  must Alt (AltGr on Windows is Ctrl and Alt). Keys are `KeyboardEvent.code`,
+  the physical key, so Ctrl R is Ctrl R on a Russian layout too. Hints write
+  them with `formatShortcut`.
+- On the same keys a `screen` hotkey wins over an `app` one, and within a
+  level the latest registration wins. The shell's are ⌘R (start a recording;
+  the recording's own ⌘R, Stop, overrides it while it runs) and ⌘, (Settings);
+  ⌘K is search's (#118).
+- A ⌘ hotkey works from a text field too, and always stops the browser's own
+  action (Ctrl R would reload the page), even while it does not run: while a
+  sheet is open (`role="dialog"`), or for a key held down. A bare key, such as
+  Space, belongs to the focused control first (fields, buttons, links, tabs,
+  switches, menu items: Space presses them) and to an open sheet; it runs only
+  when focus is on none of them.
+- **Space** belongs to the screen in front, and nothing registers it
+  app-wide: on the recording screen it pauses and resumes the recording (the
+  ring, the minibar's `Pause (Space)`); on a meeting it plays and pauses that
+  meeting's audio, also while a recording runs elsewhere. So it never pauses
+  a recording the user cannot see, and the old player's Space keeps working.
+  The meeting's ← and → stay on the scrubber's focus.
 
 ## Styling
 

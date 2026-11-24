@@ -6,6 +6,8 @@ use tauri::{
 
 /// Asks the main window's layout to open a page with the router.
 const NAVIGATE_EVENT: &str = "tray-navigate";
+/// Asks the main window to start a recording (frontend `src/api/tray.ts`).
+const START_RECORDING_EVENT: &str = "request-recording-toggle";
 
 #[derive(Debug, Clone)]
 pub enum RecordingState {
@@ -175,13 +177,14 @@ fn toggle_recording_handler<R: Runtime>(app: &AppHandle<R>) {
                 }
             }
         } else {
-            // Immediately show starting state
-            set_tray_state(&app_clone, RecordingState::Starting);
-
-            log::info!("Emitting start recording event from tray");
-            if let Some(window) = app_clone.get_webview_window("main") {
-                let _ = window.eval("sessionStorage.setItem('autoStartRecording', 'true')"); // Set the flag to start recording automatically
-                let _ = window.eval("window.location.assign('/')");
+            // The main window starts the recording itself, without a reload:
+            // a reload would drop a meeting still being saved and the queued
+            // post-call jobs. It refuses while first launch runs, so the menu
+            // keeps Start until the recording has started (start_recording
+            // updates it); a "Starting…" item would stay after a refusal.
+            log::info!("Tray: asking the main window to start a recording");
+            if let Err(error) = app_clone.emit_to("main", START_RECORDING_EVENT, ()) {
+                log::error!("Tray: could not ask for a recording: {error}");
             }
         }
     });

@@ -14,13 +14,14 @@
             {
                 "title": "Protocol",
                 "url": "/",
-                "width": 1280,
-                "height": 760,
-                "minWidth": 700,
+                "width": 460,
+                "height": 700,
+                "minWidth": 360,
+                "minHeight": 480,
                 "center": true,
                 "resizable": true,
                 "fullscreen": false,
-                "decorations": true
+                "decorations": false
             }
         ],
         "macOSPrivateApi": true,
@@ -70,6 +71,7 @@
                         "core:window:allow-close",
                         "core:window:allow-start-dragging",
                         "core:window:allow-internal-toggle-maximize",
+                        "core:window:allow-set-always-on-top",
                         "store:default",
                         "dialog:allow-save",
                         "notification:default",

@@ -1,3 +1,5 @@
+import type {PendingCrashReport} from '@/api/crashReport'
+import type {OnboardingStatus} from '@/api/onboarding'
 import type {UpdaterSnapshot} from '@/api/updater'
 import {platform} from '@/lib/platform'
 import packageJson from '../../package.json'
@@ -26,6 +28,17 @@ function createMockState() {
 
     return {
         appVersion: packageJson.version,
+        // The main window as the window plugin sees it.
+        window: {maximized: false},
+        // A machine that finished first launch; a test or story of first
+        // launch sets it to null (a new install).
+        onboarding: {completed: true} as OnboardingStatus | null,
+        // What the previous session left (`crashReport`; null after a clean
+        // exit), the ZIPs written from it, and what the save dialog answers
+        // (null: the user cancelled).
+        crashReport: null as PendingCrashReport | null,
+        crashReportZips: [] as string[],
+        saveDialogPath: '/home/user/Protocol-crash.zip' as string | null,
         // Which platform-only commands answer (`platformHandlers`). Starts as
         // the page's platform; a test or story of a Windows- or macOS-only
         // screen sets it before rendering.

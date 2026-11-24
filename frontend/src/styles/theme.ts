@@ -31,6 +31,12 @@ export interface ThemeColors {
     knob: string
     /** A hint laid on a filled button, such as its shortcut. */
     fillHint: string
+    /**
+     * Close among the Windows caption buttons under the pointer, and its
+     * glyph: the system's red, the one colour the window takes from the OS.
+     */
+    captionClose: string
+    captionCloseText: string
 }
 
 export interface ThemeShadows {
@@ -55,6 +61,8 @@ const colors: Record<ThemeName, ThemeColors> = {
         track: '#D4D4D4',
         knob: '#FFFFFF',
         fillHint: 'rgba(255, 255, 255, 0.18)',
+        captionClose: '#C42B1C',
+        captionCloseText: '#FFFFFF',
     },
     dark: {
         bg: '#0A0A0A',
@@ -68,6 +76,8 @@ const colors: Record<ThemeName, ThemeColors> = {
         track: '#3A3A3A',
         knob: '#A4A4A4',
         fillHint: 'rgba(0, 0, 0, 0.12)',
+        captionClose: '#C42B1C',
+        captionCloseText: '#FFFFFF',
     },
 }
 
@@ -129,6 +139,8 @@ const text = {
     timer: {fontSize: '14px', lineHeight: '18px', fontWeight: 600},
     /** A sheet's title. */
     heading: {fontSize: '15px', lineHeight: '22px', fontWeight: 600},
+    /** A screen's h1, in the row under the title bar ("Meetings", a meeting's title). */
+    screen: {fontSize: '16px', lineHeight: '22px', fontWeight: 600, letterSpacing: '-0.01em'},
     title: {fontSize: '18px', lineHeight: '24px', fontWeight: 600, letterSpacing: '-0.01em'},
     display: {fontSize: '22px', lineHeight: '28px', fontWeight: 600, letterSpacing: '-0.02em'},
     /** What the user writes in the notes editor. */
@@ -189,8 +201,20 @@ const sizes = {
     popover: {minWidth: '128px', triggerMaxWidth: '190px'},
     /** The compact desktop window the design is drawn for. */
     window: {width: '460px', height: '700px'},
-    /** The window's title strip and its bottom bar (the recording panel). */
-    bar: {header: '44px', footer: '56px'},
+    /**
+     * The window's title strip at its tallest (Linux; a sheet hangs under it),
+     * the meeting's player bar, and the recording bar docked at the bottom
+     * with the ring (`dockRing`) at its start.
+     */
+    bar: {header: '44px', footer: '56px', dock: '64px', dockRing: '56px'},
+    /**
+     * The title strip on each platform, as the design draws them, and on
+     * macOS the room the traffic lights take at its start: their 13 px
+     * inset (tauri.macos.conf.json), three 12 px lights 8 px apart and a
+     * 12 px gap. `caption` is one Windows caption button's width;
+     * `closeDisc` the grey disc of GNOME's close button.
+     */
+    titleBar: {macos: '38px', windows: '36px', linux: '44px', trafficLights: '78px', caption: '46px', closeDisc: '22px'},
     /**
      * The level meter: one bar's width and full height, the source icon
      * beside it, and the smallest width of the mute button that holds them,

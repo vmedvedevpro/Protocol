@@ -1,6 +1,7 @@
 import type {Platform} from '@/lib/platform'
 import {audioHandlers} from './audio'
 import {notesHandlers} from './notes'
+import {shellHandlers} from './shell'
 import {mockState} from './state'
 
 export type MockArgs = Record<string, unknown>
@@ -35,6 +36,9 @@ export const handlers: Record<string, MockHandler> = {
     updater_get_status: () => mockState.updater,
 
     ...audioHandlers,
+
+    // The window shell: window calls, the save dialog, onboarding.rs, crash_report.rs
+    ...shellHandlers,
 
     // src-tauri/src/database/repositories/meeting_notes.rs
     ...notesHandlers(mockState),
