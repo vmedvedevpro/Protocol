@@ -262,7 +262,12 @@ levels) skip Query and React state; see Styling and the next section.
   scale (-50 dB empty, -16 dB full).
 - A screen says what to follow with a `LevelFeed`, plain data:
   `{kind: 'recording', source: 'mic' | 'system' | 'both'}` (`both` is the
-  louder source) or `{kind: 'device', type: 'input' | 'output', device?}`.
+  louder source) or `{kind: 'device', type: 'input' | 'output', device?,
+  gain?}`. As in the old preview, a device matches when either name contains
+  the other (a stored device carries a ` (input)` or ` (output)` suffix),
+  otherwise the loudest device of the type counts, and `gain` (the volume
+  slider beside a preview meter) applies before the decibels, so moving the
+  slider moves the meter at once.
   `useAudioLevel(feed, onLevel)` hands each level to a callback that writes a
   ref or a canvas, never state; `subscribeAudioLevel` is the same without
   React. Every subscriber shares one native listener per event.

@@ -54,6 +54,12 @@ function drawLevel(bars: BarElements, level: number, seed: number) {
 interface LevelMeterProps {
     /** Where the bars read the level; null keeps them at rest (paused, muted). */
     level: LevelFeed | null
+    /**
+     * Names the meter where it stands alone, as the old meters did
+     * ("Microphone audio level"). Without it the meter is hidden from
+     * assistive technology, for a control that names it already.
+     */
+    label?: string
     className?: string
 }
 
@@ -62,7 +68,7 @@ interface LevelMeterProps {
  * computer audio. Samples go straight to the bars' transforms, never through
  * React state.
  */
-export function LevelMeter({level, className}: LevelMeterProps) {
+export function LevelMeter({level, label, className}: LevelMeterProps) {
     const bars = useRef<BarElements>([])
     const silence = useRef<ReturnType<typeof setTimeout>>(undefined)
     const seed = level?.kind === 'recording' && level.source === 'system' ? 1.7 : 0.3
@@ -84,7 +90,7 @@ export function LevelMeter({level, className}: LevelMeterProps) {
     useEffect(() => () => clearTimeout(silence.current), [])
 
     return (
-        <Bars aria-hidden="true" className={className}>
+        <Bars {...(label ? {role: 'img', 'aria-label': label} : {'aria-hidden': true})} className={className}>
             {Array.from({length: BARS}, (_, i) => (
                 <Bar key={i} ref={(bar) => {
                     bars.current[i] = bar

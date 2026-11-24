@@ -81,10 +81,19 @@ export const FULL_DB = -16
 // samples; taking RMS × 1.45 as a floor keeps such a chunk as loud as its energy.
 export const RMS_TO_PEAK = 1.45
 
-/** A sample's level on the meter scale, 0 (silence) to 1 (full). */
-export function levelOf(rms: number, peak: number): number {
-    const amplitude = Math.max(peak, rms * RMS_TO_PEAK, 1e-6)
-    const db = 20 * Math.log10(amplitude)
+// The old meters floored the preview gain at 0.05 (-26 dB), so a slider at
+// zero still shows a loud device faintly instead of an empty meter.
+const MIN_GAIN = 0.05
+
+/**
+ * A sample's level on the meter scale, 0 (silence) to 1 (full). `gain` is a
+ * device preview's volume slider, applied before the decibels, so the meter
+ * shows the level the slider would give; recording samples already carry
+ * their gain and take none.
+ */
+export function levelOf(rms: number, peak: number, gain = 1): number {
+    const amplitude = Math.max(peak, rms * RMS_TO_PEAK) * Math.max(MIN_GAIN, gain)
+    const db = 20 * Math.log10(Math.max(amplitude, 1e-6))
     return Math.min(1, Math.max(0, (db - SILENCE_DB) / (FULL_DB - SILENCE_DB)))
 }
 
@@ -94,12 +103,19 @@ export function levelOf(rms: number, peak: number): number {
  *
  * - `recording`: one source of the recording, or `both` (the louder of the
  *   two), as the recording ring shows it.
- * - `device`: the device preview; `device` names one monitored device,
- *   otherwise the loudest device of `type` counts.
+ * - `device`: the device preview. `device` names the device to follow,
+ *   matched loosely (see `deviceLevel`); without it, or when it is not in
+ *   the update, the loudest device of `type` counts. `gain` is the volume
+ *   slider beside the meter, so moving it changes the meter at once.
  */
 export type LevelFeed =
     | { readonly kind: 'recording'; readonly source: AudioSource | 'both' }
-    | { readonly kind: 'device'; readonly type: 'input' | 'output'; readonly device?: string }
+    | {
+        readonly kind: 'device'
+        readonly type: 'input' | 'output'
+        readonly device?: string
+        readonly gain?: number
+    }
 
 // With `both`, a source counts while its last sample is this recent. Each source
 // sends about 25 samples a second; one that has fallen silent for longer (its
@@ -154,13 +170,19 @@ function sharedListener<T>(event: NativeEvent<T>) {
 const onRecordingLevels = sharedListener(RECORDING_AUDIO_LEVELS_EVENT)
 const onDeviceLevels = sharedListener(AUDIO_LEVELS_EVENT)
 
+// A stored device and native's name for it can differ by a suffix: the
+// settings keep "JBL Tune 770NC (System Audio) (output)" and the old UI asked
+// for it without " (output)". As the old preview did, either name containing
+// the other counts as the same device.
+const sameDevice = (name: string, wanted: string) =>
+    name.length > 0 && (name === wanted || name.includes(wanted) || wanted.includes(name))
+
+/** The level of the device the feed follows in one update; 0 when none is in it. */
 function deviceLevel(update: AudioLevelUpdate, feed: Extract<LevelFeed, { kind: 'device' }>): number {
-    let best = 0
-    for (const device of update.levels) {
-        if (feed.device !== undefined ? device.device_name !== feed.device : device.device_type !== feed.type) continue
-        best = Math.max(best, levelOf(device.rms_level, device.peak_level))
-    }
-    return best
+    const {device: wanted, type, gain} = feed
+    const named = wanted ? update.levels.find((device) => sameDevice(device.device_name, wanted)) : undefined
+    const candidates = named ? [named] : update.levels.filter((device) => device.device_type === type)
+    return Math.max(0, ...candidates.map((device) => levelOf(device.rms_level, device.peak_level, gain)))
 }
 
 /**

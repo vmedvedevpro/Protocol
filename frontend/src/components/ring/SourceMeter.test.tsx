@@ -7,6 +7,7 @@ import {RECORDING_AUDIO_LEVELS_EVENT} from '@/api/audio'
 import {sampleFor} from '@/mocks/audio'
 import {emitMockEvent} from '@/mocks/ipc'
 import {lightTheme} from '@/styles/theme'
+import {LevelMeter} from './LevelMeter'
 import {SourceMeter} from './SourceMeter'
 
 const inTheme = (node: ReactNode) => <ThemeProvider theme={lightTheme}>{node}</ThemeProvider>
@@ -48,5 +49,15 @@ describe('SourceMeter', () => {
         await waitFor(() => expect(bars[0].style.transform).toMatch(/^scaleY\(/))
         const scale = Number(/scaleY\((.*)\)/.exec(bars[0].style.transform)?.[1])
         expect(scale).toBeGreaterThan(0.4)
+    })
+})
+
+describe('LevelMeter', () => {
+    it('is named where it stands alone and hidden inside a named control', () => {
+        const {rerender} = render(inTheme(<LevelMeter level={MIC} label="Microphone audio level"/>))
+        expect(screen.getByRole('img', {name: 'Microphone audio level'})).toBeInTheDocument()
+
+        rerender(inTheme(<LevelMeter level={MIC}/>))
+        expect(screen.queryByRole('img')).not.toBeInTheDocument()
     })
 })

@@ -2,7 +2,6 @@ import {useState} from 'react'
 import type {Meta, StoryObj} from '@storybook/react-vite'
 import styled from 'styled-components'
 import type {AudioSource} from '@/api/audio'
-import {LevelMeter} from './LevelMeter'
 import {SourceMeter} from './SourceMeter'
 import {useMockLevel} from './storyLevels'
 
@@ -82,6 +81,3 @@ function Pair() {
 export const BothSources: Story = {render: () => <Pair/>}
 
 export const BothSourcesDark: Story = {globals: {theme: 'dark'}, render: () => <Pair/>}
-
-/** The bars alone, in the current text colour. */
-export const MeterOnly: Story = {render: () => <LevelMeter level={{kind: 'recording', source: 'mic'}}/>}

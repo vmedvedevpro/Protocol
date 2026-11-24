@@ -43,6 +43,12 @@ describe('levelOf', () => {
         expect(levelOf(0.9, 1)).toBe(1)
     })
 
+    it('applies a preview gain before the decibels, never below 0.05', () => {
+        const peak = 10 ** (-33 / 20)
+        expect(levelOf(0, peak, 2)).toBeCloseTo(levelOf(0, peak * 2))
+        expect(levelOf(0, peak, 0)).toBeCloseTo(levelOf(0, peak * 0.05))
+    })
+
     it('does not read a chunk quieter than its energy when its peak fell between samples', () => {
         expect(levelOf(0.02, 0.001)).toBeCloseTo(levelOf(0, 0.02 * 1.45))
     })
@@ -100,6 +106,28 @@ describe('subscribeAudioLevel', () => {
 
         expect(byName.mock.lastCall?.[0]).toBeCloseTo(0.4)
         expect(byType.mock.lastCall?.[0]).toBeCloseTo(0.6)
+    })
+
+    it('matches a device by a name either side contains, and falls back to its type', async () => {
+        const stored = vi.fn()
+        const missing = vi.fn()
+        const louder = vi.fn()
+        subscribe({kind: 'device', type: 'output', device: 'JBL Tune 770NC (System Audio) (output)'}, stored)
+        subscribe({kind: 'device', type: 'input', device: 'Unplugged headset'}, missing)
+        subscribe({kind: 'device', type: 'output', device: 'JBL Tune 770NC (System Audio)', gain: 2}, louder)
+        await settleIpc()
+
+        const {rms, peak} = sampleFor(0.4)
+        const device = (device_name: string, device_type: 'input' | 'output') =>
+            ({device_name, device_type, rms_level: rms, peak_level: peak, is_active: true})
+        await emitMockEvent(AUDIO_LEVELS_EVENT, {
+            timestamp: 0,
+            levels: [device('JBL Tune 770NC (System Audio)', 'output'), device('Built-in microphone', 'input')],
+        })
+
+        expect(stored.mock.lastCall?.[0]).toBeCloseTo(0.4)
+        expect(missing.mock.lastCall?.[0]).toBeCloseTo(0.4)
+        expect(louder.mock.lastCall?.[0]).toBeCloseTo(levelOf(rms, peak, 2))
     })
 
     it('shares one native listener and removes it after the last subscriber', async () => {
