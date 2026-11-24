@@ -43,6 +43,13 @@ export const springs = {
     gentle: {type: 'spring', stiffness: 260, damping: 30, mass: 1},
 } as const satisfies Record<string, Transition>
 
+/**
+ * The scale a menu, select list or tooltip grows from toward its anchor, and
+ * the one a pressed button shrinks to: small enough to read as movement,
+ * not as a zoom.
+ */
+export const SCALE_FROM = 0.96
+
 /** A motion/react transition built from the duration and easing tokens. */
 export function tween(duration: DurationName, easing: EasingName = 'standard'): Transition {
     return {duration: durations[duration] / 1000, ease: [...easings[easing]]}
