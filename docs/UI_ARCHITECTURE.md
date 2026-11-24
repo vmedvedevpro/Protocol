@@ -249,7 +249,51 @@ one window. To use an event:
 
 Mount a sync hook once, in the layout of the screens that read the data, or in
 `App` when every window needs it. Values that arrive many times a second (audio
-levels) skip Query and React state; see Styling.
+levels) skip Query and React state; see Styling and the next section.
+
+## Audio levels, the ring and the meters
+
+- Native code pushes two level events, declared in `src/api/audio.ts`:
+  `recording-audio-levels`, one sample per source (`mic`, `system`) and audio
+  chunk during a recording, about 25 a second per source; and `audio-levels`,
+  every previewed device about 12 times a second between
+  `start_audio_level_monitoring` and `stop_audio_level_monitoring`.
+  `levelOf(rms, peak)` turns a sample into 0 to 1 on the old meters' decibel
+  scale (-50 dB empty, -16 dB full).
+- A screen says what to follow with a `LevelFeed`, plain data:
+  `{kind: 'recording', source: 'mic' | 'system' | 'both'}` (`both` is the
+  louder source) or `{kind: 'device', type: 'input' | 'output', device?}`.
+  `useAudioLevel(feed, onLevel)` hands each level to a callback that writes a
+  ref or a canvas, never state; `subscribeAudioLevel` is the same without
+  React. Every subscriber shares one native listener per event.
+  `useAudioLevelMonitoring(deviceNames)` runs the device preview while mounted
+  and stops it on unmount; its starts and stops wait for each other, because
+  native's start stops the old preview and waits before it opens the devices,
+  so a stop arriving meanwhile would be undone.
+- `components/ring` holds what draws them. `Ring` is the design's WebGL ring
+  in five modes: `rec` follows the level, `test` (the mic test) exaggerates
+  it, `idle` is greyed and slow and does not listen, `paused` is flat and
+  grey, `still` is the logo's frame. `LevelMeter` is the five bars;
+  `SourceMeter` is the mute toggle of the recording bar and the minibar, with
+  the bars or, muted, "Muted" on an inverted fill. The button around the ring
+  (pause) and the native mute calls belong to the screens.
+- The ring's cost is bounded in `ringLoop.ts`: one requestAnimationFrame loop
+  per ring, running only while the canvas is on screen, the document is
+  visible, the mode moves and motion is allowed; otherwise it draws one frame
+  and draws it again when a prop or the theme changes. The canvas is the CSS
+  size times the device pixel ratio, capped at 2, on a context without
+  antialiasing, depth or stencil that asks for the low-power GPU. Without
+  WebGL, or while the context is lost, `StaticRing` shows a still gradient
+  ring greyed per mode. Under reduced motion the ring holds the logo's frame
+  in its mode's grey; the meters still show the level, without easing.
+- The meters write `transform: scaleY(…)` on their bars at each sample and
+  let a CSS transition smooth it; they fall to rest 300 ms after the last
+  sample, since native stops sending when a recording stops.
+- The mock fakes both events (`src/mocks/audio.ts`): outside tests a fake
+  conversation emits `recording-audio-levels` from the start, and the preview
+  commands emit `audio-levels` for the devices asked for.
+  `mockState.audio.level` holds both sources at one level instead (the
+  stories' level slider). Tests emit the samples they need.
 
 ## Mock IPC
 
