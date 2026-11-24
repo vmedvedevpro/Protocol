@@ -1094,6 +1094,24 @@ Signatures carry the version (`signer sign --app-version`, tauri-cli 2.12 from
 `main`, dry runs warn about it and the macOS leg adds a throwaway updater
 configuration so the `.app.tar.gz` is still built; tag runs fail.
 
+**Linux packages.** The Linux leg runs `tauri build` twice (#100). Tauri
+installs every `externalBin` entry as `/usr/bin/<name>`, and `/usr/bin/ffmpeg`
+belongs to the distribution's `ffmpeg` package, so a deb carrying the pinned
+ffmpeg does not install where that package is. The deb is therefore built with
+`--config src-tauri/tauri.deb.conf.json`, which leaves ffmpeg out of
+`externalBin` and adds `ffmpeg` to `Depends`. `audio/ffmpeg.rs` looks next to
+the executable first, so `/usr/bin/protocol` runs the distribution's
+`/usr/bin/ffmpeg`. `Depends` names no version: every option the app passes
+(AAC in MP4 with `+faststart`, the concat demuxer with `-c copy`, decoding to
+PCM, the waveform's `f32le`) is in ffmpeg 4.4 of Ubuntu 22.04, the oldest
+system the leg builds for. The AppImage keeps the pinned ffmpeg from
+`build/ffmpeg.rs` and is built second, from the plain config. The leg fails if
+the deb carries `usr/bin/ffmpeg` or does not depend on `ffmpeg`, or if the
+AppImage lacks its own. The config is compiled into the binary, so the two
+packages hold separate builds of the same commit. A local
+`tauri build --bundles deb` without that `--config` still packs the pinned
+ffmpeg.
+
 **Migration checksums.** sqlx stores a SHA-384 per applied migration and refuses
 a binary whose embedded bytes differ. The ten historical migrations
 (`20250916100000` … `20251229000000`) have no `eol` attribute and were released
