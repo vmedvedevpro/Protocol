@@ -403,14 +403,17 @@ export const cancelSummaryMutation = (meetingId: string) =>
 
 /**
  * Edits of a summary share a scope, so they reach native in the order they
- * were made, as the notes do. The stored summary is not refetched after
- * each: the editor holds the newer text, and reading it back would only
- * remount the editor under the user's cursor.
+ * were made, as the notes do. Each saved edit is written into the cached
+ * summary instead of reading it back, so an editor mounted later (the tab
+ * opened again) starts from it, and the run's other fields stay as read.
  */
 export const saveSummaryMutation = (meetingId: string) =>
     mutationOptions({
         mutationFn: (summary: { markdown: string, summary_json: unknown[] | null }) => saveSummary(meetingId, summary),
         scope: {id: `summary:${meetingId}`},
+        onSuccess: (_reply, summary, _result, {client}) => {
+            client.setQueryData<SummaryResponse>(meetingKeys.summary(meetingId), (old) => old && {...old, data: summary, userEdited: true})
+        },
     })
 
 // ---- Starting a summary ------------------------------------------------------------

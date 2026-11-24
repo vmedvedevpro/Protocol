@@ -25,7 +25,7 @@ src/
   app/                 the composition root: App, routes, AppThemeProvider,
                        app-wide sync hooks
     shell/             the main window's frame (Window shell below)
-    placeholder/       stand-ins for the screens until their tasks replace them
+    placeholder/       the minibar's stand-in until #116 replaces it
   api/                 native domains shared by several features (see below)
   components/ui/       design-system primitives, no feature knowledge
   components/editor/   the notes editor (BlockNote), loaded as its own chunk; its
@@ -142,8 +142,8 @@ minibar window has none of it.
   `preventScroll`): the control that navigated, such as Settings or Back to
   meetings, leaves with the old screen, and focus would fall to `<body>`.
   The first screen of the page (location key `default`) leaves focus alone.
-- Screens are placeholders in `app/placeholder/Screens.tsx` until their tasks
-  replace them in the route table.
+- The minibar is a placeholder (`app/placeholder/MinibarPlaceholder.tsx`)
+  until #116 replaces it in the route table.
 
 ### Startup
 
