@@ -1,4 +1,5 @@
 import type {Platform} from '@/lib/platform'
+import {audioHandlers} from './audio'
 import {notesHandlers} from './notes'
 import {mockState} from './state'
 
@@ -32,6 +33,8 @@ export const handlers: Record<string, MockHandler> = {
 
     // src-tauri/src/updater/commands.rs
     updater_get_status: () => mockState.updater,
+
+    ...audioHandlers,
 
     // src-tauri/src/database/repositories/meeting_notes.rs
     ...notesHandlers(mockState),

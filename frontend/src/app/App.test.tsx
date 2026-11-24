@@ -62,12 +62,16 @@ describe('App', () => {
         })
 
         await emitMockEvent(UPDATER_STATUS_EVENT, downloading(10))
-        const line = await within(status).findByText('Downloading 9.9.9… 10%')
+        const line = await within(status).findByText('Downloading 9.9.9…')
+        const percent = await screen.findByText('10%')
+        // The percent sits beside the live region, so it is not announced on every push.
+        expect(status).not.toContainElement(percent)
 
         await emitMockEvent(UPDATER_STATUS_EVENT, downloading(20))
-        await waitFor(() => expect(line).toHaveTextContent('Downloading 9.9.9… 20%'))
-        // The same element: a new one would replay the swap on every push.
-        expect(within(status).getByText('Downloading 9.9.9… 20%')).toBe(line)
+        await waitFor(() => expect(percent).toHaveTextContent('20%'))
+        // The same elements: new ones would replay the swap on every push.
+        expect(within(status).getByText('Downloading 9.9.9…')).toBe(line)
+        expect(screen.getByText('20%')).toBe(percent)
     })
 
     it('saves the chosen theme and forces it on the native window', async () => {

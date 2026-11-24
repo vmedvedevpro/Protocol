@@ -1,56 +1,68 @@
-import {useId} from 'react'
-import {useMotionValue, useTransform} from 'motion/react'
+import {createContext, type KeyboardEvent, type ReactNode, useContext, useId, useRef} from 'react'
+import {AnimatePresence, useIsPresent, useMotionValue, useTransform} from 'motion/react'
 import * as m from 'motion/react-m'
 import styled, {css} from 'styled-components'
-import {springs} from '@/styles/motion'
+import {springs, tween} from '@/styles/motion'
+import {focusRing} from './styles'
 
 export interface SegmentedOption<T extends string> {
     value: T
     label: string
 }
 
-interface SegmentedControlProps<T extends string> {
-    /** Names the group for assistive technology. */
-    label: string
-    options: readonly SegmentedOption<T>[]
-    value: T
-    onChange: (value: T) => void
-}
+/**
+ * segments: a compact radio group on the window, such as the theme switch;
+ * tabs: a larger track of tabs over panels, such as Notes · Transcript ·
+ * Summary.
+ */
+type Variant = 'segments' | 'tabs'
 
 // The motion follows ddoemonn's Segmented Control on 21st.dev
 // (https://21st.dev/@ddoemonn/components/segmented-control), rebuilt on the
 // theme. Equal segments (the widest label sets them all) let the thumb move by
 // transform alone: translateX(i × 100%) of its own width lands on segment i.
 
-const Track = styled.div<{ $count: number }>`
+// Segments sit on the window with a border; tabs on a grey track whose
+// transparent border keeps the same geometry. Both pad the thumb by 2 px.
+const Track = styled.div<{ $count: number, $variant: Variant }>`
     position: relative;
     display: inline-grid;
     grid-template-columns: repeat(${({$count}) => $count}, minmax(0, 1fr));
     width: max-content;
-    height: ${({theme}) => theme.sizes.control.sm};
     padding: ${({theme}) => theme.space[0.5]};
-    border: 1px solid ${({theme}) => theme.colors.border};
-    border-radius: ${({theme}) => theme.radii.sm};
-    background: ${({theme}) => theme.colors.bg};
+    border: 1px solid;
+
+    ${({$variant}) => $variant === 'segments' ? css`
+        height: ${({theme}) => theme.sizes.control.sm};
+        border-color: ${({theme}) => theme.colors.border};
+        border-radius: ${({theme}) => theme.radii.sm};
+        background: ${({theme}) => theme.colors.bg};
+    ` : css`
+        height: ${({theme}) => theme.sizes.control.md};
+        border-color: transparent;
+        border-radius: ${({theme}) => theme.radii.md};
+        background: ${({theme}) => theme.colors.surface};
+    `};
 `
 
-const segmentText = css`
+const segmentText = css<{ $variant: Variant }>`
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    padding: 0 ${({theme}) => theme.space[2.5]};
-    ${({theme}) => theme.text.small};
+    padding: 0 ${({theme, $variant}) => $variant === 'segments' ? theme.space[2.5] : theme.space[3]};
+    ${({theme, $variant}) => $variant === 'segments' ? theme.text.small : theme.text.label};
     white-space: nowrap;
 `
 
-// A native radio under each segment: arrow keys and focus come from the
-// browser, and the shared `name` makes them one group. The thumb lies on top
-// and lets the pointer through. It is the only filled shape: hover and press
-// change the text colour alone, as in the reference.
-const Segment = styled.label<{ $selected: boolean }>`
+// Hover and press change the text colour alone; the thumb is the only filled
+// shape, as in the reference. Keyboard focus draws an outline.
+const segmentLook = css<{ $selected: boolean, $variant: Variant }>`
     position: relative;
     ${segmentText};
-    border-radius: ${({theme}) => theme.radii.xs};
+    margin: 0;
+    border: 0;
+    border-radius: ${({theme, $variant}) => $variant === 'segments' ? theme.radii.xs : theme.radii.sm};
+    background: transparent;
     color: ${({theme}) => theme.colors.muted};
     cursor: pointer;
     user-select: none;
@@ -65,6 +77,14 @@ const Segment = styled.label<{ $selected: boolean }>`
             color: ${({theme}) => theme.colors.soft};
         }
     `}
+`
+
+// A native radio under each segment: arrow keys and focus come from the
+// browser, and the shared `name` makes them one group. The radio fills its
+// segment, so a screen reader's focus box outlines the whole segment; the
+// thumb lies on top and lets the pointer through.
+const Segment = styled.label<{ $selected: boolean, $variant: Variant }>`
+    ${segmentLook};
 
     &:has(input:focus-visible) {
         outline: 2px solid ${({theme}) => theme.colors.text};
@@ -73,19 +93,28 @@ const Segment = styled.label<{ $selected: boolean }>`
 
     input {
         position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        margin: 0;
         opacity: 0;
         pointer-events: none;
     }
 `
 
-const Thumb = styled(m.span)<{ $count: number }>`
+const Tab = styled.button<{ $selected: boolean, $variant: Variant }>`
+    ${segmentLook};
+    ${focusRing};
+`
+
+const Thumb = styled(m.span)<{ $count: number, $variant: Variant }>`
     position: absolute;
     top: ${({theme}) => theme.space[0.5]};
     bottom: ${({theme}) => theme.space[0.5]};
     left: ${({theme}) => theme.space[0.5]};
     width: calc((100% - 2 * ${({theme}) => theme.space[0.5]}) / ${({$count}) => $count});
     overflow: hidden;
-    border-radius: ${({theme}) => theme.radii.xs};
+    border-radius: ${({theme, $variant}) => $variant === 'segments' ? theme.radii.xs : theme.radii.sm};
     background: ${({theme}) => theme.colors.raised};
     box-shadow: ${({theme}) => theme.shadows.raised};
     pointer-events: none;
@@ -99,7 +128,7 @@ const ThumbCopy = styled(m.span)`
     inset: 0;
 `
 
-const ThumbLabels = styled.span<{ $count: number }>`
+const ThumbLabels = styled.span<{ $count: number, $variant: Variant }>`
     position: absolute;
     top: 0;
     bottom: 0;
@@ -114,23 +143,54 @@ const ThumbLabels = styled.span<{ $count: number }>`
     }
 `
 
-/**
- * One choice out of a few, with a thumb that slides to it on
- * `springs.snappy`. Under reduced motion the thumb jumps (MotionProvider).
- */
-export function SegmentedControl<T extends string>({label, options, value, onChange}: SegmentedControlProps<T>) {
-    const name = useId()
-    const at = Math.max(options.findIndex((option) => option.value === value), 0)
-
+function SlidingThumb({at, labels, variant}: { at: number, labels: readonly string[], variant: Variant }) {
     // The thumb's own offset drives its copy of the labels, so the two can
     // never drift apart, even when a new choice interrupts the spring.
     const thumbX = useMotionValue(`${at * 100}%`)
     const copyX = useTransform(thumbX, (offset) => `calc(${offset} * -1)`)
 
     return (
-        <Track role="radiogroup" aria-label={label} $count={options.length}>
+        <Thumb
+            aria-hidden
+            $count={labels.length}
+            $variant={variant}
+            style={{x: thumbX}}
+            initial={false}
+            animate={{x: `${at * 100}%`}}
+            transition={springs.snappy}
+        >
+            <ThumbCopy style={{x: copyX}}>
+                <ThumbLabels $count={labels.length} $variant={variant}>
+                    {labels.map((label, i) => <span key={i}>{label}</span>)}
+                </ThumbLabels>
+            </ThumbCopy>
+        </Thumb>
+    )
+}
+
+const indexOf = <T extends string>(options: readonly SegmentedOption<T>[], value: T) =>
+    Math.max(options.findIndex((option) => option.value === value), 0)
+
+interface SegmentedControlProps<T extends string> {
+    /** Names the group for assistive technology. */
+    label: string
+    options: readonly SegmentedOption<T>[]
+    value: T
+    onChange: (value: T) => void
+}
+
+/**
+ * One choice out of a few, with a thumb that slides to it on
+ * `springs.snappy`. Under reduced motion the thumb jumps (MotionProvider).
+ * For views over panels, use Tabs: the same track as a tab list.
+ */
+export function SegmentedControl<T extends string>({label, options, value, onChange}: SegmentedControlProps<T>) {
+    const name = useId()
+
+    return (
+        <Track role="radiogroup" aria-label={label} $count={options.length} $variant="segments">
             {options.map((option) => (
-                <Segment key={option.value} $selected={option.value === value}>
+                <Segment key={option.value} $selected={option.value === value} $variant="segments">
                     <input
                         type="radio"
                         name={name}
@@ -141,20 +201,153 @@ export function SegmentedControl<T extends string>({label, options, value, onCha
                     {option.label}
                 </Segment>
             ))}
-            <Thumb
-                aria-hidden
-                $count={options.length}
-                style={{x: thumbX}}
-                initial={false}
-                animate={{x: `${at * 100}%`}}
-                transition={springs.snappy}
-            >
-                <ThumbCopy style={{x: copyX}}>
-                    <ThumbLabels $count={options.length}>
-                        {options.map((option) => <span key={option.value}>{option.label}</span>)}
-                    </ThumbLabels>
-                </ThumbCopy>
-            </Thumb>
+            <SlidingThumb
+                at={indexOf(options, value)}
+                labels={options.map((option) => option.label)}
+                variant="segments"
+            />
         </Track>
+    )
+}
+
+interface TabsState {
+    ids: string
+    label: string
+    options: readonly SegmentedOption<string>[]
+    value: string
+    onChange: (value: string) => void
+}
+
+const TabsContext = createContext<TabsState | null>(null)
+
+function useTabs(part: string) {
+    const tabs = useContext(TabsContext)
+    if (!tabs) throw new Error(`${part} must be inside Tabs`)
+    return tabs
+}
+
+const tabId = (ids: string, index: number) => `${ids}-tab-${index}`
+const panelId = (ids: string, index: number) => `${ids}-panel-${index}`
+
+interface TabsProps<T extends string> extends SegmentedControlProps<T> {
+    /** Somewhere inside: one TabList and one TabPanels. */
+    children: ReactNode
+}
+
+/**
+ * Views over one area: a TabList (the segmented track) and TabPanels (the
+ * view), placed anywhere inside. Arrow keys, Home and End move between tabs
+ * and show each at once.
+ */
+export function Tabs<T extends string>({label, options, value, onChange, children}: TabsProps<T>) {
+    const ids = useId()
+    const state: TabsState = {ids, label, options, value, onChange: onChange as (value: string) => void}
+    return <TabsContext.Provider value={state}>{children}</TabsContext.Provider>
+}
+
+const KEY_STEPS: Record<string, (at: number, count: number) => number> = {
+    ArrowRight: (at, count) => (at + 1) % count,
+    ArrowLeft: (at, count) => (at - 1 + count) % count,
+    Home: () => 0,
+    End: (_, count) => count - 1,
+}
+
+/** The tabs of the Tabs around it, on the segmented track. */
+export function TabList() {
+    const {ids, label, options, value, onChange} = useTabs('TabList')
+    const buttons = useRef<(HTMLButtonElement | null)[]>([])
+    const at = indexOf(options, value)
+
+    // Only the selected tab is in the Tab order; arrows move between them.
+    const onKeyDown = (event: KeyboardEvent) => {
+        const step = KEY_STEPS[event.key]
+        if (!step) return
+        event.preventDefault()
+        const next = step(at, options.length)
+        onChange(options[next].value)
+        buttons.current[next]?.focus()
+    }
+
+    return (
+        <Track role="tablist" aria-label={label} $count={options.length} $variant="tabs" onKeyDown={onKeyDown}>
+            {options.map((option, i) => (
+                <Tab
+                    key={option.value}
+                    ref={(button) => {
+                        buttons.current[i] = button
+                    }}
+                    type="button"
+                    role="tab"
+                    id={tabId(ids, i)}
+                    aria-selected={i === at}
+                    aria-controls={panelId(ids, i)}
+                    tabIndex={i === at ? 0 : -1}
+                    onClick={() => onChange(option.value)}
+                    $selected={i === at}
+                    $variant="tabs"
+                >
+                    {option.label}
+                </Tab>
+            ))}
+            <SlidingThumb at={at} labels={options.map((option) => option.label)} variant="tabs"/>
+        </Track>
+    )
+}
+
+// The leaving and the arriving panel share one grid cell, so they crossfade
+// in place; the area takes the taller one's height until the old one is gone.
+const PanelStack = styled.div`
+    display: grid;
+    flex: 1;
+    grid-template: minmax(0, 1fr) / minmax(0, 1fr);
+    min-height: 0;
+`
+
+const Panel = styled(m.div)`
+    grid-area: 1 / 1;
+    min-height: 0;
+    overflow-y: auto;
+
+    &:focus-visible {
+        outline: 2px solid ${({theme}) => theme.colors.text};
+        outline-offset: -2px;
+    }
+`
+
+function TabPanel({index, ids, children}: { index: number, ids: string, children: ReactNode }) {
+    // A leaving panel is out of reach while it fades.
+    const present = useIsPresent()
+    return (
+        <Panel
+            role="tabpanel"
+            id={panelId(ids, index)}
+            aria-labelledby={tabId(ids, index)}
+            tabIndex={0}
+            inert={!present}
+            initial={{opacity: 0}}
+            animate={{opacity: 1}}
+            exit={{opacity: 0}}
+            transition={tween('base')}
+        >
+            {children}
+        </Panel>
+    )
+}
+
+interface TabPanelsProps<T extends string> {
+    /** Renders the view for a tab's value. */
+    children: (value: T) => ReactNode
+}
+
+/** The view of the selected tab. A new view crossfades with the old over `base`, without sliding. */
+export function TabPanels<T extends string>({children}: TabPanelsProps<T>) {
+    const {ids, options, value} = useTabs('TabPanels')
+    const at = indexOf(options, value)
+    return (
+        <PanelStack>
+            <AnimatePresence initial={false}>
+                <TabPanel key={value} index={at} ids={ids}>{children(value as T)}</TabPanel>
+            </AnimatePresence>
+        </PanelStack>
     )
 }

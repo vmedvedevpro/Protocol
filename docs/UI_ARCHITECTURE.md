@@ -81,6 +81,34 @@ router's list goes to `/`.
   before the bundle runs, repeats the theme key and values of `themeMode.ts`;
   `themeBoot.test.ts` runs it against them.
 
+## Primitives
+
+`components/ui` holds the building blocks every screen uses, each with Light
+and Dark stories. Behaviour and accessibility come from Radix (Dialog, Select,
+DropdownMenu, Switch, Tooltip) or from native elements; the look from the
+theme; the motion from the Motion section.
+
+- `Button` (filled, secondary, ghost; `sm` 28 px in rows, `md` 30 px in
+  footers) and `IconButton`, whose required `label` is its accessible name
+  and its tooltip. `Kbd` shows a shortcut on the window, a grey field or a
+  filled button.
+- `SegmentedControl`, and `Tabs` with `TabList` and `TabPanels` (see Motion).
+- `Switch`, `Select`, `TextField` and `TextArea`. `SettingsGroup`,
+  `SettingsRow` and `SettingsNavRow` lay out a settings card; a control in a
+  row without a label of its own is named by the row's label and described
+  by its description.
+- `Menu` with `MenuItem`, `MenuCheckboxItem`, `MenuRadioGroup` and
+  `MenuRadioItem`, `MenuGroup`, `MenuSub` and `MenuSeparator`.
+- `Sheet`: a dialog over the dimmed window, opened through `open`. On close
+  it returns focus to the control that opened it; for a menu item, which
+  has gone with its menu, that is the menu's button.
+- `Tooltip` shares its open delay through `TooltipProvider`.
+- `UiProviders` (`app/`) is what the primitives expect above them besides
+  the theme: `MotionProvider`, the icon defaults and `TooltipProvider`. App,
+  Storybook's decorator and the tests' `renderUi` (`src/test/`) mount it.
+- `StatusLine` and `ProgressBar`. The bar scales its fill by transform from
+  an inline style, so a ticking value makes no new class.
+
 ## Motion
 
 Motion shows what changed: where a selection went, what arrived, what left. It
@@ -100,7 +128,7 @@ focus); motion (`motion/react`) carries enter and exit, indicators and springs.
   frame would lay the window out again. Something that has to grow appears
   with a fade and a small rise, and the layout moves once.
 - Animated elements are `m.*` (`import * as m from 'motion/react-m'`) under
-  `MotionProvider` (in `App` and in Storybook's decorator). It loads
+  `MotionProvider` (through `UiProviders`). It loads
   `domAnimation` (`app/motionFeatures.ts`) as its own chunk after the first
   render; until then an `m` element keeps the values it mounted with and
   catches up when the chunk arrives. Its `strict` mode rejects the full
@@ -108,20 +136,33 @@ focus); motion (`motion/react`) carries enter and exit, indicators and springs.
   motion's imperative API (`animate()`, `useAnimate`): it puts the engine back
   into the first chunk. Layout animations (`layout`, `layoutId`) need
   `domMax`, which is not loaded: an indicator moves by transform instead.
-- Tabs and segmented controls reuse `SegmentedControl` (`components/ui`),
-  whose motion follows ddoemonn's
+- Segmented controls and tabs share one track (`SegmentedControl.tsx` in
+  `components/ui`), whose motion follows ddoemonn's
   [Segmented Control](https://21st.dev/@ddoemonn/components/segmented-control)
   on 21st.dev, the owner's pick: equal segments, a thumb moved by transform
   on `springs.snappy`, and the thumb as the only filled shape. Hover and press
-  change only the text colour; keyboard focus draws an outline. #108's
-  segmented tabs reuse it.
+  change only the text colour; keyboard focus draws an outline.
+  `SegmentedControl` is a radio group on the window (the theme);
+  `Tabs` with `TabList` and `TabPanels` is a tab list on a grey track over
+  its views (the meeting's Notes · Transcript · Summary).
+- Radix gives the overlays their behaviour; motion animates them. Sheet,
+  Menu and Tooltip hold their open state, and AnimatePresence keeps their
+  `forceMount`ed content until the exit has played (Radix's guide to
+  JavaScript animation). Select cannot: closed, Radix keeps its items in a
+  detached fragment, which shows the current label and selects by typing, so
+  its list stays forced in for `fast` after it closes.
 - What animates and how:
   - Tabs and segmented controls: the thumb slides; the panel below swaps
     with a `base` crossfade, without sliding.
   - Sheets and dialogs: in from their edge by `y` on `springs.gentle`, the
-    scrim fading over `base`; out with `tween('base', 'exit')`.
-  - Menus and popovers: opacity and a scale from 0.96, with
-    `transform-origin` on the side of their anchor, over `fast`.
+    scrim fading over `base`; out with `tween('base', 'exit')`. A sheet hangs
+    under the window's header, so it arrives from above.
+  - Menus, select lists and tooltips: opacity and a scale from `SCALE_FROM`
+    (0.96), with `transform-origin` on the side of their anchor, over
+    `fast`. Inside a menu or a select list one highlight slides between the
+    items on `springs.snappy` (`SlidingHighlight`); it stays on the last
+    item while the pointer crosses a separator, and fades when the pointer
+    leaves the list.
   - Lists: a new row fades in rising 4 px over `base`, a removed row fades
     out; no stagger, and no reordering animation (it needs layout).
   - Status changes (a status line, a badge, a count): `AnimatePresence
@@ -129,10 +170,12 @@ focus); motion (`motion/react`) carries enter and exit, indicators and springs.
     and 4 px of `y` over `fast`, as the shell's update status does. The key
     names the meaning, not the text: re-key when the meaning changes, never
     on every value; a value inside one meaning (a download's percent, a
-    count) updates in place.
+    count) updates in place. That value also stays outside the
+    `role="status"` live region, beside it, so screen readers announce a
+    change of meaning and not every tick; `StatusLine` does both.
   - Hover, press, focus: CSS on the element. Colour and background change
-    over `fast`; a button's press scales it to 0.96 inside `MOTION_OK`; the
-    focus outline appears at once. Segmented options take neither a fill nor
+    over `fast`; a button's press scales it to `SCALE_FROM` inside
+    `MOTION_OK`; the focus outline appears at once. Segmented options take neither a fill nor
     a scale.
   - Every theme change crossfades: `setMode` goes through
     `changeThemeSmoothly` (`styles/themeTransition.ts` says how and why), and
@@ -250,7 +293,62 @@ one window. To use an event:
 
 Mount a sync hook once, in the layout of the screens that read the data, or in
 `App` when every window needs it. Values that arrive many times a second (audio
-levels) skip Query and React state; see Styling.
+levels) skip Query and React state; see Styling and the next section.
+
+## Audio levels, the ring and the meters
+
+- Native code pushes two level events, declared in `src/api/audio.ts`:
+  `recording-audio-levels`, one sample per source (`mic`, `system`) and audio
+  chunk during a recording, about 25 a second per source; and `audio-levels`,
+  every previewed device about 12 times a second between
+  `start_audio_level_monitoring` and `stop_audio_level_monitoring`.
+  `levelOf(rms, peak)` turns a sample into 0 to 1 on the old meters' decibel
+  scale (-50 dB empty, -16 dB full).
+- A screen says what to follow with a `LevelFeed`, plain data:
+  `{kind: 'recording', source: 'mic' | 'system' | 'both'}` (`both` is the
+  louder source) or `{kind: 'device', type: 'input' | 'output', device?,
+  gain?}`. As in the old preview, a device matches when either name contains
+  the other (a stored device carries a ` (input)` or ` (output)` suffix),
+  otherwise the loudest device of the type counts, and `gain` (the volume
+  slider beside a preview meter) applies before the decibels, so moving the
+  slider moves the meter at once.
+  `useAudioLevel(feed, onLevel)` hands each level to a callback that writes a
+  ref or a canvas, never state; `subscribeAudioLevel` is the same without
+  React, on `subscribeNative` (`src/api/events.ts`). Each subscriber has
+  its own listener: Tauri sends an event to a webview once, with every
+  listener's id, so more listeners cost only their callbacks.
+  `useAudioLevelMonitoring(deviceNames)` runs the device preview while mounted
+  and stops it on unmount; its starts and stops wait for each other, because
+  native's start stops the old preview and waits before it opens the devices,
+  so a stop arriving meanwhile would be undone.
+- `components/ring` holds what draws them. `Ring` is the design's WebGL ring
+  in four modes: `rec` follows the level, `test` (the mic test) exaggerates
+  it, `idle` is greyed and slow and does not listen, `paused` is flat and
+  grey. `LevelMeter` is the five bars;
+  `SourceMeter` is the mute toggle of the recording bar and the minibar, with
+  the bars or, muted, "Muted" on an inverted fill. The button around the ring
+  (pause) and the native mute calls belong to the screens.
+- The ring's cost is bounded in `ringLoop.ts`: one requestAnimationFrame loop
+  per ring, running only while the canvas is on screen, the document is
+  visible and motion is allowed; under reduced motion it draws one frame and
+  draws it again when a prop or the theme changes. The canvas is the CSS
+  size times the device pixel ratio, capped at 2, on a context without
+  antialiasing, depth or stencil that asks for the low-power GPU. The shader
+  runs in highp where the GPU has it, and its clock wraps every 40π s, the
+  period on which every time term repeats, so on a GPU with only a 16-bit
+  mediump its error stays under 1/16 s instead of growing with the
+  recording. Without
+  WebGL, or while the context is lost, `StaticRing` shows a still gradient
+  ring greyed per mode. Under reduced motion the ring holds the logo's frame
+  in its mode's grey; the meters still show the level, without easing.
+- The meters write `transform: scaleY(…)` on their bars at each sample and
+  let a CSS transition smooth it; they fall to rest 300 ms after the last
+  sample, since native stops sending when a recording stops.
+- The mock fakes both events (`src/mocks/audio.ts`): outside tests a fake
+  conversation emits `recording-audio-levels` from the start, and the preview
+  commands emit `audio-levels` for the devices asked for.
+  `mockState.audio.level` holds both sources at one level instead (the
+  stories' level slider). Tests emit the samples they need.
 
 ## Mock IPC
 
@@ -303,9 +401,13 @@ export const Light: Story = {globals: {theme: 'light'}}
 export const Dark: Story = {globals: {theme: 'dark'}}
 ```
 
-The decorator in `.storybook/preview.tsx` provides the theme, `GlobalStyle`, the
-icon defaults and a query client on the mock IPC. The toolbar switches the theme
-for stories that do not set it.
+The decorator in `.storybook/preview.tsx` provides the theme, `GlobalStyle`,
+`UiProviders` and a query client on the mock IPC. The toolbar switches the
+theme for stories that do not set it.
+
+`@storybook/addon-a11y` runs axe on every story in its Accessibility panel, in
+both themes; a violation there is fixed in the component, not hidden in the
+story.
 
 ## Tests
 
@@ -328,6 +430,8 @@ for stories that do not set it.
 - jsdom has no `matchMedia`; `setSystemDark()` from `src/test/matchMedia.ts`
   flips the OS theme.
 - Test behavior through the UI: roles and visible text, `userEvent` for input.
+  `renderUi` (`src/test/renderUi.ts`) renders under the light theme and
+  `UiProviders`, as the app does; its `rerender` keeps them.
   Give each test its own client from `createTestQueryClient()`
   (`src/test/queryClient.ts`): it does not retry, so a rejected command shows
   as an error at once instead of after Query's 7 s of retries.

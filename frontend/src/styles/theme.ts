@@ -25,12 +25,18 @@ export interface ThemeColors {
     border: string
     /** Dims the window under a dialog. */
     scrim: string
+    /** A switch's track while it is off. */
+    track: string
+    /** A switch's knob while it is off; on, the knob takes `bg` over a `text` track. */
+    knob: string
+    /** A hint laid on a filled button, such as its shortcut. */
+    fillHint: string
 }
 
 export interface ThemeShadows {
     /** The selected tab or segment over its track. */
     raised: string
-    /** A floating bar, such as the minibar. */
+    /** A floating bar (the minibar), menus, select lists, tooltips. */
     popover: string
     /** A dialog over the dimmed window. */
     dialog: string
@@ -46,6 +52,9 @@ const colors: Record<ThemeName, ThemeColors> = {
         muted: '#525252',
         border: '#E4E4E4',
         scrim: 'rgba(0, 0, 0, 0.28)',
+        track: '#D4D4D4',
+        knob: '#FFFFFF',
+        fillHint: 'rgba(255, 255, 255, 0.18)',
     },
     dark: {
         bg: '#0A0A0A',
@@ -56,6 +65,9 @@ const colors: Record<ThemeName, ThemeColors> = {
         muted: '#A4A4A4',
         border: '#262626',
         scrim: 'rgba(0, 0, 0, 0.55)',
+        track: '#3A3A3A',
+        knob: '#A4A4A4',
+        fillHint: 'rgba(0, 0, 0, 0.12)',
     },
 }
 
@@ -72,6 +84,26 @@ const shadows: Record<ThemeName, ThemeShadows> = {
     },
 }
 
+/**
+ * The recording ring (components/ring), the window's only colored element:
+ * the three stops its gradient turns through, the highlight that walks around
+ * it, and how strongly its halo shows (0 to 1). The colors are those of the
+ * design's shader; the small static ring uses the same three stops.
+ */
+export interface RingPalette {
+    violet: string
+    blue: string
+    cyan: string
+    highlight: string
+    halo: number
+}
+
+const ring: Record<ThemeName, RingPalette> = {
+    light: {violet: '#7845F2', blue: '#2E66F2', cyan: '#0599BF', highlight: '#9EB3FF', halo: 0.1},
+    // Lighter stops and a stronger halo: on black the glow is what reads.
+    dark: {violet: '#996BFF', blue: '#5C94FF', cyan: '#6BE0FA', highlight: '#FFFFFF', halo: 0.22},
+}
+
 // The family names @fontsource-variable registers; the fonts ship with the app
 // (src/styles/fonts.ts), so every platform renders the same glyphs.
 const fonts = {
@@ -86,15 +118,17 @@ const fonts = {
 const text = {
     /** Minibar status, keyboard hints. */
     caption: {fontSize: '11px', lineHeight: '14px'},
-    /** Secondary lines under a title. */
+    /** Secondary lines under a title, segments, tooltips. */
     small: {fontSize: '12px', lineHeight: '16px'},
-    /** Buttons, tabs, segments. */
+    /** Compact buttons and tabs. */
     label: {fontSize: '12.5px', lineHeight: '18px', fontWeight: 500},
     body: {fontSize: '13px', lineHeight: '20px'},
     /** Inputs and the search field. */
     input: {fontSize: '14px', lineHeight: '20px'},
     /** The recording timer, in Geist Mono with tabular figures. */
     timer: {fontSize: '14px', lineHeight: '18px', fontWeight: 600},
+    /** A sheet's title. */
+    heading: {fontSize: '15px', lineHeight: '22px', fontWeight: 600},
     title: {fontSize: '18px', lineHeight: '24px', fontWeight: 600, letterSpacing: '-0.01em'},
     display: {fontSize: '22px', lineHeight: '28px', fontWeight: 600, letterSpacing: '-0.02em'},
     /** What the user writes in the notes editor. */
@@ -140,12 +174,29 @@ const space = {
 }
 
 const sizes = {
-    /** Control heights: compact buttons and segments, regular buttons, inputs. */
-    control: {sm: '28px', md: '32px', lg: '36px'},
+    /**
+     * Control heights. sm: compact buttons, segments, fields inside a settings
+     * row; base: regular buttons (a sheet's footer, Record); md: text fields,
+     * the tabs track, larger icon buttons; lg: a field that stands alone, such
+     * as the name on first launch.
+     */
+    control: {sm: '28px', base: '30px', md: '32px', lg: '36px'},
+    /** A switch's track; its knob fills the height less the track's padding. */
+    switch: {width: '32px', height: '18px'},
+    /** A progress bar's thickness. */
+    progress: '3px',
+    /** A menu or a select's list is at least `minWidth`; a select's button at most `triggerMaxWidth`. */
+    popover: {minWidth: '128px', triggerMaxWidth: '190px'},
     /** The compact desktop window the design is drawn for. */
     window: {width: '460px', height: '700px'},
     /** The window's title strip and its bottom bar (the recording panel). */
     bar: {header: '44px', footer: '56px'},
+    /**
+     * The level meter: one bar's width and full height, the source icon
+     * beside it, and the smallest width of the mute button that holds them,
+     * so the button keeps its width when the bars give way to "Muted".
+     */
+    meter: {bar: '3px', height: '16px', icon: '14px', button: '76px'},
 }
 
 /** Motion tokens for CSS transitions; the values live in ./motion.ts. */
@@ -167,6 +218,7 @@ function makeTheme(name: ThemeName) {
         name,
         colors: colors[name],
         shadows: shadows[name],
+        ring: ring[name],
         fonts,
         text,
         fontWeights,
