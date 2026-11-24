@@ -25,6 +25,13 @@ function createMockState() {
 
     return {
         appVersion: packageJson.version,
+        // Which platform-only commands answer (`platformHandlers`). Starts as
+        // the page's platform; a test or story of a Windows- or macOS-only
+        // screen sets it before rendering.
+        platform,
+        // Links `open_external_url` opened, in order, instead of a browser tab
+        // (jsdom has no window.open); `__PROTOCOL_MOCK__.state` in pnpm dev.
+        openedUrls: [] as string[],
         updater,
     }
 }

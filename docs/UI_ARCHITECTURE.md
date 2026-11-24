@@ -103,12 +103,17 @@ router's list goes to `/`.
   owns is read with `useQuery` and changed with `useMutation`, never copied into
   a store. Zustand holds client state only: UI choices, drafts, the theme mode.
   A store that must survive a restart uses `persist`. A key PARITY.md marks
-  **Keep reading** keeps its name and its old value format: its store gets a
-  `PersistStorage` of its own, as `bareStringStorage` in
-  `src/styles/themeMode.ts` does, never Zustand's default `{state, version}`
-  JSON. The default cannot read an old bare string or JSON shape, so the store
-  would start from its default and overwrite the user's value on the first
-  write. The default format is for new keys only.
+  **Keep reading** keeps its name and its old value format. If a Zustand store
+  holds it, the store gets a `PersistStorage` of its own, as
+  `bareStringStorage` in `src/styles/themeMode.ts` does, never Zustand's
+  default `{state, version}` JSON. The default cannot read an old bare string
+  or JSON shape, so the store would start from its default and overwrite the
+  user's value on the first write. The default format is for new keys only.
+  A per-meeting key family (`summaryLanguageFallback:<meetingId>`,
+  `detectedSummaryLanguageFallback:<meetingId>`,
+  `meetily-speaker-edits:<meetingId>`) belongs to no store: the feature's api
+  file reads and writes each key with `localStorage` directly, under the old
+  name and format, since `persist` keeps a whole store under one key.
 - Data that native code pushes whole by event gets `staleTime: Infinity`, and
   only the event writes it (see Events). Other data keeps the default
   `staleTime` and is invalidated after the mutations that change it.
@@ -123,8 +128,12 @@ router's list goes to `/`.
   and an empty one when it ends. Otherwise an update can restart the app in
   the middle of the work. A new activity name needs a native `UiActivity`
   variant first: an unknown name fails the whole call, so the lease stops
-  being renewed for the others. Work a native command does (a summary, a
-  download) holds `updater::busy::hold(…)` itself and needs no lease.
+  being renewed for the others. Long work a native command does registers
+  natively and needs no lease: it holds `updater::busy::hold(…)` while it runs
+  (model downloads), or `busy::current()` reads it through its owner's getter
+  (summaries, through `active_summary_count`). A command that does neither
+  (today `ask_live_assistant` and `ask_person`) gets that added in Rust,
+  never a UI lease.
 
 ## Events
 
@@ -191,10 +200,12 @@ Outside Tauri, `pnpm dev`, Storybook and every test run on
 - A command native code registers on one platform only (`#[cfg]` in
   `generate_handler!`; "Windows only" or "macOS only" in PARITY.md) goes into
   `platformHandlers.windows` or `platformHandlers.macos`, never `handlers`.
-  The mock answers it only when `platform` (`src/lib/platform.ts`,
-  `?platform=` in the browser) matches; elsewhere it rejects with Tauri's
-  `Command <name> not found`, so the preview and the tests reach the screen's
-  "not available" path as the app does on that platform.
+  The mock answers it only when `mockState.platform` matches; elsewhere it
+  rejects with Tauri's `Command <name> not found`, so the preview and the
+  tests reach the screen's "not available" path as the app does on that
+  platform. `resetMockState()` sets it from `src/lib/platform.ts` (`?platform=`
+  in the browser); a test or story of the available path sets it before
+  rendering (see Tests). A command in both maps stops the mock from loading.
 - A command without a handler rejects with a message naming
   `src/mocks/handlers.ts`, so a screen never renders an empty reply as data.
 - To push an event, call `emitMockEvent(EVENT, payload)`; in `pnpm dev`, the
@@ -222,6 +233,13 @@ for stories that do not set it.
   and clears the DOM, the theme mode and localStorage after it. Change a reply
   for one test with `vi.spyOn(handlers, 'command').mockImplementation(…)`; spies
   are restored after each test.
+- Tests run as `linux`: jsdom's user agent names no other platform. To test
+  a Windows- or macOS-only command's available path, set
+  `mockState.platform = 'windows'` (or `'macos'`) before rendering;
+  `resetMockState()` restores it before the next test. It changes only what
+  the mock answers, not `platform` from `src/lib/platform.ts`.
+- The mock's `open_external_url` opens nothing (jsdom has no `window.open`):
+  it appends the link to `mockState.openedUrls`, for the test to check.
 - The mock takes the window label from the path when it is installed
   (`minibar` for `/minibar`, otherwise `main`). A test of the minibar sets the
   path, then calls `installMockIpc()` again before rendering.

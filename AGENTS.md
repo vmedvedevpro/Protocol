@@ -83,7 +83,8 @@ planned work is tracked in [GitHub issues](https://github.com/vmedvedevpro/Proto
 ## Verification pointers
 
 - Run targeted native tests for the affected behavior. For the frontend, run
-  `pnpm run lint`, `pnpm test` and `pnpm run build` in `frontend/`
+  `pnpm run lint`, `pnpm test`, `pnpm run build` and
+  `pnpm run build-storybook` in `frontend/`, as `pr-checks.yml` does
   ([docs/UI_ARCHITECTURE.md](docs/UI_ARCHITECTURE.md)).
 - Serialize `pnpm run build`, which writes `frontend/out`, with native builds
   and tests that embed it.

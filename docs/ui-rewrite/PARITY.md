@@ -47,11 +47,12 @@ same day.
    while any download runs; a click opens Settings › Speech models (#117; the
    line sits in #110's bar).
 3. **"Summarize so far":** kept, through `ask_live_assistant` (#112). It
-   takes no UI activity lease: the recording's `recording` busy reason already
-   covers it, and if it must outlive Stop, `ask_live_assistant` holds
-   `busy::hold(BusyReason::Summary)` natively. Native `UiActivity` knows only
-   `recordingSave` and `postCall`, and an unknown name rejects the whole
-   `updater_set_ui_activity` call.
+   takes no UI activity lease: while recording, the `recording` busy reason
+   covers it. Native `ask_live_assistant` holds no busy reason of its own today
+   (`live_assistant.rs`); if an answer can outlive Stop, #112 adds
+   `let _busy = busy::hold(BusyReason::Summary);` to it. Native `UiActivity`
+   knows only `recordingSave` and `postCall`, and an unknown name rejects the
+   whole `updater_set_ui_activity` call.
 4. **First launch** downloads Parakeet, Whisper Large V3 Turbo and the
    built-in summary model `builtin_ai_get_recommended_model` picks, all in the
    background (#115).
@@ -128,7 +129,7 @@ such a command only on its platform
 
 | Item | Kind | Old file | Owner | Notes |
 | --- | --- | --- | --- | --- |
-| `ask_live_assistant` | command | `components/groups/GroupDetailView.tsx`, `components/recording/LivePanel.tsx` | #112 | "Summarize so far" in the recording window (owner decision 2026-11-24). No UI activity lease: the `recording` busy reason covers it; if it must outlive Stop, `ask_live_assistant` holds `busy::hold(BusyReason::Summary)` natively. The AI chat during recording and on groups stays dropped. |
+| `ask_live_assistant` | command | `components/groups/GroupDetailView.tsx`, `components/recording/LivePanel.tsx` | #112 | "Summarize so far" in the recording window (owner decision 2026-11-24). No UI activity lease: the `recording` busy reason covers it while recording. Native holds nothing of its own today; if an answer can outlive Stop, #112 adds `busy::hold(BusyReason::Summary)` in `live_assistant.rs` (decision 3). The AI chat during recording and on groups stays dropped. |
 | `attempt_device_reconnect` | command | `components/RecordingControls.tsx` | #112 | Switch a device while recording; on failure the old device keeps recording. |
 | `check_transcription_runtime` | command | `hooks/useRecordingStart.ts` | #112 | First step of a start; a missing runtime blocks the start with its message. |
 | `get_recording_meeting_name` | command | `services/recordingService.ts` | #112 | Title of the running recording after a reload. |

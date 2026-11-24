@@ -1406,19 +1406,14 @@ cannot read safely. Data flow, limits, packaging and the update path:
 
 ### Speaker colors in transcripts
 
-`speakerUtils.ts` supplies the shared dot/text palette for the live and post-call
-virtualized transcript, the live speakers list, the person card and the identify
-dialog. The Tailwind scan must include `src/utils`, where the palette class names
-are declared, or named speakers can render without a dot or text color in
-production. A named person is drawn in their avatar's colour (`colorForName`),
+In the old UI (`162e8be`), `speakerUtils.ts` supplies the shared dot/text
+palette for the live and post-call virtualized transcript, the live speakers
+list, the person card and the identify dialog. A named person is drawn in their avatar's colour (`colorForName`),
 so they look the same in the transcript, the meeting header and their contact
 page; their transcript bubbles take a faint wash of it (`.af-speaker-bubble`).
 Unnamed voices ("Speaker 2") get palette slots by first-spoken meeting order, so
 they stay apart until identified; `You` uses the theme accent. The palette has
 eight slots, so meetings with more than eight unnamed voices reuse colors.
-The focused `tests/lib/speaker-colors.test.mjs` checks slot continuity and the
-contact colour; the Next production CSS output must also contain every dot
-palette class.
 
 ### Themes (#96)
 
@@ -1483,14 +1478,16 @@ The code, the saved settings and the `layout.tsx` listeners stay; turning
 detection back on after a fix means flipping both constants. #6 waits for that.
 
 From `frontend/`, the frontend checks are `pnpm run lint`, `pnpm test` (Vitest
-runs every test file in one invocation) and `pnpm run build`; CI's
-`pr-checks.yml` runs them and the Storybook build. Where tests live and how
-they use the mock IPC is in [UI_ARCHITECTURE.md › Tests](UI_ARCHITECTURE.md#tests).
+runs every test file in one invocation), `pnpm run build` and
+`pnpm run build-storybook`, as CI's `pr-checks.yml` runs them. Where tests live
+and how they use the mock IPC is in
+[UI_ARCHITECTURE.md › Tests](UI_ARCHITECTURE.md#tests).
 
 ```text
 pnpm run lint
 pnpm test
 pnpm run build
+pnpm run build-storybook
 ```
 
 Native tests containing `live_nemotron` cover timeline attribution, retained tail,

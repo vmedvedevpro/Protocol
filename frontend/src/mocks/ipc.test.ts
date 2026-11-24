@@ -3,9 +3,9 @@ import {getAppVersion} from '@/api/app'
 import {command, CommandError} from '@/api/core'
 import {openExternalUrl} from '@/api/links'
 import {getUpdaterStatus} from '@/api/updater'
-import {platform} from '@/lib/platform'
 import packageJson from '../../package.json'
 import {handlers, platformHandlers} from './handlers'
+import {mockState} from './state'
 
 describe('mock IPC', () => {
     it('answers the shell commands from the in-memory state', async () => {
@@ -36,26 +36,45 @@ describe('mock IPC', () => {
         })
     })
 
-    it('opens http and https links in the browser and refuses others, as native does', async () => {
-        const open = vi.spyOn(window, 'open').mockReturnValue(null)
-
+    it('opens http and https links and refuses others, as native does', async () => {
         await openExternalUrl('https://github.com/vmedvedevpro/Protocol')
+        await openExternalUrl('http://example.com/')
 
-        expect(open).toHaveBeenCalledWith('https://github.com/vmedvedevpro/Protocol', '_blank', 'noopener')
+        expect(mockState.openedUrls).toEqual(['https://github.com/vmedvedevpro/Protocol', 'http://example.com/'])
         await expect(openExternalUrl('file:///C:/Windows')).rejects.toThrow('Only HTTP and HTTPS links can be opened')
+        expect(mockState.openedUrls).toHaveLength(2)
     })
 
-    it('answers a platform-only command on its platform and nowhere else', async () => {
-        const other = platform === 'windows' ? 'macos' : 'windows'
-        platformHandlers[platform].probe_here = () => 'answered'
-        platformHandlers[other].probe_elsewhere = () => 'answered'
+    it('rejects open_external_url without a url as Tauri does', async () => {
+        await expect(command('open_external_url', {})).rejects.toThrow(
+            'invalid args `url` for command `open_external_url`: command open_external_url missing required key url',
+        )
+    })
+
+    it('answers a platform-only command on the platform the test sets and nowhere else', async () => {
+        mockState.platform = 'windows'
+        platformHandlers.windows.probe_windows = () => 'answered'
+        platformHandlers.macos.probe_macos = () => 'answered'
         try {
-            await expect(command('probe_here')).resolves.toBe('answered')
+            await expect(command('probe_windows')).resolves.toBe('answered')
             // What Tauri replies when generate_handler! left the command out.
-            await expect(command('probe_elsewhere')).rejects.toThrow('Command probe_elsewhere not found')
+            await expect(command('probe_macos')).rejects.toThrow('Command probe_macos not found')
         } finally {
-            delete platformHandlers[platform].probe_here
-            delete platformHandlers[other].probe_elsewhere
+            delete platformHandlers.windows.probe_windows
+            delete platformHandlers.macos.probe_macos
+        }
+    })
+
+    it('refuses to load when a command is in both handlers and platformHandlers', async () => {
+        vi.resetModules()
+        vi.doMock('./handlers', () => ({
+            handlers: {probe_twice: () => null},
+            platformHandlers: {windows: {probe_twice: () => null}, macos: {}, linux: {}},
+        }))
+        try {
+            await expect(import('./ipc')).rejects.toThrow('"probe_twice" is in both handlers and platformHandlers')
+        } finally {
+            vi.doUnmock('./handlers')
         }
     })
 })
