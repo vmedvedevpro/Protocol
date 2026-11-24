@@ -71,13 +71,21 @@ jobs:
         run: pnpm install --frozen-lockfile
       # See release-build-macos.yml: with #31's updater configuration tauri
       # build signs the AppImage and needs a key; release.yml signs it again.
-      - name: Build the AppImage and the deb
+      # The deb is a build of its own (#100). Tauri installs every externalBin
+      # entry as /usr/bin/<name>, and /usr/bin/ffmpeg belongs to the
+      # distribution's ffmpeg package, so tauri.deb.conf.json leaves the pinned
+      # ffmpeg out and depends on that package; /usr/bin/protocol finds it next
+      # to itself. The config is compiled into the binary, so the second build
+      # recompiles the protocol crate, not its dependencies. The AppImage keeps
+      # the pinned ffmpeg and is built last from the plain config, as before.
+      - name: Build the deb and the AppImage
         working-directory: frontend
         run: |
           set -euo pipefail
           key="$RUNNER_TEMP/build.key"
           node node_modules/@tauri-apps/cli/tauri.js signer generate --ci -w "$key"
-          TAURI_SIGNING_PRIVATE_KEY="$key" pnpm exec tauri build --ci --bundles appimage,deb -- --locked
+          TAURI_SIGNING_PRIVATE_KEY="$key" pnpm exec tauri build --ci --bundles deb --config src-tauri/tauri.deb.conf.json -- --locked
+          TAURI_SIGNING_PRIVATE_KEY="$key" pnpm exec tauri build --ci --bundles appimage -- --locked
       # The bundled libwayland-client crashes WebKitGTK's EGL setup on some
       # Wayland desktops (upstream's workaround, kept). Repacked with the
       # AppImage's own runtime and squashfs-tools from the distribution, before

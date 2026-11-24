@@ -1,0 +1,15 @@
+{
+  "bundle": {
+    "externalBin": [
+      "binaries/llama-helper",
+      "binaries/protocol-mcp"
+    ],
+    "linux": {
+      "deb": {
+        "depends": [
+          "ffmpeg"
+        ]
+      }
+    }
+  }
+}
