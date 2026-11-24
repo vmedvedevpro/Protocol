@@ -33,6 +33,13 @@ function createMockState() {
         // (jsdom has no window.open); `__PROTOCOL_MOCK__.state` in pnpm dev.
         openedUrls: [] as string[],
         updater,
+        // Fake audio levels (src/mocks/audio.ts): the devices the preview
+        // monitors (null while it is stopped), and a level from 0 to 1 that
+        // holds both sources still instead of the fake conversation.
+        audio: {
+            monitoring: null as string[] | null,
+            level: null as number | null,
+        },
     }
 }
 
