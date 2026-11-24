@@ -1,7 +1,12 @@
 import {act, renderHook} from '@testing-library/react'
-import {describe, expect, it} from 'vitest'
+import {afterEach, describe, expect, it} from 'vitest'
 import {setSystemDark} from '@/test/matchMedia'
 import {readThemeMode, THEME_STORAGE_KEY, useResolvedTheme, useThemeModeStore} from './themeMode'
+import {THEME_TRANSITION_ATTRIBUTE} from './themeTransition'
+
+afterEach(() => {
+    document.documentElement.removeAttribute(THEME_TRANSITION_ATTRIBUTE)
+})
 
 describe('theme mode', () => {
     it('reads what the old app stored, including the names from before #96', () => {
@@ -52,5 +57,19 @@ describe('theme mode', () => {
 
         act(() => useThemeModeStore.getState().setMode('light'))
         expect(result.current).toBe('light')
+    })
+
+    it('fades an OS switch in system mode, and only there', () => {
+        const fading = () => document.documentElement.hasAttribute(THEME_TRANSITION_ATTRIBUTE)
+        const {result} = renderHook(() => useResolvedTheme())
+
+        act(() => setSystemDark(true))
+        expect(result.current).toBe('dark')
+        expect(fading()).toBe(true)
+
+        act(() => useThemeModeStore.getState().setMode('light'))
+        document.documentElement.removeAttribute(THEME_TRANSITION_ATTRIBUTE)
+        act(() => setSystemDark(false))
+        expect(fading()).toBe(false)
     })
 })

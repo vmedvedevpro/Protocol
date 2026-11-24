@@ -1,15 +1,20 @@
 import {QueryClientProvider} from '@tanstack/react-query'
 import {act, render, screen, waitFor, within} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import {describe, expect, it, vi} from 'vitest'
+import {afterEach, describe, expect, it, vi} from 'vitest'
 import {UPDATER_STATUS_EVENT, type UpdaterSnapshot} from '@/api/updater'
 import {handlers} from '@/mocks/handlers'
 import {emitMockEvent, installMockIpc} from '@/mocks/ipc'
 import {mockState} from '@/mocks/state'
 import {THEME_STORAGE_KEY} from '@/styles/themeMode'
+import {THEME_TRANSITION_ATTRIBUTE} from '@/styles/themeTransition'
 import {createTestQueryClient} from '@/test/queryClient'
 import packageJson from '../../package.json'
 import {App} from './App'
+
+afterEach(() => {
+    document.documentElement.removeAttribute(THEME_TRANSITION_ATTRIBUTE)
+})
 
 // The radio itself is invisible to the pointer; a user clicks its label.
 const option = (name: string) => screen.getByRole('radio', {name}).closest('label') as HTMLElement
@@ -48,6 +53,28 @@ describe('App', () => {
         expect(await within(status).findByText('Up to date')).toBeInTheDocument()
     })
 
+    it("updates a download's percent in place instead of swapping the line", async () => {
+        renderApp()
+        const status = await screen.findByRole('status')
+        await within(status).findByText('Updates are off in development builds')
+        const release = {version: '9.9.9', notes: null, date: null}
+        const offer = {release, downloaded: false, manualOnly: false, waitingForRecording: false}
+        const downloading = (received: number): UpdaterSnapshot => ({
+            ...mockState.updater,
+            support: {kind: 'updatable', install: 'nsis'},
+            offer,
+            activity: {state: 'downloading', received, total: 100},
+        })
+
+        await emitMockEvent(UPDATER_STATUS_EVENT, downloading(10))
+        const line = await within(status).findByText('Downloading 9.9.9… 10%')
+
+        await emitMockEvent(UPDATER_STATUS_EVENT, downloading(20))
+        await waitFor(() => expect(line).toHaveTextContent('Downloading 9.9.9… 20%'))
+        // The same element: a new one would replay the swap on every push.
+        expect(within(status).getByText('Downloading 9.9.9… 20%')).toBe(line)
+    })
+
     it('saves the chosen theme and forces it on the native window', async () => {
         const setTheme = vi.spyOn(handlers, 'plugin:window|set_theme')
         renderApp()
@@ -76,6 +103,20 @@ describe('App', () => {
 
         expect(await screen.findByRole('radio', {name: 'Match system', checked: true})).toBeInTheDocument()
         await waitFor(() => expect(setTheme).toHaveBeenLastCalledWith(expect.objectContaining({value: null})))
+    })
+
+    it('fades a theme change made in the other window', async () => {
+        renderApp()
+        await userEvent.click(option('Dark'))
+        document.documentElement.removeAttribute(THEME_TRANSITION_ATTRIBUTE)
+
+        localStorage.setItem(THEME_STORAGE_KEY, 'light')
+        act(() => {
+            window.dispatchEvent(new StorageEvent('storage', {key: THEME_STORAGE_KEY, oldValue: 'dark', newValue: 'light'}))
+        })
+
+        expect(screen.getByRole('radio', {name: 'Light'})).toBeChecked()
+        expect(document.documentElement.hasAttribute(THEME_TRANSITION_ATTRIBUTE)).toBe(true)
     })
 
     it('serves the minibar window its own route, as the minibar window', async () => {

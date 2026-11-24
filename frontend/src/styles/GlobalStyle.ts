@@ -42,14 +42,7 @@ export const GlobalStyle = createGlobalStyle`
         margin: 0;
     }
 
-    /* A theme change (changeThemeSmoothly): the old frame fades into the new. */
-    ::view-transition-old(root),
-    ::view-transition-new(root) {
-        animation-duration: ${({theme}) => theme.motion.duration.slow};
-        animation-timing-function: ${({theme}) => theme.motion.easing.standard};
-    }
-
-    /* The same change where View Transitions are missing: colours fade. */
+    /* A theme change (changeThemeSmoothly): colours fade. */
     html[${THEME_TRANSITION_ATTRIBUTE}],
     html[${THEME_TRANSITION_ATTRIBUTE}] *,
     html[${THEME_TRANSITION_ATTRIBUTE}] *::before,

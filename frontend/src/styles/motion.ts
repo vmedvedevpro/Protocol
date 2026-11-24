@@ -12,7 +12,7 @@ export const durations = {
     fast: 120,
     /** A status line, a fade, a menu: most changes of state. */
     base: 200,
-    /** Large surfaces: a sheet, the crossfade of a theme change. */
+    /** Large surfaces: a sheet, the colour fade of a theme change. */
     slow: 320,
 } as const
 

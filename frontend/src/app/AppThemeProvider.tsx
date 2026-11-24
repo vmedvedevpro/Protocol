@@ -4,6 +4,7 @@ import {setWindowTheme} from '@/api/window'
 import {GlobalStyle} from '@/styles/GlobalStyle'
 import {themes} from '@/styles/theme'
 import {THEME_STORAGE_KEY, useResolvedTheme, useThemeModeStore} from '@/styles/themeMode'
+import {changeThemeSmoothly} from '@/styles/themeTransition'
 
 /** Paints the chosen theme and keeps the native window and the other window in step. */
 export function AppThemeProvider({children}: { children: ReactNode }) {
@@ -19,9 +20,11 @@ export function AppThemeProvider({children}: { children: ReactNode }) {
     // The main window and the minibar share localStorage: a change in one
     // arrives in the other as a storage event. A removed key (or a cleared
     // storage, key null) reads as `system`; rehydrating writes nothing back.
+    // It fades like a click on the switch.
     useEffect(() => {
         const onStorage = (event: StorageEvent) => {
-            if (event.key === THEME_STORAGE_KEY || event.key === null) void useThemeModeStore.persist.rehydrate()
+            if (event.key !== THEME_STORAGE_KEY && event.key !== null) return
+            changeThemeSmoothly(() => void useThemeModeStore.persist.rehydrate())
         }
         window.addEventListener('storage', onStorage)
         return () => window.removeEventListener('storage', onStorage)

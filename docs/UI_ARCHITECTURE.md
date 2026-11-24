@@ -88,7 +88,7 @@ focus); motion (`motion/react`) carries enter and exit, indicators and springs.
 
 - Tokens live in `src/styles/motion.ts`: durations `fast` (120 ms: hover,
   press, focus), `base` (200 ms: most changes of state) and `slow` (320 ms:
-  large surfaces, the theme crossfade); easings `standard`, `enter` and
+  large surfaces, the theme's colour fade); easings `standard`, `enter` and
   `exit`; springs `snappy` (indicators) and `gentle` (sheets, panels). CSS
   reads `theme.motion.duration.*` and `theme.motion.easing.*`; motion/react
   reads `tween(duration, easing)` and `springs.*`. A literal duration or curve
@@ -130,24 +130,35 @@ focus); motion (`motion/react`) carries enter and exit, indicators and springs.
     out; no stagger, and no reordering animation (it needs layout).
   - Status changes (a status line, a badge, a count): `AnimatePresence
     mode="wait"` with the old value leaving and the new one arriving, opacity
-    and 4 px of `y` over `fast`, as the shell's update status does.
+    and 4 px of `y` over `fast`, as the shell's update status does. The key
+    names the meaning, not the text: re-key when the meaning changes, never
+    on every value. A value inside one meaning (a download's percent, a
+    count) updates in place. A download reports progress every 500 ms
+    (`PROGRESS_INTERVAL` in `src-tauri/src/updater/engine.rs`), and a key per
+    value would replay the swap each time: the line would blink for the whole
+    download.
   - Hover, press, focus: CSS on the element. Colour and background change
     over `fast`; a button's press scales it to 0.96 inside `MOTION_OK`; the
     focus outline appears at once. Segmented options take neither a fill nor
     a scale (see above); a scaled label would also slip out from under its
     copy in the thumb.
-  - The theme change goes through `changeThemeSmoothly(apply)`: a View
-    Transition crossfade where the webview has them, found by feature
-    detection (WebView2 has them, WKWebView from Safari 18, WebKitGTK
-    depending on its version); elsewhere every element fades its colours over
-    `slow`.
+  - Every theme change goes through `changeThemeSmoothly(apply)`: a click on
+    the switch, an OS switch in system mode, and a change made in the other
+    window. While `html[data-theme-transition]` is set, every element fades
+    its colours over `slow`; the switch's thumb slides on its own spring.
+    View Transitions are not used. While one runs, the window is a snapshot
+    and every click lands on the document element (the CSSWG resolution in
+    w3c/csswg-drafts#7797). `::view-transition { pointer-events: none }` does
+    not help, because a whole-window crossfade has to capture the root. Clicks
+    made during the fade would be lost; on Windows, WebView2 is Chromium and
+    behaves this way.
   - Values that change every frame (audio levels, the ring) stay outside
     motion and React; see Styling.
 - Reduced motion: `MotionProvider` sets `reducedMotion="user"`, so transform
   animations jump to their end while opacity still fades. CSS movement goes
   inside `MOTION_OK` (`@media (prefers-reduced-motion: no-preference)`);
-  colour and opacity transitions stay outside it, and so does the theme
-  crossfade, which moves nothing. motion reads the setting when an element
+  colour and opacity transitions stay outside it, and so does the theme's
+  colour fade, which moves nothing. motion reads the setting when an element
   mounts: a change while the window is open reaches elements mounted after it,
   and all of them after a reload; CSS follows at once. The `ReducedMotion`
   story of `SegmentedControl` shows it, and Orca's browser emulates the setting

@@ -2,6 +2,7 @@ import {useSyncExternalStore} from 'react'
 import {create} from 'zustand'
 import {persist, type PersistStorage} from 'zustand/middleware'
 import type {ThemeName} from './theme'
+import {changeThemeSmoothly} from './themeTransition'
 
 export type ThemeMode = ThemeName | 'system'
 
@@ -80,8 +81,14 @@ const systemDarkQuery = () => (darkQuery ??= window.matchMedia('(prefers-color-s
 
 function subscribeToSystemTheme(onChange: () => void) {
     const query = systemDarkQuery()
-    query.addEventListener('change', onChange)
-    return () => query.removeEventListener('change', onChange)
+    // The OS theme shows only in system mode, and there it fades like a click
+    // on the switch; otherwise nothing visible changes.
+    const onSystemChange = () => {
+        if (useThemeModeStore.getState().mode === 'system') changeThemeSmoothly(onChange)
+        else onChange()
+    }
+    query.addEventListener('change', onSystemChange)
+    return () => query.removeEventListener('change', onSystemChange)
 }
 
 const systemIsDark = () => systemDarkQuery().matches
