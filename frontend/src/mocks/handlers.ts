@@ -8,6 +8,7 @@ import {macosPermissionsHandlers, permissionsHandlers} from './permissions'
 import {postCallHandlers} from './postCall'
 import {preferencesHandlers} from './preferences'
 import {shellHandlers} from './shell'
+import {updaterHandlers} from './updater'
 import {mockState} from './state'
 
 export type MockArgs = Record<string, unknown>
@@ -39,7 +40,7 @@ export const handlers: Record<string, MockHandler> = {
     },
 
     // src-tauri/src/updater/commands.rs
-    updater_get_status: () => mockState.updater,
+    ...updaterHandlers(mockState),
 
     ...audioHandlers,
 

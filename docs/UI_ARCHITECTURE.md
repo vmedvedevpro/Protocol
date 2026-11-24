@@ -467,6 +467,16 @@ enter and exit, indicators and springs.
   so they run one at a time, and each reads the stored object again before
   writing it, so fields no screen shows and changes made at once all
   survive; it keeps the legacy single-app fields on the first chosen app.
+- The updater's commands (`src/api/updater.ts`) each answer with a snapshot,
+  and the same snapshot arrives as `updater-status`, which alone writes the
+  cached status: a caller ignores the reply. Download runs only on a click and
+  Restart and update only on another. `installUpdate()` rejects with an
+  `InstallRefusal` in the `CommandError`'s `detail` when nothing is ready or
+  work must not be interrupted; a failed install resolves, its error in the
+  snapshot. What the app says about updates (busy reasons, errors, notes,
+  links) is in `src/lib/updateText.ts`, shared by Settings › Updates and the
+  Home banner. The mock (`src/mocks/updater.ts`) is an installed copy: a check
+  finds `mockState.updateRelease` and a download moves in ten steps.
 - Data that native code pushes whole by event gets `staleTime: Infinity`, and
   only the event writes it (see Events). Other data keeps the default
   `staleTime` and is invalidated after the mutations that change it.

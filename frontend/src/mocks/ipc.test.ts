@@ -12,7 +12,7 @@ describe('mock IPC', () => {
         await expect(getAppVersion()).resolves.toBe(packageJson.version)
         await expect(getUpdaterStatus()).resolves.toMatchObject({
             currentVersion: packageJson.version,
-            support: {kind: 'off', reason: 'dev'},
+            support: {kind: 'updatable'},
         })
     })
 
