@@ -372,7 +372,10 @@ Outside Tauri, `pnpm dev`, Storybook and every test run on
   returns the handlers, spread into `handlers`, and `createMock<Domain>()`
   builds the sample data, called from `createMockState`. The handlers take
   the state as an argument because `state.ts` imports the domain file, so
-  importing `mockState` back would make a cycle. Parallel tasks then add one
+  importing `mockState` back would make a cycle. A domain with no sample
+  data of its own, as `src/mocks/audio.ts`, keeps its few fields inline in
+  `createMockState` and exports its handlers as an object that reads
+  `mockState`, since `state.ts` does not import it. Parallel tasks then add one
   line each to `handlers.ts` and `state.ts` instead of editing the same
   blocks. It types the data with the domain's payload types from `src/api`
   or `features/<x>/api`, never with interfaces of its own, so a field that

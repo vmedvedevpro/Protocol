@@ -1,17 +1,12 @@
 import {BlockNoteEditor, type PartialBlock} from '@blocknote/core'
-import {fireEvent, render, screen, waitFor, within} from '@testing-library/react'
-import {ThemeProvider} from 'styled-components'
+import {fireEvent, screen, waitFor, within} from '@testing-library/react'
 import {describe, expect, it, vi} from 'vitest'
 import {SAMPLE_MARKDOWN_ONLY_NOTES, SAMPLE_NOTES_BLOCKS, SAMPLE_NOTES_MARKDOWN} from '@/mocks/notes'
-import {lightTheme} from '@/styles/theme'
+import {renderUi} from '@/test/renderUi'
 import {NotesEditor, type NotesEditorProps} from './NotesEditor'
 
 function renderEditor(props: NotesEditorProps = {}) {
-    return render(
-        <ThemeProvider theme={lightTheme}>
-            <NotesEditor {...props}/>
-        </ThemeProvider>,
-    )
+    return renderUi(<NotesEditor {...props}/>)
 }
 
 describe('the stored format', () => {

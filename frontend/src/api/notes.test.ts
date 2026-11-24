@@ -3,6 +3,7 @@ import {describe, expect, it, vi} from 'vitest'
 import {handlers, type MockArgs} from '@/mocks/handlers'
 import {SAMPLE_MARKDOWN_ONLY_NOTES, SAMPLE_NOTES_BLOCKS, SAMPLE_NOTES_MARKDOWN} from '@/mocks/notes'
 import {mockState} from '@/mocks/state'
+import {settleIpc} from '@/test/ipc'
 import {createTestQueryClient} from '@/test/queryClient'
 import {meetingNotesQuery, type NotesDraft, notesKeys, saveMeetingNotesMutation} from './notes'
 
@@ -48,10 +49,10 @@ describe('meeting notes', () => {
     it('sends the saves of a meeting one at a time, in order', async () => {
         const client = createTestQueryClient()
         const store = handlers.api_save_meeting_notes
-        // The first save takes longer than the second; sent at once, the
-        // older text would land last.
+        // The first save answers a macrotask later than the second, which the
+        // mock answers on microtasks; sent at once, the older text would land last.
         vi.spyOn(handlers, 'api_save_meeting_notes').mockImplementation(async (args: MockArgs) => {
-            if (args.markdown === 'older') await new Promise((resolve) => setTimeout(resolve, 20))
+            if (args.markdown === 'older') await settleIpc()
             return store(args)
         })
 
