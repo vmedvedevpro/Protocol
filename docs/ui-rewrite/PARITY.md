@@ -30,65 +30,41 @@ real-app QA · #122 merge into main.
 
 Dropped by the owner: the AI chat (`ChatThread`), the Contacts and Groups
 pages (groups become folders in the meetings list; a person opens from search
-or a name), meeting detection and auto-record.
+or a name), meeting detection and auto-record. Also dropped on 2026-11-24: the
+recording disclosure notice, desktop notifications (#126 removes them
+natively), bulk actions with the library's date filter and sort order, and the
+CUDA notice.
 
-## Open questions
+## Decisions
 
-1. **Crash report dialog.** After a crash the old shell showed
-   `CrashReportDialog` ("Protocol encountered a problem": save a report zip or
-   dismiss) before the app. Not in the design; proposed owner #110 (startup
-   gate). Keep or drop?
-2. **Global download panel.** `components/shared/DownloadProgressToast.tsx`
-   shows the Parakeet, built-in summary model, Whisper and Nemotron downloads with
-   verification and activation progress in the top-right corner of any screen.
-   The design shows progress only inside first launch and Settings › Speech
-   models. Is a global indicator wanted, and who owns it (#117 or #108)?
-3. **"Summarize so far" during a recording.** The design's recording window
-   (Panel, Summary tab) has a "Summarize so far" button. The only live LLM
-   path is `ask_live_assistant`, which the old UI used for the dropped AI chat.
-   Does #112 keep `ask_live_assistant` for this button (with a UI activity
-   lease), or does the Summary tab only say it is written after Stop?
-4. **What first launch downloads.** The old onboarding downloads Parakeet and
-   the built-in summary model that `builtin_ai_get_recommended_model` picks for
-   the machine's memory, so the automatic summary works on day one. The
-   design's first launch downloads Parakeet and Whisper Large V3 Turbo and does
-   not mention a summary model. Which models does #115 download, and what does
-   the first automatic summary use?
-5. **Default summary template.** The design (Settings › Summary templates)
-   lets the user choose a default template. The old UI hard-codes the built-in
-   `standard_meeting` (`hooks/meeting-details/useTemplates.ts`): the template
-   is picked per generation in the regenerate dialog and not saved, and native
-   `api_process_transcript` falls back to `daily_standup` when no template is
-   passed. No setting stores a chosen default. Where is it stored and which
-   task adds that backend part?
-6. **Bulk actions and library filters.** The old sidebar and `/meetings`
-   select several meetings to move to a group, export together
-   (`ExportMeetingsDialog`, one document) or delete, and `/meetings` filters
-   by contact (`?person=<id>`), date range and sort order. The design's
-   meetings list has search and folders only. Keep in #113/#119 or drop?
-7. **Folder for a new recording.** The old record card has a group picker
-   ("No group ▾") and the sidebar has "Record for a group"; the meeting is
-   filed into that group on save and gets the group's title. The design shows
-   the folder in the recording header but no way to choose it. Does #112 add a
-   picker?
-8. **CUDA notice.** `CudaReconfigurationNotice` and the onboarding's CUDA rows
-   call `get_cuda_reconfiguration_status`, which answers "not applicable"
-   unless the build has the `cuda` feature; release builds are CPU + Vulkan.
-   Marked dropped; confirm.
-9. **Window size.** `tauri.conf.json` opens the main window at 1280×760 with
-   `minWidth` 700, and the layout raises the minimum to `COMPACT_MIN_WIDTH`.
-   The design is a 460×700 window. #110 needs the native window settings
-   changed with it.
-10. **"Start recording" on every Windows toast.** On Windows every
-    notification goes through `notifications/native_windows.rs::show_toast`,
-    which always adds a "Start recording" button and the line "Tap Start
-    recording to begin in Protocol."; the button and a click on the toast body
-    emit `start-recording-from-notification`. The kept notifications use it:
-    recording started and stopped (#114) and the audio route warning (#112),
-    so in the old app a click on a "Recording stopped" toast starts a new
-    recording. The button was meant for meeting detection, which is dropped.
-    Remove it in `native_windows.rs` and drop the listener with it (proposed,
-    #112), or keep a gated listener?
+The owner settled every open question on 2026-11-24; the affected rows say
+"owner decision 2026-11-24". The recording disclosure notice was dropped the
+same day.
+
+1. **Crash report dialog:** kept, as a sheet at startup (#110).
+2. **Global download panel:** replaced by one status line in the bottom bar
+   while any download runs; a click opens Settings › Speech models (#117; the
+   line sits in #110's bar).
+3. **"Summarize so far":** kept, through `ask_live_assistant` with a UI
+   activity lease (#112).
+4. **First launch** downloads Parakeet, Whisper Large V3 Turbo and the
+   built-in summary model `builtin_ai_get_recommended_model` picks, all in the
+   background (#115).
+5. **Default summary template:** #117 adds a stored default and the native
+   part so the automatic summary uses it instead of the `daily_standup`
+   fallback.
+6. **Bulk actions, date filters and sort order:** dropped; a person's
+   meetings are on the person screen (#118).
+7. **Folder for a new recording:** a picker on the folder in the recording
+   header (#112).
+8. **CUDA notice:** dropped.
+9. **Window size:** the main window opens at 460×700 and stays resizable;
+   #110 changes `tauri.conf.json`.
+10. **Desktop notifications:** dropped entirely: the recording started and
+    stopped notifications and their settings, `show_simple_notification`, the
+    audio route warning's system notification (the warning stays in the app,
+    #112), and the Windows toast with its "Start recording" button and
+    `start-recording-from-notification`. #126 removes them natively.
 
 ## Routes and windows
 
@@ -96,7 +72,7 @@ or a name), meeting detection and auto-record.
 | --- | --- | --- | --- | --- |
 | `/` recorder: home backdrop, live session, record card | route | `app/page.tsx` | #112 | The design splits it: Home is the meetings list (#113), Record opens the recording window (#112). It also hosts transcript recovery and the recorder dialogs. |
 | Home backdrop: clock, "Up next" from group schedules, open action items | route | `components/home/HomeDashboard.tsx`, `lib/schedule.ts` | dropped | Design: Home is the meetings list; schedules belonged to groups. |
-| `/meetings` library | route | `app/meetings/page.tsx` | #113 | Merged into Home. Its filters and bulk actions: open question 6. |
+| `/meetings` library | route | `app/meetings/page.tsx` | #113 | Merged into Home. Its bulk actions (move, export, delete), date filter and sort order are dropped (owner decision 2026-11-24); its contact filter (`?person=<id>`) is the person screen's meeting list (#118). |
 | `/meeting-details?id=…&source=recording` | route | `app/meeting-details/page.tsx`, `page-content.tsx` | #113 | `source=recording` starts processing after Stop (#112). |
 | `/person?id=…` | route | `app/person/page.tsx` | #118 | Opens from search or a name. |
 | `/contacts` | route | `app/contacts/page.tsx` | dropped | Contacts page dropped by the owner. |
@@ -104,13 +80,13 @@ or a name), meeting detection and auto-record.
 | `/settings?section=…` | route | `app/settings/page.tsx` | #114 | Sections `general`, `recording`, `transcription`, `summaries`, `agents`, `detection`, `local`, `labs`, `about` map onto General, Recording, AI, Advanced (#114, #117). The tray sends `/settings` and `/settings?section=about`. |
 | `/minibar` | route | `app/minibar/page.tsx` | #116 | The whole UI of the `minibar` window. Native opens this path (`minibar.rs`, `WebviewUrl::App("minibar")`); keep it or change it there. |
 | Startup gate: "Checking setup…", retry after 8 s or an error | route | `app/layout.tsx` | #110 | Waits for `get_onboarding_status`, then the crash report check. |
-| First launch instead of the app | route | `app/layout.tsx`, `components/onboarding/*` | #115 | Old flow has 5 steps (welcome, setup overview, downloads, name, audio test, which also asks for the microphone and macOS audio permissions); the design has 2. `PermissionsStep` is exported but never rendered. Completion reloads the window. |
-| Main window `main` | window | native `tauri.conf.json`, `app/layout.tsx` | #110 | See open question 9. |
+| First launch instead of the app | route | `app/layout.tsx`, `components/onboarding/*` | #115 | Old flow has 5 steps (welcome, setup overview, downloads, name, audio test, which also asks for the microphone and macOS audio permissions); the design has 2. `PermissionsStep` is exported but never rendered. Completion reloads the window. The new first launch downloads Parakeet, Whisper Large V3 Turbo and the built-in summary model that `builtin_ai_get_recommended_model` picks, all in the background (owner decision 2026-11-24). |
+| Main window `main` | window | native `tauri.conf.json`, `app/layout.tsx` | #110 | Opens at 460×700 and stays resizable (owner decision 2026-11-24); #110 changes `tauri.conf.json` (today 1280×760 with `minWidth` 700; the old layout also raises the minimum to `COMPACT_MIN_WIDTH`). |
 | Window controls drawn by the app on Windows | window | `components/WindowControls.tsx`, `hooks/useCustomChrome.ts`, `lib/window-chrome.ts` | #110 | Minimize, maximize (follows `onResized`), close. |
 | Close hides the main window to the tray | window | native `lib.rs` | #110 | Native; the UI only needs to expect a hidden window. |
 | Minimizing during a recording opens the minibar | window | native `lib.rs` | #116 | Native; the design's minimize hint matches it. |
 | Minibar window `minibar` | window | native `minibar.rs` | #116 | 680×72, frameless, on top, no taskbar entry, top centre, draggable, clipped to a 24 px rounded rectangle. The design's smaller pill changes these constants. |
-| Sidebar | window | `components/Sidebar/index.tsx`, `components/Sidebar/SidebarProvider.tsx` | #113 | New recording, import, record for a group, search, Contacts, Groups, the meeting list (by date or group, select, export, delete, F2 rename), Settings, About, resize. The design has no sidebar: the list is Home. |
+| Sidebar | window | `components/Sidebar/index.tsx`, `components/Sidebar/SidebarProvider.tsx` | #113 | New recording, import, record for a group, search, Contacts, Groups, the meeting list (by date or group, select, export, delete, F2 rename), Settings, About, resize. The design has no sidebar: the list is Home. Bulk select, export and delete are dropped (owner decision 2026-11-24). |
 | Recording pill on other pages | window | `components/recording/RecordingPill.tsx` | #112 | Timer, pause, stop, back to the recording. |
 | About dialog from the wordmark | window | `components/About.tsx` | #114 | General › About. |
 | Drop an audio file anywhere to import | window | `app/layout.tsx`, `components/ImportAudio/ImportDropOverlay.tsx` | #119 | `tauri://drag-*` events. |
@@ -145,6 +121,7 @@ IPC and the screens that call them (#113, #117) keep that rule.
 
 | Item | Kind | Old file | Owner | Notes |
 | --- | --- | --- | --- | --- |
+| `ask_live_assistant` | command | `components/groups/GroupDetailView.tsx`, `components/recording/LivePanel.tsx` | #112 | "Summarize so far" in the recording window, with a UI activity lease (owner decision 2026-11-24). The AI chat during recording and on groups stays dropped. |
 | `attempt_device_reconnect` | command | `components/RecordingControls.tsx` | #112 | Switch a device while recording; on failure the old device keeps recording. |
 | `check_transcription_runtime` | command | `hooks/useRecordingStart.ts` | #112 | First step of a start; a missing runtime blocks the start with its message. |
 | `get_recording_meeting_name` | command | `services/recordingService.ts` | #112 | Title of the running recording after a reload. |
@@ -160,7 +137,6 @@ IPC and the screens that call them (#113, #117) keep that rule.
 | `resume_recording` | command | `app/minibar/page.tsx`, `components/GlobalSearchDialog.tsx`, `components/RecordingControls.tsx` +2 | #112 | Same callers as pause. |
 | `set_microphone_muted` | command | `components/RecordingControls.tsx`, `services/recordingService.ts` | #112 | Also the minibar (#116). |
 | `set_system_audio_muted` | command | `components/RecordingControls.tsx`, `services/recordingService.ts` | #112 | Also the minibar (#116). |
-| `show_simple_notification` | command | `app/layout.tsx` | #112 | OS notification for `recording-audio-route-warning` (meeting-detection use is dropped). |
 | `start_audio_level_monitoring` | command | `components/RecordingVoiceLane.tsx`, `components/onboarding/steps/AudioTestStep.tsx` | #109 | Device-preview meters; used by the recording bar (#112) and the mic test (#115). |
 | `start_recording_with_devices_and_meeting` | command | `services/recordingService.ts` | #112 | The only start the UI uses: microphone, computer audio device and meeting title. |
 | `stop_audio_level_monitoring` | command | `components/RecordingControls.tsx`, `components/RecordingVoiceLane.tsx`, `components/onboarding/steps/AudioTestStep.tsx` | #109 | Pairs with the start; must run on unmount. |
@@ -214,7 +190,6 @@ IPC and the screens that call them (#113, #117) keep that rule.
 | `api_save_meeting_notes` | command | `lib/workspace-api.ts` | #111 | Autosaved notes; the live notes are saved here on Stop (#112). |
 | `api_save_meeting_title` | command | `lib/meeting-actions.ts` | #113 | Rename. |
 | `api_set_meeting_group` | command | `hooks/useRecordingStop.ts`, `lib/workspace-api.ts` | #113 | Move to folder; also files a new recording into its pending group (#112). |
-| `api_set_meetings_group` | command | `lib/workspace-api.ts` | #113 | Bulk move (see open questions on bulk actions). |
 | `api_sync_ai_action_items` | command | `lib/workspace-api.ts` | #113 | Copies items out of a new summary into the table. |
 | `api_update_action_item` | command | `lib/workspace-api.ts` | #113 | Check off, edit, owner, due date. |
 | `api_update_group` | command | `lib/workspace-api.ts` | #113 | Rename/recolor a folder. |
@@ -233,7 +208,7 @@ IPC and the screens that call them (#113, #117) keep that rule.
 | `api_get_summary` | command | `app/meeting-details/page.tsx`, `components/Sidebar/SidebarProvider.tsx`, `components/groups/GroupDetailView.tsx` +3 | #113 | Summary status and content; also list preview and export. |
 | `api_is_custom_template` | command | `hooks/meeting-details/useTemplates.ts` | #119 | Template editor: built-in or custom. |
 | `api_list_templates` | command | `hooks/meeting-details/useTemplates.ts` | #117 | Templates subpage; also Summary options (#119). |
-| `api_process_transcript` | command | `hooks/meeting-details/useSummaryGeneration.ts` | #113 | Generate/regenerate; also the automatic summary after Stop (#112). |
+| `api_process_transcript` | command | `hooks/meeting-details/useSummaryGeneration.ts` | #113 | Generate/regenerate; also the automatic summary after Stop (#112). Without a template native falls back to `daily_standup`; #117 makes it use the stored default (owner decision 2026-11-24). |
 | `api_save_custom_template` | command | `hooks/meeting-details/useTemplates.ts` | #119 | Template editor. |
 | `api_save_meeting_detected_summary_language` | command | `lib/summary-language-preferences.ts` | #113 | Caches the detected language for Auto; returns `local_fallback` like `api_save_meeting_summary_language`. |
 | `api_save_meeting_summary` | command | `components/meeting/MeetingDocument.tsx`, `lib/action-item-sync.ts` | #113 | Edited summary; action-item sync writes it too. |
@@ -281,7 +256,6 @@ IPC and the screens that call them (#113, #117) keep that rule.
 | `get_audio_devices` | command | `components/RecordingControls.tsx`, `components/onboarding/steps/AudioTestStep.tsx`, `hooks/usePermissionCheck.ts` | #114 | Device lists (moved from the record card); also the bar's "Change inputs" (#112) and the mic test (#115). |
 | `get_database_directory` | command | `components/RecordingControls.tsx`, `contexts/ConfigContext.tsx` | #117 | Advanced › Local AI › Models and recordings; also builds the `stop_recording` save path (#112). |
 | `get_default_recordings_folder_path` | command | `components/RecordingSettings.tsx`, `contexts/ConfigContext.tsx` | #114 | Shown when no folder is saved. |
-| `get_notification_settings` | command | `contexts/ConfigContext.tsx` | #114 | General › Notifications. |
 | `get_recordable_apps` | command | `hooks/useAppAudio.ts` | #117 | Chosen apps subpage. |
 | `get_recording_preferences` | command | `components/RecordingControls.tsx`, `components/RecordingSettings.tsx`, `components/TranscriptSettings.tsx` +3 | #114 | Save audio, folder, devices, volumes, chosen apps, Faster live text. |
 | `open_external_url` | command | `components/About.tsx`, `components/AboutSettings.tsx`, `components/CudaReconfigurationNotice.tsx` +6 | #106 | Links (About, credits, driver pages); one wrapper in `src/api`. |
@@ -289,7 +263,6 @@ IPC and the screens that call them (#113, #117) keep that rule.
 | `select_custom_app_executable` | command | `hooks/useAppAudio.ts` | #117 | Chosen apps: an app that is not open. |
 | `select_recording_folder` | command | `components/RecordingSettings.tsx` | #114 | Change folder. |
 | `set_language_preference` | command | `contexts/ConfigContext.tsx` | #114 | Meeting language into native memory; must also run once at startup with the saved value. |
-| `set_notification_settings` | command | `contexts/ConfigContext.tsx` | #114 | Writes `show_recording_started` and `show_recording_stopped` together. |
 | `set_recording_preferences` | command | `components/RecordingControls.tsx`, `components/RecordingSettings.tsx`, `components/TranscriptSettings.tsx` +1 | #114 | Always read-modify-write the whole object (see invariants). |
 
 ### Updates and model catalog
@@ -339,7 +312,7 @@ IPC and the screens that call them (#113, #117) keep that rule.
 | `uninstall_optional_model` | command | `contexts/OptionalModelDownloadsContext.tsx` | #117 | Native removal of Whisper/Nemotron; refuses during a recording and resets choices that used it. |
 | `whisper_cancel_download` | command | `components/settings/ForThisComputer.tsx`, `lib/whisper.ts` | #117 | Cancel. |
 | `whisper_delete_corrupted_model` | command | `lib/whisper.ts` | #117 | Remove a corrupted copy. |
-| `whisper_download_model` | command | `components/settings/ForThisComputer.tsx`, `contexts/OptionalModelDownloadsContext.tsx`, `lib/whisper.ts` | #117 | `enablePostCall=true` makes native activate it as the after-meeting model. |
+| `whisper_download_model` | command | `components/settings/ForThisComputer.tsx`, `contexts/OptionalModelDownloadsContext.tsx`, `lib/whisper.ts` | #117 | `enablePostCall=true` makes native activate it as the after-meeting model. First launch also downloads Whisper Large V3 Turbo in the background (#115, owner decision 2026-11-24). |
 | `whisper_get_available_models` | command | `components/MeetingDetails/PostCallProcessingWorker.tsx`, `components/TranscriptSettings.tsx`, `contexts/OptionalModelDownloadsContext.tsx` +3 | #117 | Speech models list; also the post-call pass (#112). |
 | `whisper_get_models_directory` | command | `contexts/ConfigContext.tsx`, `lib/whisper.ts` | #117 | Advanced › Local AI › folders. |
 
@@ -365,8 +338,8 @@ IPC and the screens that call them (#113, #117) keep that rule.
 | `api_test_custom_openai_connection` | command | `components/ModelSettingsModal.tsx`, `services/configService.ts` | #117 | Test connection. |
 | `builtin_ai_cancel_download` | command | `components/BuiltInModelManager.tsx`, `lib/builtin-ai.ts` | #117 | Cancel. |
 | `builtin_ai_delete_model` | command | `components/BuiltInModelManager.tsx`, `lib/builtin-ai.ts` | #117 | Delete. |
-| `builtin_ai_download_model` | command | `components/BuiltInModelManager.tsx`, `components/onboarding/steps/DownloadProgressStep.tsx`, `contexts/OnboardingContext.tsx` +1 | #117 | Also the old onboarding (see open questions). |
-| `builtin_ai_get_recommended_model` | command | `contexts/OnboardingContext.tsx` | #115 | Old onboarding picked the summary model with it (see open questions). |
+| `builtin_ai_download_model` | command | `components/BuiltInModelManager.tsx`, `components/onboarding/steps/DownloadProgressStep.tsx`, `contexts/OnboardingContext.tsx` +1 | #117 | Also first launch, in the background (#115, owner decision 2026-11-24). |
+| `builtin_ai_get_recommended_model` | command | `contexts/OnboardingContext.tsx` | #115 | First launch downloads the summary model it picks, in the background (owner decision 2026-11-24). |
 | `builtin_ai_list_models` | command | `components/BuiltInModelManager.tsx`, `components/ModelSettingsModal.tsx`, `lib/builtin-ai.ts` | #117 | Built-in models with memory-based recommendation. |
 | `delete_ollama_model` | command | `components/ModelSettingsModal.tsx` | #117 | Remove an Ollama model. |
 | `get_anthropic_models` | command | `components/ModelSettingsModal.tsx` | #117 | Model list. |
@@ -398,11 +371,11 @@ IPC and the screens that call them (#113, #117) keep that rule.
 | `check_first_launch` | command | `contexts/OnboardingContext.tsx` | #115 | Is there a database yet. |
 | `check_homebrew_database` | command | `contexts/OnboardingContext.tsx` | #115 | macOS Homebrew-era database to import. |
 | `complete_onboarding` | command | `contexts/OnboardingContext.tsx` | #115 | Ends first launch. |
-| `create_crash_report_zip` | command | `services/crashReportService.ts` | #110 | Proposed owner; saves a zip through the dialog plugin. |
-| `dismiss_pending_crash_report` | command | `services/crashReportService.ts` | #110 | Proposed owner; see open questions. |
-| `get_cuda_reconfiguration_status` | command | `components/CudaReconfigurationNotice.tsx`, `components/onboarding/steps/SetupOverviewStep.tsx` | dropped | Release builds have no `cuda` feature, so it always answers not applicable; see open questions. |
+| `create_crash_report_zip` | command | `services/crashReportService.ts` | #110 | Crash report sheet (owner decision 2026-11-24); saves a zip through the dialog plugin. |
+| `dismiss_pending_crash_report` | command | `services/crashReportService.ts` | #110 | Crash report sheet: dismiss (owner decision 2026-11-24). |
+| `get_cuda_reconfiguration_status` | command | `components/CudaReconfigurationNotice.tsx`, `components/onboarding/steps/SetupOverviewStep.tsx` | dropped | Release builds have no `cuda` feature, so it always answers not applicable; the CUDA notice is dropped (owner decision 2026-11-24). |
 | `get_onboarding_status` | command | `app/layout.tsx`, `contexts/OnboardingContext.tsx` | #115 | The shell (#110) gates the app on it at startup with a retry screen. |
-| `get_pending_crash_report` | command | `services/crashReportService.ts` | #110 | Proposed owner; see open questions. |
+| `get_pending_crash_report` | command | `services/crashReportService.ts` | #110 | Crash report sheet at startup (owner decision 2026-11-24). |
 | `get_system_audio_permission_status` | command | `hooks/usePermissionCheck.ts` | #113 | Home banner "macOS did not allow audio". |
 | `import_and_initialize_database` | command | `contexts/OnboardingContext.tsx` | #115 | Imports a legacy database. |
 | `initialize_fresh_database` | command | `contexts/OnboardingContext.tsx` | #115 | Creates the database on a first launch (see invariants). |
@@ -422,10 +395,11 @@ IPC and the screens that call them (#113, #117) keep that rule.
 | Item | Kind | Old file | Owner | Notes |
 | --- | --- | --- | --- | --- |
 | `api_ask_meeting` | command | `lib/workspace-api.ts` | dropped | AI chat (`ChatThread`) dropped by the owner. |
-| `ask_live_assistant` | command | `components/groups/GroupDetailView.tsx`, `components/recording/LivePanel.tsx` | dropped | AI chat during recording and on groups dropped; see open questions for "Summarize so far". |
+| `api_set_meetings_group` | command | `lib/workspace-api.ts` | dropped | Bulk move; bulk actions are dropped (owner decision 2026-11-24). |
 | `ask_person` | command | `app/person/page.tsx` | dropped | AI chat on the person page dropped. |
 | `builtin_ai_get_available_summary_model` | command | `lib/builtin-ai.ts` | dropped | `BuiltInAIAPI` is never used. |
 | `get_meeting_detection_settings` | command | `components/MeetingDetectionSettings.tsx`, `lib/labs-features.ts` | dropped | Meeting detection and auto-record are dropped by the owner (#102 turned detection off). |
+| `get_notification_settings` | command | `contexts/ConfigContext.tsx` | dropped | General › Notifications; desktop notifications are dropped (owner decision 2026-11-24, native removal #126). |
 | `open_models_folder` | command | `lib/whisper.ts` | dropped | Only through an unused `WhisperAPI` wrapper; Local AI › Show folder (#117) may use it. |
 | `open_parakeet_models_folder` | command | `lib/parakeet.ts` | dropped | Only through an unused `ParakeetAPI` wrapper. |
 | `parakeet_get_current_model` | command | `lib/parakeet.ts` | dropped | Only through an unused `ParakeetAPI` wrapper. |
@@ -433,6 +407,8 @@ IPC and the screens that call them (#113, #117) keep that rule.
 | `parakeet_transcribe_audio` | command | `lib/parakeet.ts` | dropped | Only through the unused `ParakeetAPI.transcribeAudio` wrapper. |
 | `parakeet_validate_model_ready` | command | `lib/parakeet.ts` | dropped | Only through an unused `ParakeetAPI` wrapper. |
 | `set_meeting_detection_settings` | command | `components/MeetingDetectionSettings.tsx`, `lib/labs-features.ts` | dropped | Meeting detection and auto-record are dropped by the owner. |
+| `set_notification_settings` | command | `contexts/ConfigContext.tsx` | dropped | Wrote `show_recording_started` and `show_recording_stopped` together; dropped with desktop notifications (owner decision 2026-11-24, native removal #126). |
+| `show_simple_notification` | command | `app/layout.tsx` | dropped | OS notification for `recording-audio-route-warning`; desktop notifications are dropped (owner decision 2026-11-24, native removal #126). The warning stays an in-app toast (#112). |
 | `start_recording` | command | `services/recordingService.ts` | dropped | Only `recordingService.startRecording` calls it, and nothing calls that. |
 | `whisper_get_current_model` | command | `lib/whisper.ts` | dropped | Only through an unused `WhisperAPI` wrapper. |
 | `whisper_transcribe_audio` | command | `lib/whisper.ts` | dropped | Only reachable through the unused `WhisperAPI.transcribeAudio` wrapper. |
@@ -454,7 +430,7 @@ IPC and the screens that call them (#113, #117) keep that rule.
 | `system-audio-mute-changed` | event | `services/recordingService.ts` | #112 | Also the minibar (#116). |
 | `recording-audio-levels` | event | `components/LiveAudioVisualizer.tsx` | #109 | Live meters during a recording (bar, minibar). |
 | `audio-levels` | event | `components/RecordingVoiceLane.tsx`, `components/onboarding/steps/AudioTestStep.tsx` | #109 | Device-preview meters. |
-| `recording-audio-route-warning` | event | `app/layout.tsx` | #112 | Toast for 30 s plus an OS notification. |
+| `recording-audio-route-warning` | event | `app/layout.tsx` | #112 | In-app toast for 30 s. Its OS notification is dropped with desktop notifications (owner decision 2026-11-24, native removal #126). |
 | `live-diarization-error` | event | `app/layout.tsx` | #112 | "Live speaker labeling unavailable"; no engine substitution. |
 | `chunk-drop-warning` | event | `hooks/useModalState.ts`, `services/recordingService.ts` | dropped | Native never emits it, so "Transcription is falling behind" never opens. #112 adds a native emitter if it wants that warning. |
 | `transcript-update` | event | `services/transcriptService.ts` | #112 | Live lines; ordered and buffered by sequence id, saved to IndexedDB. |
@@ -467,7 +443,7 @@ IPC and the screens that call them (#113, #117) keep that rule.
 | `tray-navigate` | event | `app/layout.tsx` | #110 | Path to open. |
 | `meeting-detected` | event | `app/layout.tsx` | dropped | Meeting detection dropped. |
 | `meeting-ended` | event | `app/layout.tsx` | dropped | Auto-record dropped. |
-| `start-recording-from-notification` | event | `app/layout.tsx` | #112 | Proposed; open question 10. Every Windows toast emits it from its "Start recording" button and from a click on its body (`notifications/native_windows.rs`), including the kept recording started/stopped notifications. The old listener starts a recording once first launch is done and the notice is acknowledged; the notice gate is dropped (owner decision 2026-11-24), so first launch is the only gate. |
+| `start-recording-from-notification` | event | `app/layout.tsx` | dropped | Desktop notifications are dropped with the Windows toast and its "Start recording" button (owner decision 2026-11-24); native removal is #126. Every Windows toast emitted it from that button and from a click on its body (`notifications/native_windows.rs`). |
 | `retranscription-progress` | event | `components/MeetingDetails/PostCallProcessingWorker.tsx`, `components/MeetingDetails/RetranscribeDialog.tsx` | #112 | Also Enhance transcript (#119); filter by meeting id. |
 | `retranscription-complete` | event | same, `hooks/useSpeechChoice.ts` | #112 | The speech choice refreshes on it: the Intel GPU version ran or fell back (#117). |
 | `retranscription-error` | event | same, `hooks/useSpeechChoice.ts` | #112 | Same refresh as on completion (#117). |
@@ -518,7 +494,7 @@ Listed so their effects are not lost.
 | `af-theme-change` | DOM event | `lib/app-theme.ts` | #106 | |
 | `start-recording-from-sidebar` | DOM event | `lib/recording-launch.ts`, `hooks/useRecordingStart.ts` | #112 | Start requests from anywhere. |
 | `af-stop-recording` | DOM event | `lib/recording-launch.ts`, `components/RecordingControls.tsx` | #112 | Stop requests from anywhere. |
-| `af-pending-group` | DOM event | `lib/groups.ts`, `hooks/usePendingGroup.ts` | #112 | Open question 7. |
+| `af-pending-group` | DOM event | `lib/groups.ts`, `hooks/usePendingGroup.ts` | #112 | A picker on the folder in the recording header (owner decision 2026-11-24). |
 | `af-live-session` | DOM event | `lib/live-session.ts` | #112 | Live title changed; writing notes does not fire it. |
 | `af-workspace-change` | DOM event | `lib/workspace-api.ts` | #113 | Cross-view refresh after meeting, folder, person or action-item edits. |
 | `open-global-search` | DOM event | `components/Sidebar/index.tsx`, `components/GlobalSearchDialog.tsx` | #118 | |
@@ -537,7 +513,7 @@ default settings mode; the rest sits behind the Advanced switch.
 | --- | --- | --- | --- | --- |
 | Theme: light, dark, match system | setting | `components/settings/ThemePicker.tsx`, `lib/app-theme.ts` | #114 | Simple and General. localStorage `meetily_theme`. Also a search command (#118). |
 | Your name | setting | `components/PreferenceSettings.tsx`, `hooks/useUserName.ts` | #114 | Simple and General; first launch asks it (#115). localStorage `meetily_user_name`. Shown as "You (name)". |
-| Recording started and stopped notifications | setting | `components/PreferenceSettings.tsx` | #114 | One switch writes `show_recording_started` and `show_recording_stopped` in `notifications.json`. |
+| Recording started and stopped notifications | setting | `components/PreferenceSettings.tsx` | dropped | Desktop notifications are dropped (owner decision 2026-11-24, native removal #126). One switch wrote `show_recording_started` and `show_recording_stopped` in `notifications.json`. |
 | Updates: check now, download, restart and update, release notes | setting | `components/updater/UpdateSettings.tsx` | #114 | General › Updates; old Settings › About. |
 | Check for updates automatically | setting | `components/updater/UpdateSettings.tsx` | #114 | `updater.json`. |
 | Model updates (catalog check, per-model update) | setting | `components/updater/ModelCatalogSettings.tsx`, `components/ModelUpdateControl.tsx` | #114 | General › Model updates; the per-model notice in Speech models is #117. |
@@ -574,7 +550,7 @@ default settings mode; the rest sits behind the Advanced switch.
 | Custom server: endpoint, model, key, max tokens, temperature, top P, test | setting | `components/ModelSettingsModal.tsx` | #117 | |
 | Maximum summary length | setting | `components/ModelSettingsModal.tsx` | #117 | `summaryMaxTokens`. |
 | Built-in summary models: download, cancel, delete | setting | `components/BuiltInModelManager.tsx` | #117 | Recommendation by memory. |
-| Summary templates | setting | `hooks/meeting-details/useTemplates.ts`, `components/MeetingDetails/TemplateEditorModal.tsx` | #117 | Templates subpage; the editor is #119; default template: open question 5. |
+| Summary templates | setting | `hooks/meeting-details/useTemplates.ts`, `components/MeetingDetails/TemplateEditorModal.tsx` | #117 | Templates subpage; the editor is #119. #117 adds a stored default template and the native part so the automatic summary uses it instead of the `daily_standup` fallback (owner decision 2026-11-24). |
 | Let AI agents read your meetings | setting | `components/AgentAccessSettings.tsx` | #117 | Advanced › AI agents; `mcp-server.json`. |
 | Connect Claude Code, Claude Desktop, set up by hand | setting | `components/AgentAccessSettings.tsx` | #117 | Connect an agent subpage. |
 | Local AI: loaded models, unload, free memory, disk, network | setting | `components/LocalStackStatus.tsx` | #117 | Advanced › Local AI. |
@@ -589,22 +565,23 @@ default settings mode; the rest sits behind the Advanced switch.
 | Summary language for one meeting | setting | `lib/summary-language-preferences.ts`, `components/LanguagePickerPopover.tsx` | #119 | Summary options; `metadata.json` or the localStorage fallback. Same codes as Summary language. |
 | Words for one meeting | setting | `components/MeetingDetails/RetranscribeDialog.tsx` | #119 | Enhance transcript. |
 | Export link style: generic or Obsidian | setting | `components/MeetingDetails/MeetingExportDialog.tsx` | #119 | localStorage `meetily_export_link_style`. |
-| Folder for the next recording | setting | `components/RecordingControls.tsx`, `lib/groups.ts` | #112 | Open question 7. |
+| Folder for the next recording | setting | `components/RecordingControls.tsx`, `lib/groups.ts` | #112 | A picker on the folder in the recording header (owner decision 2026-11-24). |
 | Meeting list arranged by date or group | setting | `components/Sidebar/index.tsx` | dropped | localStorage `af-sidebar-group-by`; the design filters by folder. |
 | Notes and transcript split width | setting | `app/meeting-details/page-content.tsx` | dropped | localStorage `af-meeting-notes-width`; the design uses tabs. |
 | Live side panel open | setting | `components/recording/LiveSession.tsx` | dropped | localStorage `af-live-panel-open`; the design uses tabs. |
 
-Not shown in the old UI and not in the design: notification fields other
-than started/stopped (paused, resumed, reminders, sound, Do Not Disturb),
-Nemotron's maximum speakers, model unload timeouts. They stay native defaults
-and must survive saves (see invariants).
+Not shown in the old UI and not in the design: Nemotron's maximum speakers
+and model unload timeouts. They stay native defaults and must survive saves
+(see invariants). The other notification fields (paused, resumed, reminders,
+sound, Do Not Disturb) go with desktop notifications (owner decision 2026-11-24, native
+removal #126).
 
 ## Dialogs, notices and banners
 
 | Item | Kind | Old file | Owner | Notes |
 | --- | --- | --- | --- | --- |
 | Before you record (disclosure and consent) | dialog | `components/RecordingNotice.tsx` | dropped | Dropped by the owner decision 2026-11-24: the new UI has no recording disclosure notice. |
-| Protocol encountered a problem (crash report) | dialog | `components/CrashReportDialog.tsx`, `services/crashReportService.ts` | #110 | Proposed; open question 1. |
+| Protocol encountered a problem (crash report) | dialog | `components/CrashReportDialog.tsx`, `services/crashReportService.ts` | #110 | Kept, as a sheet at startup (owner decision 2026-11-24). |
 | Interrupted meetings: preview, recover, delete (with confirm) | dialog | `components/TranscriptRecovery/TranscriptRecovery.tsx`, `hooks/useTranscriptRecovery.ts` | #112 | Once per session; "Meeting recovered" toast opens the meeting. |
 | Transcription language (Whisper only) | dialog | `app/_components/SettingsModal.tsx` | dropped | Language moves to Settings (#114) and cannot change during a recording. |
 | Set up transcription to record / Transcription models | dialog | `app/_components/SettingsModal.tsx`, `hooks/useModalState.ts` | #112 | Shown when Record has no model; the design sends the user to Speech models (#117) instead of a modal. |
@@ -619,7 +596,7 @@ and must survive saves (see invariants).
 | Enhance transcript | dialog | `components/MeetingDetails/RetranscribeDialog.tsx` | #119 | Language, model, words for this meeting or all. |
 | Import a recording, drop overlay | dialog | `components/ImportAudio/ImportAudioDialog.tsx`, `ImportDropOverlay.tsx` | #119 | Title, language, model; the design adds a folder. |
 | Export this meeting | dialog | `components/MeetingDetails/MeetingExportDialog.tsx`, `lib/meeting-export.ts`, `lib/exportSummary.ts` | #119 | Content, format (PDF, Word, text, Markdown, JSON, clipboard), link style. |
-| Export several meetings | dialog | `components/meetings/ExportMeetingsDialog.tsx` | #119 | Open question 6. |
+| Export several meetings | dialog | `components/meetings/ExportMeetingsDialog.tsx` | dropped | Bulk actions are dropped (owner decision 2026-11-24). |
 | Template editor | dialog | `components/MeetingDetails/TemplateEditorModal.tsx` | #119 | |
 | Who said this line / Who is Speaker N | dialog | `components/people/SpeakerIdentityDialog.tsx` | #119 | Yourself, a contact, a new contact, or merge with another voice in the meeting; one line or every line; works during a recording too. |
 | Language picker | dialog | `components/LanguagePickerPopover.tsx`, `components/LanguageSelection.tsx` | #119 | Inside Summary options and Import. The summary picker uses the codes of `lib/summary-languages.ts` (see Settings › Summary language). |
@@ -635,17 +612,17 @@ and must survive saves (see invariants).
 | Search and commands | dialog | `components/GlobalSearchDialog.tsx` | #118 | Groups: People, Groups, Meetings, Action items, Said in a meeting, In a summary; commands: record, pause, stop, import, new contact, new group, go to, theme. |
 | Update pill and panel | banner | `components/updater/UpdateIndicator.tsx`, `UpdatePanel.tsx`, `ReleaseNotes.tsx` | #113 | Home banner "Update ready". |
 | Update available / ready / failed | toast | `components/updater/UpdateToasts.tsx` | #113 | Seen keys in localStorage `protocol-updater-seen-v1`. |
-| Download progress panel | toast | `components/shared/DownloadProgressToast.tsx` | #117 | Proposed; open question 2. |
+| Download progress panel | toast | `components/shared/DownloadProgressToast.tsx` | #117 | Replaced by one status line in the bottom bar while any download runs (Parakeet, built-in summary model, Whisper, Nemotron); a click opens Settings › Speech models (owner decision 2026-11-24). The line sits in #110's bar. |
 | Protocol can't hear your microphone / computer audio | banner | `components/PermissionWarning.tsx`, `hooks/usePermissionCheck.ts` | #113 | Home banner with a button to the privacy pane; the design adds "Check again". |
 | System audio level advice | notice | `lib/system-audio-level.ts`, `components/LiveAudioVisualizer.tsx` | #112 | Live meter warning; see `docs/SYSTEM_AUDIO_LEVEL_ADVICE.md`. |
 | Recording start errors (integrity, still downloading, no model) | toast | `lib/recording-start-errors.ts`, `hooks/useRecordingStart.ts` | #112 | |
 | Live speaker labeling unavailable | toast | `app/layout.tsx` | #112 | |
-| Recording audio route warning | toast | `app/layout.tsx` | #112 | Plus an OS notification. |
+| Recording audio route warning | toast | `app/layout.tsx` | #112 | Stays in the app; its OS notification is dropped (owner decision 2026-11-24, native removal #126). |
 | Please complete setup first | toast | `app/layout.tsx` | dropped | Unreachable: the `request-recording-toggle` listener has no emitter, and the notification and detection listeners are not registered during first launch (the notice is mounted only after it). |
 | Please drop an audio file | toast | `app/layout.tsx` | #119 | |
 | Whisper downloaded but could not switch, Retry | notice | `components/TranscriptSettings.tsx` | #117 | Native retries the switch only. |
 | No speech model, recording can't start | notice | `components/TranscriptSettings.tsx` | #117 | Also the Record button (#112). |
-| CUDA driver notice | toast | `components/CudaReconfigurationNotice.tsx` | dropped | Open question 8. |
+| CUDA driver notice | toast | `components/CudaReconfigurationNotice.tsx` | dropped | Release builds are CPU + Vulkan (owner decision 2026-11-24). |
 | Meeting detected / call ended | toast | `app/layout.tsx` | dropped | Detection and auto-record dropped. |
 | Recording toasts (start, pause, devices, mute) | toast | `components/RecordingControls.tsx` (6), `hooks/useRecordingStart.ts` (7), `hooks/useRecordingStop.ts` (5), `contexts/TranscriptContext.tsx` (6), `contexts/RecordingPostProcessingProvider.tsx` (2), `components/recording/RecordingPill.tsx` (1) | #112 | Counts are `toast` calls per file. |
 | Meeting toasts (summary, copy, rename, delete, action items) | toast | `hooks/meeting-details/useSummaryGeneration.ts` (29), `hooks/meeting-details/useCopyOperations.ts` (11), `app/meeting-details/page-content.tsx` (7), `lib/meeting-actions.ts` (6), `components/meeting/MeetingHeader.tsx` (3), others (4) | #113 | Includes "Bilingual transcript detected". |
@@ -694,7 +671,7 @@ session.
 | `last_recording_folder_path`, `last_recording_meeting_name` | sessionStorage | `contexts/RecordingPostProcessingProvider.tsx`, `hooks/useRecordingStop.ts` | #112 | Not needed after the update. From `recording-stop-complete`. |
 | `indexeddb_current_meeting_id` | sessionStorage | `contexts/TranscriptContext.tsx`, `lib/live-speaker-edits.ts`, `hooks/useRecordingStop.ts` | #112 | Not needed after the update. Recovery id of the running recording. |
 | `af-live-title` | sessionStorage | `lib/live-session.ts` | #112 | Not needed after the update. Title typed during the recording. |
-| `pendingRecordingGroup` | sessionStorage | `lib/groups.ts` | #112 | Not needed after the update. Open question 7. |
+| `pendingRecordingGroup` | sessionStorage | `lib/groups.ts` | #112 | Not needed after the update. A picker on the folder in the recording header (owner decision 2026-11-24). |
 | `autoStartRecording`, `af-stop-requested` | sessionStorage | `lib/recording-launch.ts`, `hooks/useRecordingStart.ts`, `components/RecordingControls.tsx`, native `tray.rs` | #112 | Not needed after the update. Start/stop handoff across navigation. Native `tray.rs` writes `autoStartRecording` for the tray Start; keep reading it until #110 makes the tray emit an event instead. |
 | `recovery_dialog_shown` | sessionStorage | `app/page.tsx` | #112 | Not needed after the update. Recovery offered once per session. |
 | `post-call-processing:<meetingId>`, `post-call-summary-started:<meetingId>` | sessionStorage | `components/MeetingDetails/PostCallProcessingWorker.tsx`, `contexts/PostCallJobsContext.tsx`, `app/meeting-details/page-content.tsx` | #112 | Not needed after the update. Post-call pass and auto-summary run once per meeting. |
@@ -721,7 +698,7 @@ other files sit in the install-local data root unless the row says otherwise.
 | `updater.json` | plugin-store | native `updater/prefs.rs` via `updater_set_auto_check` | #114 | **Keep reading.** |
 | `store.json` › `authToken` | plugin-store | native `api/api.rs` | dropped | Not needed after the update. Dead helper (`#[allow(dead_code)]`). |
 | `analytics.json` | plugin-store | none | dropped | Not needed after the update. Written by builds before #14; nothing reads it. |
-| `notifications.json` | native file | `notifications/settings.rs` via `get/set_notification_settings` | #114 | **Keep reading.** Write the whole object back. |
+| `notifications.json` | native file | `notifications/settings.rs` via `get/set_notification_settings` | dropped | Not needed after the update: desktop notifications are dropped (owner decision 2026-11-24); the new UI neither reads nor writes it. Native removal is #126. |
 | `diarization_config.json` | native file | `diarization/mod.rs` via `set_diarization_engine`, `set_diarization_config` | #117 | **Keep reading.** |
 | `voice_profiles.json`, `voice_profiles_enabled.txt` | native file | `diarization/voice_profiles.rs` | #118 | **Keep reading.** Voices and the Labs switch (#117). |
 | `whisper_strict_silence.txt`, `parakeet_gpu_enabled.txt` | native file | `whisper_engine/labs.rs`, `parakeet_engine/labs.rs` | #117 | **Keep reading.** Labs switches. |
@@ -757,9 +734,9 @@ other files sit in the install-local data root unless the row says otherwise.
 | Stop and save order (#32) | invariant | `contexts/RecordingPostProcessingProvider.tsx`, `hooks/useRecordingStop.ts`, `lib/recording-save.ts` | #112 | Every Stop (window, tray, minibar, quit) ends in native finalization, then `recording-stop-complete` with a `stop_id` to the main window; the listener lives there on every route. The WebView then: discards a take under 10 s (`discard_recording_folder`, answer `discarded`); polls `get_transcription_status` every 500 ms for up to 60 s until `!is_processing && chunks_in_queue === 0`, or the queue is empty and nothing happened for 8 s (a poll error ends the wait undone); waits 4 s for late lines unless the 60 s limit ran out (a poll error still waits), then on every path flushes the buffer and waits 500 ms; saves only after a completed wait: `api_save_transcript`, the pending folder, live notes, the pinned or detected summary language, the IndexedDB record marked saved; answers `recording_save_finished(stopId, 'saved')` before refreshing, and opens the meeting with `source=recording` only when that answer says the app is not quitting. A 60 s timeout or a poll error saves nothing: the status returns to idle, the answer is `notSaved` and the transcript stays in IndexedDB for recovery; keeping that branch is a #112 decision. Errors answer `failed`; native waits 120 s for an answer. |
 | Post-call pass order | invariant | `components/MeetingDetails/PostCallProcessingWorker.tsx`, `contexts/PostCallJobsContext.tsx` | #112 | Retranscription → reload → diarization → reload → summary. Listeners register before the start call and filter by meeting id; jobs live above navigation; meetings without audio continue with the live transcript. |
 | Meeting language lives in native memory only | invariant | `contexts/ConfigContext.tsx` | #114 | Push the saved `primaryLanguage` with `set_language_preference` at startup and on every change; locked during a recording. |
-| Read-modify-write for native settings objects | invariant | `components/RecordingSettings.tsx`, `components/RecordingControls.tsx`, `contexts/ConfigContext.tsx`, `hooks/useAppAudio.ts` | #114 | `set_recording_preferences` and `set_notification_settings` replace the whole object; fields the UI does not show must be written back unchanged. Exception: `per_app_target_app` and `per_app_target_name` follow `per_app_targets` (see Settings › Legacy single app target). |
+| Read-modify-write for native settings objects | invariant | `components/RecordingSettings.tsx`, `components/RecordingControls.tsx`, `contexts/ConfigContext.tsx`, `hooks/useAppAudio.ts` | #114 | `set_recording_preferences` replaces the whole object; fields the UI does not show must be written back unchanged (`set_notification_settings` did the same and is dropped with desktop notifications, owner decision 2026-11-24). Exception: `per_app_target_app` and `per_app_target_name` follow `per_app_targets` (see Settings › Legacy single app target). |
 | A first launch creates the database | invariant | `contexts/OnboardingContext.tsx` | #115 | `check_first_launch` → import a legacy database (default location or Homebrew) or `initialize_fresh_database`, before anything reads meetings. |
-| Starts wait for first launch | invariant | `app/layout.tsx`, native `tray.rs` | #110 | Notification starts are not registered until first launch is done. The old UI also waited for the recording notice; that gate is dropped (owner decision 2026-11-24). The tray Start is not gated in the WebView today: native enables it once first launch is done or a Parakeet model exists, and its `autoStartRecording` flag survives the reload that ends first launch, so a recording can start right after it. The new tray path gets the same gate as the notification path. |
+| Starts wait for first launch | invariant | `app/layout.tsx`, native `tray.rs` | #110 | No start may run before first launch is done. The old notification starts waited for first launch and the recording notice; both are dropped (owner decision 2026-11-24). The tray Start is not gated in the WebView today: native enables it once first launch is done or a Parakeet model exists, and its `autoStartRecording` flag survives the reload that ends first launch, so a recording can start right after it. The new tray event waits for first launch. |
 | Tray navigation stays client-side | invariant | `app/layout.tsx`, native `tray.rs` | #110 | A reload would drop a meeting still being saved and queued post-call jobs. `tray-navigate` routes client-side, but the tray Start branch reloads the document today (see Routes and windows). Paths native knows must resolve, or native changes with the router: `/settings` and `/settings?section=about` (`tray.rs`), `/minibar` (`minibar.rs`). |
 | Minibar reads native time and owns no stop logic | invariant | `app/minibar/page.tsx` | #116 | Timer from `get_recording_state` (`active_duration`), not a local counter; Stop calls `stop_recording_from_minibar` and the main window saves. |
 | One theme for both windows | invariant | `lib/app-theme.ts` | #106 | Paint before React from `meetily_theme`; `system` calls `setTheme(null)`, so Tauri passes OS changes through. |
