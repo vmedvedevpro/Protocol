@@ -1,6 +1,8 @@
 import type {Platform} from '@/lib/platform'
 import {audioHandlers} from './audio'
+import {devicesHandlers} from './devices'
 import {notesHandlers} from './notes'
+import {preferencesHandlers} from './preferences'
 import {shellHandlers} from './shell'
 import {mockState} from './state'
 
@@ -42,6 +44,12 @@ export const handlers: Record<string, MockHandler> = {
 
     // src-tauri/src/database/repositories/meeting_notes.rs
     ...notesHandlers(mockState),
+
+    // get_audio_devices (lib.rs), src-tauri/src/audio/recording_preferences.rs
+    ...devicesHandlers(mockState),
+
+    // set_language_preference (lib.rs), api_get_model_config (api/api.rs)
+    ...preferencesHandlers(mockState),
 }
 
 /**
