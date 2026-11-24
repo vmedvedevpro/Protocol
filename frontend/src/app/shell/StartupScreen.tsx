@@ -1,0 +1,54 @@
+import {AnimatePresence} from 'motion/react'
+import * as m from 'motion/react-m'
+import styled from 'styled-components'
+import {Button} from '@/components/ui/Button'
+import {type Status, StatusLine} from '@/components/ui/StatusLine'
+import {tween} from '@/styles/motion'
+import {Screen} from './Screen'
+import type {StartupPhase} from './startup'
+
+type Checking = Exclude<StartupPhase, 'firstLaunch' | 'ready'>
+
+const STATUS: Record<Checking, Status> = {
+    checking: {key: 'checking', text: 'Checking setup…'},
+    slow: {key: 'slow', text: 'Setup status is taking longer than expected.'},
+    failed: {key: 'failed', text: 'Unable to check setup status. Please retry.'},
+}
+
+const Centre = styled.div`
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: ${({theme}) => theme.space[2]};
+    padding: ${({theme}) => theme.space[6]};
+    text-align: center;
+`
+
+const Title = styled.h1`
+    ${({theme}) => theme.text.title};
+`
+
+const Retry = styled(m.div)`
+    margin-top: ${({theme}) => theme.space[2]};
+`
+
+/** "Checking setup…", and Retry once the check failed or stalls. */
+export function StartupScreen({phase, onRetry}: { phase: Checking, onRetry: () => void }) {
+    return (
+        <Screen>
+            <Centre>
+                <Title>Protocol</Title>
+                <StatusLine status={STATUS[phase]}/>
+                <AnimatePresence>
+                    {phase !== 'checking' && (
+                        <Retry initial={{opacity: 0, y: 4}} animate={{opacity: 1, y: 0}} transition={tween('base')}>
+                            <Button onClick={onRetry}>Retry</Button>
+                        </Retry>
+                    )}
+                </AnimatePresence>
+            </Centre>
+        </Screen>
+    )
+}
