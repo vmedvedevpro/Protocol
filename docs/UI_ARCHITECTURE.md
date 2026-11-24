@@ -256,6 +256,8 @@ theme; the motion from the Motion section.
   Storybook's decorator and the tests' `renderUi` (`src/test/`) mount it.
 - `StatusLine` and `ProgressBar`. The bar scales its fill by transform from
   an inline style, so a ticking value makes no new class.
+- `Collapse` holds what a disclosure shows and hides (see Motion); the
+  button that toggles it sets `aria-expanded`.
 
 ## Motion
 
@@ -274,7 +276,13 @@ focus); motion (`motion/react`) carries enter and exit, indicators and springs.
 - Only `transform` and `opacity` animate, plus colours in state feedback and
   the theme change. Width, height, top, left and margin never animate: each
   frame would lay the window out again. Something that has to grow appears
-  with a fade and a small rise, and the layout moves once.
+  with a fade and a small rise, and the layout moves once. The one exception
+  is `Collapse`, a disclosure's content ("What's included?", advanced
+  settings): it grows its height under a clip, because what follows it has
+  to slide rather than jump, and its text must not fade, since text that
+  ends an opacity animation is rasterized again and visibly blinks. It is a
+  short block in a sheet or a settings card, so laying it out each frame
+  is cheap.
 - Animated elements are `m.*` (`import * as m from 'motion/react-m'`) under
   `MotionProvider` (through `UiProviders`). It loads
   `domAnimation` (`app/motionFeatures.ts`) as its own chunk after the first
@@ -314,6 +322,10 @@ focus); motion (`motion/react`) carries enter and exit, indicators and springs.
     nothing.
   - Lists: a new row fades in rising 4 px over `base`, a removed row fades
     out; no stagger, and no reordering animation (it needs layout).
+  - Disclosures: `Collapse` grows from nothing to its content's height over
+    `base` and shrinks back the same way, at full opacity throughout; its
+    button's caret turns over `fast`. The clip holds only while the height
+    moves, so a focus ring at the content's edge shows once it is open.
   - Status changes (a status line, a badge, a count): `AnimatePresence
     mode="wait"` with the old value leaving and the new one arriving, opacity
     and 4 px of `y` over `fast`, as the shell's update status does. The key
@@ -335,7 +347,8 @@ focus); motion (`motion/react`) carries enter and exit, indicators and springs.
   - Values that change every frame (audio levels, the ring) stay outside
     motion and React; see Styling.
 - Reduced motion: `MotionProvider` sets `reducedMotion="user"`, so transform
-  animations jump to their end while opacity still fades. CSS movement goes
+  and size animations (`Collapse`'s height) jump to their end while opacity
+  still fades. CSS movement goes
   inside `MOTION_OK` (`@media (prefers-reduced-motion: no-preference)`);
   colour and opacity transitions stay outside it, and so does the theme
   crossfade, which moves nothing. motion reads the setting when an element

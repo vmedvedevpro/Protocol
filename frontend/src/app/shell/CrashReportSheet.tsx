@@ -1,8 +1,6 @@
 import {useState} from 'react'
 import {useMutation, useQuery, useQueryClient} from '@tanstack/react-query'
 import {CaretRightIcon, FileZipIcon, PaperPlaneTiltIcon} from '@phosphor-icons/react'
-import {AnimatePresence} from 'motion/react'
-import * as m from 'motion/react-m'
 import styled from 'styled-components'
 import {
     chooseCrashReportDestination,
@@ -14,9 +12,10 @@ import {
     pendingCrashReportQuery,
 } from '@/api/crashReport'
 import {Button} from '@/components/ui/Button'
+import {Collapse} from '@/components/ui/Collapse'
 import {Sheet, SheetClose} from '@/components/ui/Sheet'
 import {focusRing} from '@/components/ui/styles'
-import {MOTION_OK, tween} from '@/styles/motion'
+import {MOTION_OK} from '@/styles/motion'
 
 type CrashAction = 'send' | 'save' | 'ignore'
 
@@ -136,11 +135,6 @@ const Small = styled.p`
     color: ${({theme}) => theme.colors.muted};
 `
 
-const Included = styled(m.div)`
-    display: flex;
-    flex-direction: column;
-`
-
 const Failure = styled.p`
     margin-top: ${({theme}) => theme.space[3]};
     ${({theme}) => theme.text.small};
@@ -221,26 +215,17 @@ export function CrashReportSheet() {
                 <CaretRightIcon size={12} aria-hidden/>
                 What&apos;s included?
             </Disclosure>
-            <AnimatePresence initial={false}>
-                {showIncluded && (
-                    <Included
-                        initial={{opacity: 0, y: -4}}
-                        animate={{opacity: 1, y: 0}}
-                        exit={{opacity: 0}}
-                        transition={tween('fast')}
-                    >
-                        <Small>
-                            Crash time and type, Protocol version, coarse operating-system details, bucketed CPU core
-                            count, rounded memory size, acceleration backend, and source-relative panic file/line
-                            details with a location fingerprint when available.
-                        </Small>
-                        <Small>
-                            No audio, recordings, transcripts, summaries, meeting names, database, settings,
-                            credentials, usernames, hostnames, or device names.
-                        </Small>
-                    </Included>
-                )}
-            </AnimatePresence>
+            <Collapse open={showIncluded}>
+                <Small>
+                    Crash time and type, Protocol version, coarse operating-system details, bucketed CPU core
+                    count, rounded memory size, acceleration backend, and source-relative panic file/line
+                    details with a location fingerprint when available.
+                </Small>
+                <Small>
+                    No audio, recordings, transcripts, summaries, meeting names, database, settings,
+                    credentials, usernames, hostnames, or device names.
+                </Small>
+            </Collapse>
 
             <Small>
                 Send Report asks where to save the private ZIP, then opens a public GitHub issue. Opening GitHub
