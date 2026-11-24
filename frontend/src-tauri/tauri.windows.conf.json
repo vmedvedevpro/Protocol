@@ -13,9 +13,10 @@
       {
         "title": "Protocol",
         "url": "/",
-        "width": 1280,
-        "height": 760,
-        "minWidth": 700,
+        "width": 460,
+        "height": 700,
+        "minWidth": 360,
+        "minHeight": 480,
         "center": true,
         "resizable": true,
         "fullscreen": false,
