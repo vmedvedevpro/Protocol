@@ -2,8 +2,14 @@ import {css, keyframes} from 'styled-components'
 import {ICON_DEFAULTS} from '@/styles/icons'
 import {MOTION_OK} from '@/styles/motion'
 
-// BlockNote draws its own icons (react-icons); they take the app's icon size.
+// The icons in BlockNote's buttons and menu rows (Phosphor, editorIcons) take
+// the app's icon size whatever size BlockNote asks for.
 const ICON_SIZE = `${ICON_DEFAULTS.size}px`
+
+// The slash menu and the emoji picker scroll past this height: in the 460 ×
+// 700 window that leaves room for the line they open from and a margin on
+// either side. Where there is less room, BlockNote caps them to it.
+const MENU_MAX_HEIGHT = '320px'
 
 const placeholderIn = keyframes`
     from {
@@ -162,6 +168,11 @@ export const editorStyles = css`
         color: ${({theme}) => theme.colors.muted};
     }
 
+    /* BlockNote draws cell borders in a fixed light grey. */
+    &&& .bn-block-content[data-content-type='table'] :is(th, td) {
+        border-color: ${({theme}) => theme.colors.border};
+    }
+
     &&& .bn-editor a {
         color: inherit;
         text-decoration: underline;
@@ -214,6 +225,26 @@ export const editorStyles = css`
         transform-origin: top left;
     }
 
+    &&& .bn-suggestion-menu {
+        max-height: ${MENU_MAX_HEIGHT};
+    }
+
+    &&& .bn-frimousse-picker {
+        height: ${MENU_MAX_HEIGHT};
+    }
+
+    &&& .bn-frimousse-picker [frimousse-search] {
+        border-radius: ${({theme}) => theme.radii.sm};
+        ${({theme}) => theme.text.small};
+    }
+
+    /* Category names read like the slash menu's group labels. */
+    &&& .bn-frimousse-picker [frimousse-category-header] {
+        color: ${({theme}) => theme.colors.muted};
+        ${({theme}) => theme.text.caption};
+        font-weight: ${({theme}) => theme.fontWeights.medium};
+    }
+
     ${MOTION_OK} {
         &&& .bn-ak-toolbar,
         &&& .bn-ak-menu,
@@ -239,11 +270,15 @@ export const editorStyles = css`
     }
 
     /* Buttons in the toolbar and the side menu: colour and background change
-       on hover, and a press scales to 0.96. */
-    &&& .bn-ak-button {
+       on hover, and a press scales to 0.96. The table's handles and extend
+       buttons keep BlockNote's sizes, which the table leaves room for. */
+    &&& .bn-ak-button:not(.bn-table-handle, .bn-table-cell-handle, .bn-extend-button) {
         height: ${({theme}) => theme.sizes.control.sm};
         min-width: ${({theme}) => theme.sizes.control.sm};
         padding: 0 ${({theme}) => theme.space[1.5]};
+    }
+
+    &&& .bn-ak-button {
         border: 0;
         border-radius: ${({theme}) => theme.radii.sm};
         background: transparent;
@@ -390,6 +425,11 @@ export const editorStyles = css`
         ${({theme}) => theme.text.small};
     }
 
+    /* A field's icon (the link form's) is muted beside its text, as in the app's menus. */
+    &&& .bn-ak-input-wrapper > svg {
+        color: ${({theme}) => theme.colors.muted};
+    }
+
     &&& .bn-ak-input::placeholder {
         color: ${({theme}) => theme.colors.muted};
     }
@@ -400,7 +440,13 @@ export const editorStyles = css`
         outline-offset: -1px;
     }
 
-    /* ---- The drag handle, alone in the host's 20 px gutter ---- */
+    /* ---- The drag handle, alone in the host's 20 px gutter, and the table's handles ---- */
+
+    &&& .bn-table-handle,
+    &&& .bn-table-cell-handle,
+    &&& .bn-extend-button {
+        color: ${({theme}) => theme.colors.muted};
+    }
 
     &&& .bn-side-menu {
         margin-right: ${({theme}) => theme.space[1]};

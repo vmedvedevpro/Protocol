@@ -1,31 +1,46 @@
 import '@blocknote/ariakit/style.css'
-import {type ComponentProps, useEffectEvent, useLayoutEffect, useRef} from 'react'
-import type {
-    BlockNoteEditor,
-    DefaultBlockSchema,
-    DefaultInlineContentSchema,
-    DefaultStyleSchema,
-    PartialBlock,
+import {type ComponentProps, useCallback, useEffectEvent, useLayoutEffect, useMemo, useRef} from 'react'
+import {
+    type BlockNoteEditor,
+    type DefaultBlockSchema,
+    type DefaultInlineContentSchema,
+    type DefaultStyleSchema,
+    filterSuggestionItems,
+    type PartialBlock,
 } from '@blocknote/core'
 import {en} from '@blocknote/core/locales'
 import {BlockNoteView} from '@blocknote/ariakit'
 import {
+    blockTypeSelectItems,
+    ComponentsContext,
     DragHandleButton,
     EmojiPickerController,
+    ExtendButton,
+    type ExtendButtonProps,
     FilePanelController,
     type FloatingUIOptions,
+    FormattingToolbar,
     FormattingToolbarController,
+    type FormattingToolbarProps,
     LinkToolbarController,
     SideMenu,
     SideMenuController,
     type SideMenuProps,
     SuggestionMenuController,
+    TableCellButton,
+    type TableCellButtonProps,
+    TableHandle,
+    type TableHandleProps,
+    TableHandlesController,
+    useBlockNoteEditor,
     useCreateBlockNote,
 } from '@blocknote/react'
+import {CaretDownIcon, DotsSixVerticalIcon, PlusIcon} from '@phosphor-icons/react'
 import * as m from 'motion/react-m'
 import styled, {useTheme} from 'styled-components'
 import {blocksToMarkdownSafely} from '@/lib/blocknote-markdown'
 import {durations, tween} from '@/styles/motion'
+import {notesComponents, slashMenuItems, withBlockTypeIcons} from './editorIcons'
 import {editorStyles} from './editorStyles'
 import type {NotesEditorProps} from './NotesEditor'
 
@@ -33,8 +48,9 @@ import type {NotesEditorProps} from './NotesEditor'
  * BlockNote with the old editor's menus: the formatting toolbar on a
  * selection, the slash menu, the emoji picker (`:` and two letters), the link
  * toolbar, the file panel, table handles, and the drag handle with its block
- * menu. Their components come from @blocknote/ariakit; editorStyles restyles
- * them from the theme. The default export is the lazy chunk NotesEditor loads.
+ * menu. Their components come from @blocknote/ariakit, with Phosphor icons
+ * (editorIcons); editorStyles restyles them from the theme. The default
+ * export is the lazy chunk NotesEditor loads.
  */
 export default function NotesEditorView({
     initialBlocks,
@@ -75,6 +91,10 @@ export default function NotesEditorView({
         onChange?.({json: blocks, markdown: lastMarkdown.current})
     })
     const reportReady = useEffectEvent(() => onReady?.())
+    const getSlashItems = useCallback(
+        async (query: string) => filterSuggestionItems(slashMenuItems(editor), query),
+        [editor],
+    )
 
     // A layout effect, so the first frame already shows the notes. Loading
     // goes before the change listener: the loaded notes are not an edit.
@@ -92,24 +112,36 @@ export default function NotesEditorView({
                 editor={editor}
                 editable={editable}
                 portalElements={PORTALS}
-                // The controllers below replace these, with the menu motion.
+                // The controllers below replace these, with the menu motion and Phosphor icons.
                 formattingToolbar={false}
                 linkToolbar={false}
                 slashMenu={false}
                 emojiPicker={false}
                 sideMenu={false}
                 filePanel={false}
+                tableHandles={false}
             >
-                <FormattingToolbarController floatingUIOptions={MENU_MOTION}/>
-                <LinkToolbarController floatingUIOptions={MENU_MOTION}/>
-                <SuggestionMenuController
-                    triggerCharacter="/"
-                    shouldOpen={(state) => !state.selection.$from.parent.type.isInGroup('tableContent')}
-                    floatingUIOptions={MENU_MOTION}
-                />
-                <EmojiPickerController triggerCharacter=":" floatingUIOptions={MENU_MOTION}/>
-                <SideMenuController sideMenu={DragHandleOnly} floatingUIOptions={SIDE_MENU_OPTIONS}/>
-                <FilePanelController floatingUIOptions={MENU_MOTION}/>
+                <ComponentsContext.Provider value={notesComponents}>
+                    <FormattingToolbarController
+                        formattingToolbar={NotesFormattingToolbar}
+                        floatingUIOptions={MENU_MOTION}
+                    />
+                    <LinkToolbarController floatingUIOptions={MENU_MOTION}/>
+                    <SuggestionMenuController
+                        triggerCharacter="/"
+                        getItems={getSlashItems}
+                        shouldOpen={(state) => !state.selection.$from.parent.type.isInGroup('tableContent')}
+                        floatingUIOptions={MENU_MOTION}
+                    />
+                    <EmojiPickerController triggerCharacter=":" floatingUIOptions={MENU_MOTION}/>
+                    <SideMenuController sideMenu={DragHandleOnly} floatingUIOptions={SIDE_MENU_OPTIONS}/>
+                    <FilePanelController floatingUIOptions={MENU_MOTION}/>
+                    <TableHandlesController
+                        tableHandle={NotesTableHandle}
+                        extendButton={NotesExtendButton}
+                        tableCellHandle={NotesTableCellHandle}
+                    />
+                </ComponentsContext.Provider>
             </Editor>
         </Root>
     )
@@ -159,6 +191,40 @@ function DragHandleOnly(props: SideMenuProps) {
             <DragHandleButton {...props}/>
         </SideMenu>
     )
+}
+
+// Table handles take their icon as children. A handle is as large as its
+// icon: the app's 16 px, and BlockNote's 12 px for the cell handle's caret.
+
+function NotesTableHandle(props: TableHandleProps) {
+    return (
+        <TableHandle {...props}>
+            <DotsSixVerticalIcon size={16}/>
+        </TableHandle>
+    )
+}
+
+function NotesExtendButton(props: ExtendButtonProps) {
+    return (
+        <ExtendButton {...props}>
+            <PlusIcon size={16}/>
+        </ExtendButton>
+    )
+}
+
+function NotesTableCellHandle(props: TableCellButtonProps) {
+    return (
+        <TableCellButton {...props}>
+            <CaretDownIcon size={12}/>
+        </TableCellButton>
+    )
+}
+
+/** BlockNote's formatting toolbar, with Phosphor icons in its block type select. */
+function NotesFormattingToolbar(props: FormattingToolbarProps) {
+    const editor = useBlockNoteEditor()
+    const items = useMemo(() => withBlockTypeIcons(blockTypeSelectItems(editor)), [editor])
+    return <FormattingToolbar {...props} blockTypeSelectItems={items}/>
 }
 
 /**
