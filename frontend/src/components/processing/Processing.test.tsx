@@ -16,7 +16,9 @@ function runner() {
 describe('ProcessingStatus', () => {
     it('shows nothing without a pass', () => {
         const {container} = renderUi(<ProcessingStatus meetingId="m1"/>)
-        expect(container).toBeEmptyDOMElement()
+        // The providers may draw their own empty regions (the toaster).
+        expect(container.textContent).toBe('')
+        expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
     })
 
     it('says what runs, how long is left and how far the pass has got', async () => {
@@ -98,6 +100,6 @@ describe('ProcessingLine', () => {
 
         postCallJobs.end('m1')
         rerender(<ProcessingLine meetingId="m1"/>)
-        expect(container).toBeEmptyDOMElement()
+        expect(container.textContent).toBe('')
     })
 })
