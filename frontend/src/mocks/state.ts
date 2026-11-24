@@ -7,6 +7,7 @@ import packageJson from '../../package.json'
 import {createMockDevices} from './devices'
 import {createMockModels} from './models'
 import {createMockNotes} from './notes'
+import {createMockPostCall} from './postCall'
 import {createMockPreferences} from './preferences'
 
 /**
@@ -78,6 +79,8 @@ function createMockState() {
             audioPlaying: true,
             openedPanes: [] as string[],
         },
+        // The retranscription running, if any (src/mocks/postCall.ts).
+        postCall: createMockPostCall(),
     }
 }
 

@@ -4,6 +4,7 @@ import {devicesHandlers} from './devices'
 import {modelsHandlers} from './models'
 import {notesHandlers} from './notes'
 import {macosPermissionsHandlers, permissionsHandlers} from './permissions'
+import {postCallHandlers} from './postCall'
 import {preferencesHandlers} from './preferences'
 import {shellHandlers} from './shell'
 import {mockState} from './state'
@@ -58,6 +59,9 @@ export const handlers: Record<string, MockHandler> = {
 
     // Microphone and computer-audio permissions
     ...permissionsHandlers,
+
+    // src-tauri/src/audio/retranscription.rs, diarization/mod.rs
+    ...postCallHandlers(mockState),
 }
 
 /**
