@@ -136,7 +136,8 @@ function Tokens() {
 
             <Group>
                 <Heading>Space</Heading>
-                {keysOf(theme.space).map((name) => (
+                {/* Object keys list integers before 0.5, 1.5…; the scale reads in order. */}
+                {keysOf(theme.space).sort((a, b) => Number(a) - Number(b)).map((name) => (
                     <TextRow key={name}>
                         <SpaceBar $space={name}/>
                         <Value>space[{name}] · {theme.space[name]}</Value>
