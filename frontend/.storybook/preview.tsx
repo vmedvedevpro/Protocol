@@ -3,6 +3,7 @@ import type {Decorator, Preview} from '@storybook/react-vite'
 import {IconContext} from '@phosphor-icons/react'
 import {QueryClient, QueryClientProvider} from '@tanstack/react-query'
 import {ThemeProvider} from 'styled-components'
+import {MotionProvider} from '../src/app/MotionProvider'
 import {installMockIpc} from '../src/mocks/ipc'
 import {resetMockState} from '../src/mocks/state'
 import {GlobalStyle} from '../src/styles/GlobalStyle'
@@ -22,9 +23,11 @@ const withAppProviders: Decorator = (Story, context) => {
         <QueryClientProvider client={queryClient}>
             <ThemeProvider theme={theme}>
                 <GlobalStyle/>
-                <IconContext.Provider value={ICON_DEFAULTS}>
-                    <Story/>
-                </IconContext.Provider>
+                <MotionProvider>
+                    <IconContext.Provider value={ICON_DEFAULTS}>
+                        <Story/>
+                    </IconContext.Provider>
+                </MotionProvider>
             </ThemeProvider>
         </QueryClientProvider>
     )

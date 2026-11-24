@@ -1,5 +1,9 @@
+import {useState} from 'react'
 import type {Meta, StoryObj} from '@storybook/react-vite'
+import type {Transition} from 'motion/react'
+import * as m from 'motion/react-m'
 import styled, {useTheme} from 'styled-components'
+import {type DurationName, durations, type EasingName, easings, springs, tween} from './motion'
 import type {AppTheme} from './theme'
 
 const Sheet = styled.div`
@@ -83,6 +87,78 @@ const ShadowBox = styled.span<{ $shadow: keyof AppTheme['shadows'] }>`
     box-shadow: ${({theme, $shadow}) => theme.shadows[$shadow]};
 `
 
+// Motion demo: a dot crosses a fixed track with each token, so durations,
+// easings and springs can be compared side by side.
+const TRACK = 200
+const DOT = 12
+
+const MotionTrack = styled.span`
+    position: relative;
+    flex: none;
+    width: ${TRACK}px;
+    height: ${DOT}px;
+    border-radius: ${({theme}) => theme.radii.pill};
+    background: ${({theme}) => theme.colors.surface};
+`
+
+const Dot = styled(m.span)`
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: ${DOT}px;
+    height: ${DOT}px;
+    border-radius: ${({theme}) => theme.radii.pill};
+    background: ${({theme}) => theme.colors.text};
+`
+
+const PlayButton = styled.button`
+    align-self: flex-start;
+    height: ${({theme}) => theme.sizes.control.sm};
+    padding: 0 ${({theme}) => theme.space[3]};
+    border: 1px solid ${({theme}) => theme.colors.border};
+    border-radius: ${({theme}) => theme.radii.sm};
+    background: ${({theme}) => theme.colors.raised};
+    ${({theme}) => theme.text.small};
+    cursor: pointer;
+`
+
+function MotionRow({label, transition, at}: { label: string; transition: Transition; at: boolean }) {
+    return (
+        <TextRow>
+            <MotionTrack>
+                <Dot initial={false} animate={{x: at ? TRACK - DOT : 0}} transition={transition}/>
+            </MotionTrack>
+            <Value>{label}</Value>
+        </TextRow>
+    )
+}
+
+const bezier = (name: EasingName) => easings[name].join(', ')
+
+function MotionTokens() {
+    const [at, setAt] = useState(false)
+    return (
+        <Group>
+            <Heading>Motion</Heading>
+            <PlayButton type="button" onClick={() => setAt((value) => !value)}>Play</PlayButton>
+            {(Object.keys(durations) as DurationName[]).map((name) => (
+                <MotionRow key={name} at={at} transition={tween(name)} label={`duration.${name} · ${durations[name]}ms, standard`}/>
+            ))}
+            {(Object.keys(easings) as EasingName[]).map((name) => (
+                <MotionRow key={name} at={at} transition={tween('slow', name)} label={`easing.${name} · ${bezier(name)}, slow`}/>
+            ))}
+            {(Object.keys(springs) as (keyof typeof springs)[]).map((name) => (
+                <MotionRow
+                    key={name}
+                    at={at}
+                    transition={springs[name]}
+                    label={`springs.${name} · stiffness ${springs[name].stiffness}, damping ${springs[name].damping}, mass ${springs[name].mass}`}
+                />
+            ))}
+        </Group>
+    )
+}
+
 function keysOf<T extends object>(record: T) {
     return Object.keys(record) as (keyof T)[]
 }
@@ -144,6 +220,8 @@ function Tokens() {
                     </TextRow>
                 ))}
             </Group>
+
+            <MotionTokens/>
 
             <Group>
                 <Heading>Shadows</Heading>
