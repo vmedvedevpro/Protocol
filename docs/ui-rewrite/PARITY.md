@@ -10,7 +10,8 @@ into the new UI, or why it is dropped. Written for
   the tables are relative to `frontend/src/` unless they name the native side.
 - Design: the Design artifact
   <https://claude.ai/artifact/4jHMQKAC5bzDBVbcRNrxUL>, page *Protocol*
-  (`app`), its notes ("Сверено с кодом", "Убрано") and artboards.
+  (`app`), its notes (the one checked against the code and the one listing
+  what was removed) and artboards.
 - The rows were collected with scripts over the source (every `invoke`,
   `listen`, `localStorage`, `sessionStorage`, plugin-store and IndexedDB call),
   then read where the purpose was not obvious. The command list matches the
@@ -47,7 +48,7 @@ or a name), meeting detection and auto-record.
    dismiss) before the app. Not in the design; proposed owner #110 (startup
    gate). Keep or drop?
 3. **Global download panel.** `components/shared/DownloadProgressToast.tsx`
-   shows every model download (speech, summary, Nemotron, Intel) with
+   shows the Parakeet, built-in summary model, Whisper and Nemotron downloads with
    verification and activation progress in the top-right corner of any screen.
    The design shows progress only inside first launch and Settings › Speech
    models. Is a global indicator wanted, and who owns it (#117 or #108)?
@@ -63,9 +64,12 @@ or a name), meeting detection and auto-record.
    not mention a summary model. Which models does #115 download, and what does
    the first automatic summary use?
 6. **Default summary template.** The design (Settings › Summary templates)
-   adds a default template. The code has none: the template is picked per
-   generation in the regenerate dialog and not saved. Where is the default
-   stored (no native setting exists) and which task adds that backend part?
+   lets the user choose a default template. The old UI hard-codes the built-in
+   `standard_meeting` (`hooks/meeting-details/useTemplates.ts`): the template
+   is picked per generation in the regenerate dialog and not saved, and native
+   `api_process_transcript` falls back to `daily_standup` when no template is
+   passed. No setting stores a chosen default. Where is it stored and which
+   task adds that backend part?
 7. **Bulk actions and library filters.** The old sidebar and `/meetings`
    select several meetings to move to a group, export together
    (`ExportMeetingsDialog`, one document) or delete, and `/meetings` filters
@@ -107,10 +111,9 @@ or a name), meeting detection and auto-record.
 | `/contacts` | route | `app/contacts/page.tsx` | dropped | Contacts page dropped by the owner. |
 | `/groups`, `/groups?id=…` | route | `app/groups/page.tsx`, `components/groups/*` | dropped | Groups become folders in the meetings list (#113). |
 | `/settings?section=…` | route | `app/settings/page.tsx` | #114 | Sections `general`, `recording`, `transcription`, `summaries`, `agents`, `detection`, `local`, `labs`, `about` map onto General, Recording, AI, Advanced (#114, #117). The tray sends `/settings` and `/settings?section=about`. |
-| Legacy settings handoff through sessionStorage | route | `app/settings/page.tsx`, `components/MeetingDetails/RetranscribeDialog.tsx`, `components/TranscriptSettings.tsx` | #110 | `meetily-settings-tab` (old tab names) and `meetily-settings-transcription-section`; replace with route parameters. |
 | `/minibar` | route | `app/minibar/page.tsx` | #116 | The whole UI of the `minibar` window. Native opens this path (`minibar.rs`, `WebviewUrl::App("minibar")`); keep it or change it there. |
 | Startup gate: "Checking setup…", retry after 8 s or an error | route | `app/layout.tsx` | #110 | Waits for `get_onboarding_status`, then the crash report check. |
-| First launch instead of the app | route | `app/layout.tsx`, `components/onboarding/*` | #115 | Old flow has 5 steps (welcome, setup overview and permissions, downloads, name, audio test); the design has 2. Completion reloads the window. |
+| First launch instead of the app | route | `app/layout.tsx`, `components/onboarding/*` | #115 | Old flow has 5 steps (welcome, setup overview, downloads, name, audio test, which also asks for the microphone and macOS audio permissions); the design has 2. `PermissionsStep` is exported but never rendered. Completion reloads the window. |
 | Main window `main` | window | native `tauri.conf.json`, `app/layout.tsx` | #110 | See open question 10. |
 | Window controls drawn by the app on Windows | window | `components/WindowControls.tsx`, `hooks/useCustomChrome.ts`, `lib/window-chrome.ts` | #110 | Minimize, maximize (follows `onResized`), close. |
 | Close hides the main window to the tray | window | native `lib.rs` | #110 | Native; the UI only needs to expect a hidden window. |
@@ -123,24 +126,29 @@ or a name), meeting detection and auto-record.
 | Context menu off in production | window | `app/layout.tsx` | #110 | |
 | Route warmup | window | `components/RouteWarmup.tsx` | dropped | Next.js route prefetching. |
 | Chunk-load reload script | window | `app/layout.tsx` | dropped | Next.js chunk errors in WebView2. |
+| Browser preview with mock IPC and a sample library | window | `dev/preview/*`, `app/layout.tsx` | #106 | Development only: in a plain browser (no Tauri bridge) `installPreviewMocks` answers commands through Tauri `mockIPC` with sample meetings, models and a live session. Its handlers and fixtures are a starting point for the new mock IPC. |
 | Tray menu | tray | native `tray.rs` | #110 | Start, Pause, Resume, Stop Recording; Open Main Window; Settings; Update Available, Restart to Update, Check for Updates; Quit (asks during a recording, native `quit.rs`). Icons: #120. |
 | Tray navigation | tray | `app/layout.tsx` | #110 | `tray-navigate` carries a path; route it client-side (see invariants). |
 | Tray Start Recording | tray | native `tray.rs` (`toggle_recording_handler`), `hooks/useRecordingStart.ts` | #110 | Native sets sessionStorage `autoStartRecording` with `window.eval` and reloads the window at `/` (`window.location.assign`); the new `/` starts a recording when it finds the flag, with no first-launch or notice check. The reload drops a meeting still being saved and queued post-call jobs. #110 changes that branch of `tray.rs` to emit an event handled client-side and gated by first launch and the notice (#112 starts the recording), or the new `/` must honour the flag. Native already disables Start until first launch is done or a Parakeet model exists. |
 | Ctrl/⌘ K search | hotkey | `components/GlobalSearchDialog.tsx` | #118 | |
-| ← / → skip 5 s in the player | hotkey | `components/meeting/AudioPlayerBar.tsx` | #113 | |
+| ← / → skip 5 s in the player | hotkey | `components/meeting/AudioPlayerBar.tsx` | #113 | Only while the scrubber has focus. |
+| Space plays or pauses the player | hotkey | `components/meeting/AudioPlayerBar.tsx` | #113 | Window-wide while the player is ready and focus is not in a text field. Collides with the design's new Space (pause) hotkey (#110): on a meeting page during a recording, one of them must win. |
 | F2 rename, Esc clears the selection in meeting lists | hotkey | `components/Sidebar/index.tsx`, `app/meetings/page.tsx` | #113 | |
 | Ctrl/⌘ Enter submits "Regenerate the summary" | hotkey | `components/meeting/MeetingDocument.tsx` | #119 | |
 
 The design adds Ctrl/⌘ R (record), Ctrl/⌘ , (settings), Space (pause) and
-Keep on top; they are new in #110, not parity items.
+Keep on top; they are new in #110, not parity items. Space collides with the
+player's (see above).
 
 ## Tauri commands
 
-217 commands. "Old file" lists up to three callers. Rows marked "Windows
-only" or "macOS only" are registered only on that platform (`#[cfg]` in
-`generate_handler!`); elsewhere they fail with "command not found", which the
-old UI reads as "not available". #106's mock IPC and the screens that call
-them (#113, #117) keep that rule.
+217 commands. "Old file" lists up to three callers, leaving out dead code
+(`components/onboarding/steps/PermissionsStep.tsx` is never rendered and
+`activateOptionalModel` in `lib/optional-model-activation.ts` is never
+called). Rows marked "Windows only" or "macOS only" are registered only on
+that platform (`#[cfg]` in `generate_handler!`); elsewhere they fail with
+"command not found", which the old UI reads as "not available". #106's mock
+IPC and the screens that call them (#113, #117) keep that rule.
 
 ### Recording session and live transcript
 
@@ -211,7 +219,7 @@ them (#113, #117) keep that rule.
 | `api_get_meetings` | command | `components/Sidebar/SidebarProvider.tsx`, `services/storageService.ts` | #113 | Meetings list with summary preview, speaker names and dates. |
 | `api_list_action_items` | command | `lib/workspace-api.ts` | #113 | Action items of a meeting; also person (#118) and search (#118). |
 | `api_list_groups` | command | `lib/workspace-api.ts` | #113 | Folders (groups) for the list filter and pickers. |
-| `api_list_unsynced_action_meetings` | command | `lib/workspace-api.ts` | #113 | One-time backfill of older summaries (`af-action-backfill-done`). |
+| `api_list_unsynced_action_meetings` | command | `lib/workspace-api.ts` | #113 | Backfill of older summaries, once per session (`af-action-backfill-done`). |
 | `api_save_meeting_notes` | command | `lib/workspace-api.ts` | #111 | Autosaved notes; the live notes are saved here on Stop (#112). |
 | `api_save_meeting_title` | command | `lib/meeting-actions.ts` | #113 | Rename. |
 | `api_set_meeting_group` | command | `hooks/useRecordingStop.ts`, `lib/workspace-api.ts` | #113 | Move to folder; also files a new recording into its pending group (#112). |
@@ -236,7 +244,7 @@ them (#113, #117) keep that rule.
 | `api_list_templates` | command | `hooks/meeting-details/useTemplates.ts` | #117 | Templates subpage; also Summary options (#119). |
 | `api_process_transcript` | command | `hooks/meeting-details/useSummaryGeneration.ts` | #113 | Generate/regenerate; also the automatic summary after Stop (#112). |
 | `api_save_custom_template` | command | `hooks/meeting-details/useTemplates.ts` | #119 | Template editor. |
-| `api_save_meeting_detected_summary_language` | command | `lib/summary-language-preferences.ts` | #113 | Same; `local_fallback` as above. |
+| `api_save_meeting_detected_summary_language` | command | `lib/summary-language-preferences.ts` | #113 | Caches the detected language for Auto; returns `local_fallback` like `api_save_meeting_summary_language`. |
 | `api_save_meeting_summary` | command | `components/meeting/MeetingDocument.tsx`, `lib/action-item-sync.ts` | #113 | Edited summary; action-item sync writes it too. |
 | `api_save_meeting_summary_language` | command | `lib/summary-language-preferences.ts` | #119 | Returns `local_fallback` when the meeting has no metadata file; the UI then keeps it in localStorage. |
 | `builtin_ai_get_model_info` | command | `hooks/meeting-details/useSummaryGeneration.ts`, `lib/builtin-ai.ts` | #113 | Readiness check before generating with the built-in model. |
@@ -317,7 +325,7 @@ them (#113, #117) keep that rule.
 | `api_get_transcript_config` | command | `app/settings/page.tsx`, `services/configService.ts` | #117 | Live model (DB settings). |
 | `api_get_vocabulary` | command | `components/MeetingDetails/RetranscribeDialog.tsx`, `components/TranscriptSettings.tsx` | #117 | Words to recognize; also Enhance (#119). |
 | `api_save_global_vocabulary` | command | `components/TranscriptSettings.tsx` | #117 | Words to recognize (1000 characters). |
-| `api_save_post_call_transcript_config` | command | `components/TranscriptSettings.tsx`, `lib/optional-model-activation.ts` | #117 | After-meeting model; optional Whisper activation is native (see invariants). |
+| `api_save_post_call_transcript_config` | command | `components/TranscriptSettings.tsx` | #117 | After-meeting model; optional Whisper activation is native (see invariants). |
 | `api_save_transcript_config` | command | `components/ParakeetModelManager.tsx`, `components/TranscriptSettings.tsx`, `components/WhisperModelManager.tsx` | #117 | Live model. |
 | `force_unload_all_models` | command | `components/LocalStackStatus.tsx` | #117 | Free all memory. |
 | `force_unload_stt_models` | command | `components/LocalStackStatus.tsx` | #117 | Unload speech models. |
@@ -352,7 +360,7 @@ them (#113, #117) keep that rule.
 | `download_diarization_models` | command | `components/DiarizationSettings.tsx`, `contexts/OptionalModelDownloadsContext.tsx` | #117 | Nemotron download; native activates the engine on success. |
 | `open_diarization_model_directory` | command | `components/DiarizationSettings.tsx` | #117 | Model files and credits › Open folder. |
 | `set_diarization_config` | command | `components/DiarizationSettings.tsx` | #117 | Speech threshold. |
-| `set_diarization_engine` | command | `components/DiarizationSettings.tsx`, `lib/optional-model-activation.ts` | #117 | Pyannote or Nemotron. |
+| `set_diarization_engine` | command | `components/DiarizationSettings.tsx` | #117 | Pyannote or Nemotron. |
 
 ### Settings: summary model
 
@@ -387,9 +395,9 @@ them (#113, #117) keep that rule.
 | `get_voice_profiles_enabled` | command | `lib/labs-features.ts` | #117 | Labs › Voice profiles. |
 | `get_whisper_strict_silence` | command | `lib/labs-features.ts` | #117 | Labs › Whisper silence guard. |
 | `set_agent_access` | command | `components/AgentAccessSettings.tsx` | #117 | Writes `mcp-server.json` next to the database. |
-| `set_parakeet_gpu_enabled` | command | `lib/labs-features.ts` | #117 | Same. |
-| `set_voice_profiles_enabled` | command | `lib/labs-features.ts` | #117 | Same. |
-| `set_whisper_strict_silence` | command | `lib/labs-features.ts` | #117 | Same. |
+| `set_parakeet_gpu_enabled` | command | `lib/labs-features.ts` | #117 | Labs › Parakeet on the GPU. |
+| `set_voice_profiles_enabled` | command | `lib/labs-features.ts` | #117 | Labs › Voice profiles. |
+| `set_whisper_strict_silence` | command | `lib/labs-features.ts` | #117 | Labs › Whisper silence guard. |
 
 ### First launch, permissions and startup
 
@@ -407,10 +415,10 @@ them (#113, #117) keep that rule.
 | `get_system_audio_permission_status` | command | `hooks/usePermissionCheck.ts` | #113 | Home banner "macOS did not allow audio". |
 | `import_and_initialize_database` | command | `contexts/OnboardingContext.tsx` | #115 | Imports a legacy database. |
 | `initialize_fresh_database` | command | `contexts/OnboardingContext.tsx` | #115 | Creates the database on a first launch (see invariants). |
-| `open_system_settings` | command | `components/PermissionWarning.tsx`, `components/onboarding/steps/PermissionsStep.tsx` | #113 | macOS only. Banner and first launch: opens the privacy pane. |
+| `open_system_settings` | command | `components/PermissionWarning.tsx` | #113 | macOS only. Home permission banner: opens the privacy pane. |
 | `save_onboarding_status_cmd` | command | `contexts/OnboardingContext.tsx` | #115 | Step progress (`onboarding-status.json`). |
-| `trigger_microphone_permission` | command | `components/onboarding/steps/AudioTestStep.tsx`, `components/onboarding/steps/PermissionsStep.tsx`, `hooks/usePermissionCheck.ts` | #115 | Microphone permission; also the Home banner (#113). |
-| `trigger_system_audio_permission_command` | command | `components/onboarding/steps/AudioTestStep.tsx`, `components/onboarding/steps/PermissionsStep.tsx`, `hooks/usePermissionCheck.ts` | #115 | macOS Audio Capture permission; also the Home banner (#113). |
+| `trigger_microphone_permission` | command | `components/onboarding/steps/AudioTestStep.tsx`, `hooks/usePermissionCheck.ts` | #115 | Microphone permission from the first-launch audio test; also the Home banner (#113). |
+| `trigger_system_audio_permission_command` | command | `components/onboarding/steps/AudioTestStep.tsx`, `hooks/usePermissionCheck.ts` | #115 | macOS Audio Capture permission from the first-launch audio test; also the Home banner (#113). |
 
 ### Search
 
@@ -433,7 +441,7 @@ them (#113, #117) keep that rule.
 | `parakeet_get_models_directory` | command | `lib/parakeet.ts` | dropped | Only through an unused `ParakeetAPI` wrapper. |
 | `parakeet_transcribe_audio` | command | `lib/parakeet.ts` | dropped | Only through the unused `ParakeetAPI.transcribeAudio` wrapper. |
 | `parakeet_validate_model_ready` | command | `lib/parakeet.ts` | dropped | Only through an unused `ParakeetAPI` wrapper. |
-| `set_meeting_detection_settings` | command | `components/MeetingDetectionSettings.tsx`, `lib/labs-features.ts` | dropped | Same. |
+| `set_meeting_detection_settings` | command | `components/MeetingDetectionSettings.tsx`, `lib/labs-features.ts` | dropped | Meeting detection and auto-record are dropped by the owner. |
 | `start_recording` | command | `services/recordingService.ts` | dropped | Only `recordingService.startRecording` calls it, and nothing calls that. |
 | `whisper_get_current_model` | command | `lib/whisper.ts` | dropped | Only through an unused `WhisperAPI` wrapper. |
 | `whisper_transcribe_audio` | command | `lib/whisper.ts` | dropped | Only reachable through the unused `WhisperAPI.transcribeAudio` wrapper. |
@@ -504,8 +512,9 @@ them (#113, #117) keep that rule.
 ### Window events inside the WebView
 
 These are DOM events between components of one window, or between windows
-through `storage`. They are transports, not contracts; the new UI may replace
-them. Listed so their effects are not lost.
+through `storage`, plus `model-config-updated`, a Tauri event that only the UI
+emits. They are transports, not contracts; the new UI may replace them.
+Listed so their effects are not lost.
 
 | Item | Kind | Old file | Owner | Notes |
 | --- | --- | --- | --- | --- |
@@ -519,11 +528,11 @@ them. Listed so their effects are not lost.
 | `start-recording-from-sidebar` | DOM event | `lib/recording-launch.ts`, `hooks/useRecordingStart.ts` | #112 | Start requests from anywhere. |
 | `af-stop-recording` | DOM event | `lib/recording-launch.ts`, `components/RecordingControls.tsx` | #112 | Stop requests from anywhere. |
 | `af-pending-group` | DOM event | `lib/groups.ts`, `hooks/usePendingGroup.ts` | #112 | Open question 8. |
-| `af-live-session` | DOM event | `lib/live-session.ts` | #112 | Live title and notes changed. |
+| `af-live-session` | DOM event | `lib/live-session.ts` | #112 | Live title changed; writing notes does not fire it. |
 | `af-workspace-change` | DOM event | `lib/workspace-api.ts` | #113 | Cross-view refresh after meeting, folder, person or action-item edits. |
 | `open-global-search` | DOM event | `components/Sidebar/index.tsx`, `components/GlobalSearchDialog.tsx` | #118 | |
 | `af-open-group-editor` | DOM event | `components/groups/GroupEditor.tsx` | #113 | New folder from anywhere. |
-| `confidenceIndicatorChanged` | DOM event | `contexts/ConfigContext.tsx` | #117 | |
+| `confidenceIndicatorChanged` | DOM event | `contexts/ConfigContext.tsx` | dropped | Dispatched by the dead Show confidence setting; nothing listens. |
 | `model-config-updated` | UI event | `contexts/ConfigContext.tsx`, `components/SummaryModelSettings.tsx`, `app/meeting-details/page.tsx` | #117 | A Tauri event the UI emits to every window after saving the summary model, so other views reload; native never emits it. |
 | `af-sidebar-width` | DOM event | `components/Sidebar/SidebarProvider.tsx` | dropped | No sidebar in the design. |
 | `meetily-automation-changed` | DOM event | `lib/meeting-automation.ts` | dropped | Auto-record dropped. |
@@ -559,7 +568,7 @@ default settings mode; the rest sits behind the Advanced switch.
 | Model after the meeting | setting | `components/TranscriptSettings.tsx` | #117 | AI. `api_save_post_call_transcript_config`; "Same as during the meeting" option. |
 | Meeting language | setting | `components/TranscriptSettings.tsx`, `contexts/ConfigContext.tsx`, `app/_components/SettingsModal.tsx` | #114 | Simple and AI (#117). localStorage `primaryLanguage`; locked while recording. |
 | Faster live text | setting | `components/TranscriptSettings.tsx` | #117 | `real_time_transcription` in `recording_preferences.json`. |
-| Show confidence | setting | `app/_components/SettingsModal.tsx` | #117 | Was in the "Transcription models" dialog; the design moves it to AI. localStorage `showConfidenceIndicator`. |
+| Show confidence | setting | `app/_components/SettingsModal.tsx` | dropped | Dead: `VirtualizedTranscriptView` declares `showConfidence` but never reads it, and nothing listens for `confidenceIndicatorChanged`. The design shows it in AI; a working version is new work, not parity. |
 | Words to recognize | setting | `components/TranscriptSettings.tsx` | #117 | Global vocabulary, 1000 characters. |
 | Speech models: For this computer, All models | setting | `components/settings/ForThisComputer.tsx`, `components/ParakeetModelManager.tsx`, `components/WhisperModelManager.tsx` | #117 | Speech models subpage: download, cancel, remove, retry, update. |
 | Intel GPU / NPU offer, "Not now" | setting | `components/settings/IntelOffer.tsx`, `lib/speech-choice.ts` | #117 | Dismissal per device in localStorage `meetily-intel-offer-dismissed`. |
@@ -652,7 +661,7 @@ and must survive saves (see invariants).
 | Dialog toasts (import, enhance, export, templates, speakers) | toast | `components/MeetingDetails/TemplateEditorModal.tsx` (8), `RetranscribeDialog.tsx` (4), `components/people/SpeakerIdentityDialog.tsx` (4), `ImportAudioDialog.tsx` (3), `ExportMeetingsDialog.tsx` (2), `hooks/useImportAudio.ts` (1) | #119 | |
 | Settings toasts | toast | `components/ModelSettingsModal.tsx` (12), `WhisperModelManager.tsx` (8), `ParakeetModelManager.tsx` (8), `RecordingSettings.tsx` (7), `DiarizationSettings.tsx` (7), `BuiltInModelManager.tsx` (6), `LocalStackStatus.tsx` (5), others | #117 | General and Recording ones (#114): `RecordingSettings.tsx`. |
 | Person and contact toasts | toast | `app/person/page.tsx` (6), `components/people/*` (6) | #118 | |
-| First launch toasts | toast | `components/onboarding/steps/DownloadProgressStep.tsx` (3), `PermissionsStep.tsx` (2) | #115 | |
+| First launch toasts | toast | `components/onboarding/steps/DownloadProgressStep.tsx` (3) | #115 | |
 
 ## Persisted state
 
@@ -665,10 +674,10 @@ session.
 
 | Item | Kind | Old file | Owner | Notes |
 | --- | --- | --- | --- | --- |
-| `meetily_theme` | localStorage | `lib/app-theme.ts` (boot script, Settings, minibar) | #106 | **Keep reading.** `light`, `dark`, `system`; old values Midnight/Charcoal → dark, Vanilla → light. Shared by both windows. |
+| `meetily_theme` | localStorage | `lib/app-theme.ts` (boot script, Settings, minibar) | #106 | **Keep reading.** `light`, `dark`, `system`; old values `midnight` and `charcoal` → dark, `vanilla` → light. Shared by both windows. |
 | `meetily_user_name` | localStorage | `hooks/useUserName.ts`, `components/PreferenceSettings.tsx`, first launch | #114 | **Keep reading.** |
 | `primaryLanguage` | localStorage | `contexts/ConfigContext.tsx` | #114 | **Keep reading.** Meeting language; default English for an English OS, else auto. Pushed to native at startup. |
-| `showConfidenceIndicator` | localStorage | `contexts/ConfigContext.tsx` | #117 | **Keep reading.** Default on. |
+| `showConfidenceIndicator` | localStorage | `contexts/ConfigContext.tsx` | dropped | Read only by the dead Show confidence setting. |
 | `isAutoSummary` | localStorage | `contexts/ConfigContext.tsx` | #114 | **Keep reading.** Default on. |
 | `summaryLanguageDefault` | localStorage | `lib/summary-language-preferences.ts` | #114 | **Keep reading.** Pinned summary language. |
 | `summaryLanguageRecents` | localStorage | `hooks/useRecentLanguages.ts` | #119 | **Keep reading.** Picker recents. |
@@ -676,8 +685,8 @@ session.
 | `detectedSummaryLanguageFallback:<meetingId>` | localStorage | `lib/summary-language-preferences.ts` | #113 | **Keep reading.** Detected-language cache for such meetings; losing it means detecting again. |
 | `providerModelMap` | localStorage | `contexts/ConfigContext.tsx`, `components/ModelSettingsModal.tsx` | #117 | **Keep reading.** Last model per provider, seeded from the DB; restores the model when switching providers. |
 | `meetily-labs-v1` | localStorage | `lib/labs.ts`, `lib/labs-features.ts` | #117 | **Keep reading.** The only store of Waveform scrubbing and Clean transcript; mirrors three native switches; `meetingAutomation` is ignored. |
-| `meetily-speaker-edits:<meetingId>` | localStorage | `lib/live-speaker-edits.ts` | #112 | **Keep reading.** Speaker names given during a recording, replayed over recovery. |
-| `af-live-notes` | localStorage | `lib/live-session.ts` | #111 | **Keep reading.** Notes typed during a recording (Markdown + BlockNote JSON); survive a crash and are saved on Stop (#112). |
+| `meetily-speaker-edits:<meetingId>` | localStorage | `lib/live-speaker-edits.ts` | #112 | **Keep reading.** Speaker names given during a recording, replayed over recovery. `<meetingId>` is the IndexedDB recovery id `meeting-<ms>` minted at `recording-started` (`contexts/TranscriptContext.tsx`), not the saved meeting's id. The keys are never removed. |
+| `af-live-notes` | localStorage | `lib/live-session.ts` | #111 | Not needed after the update. Notes typed during a recording (Markdown + BlockNote JSON), saved on Stop (#112). They survive only a reload of the window during the same recording: recovery never attaches them, the next start clears them, and an update never installs during a recording. |
 | `meetily-intel-offer-dismissed` | localStorage | `lib/speech-choice.ts` | #117 | **Keep reading.** Devices whose Intel offer got "Not now". |
 | `protocol-updater-seen-v1` | localStorage | `components/updater/UpdateToasts.tsx` | #113 | **Keep reading.** Update toasts already shown. |
 | `meetily_export_link_style` | localStorage | `components/MeetingDetails/MeetingExportDialog.tsx` | #119 | **Keep reading.** `generic` or `obsidian`. |
@@ -707,9 +716,10 @@ session.
 
 ### Plugin stores and native files the UI reaches
 
-Plugin stores live in the app's config folder (`%APPDATA%\io.github.vmedvedevpro.protocol`
-on Windows); the other files sit in the install-local data root unless the
-row says otherwise.
+Plugin stores live in Tauri's app data folder (`%APPDATA%\io.github.vmedvedevpro.protocol`
+on Windows, `~/.local/share/io.github.vmedvedevpro.protocol` on Linux,
+`~/Library/Application Support/io.github.vmedvedevpro.protocol` on macOS); the
+other files sit in the install-local data root unless the row says otherwise.
 
 | Item | Kind | Old file | Owner | Notes |
 | --- | --- | --- | --- | --- |
@@ -744,7 +754,7 @@ row says otherwise.
 | WebView work holds a UI activity lease | invariant | `components/updater/UpdaterActivityReporter.tsx`, `contexts/PostCallJobsContext.tsx`, `lib/updater.ts` | #112 | `markUiActivity('recordingSave')` while the status is stopping, processing transcripts or saving; `markUiActivity('postCall')` while post-call jobs run. `updater_set_ui_activity` sends the set on change and every 60 s (native drops it after 150 s) and `[]` on unmount. Any new WebView-only long operation adds its own activity, or an update can restart the app in the middle of it. |
 | Native work registers itself | invariant | native `updater/busy.rs` | #112 | Recording, stopping, the save handoff, import, retranscription, summaries, onboarding, diarization and model downloads hold busy owners natively; the UI only shows state and never installs while one holds. |
 | Updates download and install only on a click or quit | invariant | `lib/updater.ts`, `components/updater/*` | #114 | Download on **Download**, install on **Restart and update** or quit; the install gate decides. |
-| Optional models activate only after a completed download | invariant | `contexts/OptionalModelDownloadsContext.tsx`, `lib/optional-model-activation.ts` | #117 | Whisper: `whisper_download_model(enablePostCall=true)` makes native save the after-meeting model; Nemotron: `download_diarization_models` activates natively and emits `diarization-engine-changed`. The UI never saves activation from a JS completion callback; it refreshes from `post-call-transcript-config-changed`, `diarization-engine-changed`, `optional-model-removed`, `model-download-activating`. Removal goes through `uninstall_optional_model`. |
+| Optional models activate only after a completed download | invariant | `contexts/OptionalModelDownloadsContext.tsx` | #117 | Whisper: `whisper_download_model(enablePostCall=true)` makes native save the after-meeting model; Nemotron: `download_diarization_models` activates natively and emits `diarization-engine-changed`. The UI never saves activation from a JS completion callback; it refreshes from `post-call-transcript-config-changed`, `diarization-engine-changed`, `optional-model-removed`, `model-download-activating`. Removal goes through `uninstall_optional_model`. `activateOptionalModel` in `lib/optional-model-activation.ts` is the JS-side activation this rules out; nothing calls it. |
 | Whisper activation leaves the live model alone | invariant | `contexts/OptionalModelDownloadsContext.tsx` | #117 | Live and after-meeting defaults are independent. |
 | Download jobs outlive navigation | invariant | `contexts/OptionalModelDownloadsContext.tsx` | #117 | Jobs are owned above the router, so leaving Settings or first launch does not cancel them. |
 | Progress reaches 100 % only after verification | invariant | `components/shared/DownloadProgressToast.tsx` | #117 | Treat the complete event, not 100 %, as done. Integrity errors carry two 64-character hashes: wrap with `overflow-wrap:anywhere`; the UI matches "was deleted", "could not be deleted", "Nothing was deleted". |
