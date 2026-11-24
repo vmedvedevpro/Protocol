@@ -1,7 +1,7 @@
 import {type ReactNode, useState} from 'react'
 import {createMemoryRouter, RouterProvider} from 'react-router-dom'
 import styled from 'styled-components'
-import {useUpdaterStatusSync} from '@/app/useUpdaterStatusSync'
+import {useUpdaterStatusSync} from '@/api/updater'
 import {SettingsSubpage} from '../pages/SettingsSubpage'
 
 // The main window's size, so a story lays out as the app does.

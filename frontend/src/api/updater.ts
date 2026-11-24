@@ -6,7 +6,7 @@
  */
 import {queryOptions} from '@tanstack/react-query'
 import {command, CommandError} from './core'
-import type {NativeEvent} from './events'
+import {type NativeEvent, useEventQuerySync} from './events'
 
 export type BusyReason =
     | 'recording'
@@ -98,6 +98,15 @@ export const updaterStatusQuery = queryOptions({
     // refetch would only repeat what the event already delivered.
     staleTime: Infinity,
 })
+
+/**
+ * Native code pushes the whole snapshot to every window on each change; the
+ * event keeps the cached one current. Mounted once, in App; a story or test
+ * that shows the status without App mounts it itself.
+ */
+export function useUpdaterStatusSync() {
+    useEventQuerySync(UPDATER_STATUS_EVENT, updaterStatusQuery.queryKey)
+}
 
 /**
  * Why `updater_install_now` refused: nothing verified to install (or another

@@ -1,7 +1,7 @@
 import {createElement, type ReactElement, type ReactNode} from 'react'
 import {QueryClientProvider} from '@tanstack/react-query'
 import {createMemoryRouter, RouterProvider} from 'react-router-dom'
-import {useUpdaterStatusSync} from '@/app/useUpdaterStatusSync'
+import {useUpdaterStatusSync} from '@/api/updater'
 import {renderUi} from '@/test/renderUi'
 import {createTestQueryClient} from '@/test/queryClient'
 import {SettingsSubpage} from './pages/SettingsSubpage'

@@ -580,8 +580,11 @@ one window. To use an event:
 4. When the event only says that something changed, `invalidateQueries` the
    keys it affects in a `useNativeEvent` handler.
 
-Mount a sync hook once, in the layout of the screens that read the data, or in
-`App` when every window needs it. Values that arrive many times a second (audio
+A sync hook lives in its domain file (`useUpdaterStatusSync` in
+`src/api/updater.ts`), never in `app/`, which features do not import. Mount it
+once, in the layout of the screens that read the data, or in `App` when every
+window needs it; a story or test that renders them without App mounts it
+itself. Values that arrive many times a second (audio
 levels) skip Query and React state; see Styling and the next section.
 
 ### Models and permissions
@@ -736,8 +739,8 @@ levels) skip Query and React state; see Styling and the next section.
   time. The meeting language is disabled from Record until the meeting is
   saved (`useRecordingBusy`).
 - General › Updates shows the updater snapshot that `updater-status` keeps
-  current (App mounts `useUpdaterStatusSync`; stories and tests mount it
-  themselves): its status line, the one action of the state, the download's
+  current (App mounts `useUpdaterStatusSync` from `src/api/updater.ts`;
+  stories and tests mount it themselves): its status line, the one action of the state, the download's
   progress, the release's notes behind "What's new" (`ReleaseNotes` renders
   the changelog's Markdown subset, never HTML), and a busy refusal kept for
   10 s. Model updates checks the model list (`src/api/modelCatalog.ts`,
