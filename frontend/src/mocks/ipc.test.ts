@@ -1,9 +1,11 @@
 import {describe, expect, it, vi} from 'vitest'
 import {getAppVersion} from '@/api/app'
 import {command, CommandError} from '@/api/core'
+import {openExternalUrl} from '@/api/links'
 import {getUpdaterStatus} from '@/api/updater'
+import {platform} from '@/lib/platform'
 import packageJson from '../../package.json'
-import {handlers} from './handlers'
+import {handlers, platformHandlers} from './handlers'
 
 describe('mock IPC', () => {
     it('answers the shell commands from the in-memory state', async () => {
@@ -32,5 +34,28 @@ describe('mock IPC', () => {
             message: 'The updater is still starting',
             detail: 'The updater is still starting',
         })
+    })
+
+    it('opens http and https links in the browser and refuses others, as native does', async () => {
+        const open = vi.spyOn(window, 'open').mockReturnValue(null)
+
+        await openExternalUrl('https://github.com/vmedvedevpro/Protocol')
+
+        expect(open).toHaveBeenCalledWith('https://github.com/vmedvedevpro/Protocol', '_blank', 'noopener')
+        await expect(openExternalUrl('file:///C:/Windows')).rejects.toThrow('Only HTTP and HTTPS links can be opened')
+    })
+
+    it('answers a platform-only command on its platform and nowhere else', async () => {
+        const other = platform === 'windows' ? 'macos' : 'windows'
+        platformHandlers[platform].probe_here = () => 'answered'
+        platformHandlers[other].probe_elsewhere = () => 'answered'
+        try {
+            await expect(command('probe_here')).resolves.toBe('answered')
+            // What Tauri replies when generate_handler! left the command out.
+            await expect(command('probe_elsewhere')).rejects.toThrow('Command probe_elsewhere not found')
+        } finally {
+            delete platformHandlers[platform].probe_here
+            delete platformHandlers[other].probe_elsewhere
+        }
     })
 })
