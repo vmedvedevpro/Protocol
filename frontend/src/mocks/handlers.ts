@@ -1,7 +1,9 @@
 import type {Platform} from '@/lib/platform'
 import {audioHandlers} from './audio'
 import {devicesHandlers} from './devices'
+import {modelsHandlers} from './models'
 import {notesHandlers} from './notes'
+import {macosPermissionsHandlers, permissionsHandlers} from './permissions'
 import {preferencesHandlers} from './preferences'
 import {shellHandlers} from './shell'
 import {mockState} from './state'
@@ -50,6 +52,12 @@ export const handlers: Record<string, MockHandler> = {
 
     // set_language_preference (lib.rs), api_get_model_config (api/api.rs)
     ...preferencesHandlers(mockState),
+
+    // Parakeet, Whisper and the built-in summary models
+    ...modelsHandlers(mockState),
+
+    // Microphone and computer-audio permissions
+    ...permissionsHandlers,
 }
 
 /**
@@ -63,6 +71,8 @@ export const handlers: Record<string, MockHandler> = {
  */
 export const platformHandlers: Record<Platform, Record<string, MockHandler>> = {
     windows: {},
-    macos: {},
+    macos: {
+        ...macosPermissionsHandlers,
+    },
     linux: {},
 }

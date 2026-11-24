@@ -6,6 +6,7 @@ import {platform} from '@/lib/platform'
 import {useHotkey} from '../hotkeys'
 import {paths} from '../paths'
 import {FirstLaunchPlaceholder} from '../placeholder/Screens'
+import {useModelDownloadSync} from '../useModelDownloadSync'
 import {CrashReportSheet} from './CrashReportSheet'
 import {useKeepOnTopStore, useKeepOnTopSync} from './keepOnTop'
 import {useStartupPhase} from './startup'
@@ -58,6 +59,8 @@ export function Shell() {
     const onTop = useKeepOnTopStore((state) => state.onTop)
     const setOnTop = useKeepOnTopStore((state) => state.setOnTop)
     useKeepOnTopSync()
+    // In front of the startup gate: first launch starts the downloads.
+    useModelDownloadSync()
 
     // The tray's Settings and update items, heard from the start: the route
     // shows once startup settles. The router keeps the page alive; a reload
