@@ -1,7 +1,7 @@
 import {type ReactNode, useEffect, useState} from 'react'
 import styled from 'styled-components'
 import {closeWindow, isWindowMaximized, minimizeWindow, onWindowResized, toggleMaximizeWindow} from '@/api/window'
-import {focusRing} from '@/components/ui/styles'
+import {colorTransition, focusRing} from '@/components/ui/styles'
 import {Tooltip} from '@/components/ui/Tooltip'
 
 // The buttons the system would draw, where the app draws the title bar
@@ -47,9 +47,7 @@ const CaptionButton = styled.button<{ $close?: boolean }>`
     background: transparent;
     color: ${({theme}) => theme.colors.text};
     cursor: default;
-    transition-property: color, background-color;
-    transition-duration: ${({theme}) => theme.motion.duration.fast};
-    transition-timing-function: ${({theme}) => theme.motion.easing.standard};
+    ${colorTransition};
     ${focusRing};
 
     &:focus-visible {
@@ -127,7 +125,7 @@ const RoundButton = styled.button`
         height: ${({theme}) => theme.sizes.titleBar.closeDisc};
         border-radius: ${({theme}) => theme.radii.pill};
         background: ${({theme}) => theme.colors.surface};
-        transition: background-color ${({theme}) => theme.motion.duration.fast} ${({theme}) => theme.motion.easing.standard};
+        ${colorTransition};
     }
 
     &:hover > span,
