@@ -12,7 +12,7 @@ import {LinuxClose, WindowsCaptionButtons} from './WindowControls'
  *
  * - macOS keeps its traffic lights (tauri.macos.conf.json: an overlay title
  *   bar); the strip leaves room for them.
- * - Windows has no system title bar (tauri.windows.conf.json), so the strip
+ * - Windows has no system title bar (tauri.conf.json), so the strip
  *   carries the caption buttons.
  * - Linux has none either (tauri.conf.json); the strip carries GNOME's round
  *   close button and the title in the middle.

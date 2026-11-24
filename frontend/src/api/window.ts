@@ -1,5 +1,6 @@
 import {getCurrentWindow} from '@tauri-apps/api/window'
 import type {ThemeName} from '@/styles/theme'
+import {type NativeEvent, subscribeNative} from './events'
 
 // Each call is async so that getCurrentWindow(), which throws outside Tauri,
 // rejects instead; callers expect a rejection. Every call needs its
@@ -36,25 +37,16 @@ export async function isWindowMaximized(): Promise<boolean> {
     return getCurrentWindow().isMaximized()
 }
 
+/** Tauri's own event for a window's new size, which `onResized` listens to. */
+const WINDOW_RESIZED_EVENT = 'tauri://resize' as NativeEvent<unknown>
+
 /**
- * Calls `handler` after every resize of this window, maximizing and
+ * Calls `handler` after every resize of the main window, maximizing and
  * restoring included, until the returned function is called.
  */
-export function onWindowResized(handler: () => void): () => void {
-    let disposed = false
-    let unlisten: (() => void) | undefined
-    void (async () => getCurrentWindow().onResized(handler))().then(
-        (stop) => {
-            if (disposed) stop()
-            else unlisten = stop
-        },
-        (error: unknown) => console.warn('Failed to follow the window size:', error),
-    )
-    return () => {
-        disposed = true
-        unlisten?.()
-    }
-}
+export const onWindowResized = (handler: () => void) =>
+    // The caption buttons that follow it exist in the main window only.
+    subscribeNative(WINDOW_RESIZED_EVENT, () => handler(), {target: 'main'})
 
 /** Keeps the window above every other window, or stops. */
 export async function setWindowAlwaysOnTop(onTop: boolean): Promise<void> {

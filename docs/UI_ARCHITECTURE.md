@@ -68,9 +68,9 @@ shell's own commands. The minibar window has none of it.
   360 px keeps room for the docked bar's status beside its 56 px ring and
   Record or Stop, and for the Windows strip beside its three 46 px caption
   buttons; 480 px leaves the content room under the title bar, a screen's
-  header and the bar. `tauri.conf.json` (Linux), `tauri.windows.conf.json` and
-  `tauri.macos.conf.json` each carry the whole window entry, since a
-  platform file replaces the `windows` array.
+  header and the bar. `tauri.conf.json` holds the window for Windows and
+  Linux; `tauri.macos.conf.json` repeats the whole entry for its title bar,
+  since a platform file replaces the `windows` array.
 - The app draws the title strip (`TitleBar`, the `<header>`) on every
   platform, as the design does: macOS keeps its traffic lights over an overlay
   title bar (`titleBarStyle: Overlay`, `hiddenTitle`, `trafficLightPosition`
@@ -115,9 +115,9 @@ shell's own commands. The minibar window has none of it.
   screen has the banner, main and contentinfo landmarks. `Screen`'s `bar`
   docks at the bottom: `DockedBar` (the ring, what is happening, Record or
   Stop; the recording, #112, fills it), the meeting's player (#113), or
-  nothing. The footer also holds the status line (`useFooterStatus`, filled by
-  #117 while models download) on every screen; with neither, the footer is
-  `:empty` and hidden from the eye and from screen readers.
+  nothing. The status line of model downloads (#117) goes in the same footer
+  on every screen; with nothing in it, the footer is `:empty` and hidden
+  from the eye and from screen readers.
 - A screen arrives with a fade and a 4 px rise over `base`; the screen it
   replaces leaves at once, so a click never waits for an exit.
 - Screens are placeholders in `app/placeholder/Screens.tsx` until their tasks

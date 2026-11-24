@@ -26,21 +26,13 @@ function createMockState() {
         updatedFrom: null,
     }
 
-    // A machine that finished first launch with every model downloaded; a
-    // test or story of first launch sets `onboarding` to null (a new install).
-    const onboarding: OnboardingStatus = {
-        version: '1.0',
-        completed: true,
-        current_step: 4,
-        model_status: {parakeet: 'downloaded', summary: 'downloaded'},
-        last_updated: '2026-11-24T09:00:00Z',
-    }
-
     return {
         appVersion: packageJson.version,
         // The main window as the window plugin sees it.
         window: {maximized: false},
-        onboarding: onboarding as OnboardingStatus | null,
+        // A machine that finished first launch; a test or story of first
+        // launch sets it to null (a new install).
+        onboarding: {completed: true} as OnboardingStatus | null,
         // What the previous session left (`crashReport`; null after a clean
         // exit), the ZIPs written from it, and what the save dialog answers
         // (null: the user cancelled).

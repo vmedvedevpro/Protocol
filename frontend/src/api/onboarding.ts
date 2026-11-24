@@ -1,24 +1,16 @@
 /**
  * First launch (src-tauri/src/onboarding.rs). The shell gates the main window
- * on it at startup; first launch itself (#115) changes it. The types mirror
- * `OnboardingStatus` and `ModelStatus` there.
+ * on it at startup; first launch itself (#115) changes it.
  */
 import {queryOptions} from '@tanstack/react-query'
 import {command} from './core'
 
-export interface OnboardingModelStatus {
-    /** `downloaded`, `not_downloaded` or `downloading`. */
-    parakeet: string
-    summary: string
-    selected_summary_model?: string
-}
-
+/**
+ * The part of native `OnboardingStatus` the UI reads so far; first launch
+ * (#115) adds the fields it reads.
+ */
 export interface OnboardingStatus {
-    version: string
     completed: boolean
-    current_step: number
-    model_status: OnboardingModelStatus
-    last_updated: string
 }
 
 export const onboardingKeys = {
