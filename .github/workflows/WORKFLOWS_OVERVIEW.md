@@ -9,7 +9,7 @@ certificate yet).
 
 | Workflow | Trigger | What it does |
 | --- | --- | --- |
-| `pr-checks.yml` | pull requests, pushes to `main`, called by `release.yml` | Frontend tests, Next.js build, `tsc`; release-script tests and the migration checksum table |
+| `pr-checks.yml` | pull requests, pushes to `main`, called by `release.yml` | Frontend lint, Vitest, `tsc -b` and Vite build, Storybook build; release-script tests and the migration checksum table |
 | `release.yml` | tag `v*`; pushes to `main` and manual runs as **dry runs** | Validates, runs the checks, builds all three platforms, then creates the draft (tag) or a dry-run artifact |
 | `release-build-windows.yml` | called by `release.yml` | `windows-2022`: CPU + Vulkan installer, native tests, payload check, install/start/uninstall on the runner |
 | `release-build-macos.yml` | called by `release.yml` | `macos-15`: Apple Silicon DMG and updater bundle, native tests, bundle checks, two launches |

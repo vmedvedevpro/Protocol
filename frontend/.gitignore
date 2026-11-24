@@ -25,9 +25,9 @@ whisper-server-package/
 /coverage
 /dist
 
-# next.js
-/.next/
+# vite build (tauri.conf.json frontendDist) and storybook build
 /out/
+/storybook-static/
 
 # production
 /build
@@ -45,9 +45,5 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env
 
-# vercel
-.vercel
-
 # typescript
 *.tsbuildinfo
-next-env.d.ts

@@ -1032,7 +1032,7 @@ an exact-size file with valid GGUF magic becomes `Available`. Progress reaching
   relinks it as the CPU build, and patched with the `nsis` bundle-type marker
   before it is signed; the updater (#31) reads that marker.
 - `tauri.universal.conf.json` deliberately clears `beforeBuildCommand`. The
-  script builds Next.js once unless `-SkipFrontend` is passed; letting Tauri build
+  script builds the frontend once unless `-SkipFrontend` is passed; letting Tauri build
   it again changes the embedded assets and forces a redundant relink. The script
   creates `universal.marker` only around the bundling step; a standard Tauri
   bundle without it keeps its compiled executable.
