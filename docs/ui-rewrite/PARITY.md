@@ -3,7 +3,9 @@
 What the old Next.js frontend does, item by item, and which Frontend 2.0 task
 ([epic #123](https://github.com/vmedvedevpro/Protocol/issues/123)) carries it
 into the new UI, or why it is dropped. Written for
-[#107](https://github.com/vmedvedevpro/Protocol/issues/107).
+[#107](https://github.com/vmedvedevpro/Protocol/issues/107). How the new UI is
+built, and the rules each task follows, is in
+[UI_ARCHITECTURE.md](../UI_ARCHITECTURE.md).
 
 - Source: `frontend/src` on `main` at `162e8be`, with the native side
   (`frontend/src-tauri/src`) read where the UI depends on it. File paths in
@@ -44,8 +46,12 @@ same day.
 2. **Global download panel:** replaced by one status line in the bottom bar
    while any download runs; a click opens Settings › Speech models (#117; the
    line sits in #110's bar).
-3. **"Summarize so far":** kept, through `ask_live_assistant` with a UI
-   activity lease (#112).
+3. **"Summarize so far":** kept, through `ask_live_assistant` (#112). It
+   takes no UI activity lease: the recording's `recording` busy reason already
+   covers it, and if it must outlive Stop, `ask_live_assistant` holds
+   `busy::hold(BusyReason::Summary)` natively. Native `UiActivity` knows only
+   `recordingSave` and `postCall`, and an unknown name rejects the whole
+   `updater_set_ui_activity` call.
 4. **First launch** downloads Parakeet, Whisper Large V3 Turbo and the
    built-in summary model `builtin_ai_get_recommended_model` picks, all in the
    background (#115).
@@ -114,13 +120,15 @@ player's (see above).
 called). Rows marked "Windows only" or "macOS only" are registered only on
 that platform (`#[cfg]` in `generate_handler!`); elsewhere they fail with
 "command not found", which the old UI reads as "not available". #106's mock
-IPC and the screens that call them (#113, #117) keep that rule.
+IPC and the screens that call them (#113, #117) keep that rule: the mock answers
+such a command only on its platform
+([UI_ARCHITECTURE.md › Mock IPC](../UI_ARCHITECTURE.md#mock-ipc)).
 
 ### Recording session and live transcript
 
 | Item | Kind | Old file | Owner | Notes |
 | --- | --- | --- | --- | --- |
-| `ask_live_assistant` | command | `components/groups/GroupDetailView.tsx`, `components/recording/LivePanel.tsx` | #112 | "Summarize so far" in the recording window, with a UI activity lease (owner decision 2026-11-24). The AI chat during recording and on groups stays dropped. |
+| `ask_live_assistant` | command | `components/groups/GroupDetailView.tsx`, `components/recording/LivePanel.tsx` | #112 | "Summarize so far" in the recording window (owner decision 2026-11-24). No UI activity lease: the `recording` busy reason covers it; if it must outlive Stop, `ask_live_assistant` holds `busy::hold(BusyReason::Summary)` natively. The AI chat during recording and on groups stays dropped. |
 | `attempt_device_reconnect` | command | `components/RecordingControls.tsx` | #112 | Switch a device while recording; on failure the old device keeps recording. |
 | `check_transcription_runtime` | command | `hooks/useRecordingStart.ts` | #112 | First step of a start; a missing runtime blocks the start with its message. |
 | `get_recording_meeting_name` | command | `services/recordingService.ts` | #112 | Title of the running recording after a reload. |
@@ -257,7 +265,7 @@ IPC and the screens that call them (#113, #117) keep that rule.
 | `get_default_recordings_folder_path` | command | `components/RecordingSettings.tsx`, `contexts/ConfigContext.tsx` | #114 | Shown when no folder is saved. |
 | `get_recordable_apps` | command | `hooks/useAppAudio.ts` | #117 | Chosen apps subpage. |
 | `get_recording_preferences` | command | `components/RecordingControls.tsx`, `components/RecordingSettings.tsx`, `components/TranscriptSettings.tsx` +3 | #114 | Save audio, folder, devices, volumes, chosen apps, Faster live text. |
-| `open_external_url` | command | `components/About.tsx`, `components/AboutSettings.tsx`, `components/CudaReconfigurationNotice.tsx` +6 | #106 | Links (About, credits, driver pages); one wrapper in `src/api`. |
+| `open_external_url` | command | `components/About.tsx`, `components/AboutSettings.tsx`, `components/CudaReconfigurationNotice.tsx` +6 | #106 | Links (About, credits, driver pages); one wrapper in `src/api`: `openExternalUrl` in `src/api/links.ts`. |
 | `open_recordings_folder` | command | `components/RecordingSettings.tsx` | #114 | Open folder. |
 | `select_custom_app_executable` | command | `hooks/useAppAudio.ts` | #117 | Chosen apps: an app that is not open. |
 | `select_recording_folder` | command | `components/RecordingSettings.tsx` | #114 | Change folder. |
@@ -633,9 +641,11 @@ removal #126).
 ## Persisted state
 
 **Keep reading** marks the keys and files the new UI must read as they are,
-so an update to Frontend 2.0 loses no setting or data. sessionStorage dies with the app
-process, so an update restart clears it anyway; it only has to work within a
-session.
+name and value format
+([UI_ARCHITECTURE.md › Native data](../UI_ARCHITECTURE.md#native-data)), so an
+update to Frontend 2.0 loses no setting or data. sessionStorage dies with the
+app process, so an update restart clears it anyway; it only has to work within
+a session.
 
 ### localStorage
 
@@ -718,7 +728,7 @@ other files sit in the install-local data root unless the row says otherwise.
 | Item | Kind | Old file | Owner | Notes |
 | --- | --- | --- | --- | --- |
 | `src/lib/claude-output-limits.json` stays where native reads it | invariant | `lib/claude-output-tokens.ts`, native `summary/llm_client.rs` | #106 | Native compiles it in with `include_str!("../../../src/lib/claude-output-limits.json")`: the Claude output token limits shared with `lib/claude-output-tokens.ts`. Deleting `frontend/src` breaks `cargo build`; keep the file at that path or move it together with the include. Maximum summary length (#117) is validated against it. |
-| WebView work holds a UI activity lease | invariant | `components/updater/UpdaterActivityReporter.tsx`, `contexts/PostCallJobsContext.tsx`, `lib/updater.ts` | #112 | `markUiActivity('recordingSave')` while the status is stopping, processing transcripts or saving; `markUiActivity('postCall')` while post-call jobs run. `updater_set_ui_activity` sends the set on change and every 60 s (native drops it after 150 s) and `[]` on unmount. Any new WebView-only long operation adds its own activity, or an update can restart the app in the middle of it. |
+| WebView work holds a UI activity lease | invariant | `components/updater/UpdaterActivityReporter.tsx`, `contexts/PostCallJobsContext.tsx`, `lib/updater.ts` | #112 | `markUiActivity('recordingSave')` while the status is stopping, processing transcripts or saving; `markUiActivity('postCall')` while post-call jobs run. `updater_set_ui_activity` sends the set on change and every 60 s (native drops it after 150 s) and `[]` on unmount. Any new WebView-only long operation adds its own activity, which needs a native `UiActivity` variant first (an unknown name rejects the whole call), or an update can restart the app in the middle of it. |
 | Native work registers itself | invariant | native `updater/busy.rs` | #112 | Recording, stopping, the save handoff, import, retranscription, summaries, onboarding, diarization and model downloads hold busy owners natively; the UI only shows state and never installs while one holds. |
 | Updates download and install only on a click or quit | invariant | `lib/updater.ts`, `components/updater/*` | #114 | Download on **Download**, install on **Restart and update** or quit; the install gate decides. |
 | Optional models activate only after a completed download | invariant | `contexts/OptionalModelDownloadsContext.tsx` | #117 | Whisper: `whisper_download_model(enablePostCall=true)` makes native save the after-meeting model; Nemotron: `download_diarization_models` activates natively and emits `diarization-engine-changed`. The UI never saves activation from a JS completion callback; it refreshes from `post-call-transcript-config-changed`, `diarization-engine-changed`, `optional-model-removed`, `model-download-activating`. Removal goes through `uninstall_optional_model`. `activateOptionalModel` in `lib/optional-model-activation.ts` is the JS-side activation this rules out; nothing calls it. |

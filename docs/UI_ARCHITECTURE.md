@@ -4,7 +4,8 @@ The UI in `frontend/` is a Vite app: React 19, React Router 7, TanStack Query 5,
 Zustand 5 and styled-components 6, in TypeScript. It runs in Tauri's webview
 and talks to the native side only through Tauri commands and events. This note
 is the set of rules for adding to it; the design canvas is the source for every
-screen.
+screen, and [PARITY.md](ui-rewrite/PARITY.md) lists what each task must carry
+over from the old UI.
 
 ```text
 pnpm dev               the UI alone at http://localhost:3119, on mock IPC
@@ -43,8 +44,8 @@ another feature. Something two features need moves down to one of those.
 `src/lib/claude-output-limits.json` also belongs to native code:
 `src-tauri/src/summary/llm_client.rs` embeds it with `include_str!` at compile
 time, so moving or renaming it breaks the native build, which the frontend
-checks do not run. The summary settings on `main` read their limits from it,
-and the new ones should too.
+checks do not run. The old summary settings (`162e8be`) read their limits
+from it, and the new ones should too.
 
 Two windows load the same `index.html`: the main window at `/`, and the minibar,
 which `minibar.rs` opens as `WebviewUrl::App("minibar")`, at `/minibar`. Tauri's
@@ -101,7 +102,13 @@ router's list goes to `/`.
 - Native data lives in Query: what the database, the recorder or the updater
   owns is read with `useQuery` and changed with `useMutation`, never copied into
   a store. Zustand holds client state only: UI choices, drafts, the theme mode.
-  A store that must survive a restart uses `persist`.
+  A store that must survive a restart uses `persist`. A key PARITY.md marks
+  **Keep reading** keeps its name and its old value format: its store gets a
+  `PersistStorage` of its own, as `bareStringStorage` in
+  `src/styles/themeMode.ts` does, never Zustand's default `{state, version}`
+  JSON. The default cannot read an old bare string or JSON shape, so the store
+  would start from its default and overwrite the user's value on the first
+  write. The default format is for new keys only.
 - Data that native code pushes whole by event gets `staleTime: Infinity`, and
   only the event writes it (see Events). Other data keeps the default
   `staleTime` and is invalidated after the mutations that change it.
@@ -109,11 +116,15 @@ router's list goes to `/`.
   stopped (`recordingSave`) and the post-call pipeline between its native
   steps (`postCall`), reports to the updater with
   `updater_set_ui_activity({activities})`, as `markUiActivity` and
-  `UpdaterActivityReporter` did on `main`. Each call replaces the whole set,
-  and native code drops it 150 s after the last call (`UI_LEASE`, the UI
-  activity lease in `src-tauri/src/updater/busy.rs`), so the reporter sends a
-  non-empty set again every minute while the work runs and an empty one when
-  it ends. Otherwise an update can restart the app in the middle of the work.
+  `UpdaterActivityReporter` did in the old UI (`162e8be`). Each call replaces
+  the whole set, and native code drops it 150 s after the last call
+  (`UI_LEASE`, the UI activity lease in `src-tauri/src/updater/busy.rs`), so
+  the reporter sends a non-empty set again every minute while the work runs
+  and an empty one when it ends. Otherwise an update can restart the app in
+  the middle of the work. A new activity name needs a native `UiActivity`
+  variant first: an unknown name fails the whole call, so the lease stops
+  being renewed for the others. Work a native command does (a summary, a
+  download) holds `updater::busy::hold(…)` itself and needs no lease.
 
 ## Events
 
@@ -169,13 +180,21 @@ Outside Tauri, `pnpm dev`, Storybook and every test run on
 - `mockState` holds only what some handler reads; `createMockState()` builds
   it and `resetMockState()` restores it (tests and stories call it before each
   case).
-- The task that adds a domain's handlers ports that domain's sample data from
-  the old browser preview, `main:frontend/src/dev/preview/` (`fixtures.ts`:
-  meetings, groups, people, transcripts, summaries; `live.ts`: recording;
-  `models.ts`: speech models; `intel.ts`: Intel GPUs), into `createMockState`.
+- The task that adds a domain's handlers ports that domain's handlers and
+  sample data from the old browser preview, `162e8be:frontend/src/dev/preview/`
+  (`index.ts`: the handlers; `fixtures.ts`: meetings, groups, people,
+  transcripts, summaries; `live.ts`: recording; `models.ts`: speech models;
+  `intel.ts`: Intel GPUs), into `handlers.ts` and `createMockState`.
   It types the data with the domain's payload types from `src/api` or
   `features/<x>/api`, never with interfaces of its own, so a field that
   changes in the payload type stops the stale sample data from compiling.
+- A command native code registers on one platform only (`#[cfg]` in
+  `generate_handler!`; "Windows only" or "macOS only" in PARITY.md) goes into
+  `platformHandlers.windows` or `platformHandlers.macos`, never `handlers`.
+  The mock answers it only when `platform` (`src/lib/platform.ts`,
+  `?platform=` in the browser) matches; elsewhere it rejects with Tauri's
+  `Command <name> not found`, so the preview and the tests reach the screen's
+  "not available" path as the app does on that platform.
 - A command without a handler rejects with a message naming
   `src/mocks/handlers.ts`, so a screen never renders an empty reply as data.
 - To push an event, call `emitMockEvent(EVENT, payload)`; in `pnpm dev`, the

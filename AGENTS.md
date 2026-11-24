@@ -5,6 +5,12 @@ transcription, speaker-labeling, model-download, and release paths to their owni
 files. Feature qualification notes are linked there; read the relevant note before
 changing that subsystem.
 
+Frontend work starts with [docs/UI_ARCHITECTURE.md](docs/UI_ARCHITECTURE.md),
+the rules of the UI in `frontend/src`, and
+[docs/ui-rewrite/PARITY.md](docs/ui-rewrite/PARITY.md), what each Frontend 2.0
+task carries over from the old UI. Frontend file names elsewhere in the map
+may still describe the old UI (`162e8be`).
+
 ## Project lineage
 
 [Protocol](https://github.com/vmedvedevpro/Protocol) is a personal Windows-first
@@ -48,7 +54,8 @@ planned work is tracked in [GitHub issues](https://github.com/vmedvedevpro/Proto
   download, an import) registers with the busy registry: a getter its owner
   already keeps, or `updater::busy::hold(BusyReason::…)` for the operation's
   lifetime. Work only the WebView sees reports through
-  `markUiActivity`. Otherwise an update can restart the app in the middle of it.
+  `updater_set_ui_activity` (see docs/UI_ARCHITECTURE.md › Native data).
+  Otherwise an update can restart the app in the middle of it.
 - Do not add `Co-Authored-By` trailers or other AI attribution to commits, PR
   titles, or descriptions.
 
@@ -75,10 +82,11 @@ planned work is tracked in [GitHub issues](https://github.com/vmedvedevpro/Proto
 
 ## Verification pointers
 
-- Run targeted frontend/native tests for the affected behavior. Mock-heavy Bun
-  groups must run as separate invocations; see the map for known groups.
-- Serialize Next production builds with native builds/tests embedding
-  `frontend/out`. Do not run standalone TypeScript checking during a Next build.
+- Run targeted native tests for the affected behavior. For the frontend, run
+  `pnpm run lint`, `pnpm test` and `pnpm run build` in `frontend/`
+  ([docs/UI_ARCHITECTURE.md](docs/UI_ARCHITECTURE.md)).
+- Serialize `pnpm run build`, which writes `frontend/out`, with native builds
+  and tests that embed it.
 - Measure a change to VAD, decoding, segmentation, Parakeet, speaker labels
   or the speech runtimes with the kit in
   [docs/MEASURING_TRANSCRIPTION.md](docs/MEASURING_TRANSCRIPTION.md), against
