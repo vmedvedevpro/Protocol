@@ -5,6 +5,7 @@ import {describe, expect, it} from 'vitest'
 import {MagnifyingGlassIcon} from '@phosphor-icons/react'
 import {renderUi} from '@/test/renderUi'
 import {Kbd} from './Kbd'
+import {SettingsRow} from './SettingsRow'
 import {TextArea, TextField} from './TextField'
 
 describe('TextField', () => {
@@ -51,5 +52,16 @@ describe('TextArea', () => {
         const area = screen.getByRole('textbox', {name: 'Words to recognize'})
         await userEvent.type(area, 'Acme{Enter}Parakeet')
         expect(area).toHaveValue('Acme\nParakeet')
+    })
+
+    it('keeps its own aria-label inside a SettingsRow, where an unnamed field takes the row\'s', () => {
+        renderUi(
+            <SettingsRow label="Custom vocabulary" control={<TextField size="sm" defaultValue="Acme"/>}>
+                <TextArea aria-label="Words to recognize"/>
+            </SettingsRow>,
+        )
+
+        expect(screen.getByRole('textbox', {name: 'Custom vocabulary'})).toHaveValue('Acme')
+        expect(screen.getByRole('textbox', {name: 'Words to recognize'})).toBeInTheDocument()
     })
 })

@@ -1,4 +1,4 @@
-import {type CSSProperties, useCallback, useLayoutEffect, useRef, useState} from 'react'
+import {type CSSProperties, useCallback, useEffect, useLayoutEffect, useRef, useState} from 'react'
 import styled, {useTheme} from 'styled-components'
 import {type LevelFeed, useAudioLevel} from '@/api/audio'
 import {type RingInputs, type RingLoop, startRingLoop} from './ringLoop'
@@ -70,7 +70,11 @@ export function Ring({mode, size, level = null, className}: RingProps) {
         loop.current?.update(latest.current)
     }, [mode, size, theme.ring])
 
-    useAudioLevel(mode === 'rec' || mode === 'test' ? level : null, (heard) => loop.current?.hear(heard))
+    const feed = mode === 'rec' || mode === 'test' ? level : null
+    useAudioLevel(feed, (heard) => loop.current?.hear(heard))
+    // A feed that ends or changes leaves no level behind for the next one.
+    const feedKey = feed && JSON.stringify(feed)
+    useEffect(() => () => loop.current?.hear(0), [feedKey])
 
     return (
         <Root aria-hidden="true" className={className} style={{'--ring-size': `${size}px`} as CSSProperties}>

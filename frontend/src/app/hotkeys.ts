@@ -48,6 +48,9 @@ const OWNS_BARE_KEYS = [
 // While a sheet is open the window behind it takes no shortcuts.
 const OPEN_DIALOG = '[role="dialog"], [role="alertdialog"]'
 
+// The webview reloads the page on Ctrl R, which drops whatever the page holds.
+const RELOAD: HotkeyCombo = {code: 'KeyR', mod: true}
+
 /** Whether `event` presses `combo` on platform `on`: the same key, and exactly its modifiers. */
 export function matchesHotkey(combo: HotkeyCombo, event: KeyboardEvent, on: Platform = platform): boolean {
     if (event.code !== combo.code) return false
@@ -60,7 +63,11 @@ export function matchesHotkey(combo: HotkeyCombo, event: KeyboardEvent, on: Plat
 const rank = (registration: Registration) => (registration.level === 'screen' ? 1 : 0)
 
 function onKeyDown(event: KeyboardEvent) {
-    if (event.defaultPrevented || event.isComposing) return
+    if (event.defaultPrevented) return
+    // Blocked whether or not a hotkey runs: the shell registers its ⌘R only
+    // once startup is ready, and startup and first launch must not reload.
+    if (matchesHotkey(RELOAD, event)) event.preventDefault()
+    if (event.isComposing) return
     const bareKeysTaken = event.target instanceof Element && event.target.closest(OWNS_BARE_KEYS) !== null
 
     let winner: Registration | undefined
@@ -77,7 +84,7 @@ function onKeyDown(event: KeyboardEvent) {
     const dialogOpen = document.querySelector(OPEN_DIALOG) !== null
     // A bare key is the dialog's: Space presses its focused button.
     if (!winner.mod && dialogOpen) return
-    // Ctrl R would also reload the page in the webview, held down or not.
+    // A ⌘ hotkey stops the browser's own action, held down or not.
     event.preventDefault()
     if (event.repeat || dialogOpen) return
     winner.run(event)
@@ -92,14 +99,14 @@ export function registerHotkey(
     run: (event: KeyboardEvent) => void,
     level: HotkeyLevel = 'screen',
 ): () => void {
-    if (registrations.size === 0) window.addEventListener('keydown', onKeyDown)
     const registration: Registration = {...combo, level, order: ++registered, run}
     registrations.add(registration)
-    return () => {
-        registrations.delete(registration)
-        if (registrations.size === 0) window.removeEventListener('keydown', onKeyDown)
-    }
+    return () => void registrations.delete(registration)
 }
+
+// Attached once for the page's life, so the reload stays blocked while no
+// hotkey is registered.
+window.addEventListener('keydown', onKeyDown)
 
 interface HotkeyOptions {
     level?: HotkeyLevel

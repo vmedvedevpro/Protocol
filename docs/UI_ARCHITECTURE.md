@@ -160,9 +160,10 @@ shell's own commands. The minibar window has none of it.
 
 ### Hotkeys
 
-- `app/hotkeys.ts` is the window's one keydown listener. A screen, or a part
-  of one, registers with `useHotkey({code, mod, shift}, run)` while mounted;
-  the shell registers its defaults with `level: 'app'`.
+- `app/hotkeys.ts` is the window's one keydown listener, attached when the
+  module loads. A screen, or a part of one, registers with
+  `useHotkey({code, mod, shift}, run)` while mounted; the shell registers its
+  defaults with `level: 'app'`.
 - `mod` is ⌘ on macOS and Ctrl elsewhere, the other one must be up, and so
   must Alt (AltGr on Windows is Ctrl and Alt). Keys are `KeyboardEvent.code`,
   the physical key, so Ctrl R is Ctrl R on a Russian layout too. Hints write
@@ -173,7 +174,9 @@ shell's own commands. The minibar window has none of it.
   ⌘K is search's (#118).
 - A ⌘ hotkey works from a text field too, and always stops the browser's own
   action (Ctrl R would reload the page), even while it does not run: while a
-  sheet is open (`role="dialog"`), or for a key held down. A bare key, such as
+  sheet is open (`role="dialog"`), or for a key held down. ⌘R is blocked even
+  with no hotkey on it, so startup and first launch, before the shell
+  registers its own, do not reload either. A bare key, such as
   Space, belongs to the focused control first (fields, buttons, links, tabs,
   switches, menu items: Space presses them) and to an open sheet; it runs only
   when focus is on none of them.

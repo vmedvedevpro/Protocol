@@ -9,6 +9,8 @@ vi.mock('./ringGl', () => ({createRingRenderer: vi.fn()}))
 
 let renderer: { [K in keyof RingRenderer]: ReturnType<typeof vi.fn> }
 let frames: FrameRequestCallback[]
+// performance.now() and the frames' timestamps, in ms.
+let clock: number
 let loop: RingLoop | null
 const canvas = document.createElement('canvas')
 const palette = lightTheme.ring
@@ -21,15 +23,20 @@ function reduceMotion() {
     } as unknown as MediaQueryList)
 }
 
-function nextFrame(now: number) {
-    const pending = frames.splice(0)
-    pending.forEach((callback) => callback(now))
+/** Runs the pending frame 16 ms after the last one. */
+function nextFrame() {
+    clock += 16
+    frames.splice(0).forEach((callback) => callback(clock))
 }
+
+const drawnLevel = () => renderer.draw.mock.lastCall?.[0].level as number
 
 beforeEach(() => {
     renderer = {setPalette: vi.fn(), draw: vi.fn(), dispose: vi.fn()}
     vi.mocked(createRingRenderer).mockReturnValue(renderer as unknown as RingRenderer)
     frames = []
+    clock = 1000
+    vi.spyOn(performance, 'now').mockImplementation(() => clock)
     vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => frames.push(callback))
     vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => frames.splice(0))
 })
@@ -44,12 +51,25 @@ describe('the ring frame loop', () => {
         loop = startRingLoop(canvas, {mode: 'rec', size: 48, palette}, vi.fn())
         expect(frames).toHaveLength(1)
 
-        loop?.hear(1)
-        for (let i = 1; i <= 30; i++) nextFrame(performance.now() + i * 16)
+        for (let i = 0; i < 30; i++) {
+            loop?.hear(1)
+            nextFrame()
+        }
 
         expect(renderer.draw).toHaveBeenCalledTimes(30)
-        expect(renderer.draw.mock.lastCall?.[0].level).toBeGreaterThan(0.9)
+        expect(drawnLevel()).toBeGreaterThan(0.9)
         expect(frames).toHaveLength(1)
+    })
+
+    it('lets the edge fall back once no sample came for 300 ms', () => {
+        loop = startRingLoop(canvas, {mode: 'rec', size: 48, palette}, vi.fn())
+
+        loop?.hear(1)
+        for (let i = 0; i < 18; i++) nextFrame()
+        expect(drawnLevel()).toBeGreaterThan(0.85)
+
+        for (let i = 0; i < 40; i++) nextFrame()
+        expect(drawnLevel()).toBeLessThan(0.05)
     })
 
     it('stops while the document is hidden and resumes after', () => {

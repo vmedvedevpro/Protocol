@@ -49,6 +49,12 @@ describe('registerHotkey', () => {
         stopApp()
     })
 
+    it('keeps Ctrl R from reloading the page while no hotkey is registered', () => {
+        // As during startup and first launch, before the shell registers its ⌘R.
+        expect(press({code: 'KeyR', ctrlKey: true}).defaultPrevented).toBe(true)
+        expect(press({code: 'KeyK', ctrlKey: true}).defaultPrevented).toBe(false)
+    })
+
     it('runs the latest registration within a level', () => {
         const first = vi.fn()
         const second = vi.fn()

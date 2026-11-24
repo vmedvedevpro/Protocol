@@ -14,7 +14,7 @@ import {
     pendingCrashReportQuery,
 } from '@/api/crashReport'
 import {Button} from '@/components/ui/Button'
-import {Sheet} from '@/components/ui/Sheet'
+import {Sheet, SheetClose} from '@/components/ui/Sheet'
 import {focusRing} from '@/components/ui/styles'
 import {MOTION_OK, tween} from '@/styles/motion'
 
@@ -33,16 +33,32 @@ const PENDING: Record<CrashAction, string> = {
 }
 
 /**
+ * How a choice ended: `cancelled` in the save dialog, `done`, or
+ * `browserFailed` when Send saved the ZIP but the browser did not open.
+ */
+type Resolution = 'cancelled' | 'done' | 'browserFailed'
+
+/**
  * Save asks where to put the ZIP; Send does the same, then opens a GitHub
  * issue to attach it to. Either ends by dismissing the report, as Ignore
- * does. `false` when the user cancelled the save dialog.
+ * does, once the ZIP is saved.
  */
-async function resolveReport(action: CrashAction, report: PendingCrashReport): Promise<boolean> {
+async function resolveReport(action: CrashAction, report: PendingCrashReport): Promise<Resolution> {
+    let resolution: Resolution = 'done'
     if (action !== 'ignore') {
         const destination = await chooseCrashReportDestination(report)
-        if (!destination) return false
+        if (!destination) return 'cancelled'
         await createCrashReportZip(destination)
-        if (action === 'send') await openCrashReportIssue()
+        if (action === 'send') {
+            try {
+                await openCrashReportIssue()
+            } catch (error) {
+                // The ZIP is saved and the user has decided: a report left
+                // pending would offer Send again and write a second ZIP.
+                console.warn('Failed to open the crash report issue:', error)
+                resolution = 'browserFailed'
+            }
+        }
     }
     try {
         await dismissPendingCrashReport()
@@ -50,7 +66,7 @@ async function resolveReport(action: CrashAction, report: PendingCrashReport): P
         // The ZIP is saved and the user has decided; the next launch may ask again.
         console.warn('Failed to dismiss the crash report:', error)
     }
-    return true
+    return resolution
 }
 
 function describeCrash(report: PendingCrashReport): string {
@@ -146,15 +162,18 @@ export function CrashReportSheet() {
     const [showIncluded, setShowIncluded] = useState(false)
 
     const resolve = useMutation({
-        mutationFn: async (action: CrashAction) => report !== null && resolveReport(action, report),
-        onSuccess: (resolved) => {
-            if (!resolved) return
-            setOpen(false)
+        mutationFn: async (action: CrashAction): Promise<Resolution> =>
+            report === null ? 'cancelled' : resolveReport(action, report),
+        onSuccess: (resolution) => {
+            if (resolution === 'cancelled') return
+            // Without the browser the sheet stays open to say where to send the ZIP.
+            if (resolution === 'done') setOpen(false)
             void queryClient.invalidateQueries({queryKey: crashReportKeys.all})
         },
         onError: (error) => console.error('Crash report action failed:', error),
     })
     const busy = resolve.isPending
+    const browserFailed = resolve.data === 'browserFailed'
     const label = (action: CrashAction, idle: string) => (busy && resolve.variables === action ? PENDING[action] : idle)
 
     if (!report) return null
@@ -166,7 +185,11 @@ export function CrashReportSheet() {
             onOpenChange={(next) => !busy && setOpen(next)}
             title="Protocol encountered a problem"
             description={describeCrash(report)}
-            footer={(
+            footer={browserFailed ? (
+                <SheetClose asChild>
+                    <Button variant="filled">Done</Button>
+                </SheetClose>
+            ) : (
                 <>
                     <Button variant="ghost" disabled={busy} onClick={() => resolve.mutate('ignore')}>
                         {label('ignore', 'Ignore')}
@@ -225,6 +248,12 @@ export function CrashReportSheet() {
             </Small>
 
             {resolve.isError && <Failure role="alert">{FAILED[resolve.variables]}</Failure>}
+            {browserFailed && (
+                <Failure role="alert">
+                    The ZIP is saved, but the browser didn&apos;t open. Attach it to a new issue at
+                    github.com/vmedvedevpro/Protocol/issues.
+                </Failure>
+            )}
         </Sheet>
     )
 }

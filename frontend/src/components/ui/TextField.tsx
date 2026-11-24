@@ -145,16 +145,25 @@ interface FieldText {
     tone?: FieldTone
 }
 
+/** The ARIA names a caller can give a field instead of `label`. */
+interface AriaNaming {
+    'aria-label'?: string
+    'aria-labelledby'?: string
+}
+
 /**
  * The label above, the hint below, and the ids that tie them to the field.
- * Without a label of its own, a field in a SettingsRow takes the row's.
+ * Without a name of its own (`label`, `aria-label`, `aria-labelledby`), a
+ * field in a SettingsRow takes the row's: `aria-labelledby` would win over the
+ * field's `aria-label`.
  */
-function useFieldText(label: string | undefined, hint: string | undefined, id: string | undefined) {
+function useFieldText(label: string | undefined, hint: string | undefined, id: string | undefined, aria: AriaNaming) {
     const autoId = useId()
     const row = useContext(ControlLabelContext)
     const fieldId = id ?? autoId
     const hintId = hint ? `${fieldId}-hint` : undefined
-    const fromRow = label === undefined ? row : null
+    const named = label !== undefined || aria['aria-label'] !== undefined || aria['aria-labelledby'] !== undefined
+    const fromRow = named ? null : row
 
     const naming = {
         'aria-labelledby': fromRow?.labelId,
@@ -192,7 +201,7 @@ export function TextField({
     type = 'text',
     ...props
 }: TextFieldProps) {
-    const {fieldId, naming, wrap} = useFieldText(label, hint, id)
+    const {fieldId, naming, wrap} = useFieldText(label, hint, id, props)
 
     if (icon === undefined && trailing === undefined) {
         return wrap(<Input id={fieldId} type={type} $size={size} $tone={tone} {...naming} {...props}/>)
@@ -213,6 +222,6 @@ type TextAreaProps = ComponentProps<'textarea'> & FieldText & {
 
 /** A multi-line text input that the user can make taller. */
 export function TextArea({label, hint, tone = 'outline', mono = false, id, rows = 3, ...props}: TextAreaProps) {
-    const {fieldId, naming, wrap} = useFieldText(label, hint, id)
+    const {fieldId, naming, wrap} = useFieldText(label, hint, id, props)
     return wrap(<Area id={fieldId} rows={rows} $tone={tone} $mono={mono} {...naming} {...props}/>)
 }

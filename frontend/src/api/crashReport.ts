@@ -42,14 +42,17 @@ export const dismissPendingCrashReport = () => command<void>('dismiss_pending_cr
  * (`dialog:allow-save`). `null` when the user cancels.
  */
 export async function chooseCrashReportDestination(report: PendingCrashReport): Promise<string | null> {
-    const destination = await command<string | null>('plugin:dialog|save', {
-        options: {
-            defaultPath: `Protocol-crash-${report.reportId.slice(0, 8)}.zip`,
-            filters: [{name: 'ZIP archive', extensions: ['zip']}],
-        },
+    const ask = (defaultPath: string) => command<string | null>('plugin:dialog|save', {
+        options: {defaultPath, filters: [{name: 'ZIP archive', extensions: ['zip']}]},
     })
-    if (!destination) return null
-    return destination.toLowerCase().endsWith('.zip') ? destination : `${destination}.zip`
+    const destination = await ask(`Protocol-crash-${report.reportId.slice(0, 8)}.zip`)
+    if (!destination || destination.toLowerCase().endsWith('.zip')) return destination
+    // A GTK dialog returns the name as typed, without the filter's extension,
+    // and asked about replacing only that name. Adding `.zip` here would
+    // replace an existing ZIP unasked, so the dialog opens once more on the
+    // name with `.zip` and its own overwrite prompt runs. A name still without
+    // it is refused by native code, which writes only a `.zip`.
+    return ask(`${destination}.zip`)
 }
 
 const ISSUE_BODY = [

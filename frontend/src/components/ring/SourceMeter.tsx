@@ -3,6 +3,7 @@ import {AnimatePresence} from 'motion/react'
 import * as m from 'motion/react-m'
 import styled, {css, useTheme} from 'styled-components'
 import type {AudioSource, LevelFeed} from '@/api/audio'
+import {colorTransition, focusRing} from '@/components/ui/styles'
 import {MOTION_OK, tween} from '@/styles/motion'
 import {LevelMeter} from './LevelMeter'
 
@@ -29,9 +30,7 @@ const Button = styled.button<{ $muted: boolean }>`
     ${({theme}) => theme.text.caption};
     font-weight: ${({theme}) => theme.fontWeights.medium};
     cursor: pointer;
-    transition-property: background-color, color;
-    transition-duration: ${({theme}) => theme.motion.duration.fast};
-    transition-timing-function: ${({theme}) => theme.motion.easing.standard};
+    ${colorTransition};
 
     ${({$muted}) => ($muted
         ? css`
@@ -51,10 +50,7 @@ const Button = styled.button<{ $muted: boolean }>`
             }
         `)}
 
-    &:focus-visible {
-        outline: 2px solid ${({theme}) => theme.colors.text};
-        outline-offset: 2px;
-    }
+    ${focusRing};
 
     ${MOTION_OK} {
         &:active {
