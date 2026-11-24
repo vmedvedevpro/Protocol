@@ -24,6 +24,14 @@ restart.
   or Charcoal becomes Dark and Vanilla becomes Light. Without a saved choice,
   Protocol now follows the system.
 
+### Fixed
+
+- **The Linux deb installs next to the system's ffmpeg**
+  ([#100](https://github.com/vmedvedevpro/Protocol/issues/100)). The deb
+  brought its own `/usr/bin/ffmpeg` and failed to install where the
+  distribution's `ffmpeg` package already was. It now depends on that package
+  and uses it. The AppImage still brings its own ffmpeg.
+
 ## Protocol 0.5.1 — 2026-11-06
 
 Claude and other AI agents on your computer can now read your meetings: ask
