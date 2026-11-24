@@ -5,6 +5,7 @@ import {
     downloadKey,
     type DownloadState,
     downloadsQuery,
+    isAlreadyDownloading,
     modelKeys,
     PARAKEET_DOWNLOAD_COMPLETE_EVENT,
     PARAKEET_DOWNLOAD_ERROR_EVENT,
@@ -36,26 +37,27 @@ export function useModelDownloadSync() {
         })
     }
     const refresh = (queryKey: QueryKey) => void queryClient.invalidateQueries({queryKey})
+    // A download that ended leaves its record until the list says what it
+    // left (Available, or Missing after a cancel): cleared first, the screen
+    // would show the model missing for the moment between.
+    const end = (key: string, list: QueryKey) =>
+        void queryClient.invalidateQueries({queryKey: list}).then(() => set(key, null))
 
     useNativeEvent(
         PARAKEET_DOWNLOAD_PROGRESS_EVENT,
         ({modelName, progress, downloaded_mb, total_mb, speed_mbps, status}) => {
             const key = downloadKey('parakeet', modelName)
-            if (status === 'cancelled') {
-                set(key, null)
-                refresh(modelKeys.parakeet())
-                return
-            }
+            if (status === 'cancelled') return end(key, modelKeys.parakeet())
             set(key, {state: 'downloading', progress, downloadedMb: downloaded_mb, totalMb: total_mb, speedMbps: speed_mbps})
         },
         // Downloads that ran before this listener are in the lists' status.
         {onListening: () => refresh(modelKeys.all)},
     )
-    useNativeEvent(PARAKEET_DOWNLOAD_COMPLETE_EVENT, ({modelName}) => {
-        set(downloadKey('parakeet', modelName), null)
-        refresh(modelKeys.parakeet())
-    })
+    useNativeEvent(PARAKEET_DOWNLOAD_COMPLETE_EVENT, ({modelName}) => end(downloadKey('parakeet', modelName), modelKeys.parakeet()))
     useNativeEvent(PARAKEET_DOWNLOAD_ERROR_EVENT, ({modelName, error}) => {
+        // A second call for a running download: native refuses it and says
+        // so here too, while the first one goes on.
+        if (isAlreadyDownloading(error)) return
         set(downloadKey('parakeet', modelName), {state: 'failed', error})
         refresh(modelKeys.parakeet())
     })
@@ -66,12 +68,12 @@ export function useModelDownloadSync() {
     useNativeEvent(WHISPER_DOWNLOAD_ACTIVATING_EVENT, ({modelName}) => {
         set(downloadKey('whisper', modelName), {state: 'activating'})
     })
-    useNativeEvent(WHISPER_DOWNLOAD_COMPLETE_EVENT, ({modelName}) => {
-        set(downloadKey('whisper', modelName), null)
-        refresh(modelKeys.whisper())
-    })
+    useNativeEvent(WHISPER_DOWNLOAD_COMPLETE_EVENT, ({modelName}) => end(downloadKey('whisper', modelName), modelKeys.whisper()))
     useNativeEvent(WHISPER_DOWNLOAD_ERROR_EVENT, ({modelName, error}) => {
-        set(downloadKey('whisper', modelName), CANCELLED.test(error) ? null : {state: 'failed', error})
+        if (isAlreadyDownloading(error)) return
+        const key = downloadKey('whisper', modelName)
+        if (CANCELLED.test(error)) return end(key, modelKeys.whisper())
+        set(key, {state: 'failed', error})
         refresh(modelKeys.whisper())
     })
 
@@ -81,8 +83,10 @@ export function useModelDownloadSync() {
             set(key, {state: 'downloading', progress, downloadedMb: downloaded_mb, totalMb: total_mb, speedMbps: speed_mbps})
             return
         }
-        set(key, status === 'error' ? {state: 'failed', error: error ?? 'The download failed.'} : null)
         // The list and every readiness check under it.
+        if (status !== 'error') return end(key, modelKeys.builtIn())
+        if (isAlreadyDownloading(error)) return
+        set(key, {state: 'failed', error: error ?? 'The download failed.'})
         refresh(modelKeys.builtIn())
     })
 }

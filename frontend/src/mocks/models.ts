@@ -164,6 +164,11 @@ export function modelsHandlers(state: {models: MockModels}): Record<string, Mock
     const parakeetDownload = async (modelName: string) => {
         const models = state.models
         if (modelName !== PARAKEET_MODEL) throw `Model not found: ${modelName}`
+        if (isDownloading(models.parakeet)) {
+            const error = `Download already in progress for model: ${modelName}`
+            send(PARAKEET_DOWNLOAD_ERROR_EVENT, {modelName, error})
+            throw `Failed to download Parakeet model: ${error}`
+        }
         const fails = takeFailure(models, `parakeet:${modelName}`)
         models.parakeet = {Downloading: {progress: 0}}
         try {
@@ -193,6 +198,11 @@ export function modelsHandlers(state: {models: MockModels}): Record<string, Mock
         const models = state.models
         if (enablePostCall && modelName !== POST_CALL_WHISPER_MODEL) {
             throw 'Native optional activation is only supported for the recommended Whisper model'
+        }
+        if (isDownloading(models.whisper[modelName])) {
+            const error = `Download already in progress for model: ${modelName}`
+            send(WHISPER_DOWNLOAD_ERROR_EVENT, {modelName, error, postCallManaged: enablePostCall})
+            throw `Failed to download model: ${error}`
         }
         // An activation does not download an installed, valid copy again.
         if (!(enablePostCall && models.whisper[modelName] === 'Available')) {
@@ -229,7 +239,6 @@ export function modelsHandlers(state: {models: MockModels}): Record<string, Mock
         // src-tauri/src/parakeet_engine/commands.rs
         parakeet_init: () => null,
         parakeet_get_available_models: (): ParakeetModelInfo[] => [{...PARAKEET, status: state.models.parakeet}],
-        parakeet_has_available_models: () => state.models.parakeet === 'Available',
         parakeet_download_model: ({modelName}) => parakeetDownload(String(modelName)),
         parakeet_retry_download: ({modelName}) => {
             if (isDownloading(state.models.parakeet)) throw `Download already in progress for model: ${String(modelName)}`
@@ -244,15 +253,10 @@ export function modelsHandlers(state: {models: MockModels}): Record<string, Mock
             status: state.models.whisper[entry.name] ?? 'Missing',
             languages: ['*'],
         })),
-        whisper_has_available_models: () => Object.values(state.models.whisper).includes('Available'),
         whisper_download_model: ({modelName, enablePostCall}) => whisperDownload(String(modelName), enablePostCall === true),
 
         // src-tauri/src/summary/summary_engine/commands.rs
         builtin_ai_list_models: () => BUILT_IN.map(builtInInfo),
-        builtin_ai_get_model_info: ({modelName}) => {
-            const entry = BUILT_IN.find(({name}) => name === modelName)
-            return entry ? builtInInfo(entry) : null
-        },
         builtin_ai_is_model_ready: ({modelName}) => state.models.builtIn[String(modelName)]?.type === 'available',
         builtin_ai_get_recommended_model: () => state.models.recommendedSummary,
         builtin_ai_download_model: async ({modelName}) => {
@@ -260,7 +264,11 @@ export function modelsHandlers(state: {models: MockModels}): Record<string, Mock
             const model = String(modelName)
             const entry = BUILT_IN.find(({name}) => name === model)
             if (!entry) throw `Unknown model: ${model}`
-            if (isDownloading(models.builtIn[model])) throw `Download already in progress for ${model}`
+            if (isDownloading(models.builtIn[model])) {
+                const error = 'Download already in progress'
+                send(BUILTIN_AI_DOWNLOAD_PROGRESS_EVENT, {model, progress: 0, downloaded_mb: 0, total_mb: 0, speed_mbps: 0, status: 'error', error})
+                throw error
+            }
             const fails = takeFailure(models, `builtIn:${model}`)
             const totalMb = entry.size_bytes! / 1_048_576
             models.builtIn[model] = {type: 'downloading', progress: 0}

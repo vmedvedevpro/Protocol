@@ -70,6 +70,31 @@ describe('useModelDownloadSync', () => {
         await waitFor(() => expect(result.current.summary).toMatchObject({kind: 'failed', error: expect.stringMatching(/connection reset/)}))
     })
 
+    it('keeps a running download going when a second call for it is refused', async () => {
+        mockState.models = createMockModels({fresh: true})
+        mockState.models.downloadStep = 20
+        const {result} = renderModels()
+        await waitFor(() => expect(result.current.summary).toEqual({kind: 'missing'}))
+        await listening()
+
+        const first = [
+            downloadParakeetModel(PARAKEET_MODEL),
+            downloadWhisperModel(POST_CALL_WHISPER_MODEL),
+            downloadBuiltInModel('qwen3.5:4b'),
+        ]
+        await waitFor(() => expect(result.current.summary).toEqual({kind: 'downloading', progress: 20}))
+
+        // Native refuses each second call and sends the refusal as an error event.
+        await expect(downloadParakeetModel(PARAKEET_MODEL)).rejects.toThrow(/already in progress/)
+        await expect(downloadWhisperModel(POST_CALL_WHISPER_MODEL)).rejects.toThrow(/already in progress/)
+        await expect(downloadBuiltInModel('qwen3.5:4b')).rejects.toThrow(/already in progress/)
+        await listening()
+
+        for (const model of Object.values(result.current)) expect(model.kind).toBe('downloading')
+        await Promise.all(first)
+        await waitFor(() => expect(result.current).toEqual({parakeet: {kind: 'ready'}, whisper: {kind: 'ready'}, summary: {kind: 'ready'}}))
+    })
+
     it('shows Whisper being enabled, and native code saves it as the after-meeting model before it resolves', async () => {
         mockState.models = createMockModels({fresh: true})
         mockState.models.downloadStep = 50

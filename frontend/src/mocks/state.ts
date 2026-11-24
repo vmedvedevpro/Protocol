@@ -70,13 +70,12 @@ function createMockState() {
         // What the system answers (src/mocks/permissions.ts): the microphone
         // opens; on macOS the Audio Capture record, what its first prompt is
         // answered with, and whether audio plays while a probe listens.
-        // `asked` and `openedPanes` record the requests, for tests.
+        // `openedPanes` records the settings panes opened, for tests.
         permissions: {
             microphone: true,
             systemAudio: 'granted' as SystemAudioPermission,
             answer: 'granted' as SystemAudioPermission,
             audioPlaying: true,
-            asked: [] as ('microphone' | 'systemAudio')[],
             openedPanes: [] as string[],
         },
     }

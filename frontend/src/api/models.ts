@@ -138,10 +138,6 @@ export interface BuiltInModelInfo {
 
 export const listBuiltInModels = () => command<BuiltInModelInfo[]>('builtin_ai_list_models')
 
-/** null for a name the catalog does not know. */
-export const getBuiltInModelInfo = (modelName: string) =>
-    command<BuiltInModelInfo | null>('builtin_ai_get_model_info', {modelName})
-
 /** Whether the file is there and whole; `refresh` scans the disk first instead of trusting the last scan. */
 export const isBuiltInModelReady = (modelName: string, {refresh = false} = {}) =>
     command<boolean>('builtin_ai_is_model_ready', {modelName, refresh})
@@ -159,7 +155,11 @@ export const getRecommendedSummaryModel = () => command<string>('builtin_ai_get_
  */
 export const downloadBuiltInModel = (modelName: string) => command<null>('builtin_ai_download_model', {modelName})
 
-/** The rejection `downloadBuiltInModel` gives while the same download runs: nothing failed. */
+/**
+ * A second call for a download that runs: every engine rejects it with this
+ * and also sends it as its error event, while the first download goes on.
+ * Nothing failed.
+ */
 export const isAlreadyDownloading = (error: unknown) => /already in progress/i.test(String(error instanceof Error ? error.message : error))
 
 // --- Events ----------------------------------------------------------------

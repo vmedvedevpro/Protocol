@@ -536,8 +536,11 @@ levels) skip Query and React state; see Styling and the next section.
   only by event. `useModelDownloadSync` (`app/`, mounted by the shell in
   front of the startup gate, so first launch's downloads are heard and keep
   being heard after it) writes them into `downloadsQuery`, which nothing
-  fetches, and reads a model's list again when its download ends.
-  `modelState(status, download)` folds a list's status and the download into
+  fetches, and reads a model's list again when its download ends, clearing
+  the download only once the list has answered. A second call for a running
+  download is refused, and native code sends the refusal as an error event
+  too (`isAlreadyDownloading`); the sync ignores it, since the first
+  download goes on. `modelState(status, download)` folds a list's status and the download into
   what a screen shows: `ready` only after the completion event, which comes
   after verification, so a percent stays below 100 until then.
 - Native code activates a model after its download, never the UI:

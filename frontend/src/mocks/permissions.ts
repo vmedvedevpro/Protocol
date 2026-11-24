@@ -10,14 +10,10 @@ import {mockState} from './state'
  */
 export const permissionsHandlers: Record<string, MockHandler> = {
     // src-tauri/src/lib.rs
-    trigger_microphone_permission: () => {
-        mockState.permissions.asked.push('microphone')
-        return mockState.permissions.microphone
-    },
+    trigger_microphone_permission: () => mockState.permissions.microphone,
     // src-tauri/src/audio/permissions.rs
     trigger_system_audio_permission_command: () => {
         if (mockState.platform !== 'macos') return true
-        mockState.permissions.asked.push('systemAudio')
         // The first probe shows the prompt, which the user answers.
         if (mockState.permissions.systemAudio === 'not_determined') mockState.permissions.systemAudio = mockState.permissions.answer
         return mockState.permissions.systemAudio !== 'denied' && mockState.permissions.audioPlaying
