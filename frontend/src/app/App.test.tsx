@@ -1,15 +1,16 @@
-import {QueryClient, QueryClientProvider} from '@tanstack/react-query'
+import {QueryClientProvider} from '@tanstack/react-query'
 import {render, screen, waitFor} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import {describe, expect, it, vi} from 'vitest'
 import {handlers} from '@/mocks/handlers'
 import {THEME_STORAGE_KEY} from '@/styles/themeMode'
+import {createTestQueryClient} from '@/test/queryClient'
 import packageJson from '../../package.json'
 import {App} from './App'
 
 function renderApp() {
     return render(
-        <QueryClientProvider client={new QueryClient()}>
+        <QueryClientProvider client={createTestQueryClient()}>
             <App/>
         </QueryClientProvider>,
     )

@@ -5,6 +5,7 @@ import {describe, expect, it} from 'vitest'
 import {UPDATER_STATUS_EVENT, type UpdaterSnapshot, updaterStatusQuery} from '@/api/updater'
 import {emitMockEvent} from '@/mocks/ipc'
 import {mockState} from '@/mocks/state'
+import {createTestQueryClient} from '@/test/queryClient'
 import {useUpdaterStatusSync} from './useUpdaterStatusSync'
 
 function wrapperWith(queryClient: QueryClient) {
@@ -30,7 +31,7 @@ const readySnapshot = (): UpdaterSnapshot => ({
 
 describe('updater-status', () => {
     it('replaces the cached snapshot with the one the event carries', async () => {
-        const queryClient = new QueryClient()
+        const queryClient = createTestQueryClient()
         await queryClient.fetchQuery(updaterStatusQuery)
         renderHook(() => useUpdaterStatusSync(), {wrapper: wrapperWith(queryClient)})
         await settleIpc()

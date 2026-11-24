@@ -185,6 +185,8 @@ for stories that do not set it.
 - jsdom has no `matchMedia`; `setSystemDark()` from `src/test/matchMedia.ts`
   flips the OS theme.
 - Test behavior through the UI: roles and visible text, `userEvent` for input.
-  Render with a fresh `QueryClient` per test.
+  Give each test its own client from `createTestQueryClient()`
+  (`src/test/queryClient.ts`): it does not retry, so a rejected command shows
+  as an error at once instead of after Query's 7 s of retries.
 - `listen()` registers asynchronously; wait one macrotask
   (`setTimeout(resolve, 0)`) after mounting before emitting an event.
