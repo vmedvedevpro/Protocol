@@ -653,14 +653,17 @@ levels) skip Query and React state; see Styling and the next section.
 ## Meetings and the transcript
 
 - `src/api/meetings.ts` is the meetings domain: the list, a meeting's
-  header, its transcript a page at a time, folders (native's groups; the
-  Groups page became folders on the list), the summary and its run, action
-  items and speaker labels. #112 saves a recording through `saveTranscript`,
+  header, its whole transcript (one call: a limit of -1 is SQLite's "no
+  limit", and playback or a jump can land anywhere), folders (native's
+  groups; the Groups page became folders on the list), the summary and its
+  run, and the speaker labels. #112 saves a recording through `saveTranscript`,
   files it with `setMeetingFolderMutation` and starts the automatic summary
   with `startSummary`; the meeting screen (#113) uses the rest. A mutation
   invalidates what it changed: a rename the list, the header and the
-  folders' counts; a delete drops the meeting's own queries instead, so a
-  screen still on it does not refetch "Meeting not found".
+  folders' counts; a folder renamed or deleted every meeting's folder
+  (`meetingKeys.folders()`) and not their transcripts or summaries; a delete
+  drops the meeting's own queries instead, so a screen still on it does not
+  refetch "Meeting not found".
 - `startSummary` reads the whole transcript, writes it as
   `[mm:ss] Speaker: text` lines, picks the language (the one chosen for the
   meeting, else the one detected before, else it detects and keeps it, in
@@ -676,11 +679,14 @@ levels) skip Query and React state; see Styling and the next section.
   2.5 s apart joined. Rows off screen are neither laid out nor painted
   (`content-visibility: auto`), so a meeting of several hours costs about
   what its visible rows cost, and rows re-render only when what they show
-  changes. The turn being played comes from a `PlaybackClock` the player
+  changes: the callers' `onSeek` and `onRenameSpeaker` are called through a
+  ref, and `clean` runs once per turn when the lines change. The turn being
+  played comes from a `PlaybackClock` the player
   passes in; the list writes `data-active` and `aria-current` straight
   onto that row, never through React state, and keeps it in view unless
   the user scrolled in the last 4 s. A `live` list (#112) follows its end
-  until the user scrolls up, then offers Latest; its new rows fade in. A
+  until the user scrolls up, then offers Latest; its new rows fade in, and
+  keep their element when `live` turns off after Stop. A
   voice other than the user's can be named in place (`onRenameSpeaker`);
   the user's own label comes from the microphone and is never renamed here.
 

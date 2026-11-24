@@ -1,15 +1,15 @@
 /**
  * Meetings and what belongs to them: the saved transcript, the folders they
- * are filed in, the AI summary and its action items, and the speaker labels
- * of their lines. Native code keeps all of it in SQLite
- * (src-tauri/src/api/api.rs, database/repositories/{group,action_item}.rs,
- * summary/commands.rs, diarization/mod.rs); the types mirror the Rust ones,
+ * are filed in, the AI summary, and the speaker labels of their lines.
+ * Native code keeps all of it in SQLite (src-tauri/src/api/api.rs,
+ * database/repositories/group.rs, summary/commands.rs, diarization/mod.rs);
+ * the types mirror the Rust ones,
  * field names included. The notes live in ./notes.ts.
  *
  * "Folder" is the UI's word for what native code and its commands call a
  * group: the Groups page became folders on the meetings list.
  */
-import {infiniteQueryOptions, mutationOptions, type QueryClient, queryOptions} from '@tanstack/react-query'
+import {mutationOptions, type QueryClient, queryOptions} from '@tanstack/react-query'
 import {convertFileSrc} from '@tauri-apps/api/core'
 import {command} from './core'
 import type {NativeEvent} from './events'
@@ -40,9 +40,10 @@ export interface MeetingMetadata {
 }
 
 /**
- * One saved transcript line; mirrors `MeetingTranscript` in api.rs. Times are
- * seconds from the start of the recording; lines saved by very old versions
- * have none.
+ * One transcript line; mirrors `MeetingTranscript` in api.rs, and
+ * `TranscriptSegment`, the same fields, which `api_save_transcript` takes.
+ * Times are seconds from the start of the recording; lines saved by very old
+ * versions have none.
  */
 export interface TranscriptSegment {
     id: string
@@ -55,27 +56,10 @@ export interface TranscriptSegment {
     /**
      * Who spoke: "You" for the microphone, "Speaker N" from diarization, a
      * name once someone named the voice, or several joined by " + " where
-     * voices overlap. Absent when nothing labelled the line.
+     * voices overlap. Absent when nothing labelled the line. A saved
+     * recording keeps its live labels: the diarization pass after the call
+     * finds the user by "You".
      */
-    speaker?: string
-}
-
-/** A page of a meeting's transcript; mirrors `PaginatedTranscriptsResponse`. */
-export interface TranscriptPage {
-    transcripts: TranscriptSegment[]
-    total_count: number
-    has_more: boolean
-}
-
-/** A line as `api_save_transcript` takes it; mirrors `TranscriptSegment` in api.rs. */
-export interface TranscriptSegmentDraft {
-    id: string
-    text: string
-    timestamp: string
-    audio_start_time?: number
-    audio_end_time?: number
-    duration?: number
-    /** The live label ("You", "Speaker N"); the diarization pass after the call finds the user by it. */
     speaker?: string
 }
 
@@ -93,7 +77,9 @@ export const meetingKeys = {
     detail: (meetingId: string) => [...meetingKeys.all, 'detail', meetingId] as const,
     transcripts: (meetingId: string) => [...meetingKeys.all, 'transcripts', meetingId] as const,
     audio: (meetingId: string) => [...meetingKeys.all, 'audio', meetingId] as const,
-    folder: (meetingId: string) => [...meetingKeys.all, 'folder', meetingId] as const,
+    /** Every meeting's folder: a folder renamed or deleted changes them all. */
+    folders: () => [...meetingKeys.all, 'folder'] as const,
+    folder: (meetingId: string) => [...meetingKeys.folders(), meetingId] as const,
     summary: (meetingId: string) => [...meetingKeys.all, 'summary', meetingId] as const,
 }
 
@@ -104,18 +90,20 @@ export const getMeetings = () => command<MeetingListItem[]>('api_get_meetings')
 export const getMeetingMetadata = (meetingId: string) =>
     command<MeetingMetadata>('api_get_meeting_metadata', {meetingId})
 
-export const getMeetingTranscripts = (meetingId: string, {offset, limit}: { offset: number, limit: number }) =>
-    command<TranscriptPage>('api_get_meeting_transcripts', {meetingId, limit, offset})
-
 /**
- * The whole transcript in start-time order, for work that needs every line
- * at once (the summary, copying). Native answers a page of any size, so it
- * takes two calls: one for the count, one for the lines.
+ * The whole transcript in start-time order. `api_get_meeting_transcripts`
+ * answers a page (`PaginatedTranscriptsResponse`); a limit of -1 is SQLite's
+ * "no limit", so one call returns every line. The view needs them all too:
+ * playback and a jump can land anywhere in the meeting, and rows off screen
+ * cost little (see TranscriptList).
  */
 export async function getAllTranscripts(meetingId: string): Promise<TranscriptSegment[]> {
-    const {total_count: total} = await getMeetingTranscripts(meetingId, {offset: 0, limit: 1})
-    if (total === 0) return []
-    return (await getMeetingTranscripts(meetingId, {offset: 0, limit: total})).transcripts
+    const page = await command<{ transcripts: TranscriptSegment[] }>('api_get_meeting_transcripts', {
+        meetingId,
+        limit: -1,
+        offset: 0,
+    })
+    return page.transcripts
 }
 
 /**
@@ -125,7 +113,7 @@ export async function getAllTranscripts(meetingId: string): Promise<TranscriptSe
  */
 export async function saveTranscript(draft: {
     title: string
-    transcripts: TranscriptSegmentDraft[]
+    transcripts: TranscriptSegment[]
     folderPath: string | null
     recordingStartedAt?: string | null
 }): Promise<string> {
@@ -163,9 +151,6 @@ export const getMeetingAudio = (meetingId: string) => command<MeetingAudio>('api
 /** A URL the webview can play a recording from (Tauri's asset protocol). */
 export const audioSource = (path: string) => convertFileSrc(path)
 
-/** Peaks of a recording, one per slice of time, 0 to 1 (Labs › Waveform scrubbing). */
-export const getWaveformPeaks = (filePath: string) => command<number[]>('get_waveform_peaks', {filePath})
-
 export const meetingsQuery = queryOptions({
     queryKey: meetingKeys.lists(),
     queryFn: getMeetings,
@@ -177,20 +162,11 @@ export const meetingQuery = (meetingId: string) =>
         queryFn: () => getMeetingMetadata(meetingId),
     })
 
-/** Lines per page of the transcript view. */
-export const TRANSCRIPT_PAGE_SIZE = 200
-
-/**
- * The transcript a page at a time, loaded as the view scrolls toward its end.
- * A refetch (after a rename or a diarization pass) reloads every loaded page.
- */
+/** The whole transcript; read again after a speaker rename or a diarization pass. */
 export const meetingTranscriptsQuery = (meetingId: string) =>
-    infiniteQueryOptions({
+    queryOptions({
         queryKey: meetingKeys.transcripts(meetingId),
-        queryFn: ({pageParam}) => getMeetingTranscripts(meetingId, {offset: pageParam, limit: TRANSCRIPT_PAGE_SIZE}),
-        initialPageParam: 0,
-        getNextPageParam: (last, pages) =>
-            last.has_more ? pages.reduce((count, page) => count + page.transcripts.length, 0) : undefined,
+        queryFn: () => getAllTranscripts(meetingId),
     })
 
 export const meetingAudioQuery = (meetingId: string) =>
@@ -234,7 +210,6 @@ export const deleteMeetingMutation = (meetingId: string) =>
             await Promise.all([
                 client.invalidateQueries({queryKey: meetingKeys.lists()}),
                 client.invalidateQueries({queryKey: folderKeys.all}),
-                client.invalidateQueries({queryKey: actionItemKeys.all}),
             ])
         },
     })
@@ -317,7 +292,7 @@ export const renameFolderMutation = mutationOptions({
         Promise.all([
             client.invalidateQueries({queryKey: folderKeys.all}),
             // A meeting's header names its folder.
-            client.invalidateQueries({queryKey: meetingKeys.all}),
+            client.invalidateQueries({queryKey: meetingKeys.folders()}),
         ]),
 })
 
@@ -326,7 +301,9 @@ export const deleteFolderMutation = mutationOptions({
     onSuccess: (_reply, _folderId, _result, {client}) =>
         Promise.all([
             client.invalidateQueries({queryKey: folderKeys.all}),
-            client.invalidateQueries({queryKey: meetingKeys.all}),
+            client.invalidateQueries({queryKey: meetingKeys.folders()}),
+            // Its meetings leave it, which the list's folder filter reads.
+            client.invalidateQueries({queryKey: meetingKeys.lists()}),
         ]),
 })
 
@@ -407,13 +384,6 @@ export const saveSummary = (meetingId: string, summary: { markdown: string, summ
     command<unknown>('api_save_meeting_summary', {meetingId, summary, userEdit: true})
 
 /**
- * Rewrites a summary the app changed itself, such as moving its action items
- * into their own list; native keeps the user-edited flag as it was.
- */
-export const saveSummaryBySystem = (meetingId: string, summary: Record<string, unknown>) =>
-    command<unknown>('api_save_meeting_summary', {meetingId, summary, userEdit: false})
-
-/**
  * The stored summary and its run. While a run goes it is read again every
  * `SUMMARY_POLL_MS`; `summary-progress` invalidates it sooner.
  */
@@ -452,9 +422,10 @@ export interface SummaryLanguageDetection {
 }
 
 /**
- * A per-meeting language as native answers it. `local_fallback` means the
- * meeting has no metadata.json to keep it in, and the UI keeps it in
- * localStorage instead (the `…Fallback:<meetingId>` keys below).
+ * A per-meeting language as native answers it
+ * (`MeetingSummaryLanguagePreference`). `local_fallback` means the meeting
+ * has no metadata.json to keep it in, and the UI keeps it in localStorage
+ * instead (the `…Fallback:<meetingId>` keys below).
  */
 interface MeetingLanguageReply {
     language: string | null
@@ -490,15 +461,9 @@ function writeFallback(prefix: string, meetingId: string, language: string | nul
     }
 }
 
-/** Older versions answered a bare string, or null. */
-function languageReply(raw: MeetingLanguageReply | string | null): MeetingLanguageReply {
-    if (raw && typeof raw === 'object') return {language: languageCode(raw.language), storage: raw.storage}
-    return {language: languageCode(raw), storage: 'metadata'}
-}
-
 /** The language the user chose for this meeting's summary (Summary options, #119), or null for Auto. */
 export async function getMeetingSummaryLanguage(meetingId: string): Promise<string | null> {
-    const reply = languageReply(await command('api_get_meeting_summary_language', {meetingId}))
+    const reply = await command<MeetingLanguageReply>('api_get_meeting_summary_language', {meetingId})
     if (reply.storage === 'local_fallback') return readFallback(LANGUAGE_FALLBACK_PREFIX, meetingId)
     writeFallback(LANGUAGE_FALLBACK_PREFIX, meetingId, null)
     return reply.language
@@ -506,16 +471,17 @@ export async function getMeetingSummaryLanguage(meetingId: string): Promise<stri
 
 /** The language Auto detected for this meeting before, so it is not detected again. */
 export async function getDetectedSummaryLanguage(meetingId: string): Promise<string | null> {
-    const reply = languageReply(await command('api_get_meeting_detected_summary_language', {meetingId}))
+    const reply = await command<MeetingLanguageReply>('api_get_meeting_detected_summary_language', {meetingId})
     if (reply.storage === 'local_fallback') return readFallback(DETECTED_LANGUAGE_FALLBACK_PREFIX, meetingId)
     writeFallback(DETECTED_LANGUAGE_FALLBACK_PREFIX, meetingId, null)
     return reply.language
 }
 
 export async function saveDetectedSummaryLanguage(meetingId: string, language: string | null): Promise<void> {
-    const reply = languageReply(
-        await command('api_save_meeting_detected_summary_language', {meetingId, detectedSummaryLanguage: language}),
-    )
+    const reply = await command<MeetingLanguageReply>('api_save_meeting_detected_summary_language', {
+        meetingId,
+        detectedSummaryLanguage: language,
+    })
     writeFallback(DETECTED_LANGUAGE_FALLBACK_PREFIX, meetingId, reply.storage === 'local_fallback' ? language : null)
 }
 
@@ -552,17 +518,12 @@ const clock = (seconds: number) => {
     return `[${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}]`
 }
 
-/**
- * The transcript as a summary reads it, one line per segment:
- * `[mm:ss] Speaker: text`. `clean` tidies each line's text first (Labs ›
- * Clean transcript); the saved transcript never changes.
- */
-export function summaryTranscriptText(lines: TranscriptSegment[], clean?: (text: string) => string): string {
+/** The transcript as a summary reads it, one line per segment: `[mm:ss] Speaker: text`. */
+export function summaryTranscriptText(lines: TranscriptSegment[]): string {
     return lines
         .map((line) => {
-            const text = clean ? clean(line.text) || line.text : line.text
             const time = line.audio_start_time === undefined ? line.timestamp : clock(line.audio_start_time)
-            return `${time} ${line.speaker ? `${line.speaker}: ` : ''}${text}`
+            return `${time} ${line.speaker ? `${line.speaker}: ` : ''}${line.text}`
         })
         .join('\n')
 }
@@ -575,6 +536,7 @@ export interface SummaryRequest {
     templateId?: string
     /** One-off instructions for this run. */
     customPrompt?: string
+    /** Tidies each line's text first (Labs › Clean transcript); the saved transcript never changes. */
     clean?: (text: string) => string
 }
 
@@ -595,12 +557,13 @@ export interface SummaryStart {
  * going ("Summary generation is already active for this meeting").
  */
 export async function startSummary(request: SummaryRequest): Promise<SummaryStart> {
-    const lines = await getAllTranscripts(request.meetingId)
-    if (lines.length === 0) throw new Error('This meeting has no transcript to summarize')
-    const texts = lines.map((line) => (request.clean ? request.clean(line.text) || line.text : line.text))
-    const {language, tie} = await resolveSummaryLanguage(request.meetingId, texts)
+    const saved = await getAllTranscripts(request.meetingId)
+    if (saved.length === 0) throw new Error('This meeting has no transcript to summarize')
+    const {clean} = request
+    const lines = clean ? saved.map((line) => ({...line, text: clean(line.text) || line.text})) : saved
+    const {language, tie} = await resolveSummaryLanguage(request.meetingId, lines.map((line) => line.text))
     const reply = await command<{ process_id: string }>('api_process_transcript', {
-        text: summaryTranscriptText(lines, request.clean),
+        text: summaryTranscriptText(lines),
         model: request.provider,
         modelName: request.model,
         meetingId: request.meetingId,
@@ -617,114 +580,6 @@ export const startSummaryMutation = mutationOptions({
     mutationFn: startSummary,
     onSettled: (_start, _error, request, _result, {client}) =>
         client.invalidateQueries({queryKey: meetingKeys.summary(request.meetingId)}),
-})
-
-// ---- Action items ------------------------------------------------------------------
-
-/** Mirrors `ActionItemView` in action_item.rs. */
-export interface ActionItem {
-    id: string
-    meetingId: string
-    meetingTitle: string
-    meetingCreatedAt: string
-    groupId?: string
-    text: string
-    /** Who owns it as the summary or the user wrote it ("Priya Shah", "You"). */
-    ownerLabel?: string
-    /** The contact native matched the owner to. */
-    personId?: string
-    personName?: string
-    /** As written: "Friday", "next week". */
-    dueText?: string
-    done: boolean
-    doneAt?: string
-    /** `ai`: from a summary; `user`: added by hand. */
-    source: 'ai' | 'user'
-    /** Changed by the user, so a new summary does not replace it. */
-    edited: boolean
-    /** Where in the recording it was said, in seconds. */
-    audioTime?: number
-    transcriptId?: string
-    position: number
-    createdAt: string
-    updatedAt: string
-}
-
-/** What a new item, or an item from a summary, carries; mirrors `ActionItemDraft`. */
-export interface ActionItemDraft {
-    text: string
-    ownerLabel?: string | null
-    dueText?: string | null
-    audioTime?: number | null
-    transcriptId?: string | null
-}
-
-export interface ActionItemFilter {
-    meetingId?: string
-    personId?: string
-    groupId?: string
-    openOnly?: boolean
-    limit?: number
-}
-
-export const actionItemKeys = {
-    all: ['actionItems'] as const,
-    list: (filter: ActionItemFilter) => [...actionItemKeys.all, 'list', filter] as const,
-}
-
-export const getActionItems = (filter: ActionItemFilter) =>
-    command<ActionItem[]>('api_list_action_items', {
-        meetingId: filter.meetingId ?? null,
-        personId: filter.personId ?? null,
-        groupId: filter.groupId ?? null,
-        openOnly: filter.openOnly ?? false,
-        limit: filter.limit ?? null,
-    })
-
-export const createActionItem = (meetingId: string, draft: ActionItemDraft) =>
-    command<ActionItem>('api_create_action_item', {
-        meetingId,
-        text: draft.text,
-        ownerLabel: draft.ownerLabel ?? null,
-        personId: null,
-        dueText: draft.dueText ?? null,
-        audioTime: draft.audioTime ?? null,
-        transcriptId: draft.transcriptId ?? null,
-    })
-
-/** Writes the whole item back: native replaces text, owner, due date and done together. */
-export const updateActionItem = (item: ActionItem) =>
-    command<ActionItem>('api_update_action_item', {
-        id: item.id,
-        text: item.text,
-        ownerLabel: item.ownerLabel ?? null,
-        personId: item.personId ?? null,
-        dueText: item.dueText ?? null,
-        done: item.done,
-    })
-
-export const deleteActionItem = (id: string) => command<null>('api_delete_action_item', {id})
-
-/**
- * Replaces a meeting's items from its summary with `items`, keeping those
- * the user changed or added, and remembers `sourceFingerprint` (the summary
- * the items came from) so the same summary is not read twice.
- */
-export const syncSummaryActionItems = (meetingId: string, items: ActionItemDraft[], sourceFingerprint: string) =>
-    command<ActionItem[]>('api_sync_ai_action_items', {meetingId, items, sourceFingerprint})
-
-/** Meetings whose summary was never read for action items (summarized by older versions). */
-export const getUnsyncedActionMeetings = () => command<string[]>('api_list_unsynced_action_meetings')
-
-export const actionItemsQuery = (filter: ActionItemFilter) =>
-    queryOptions({
-        queryKey: actionItemKeys.list(filter),
-        queryFn: () => getActionItems(filter),
-    })
-
-export const updateActionItemMutation = mutationOptions({
-    mutationFn: updateActionItem,
-    onSuccess: (_item, _variables, _result, {client}) => client.invalidateQueries({queryKey: actionItemKeys.all}),
 })
 
 // ---- Speakers --------------------------------------------------------------------------
@@ -762,9 +617,6 @@ export const renameSpeakerMutation = (meetingId: string) =>
     mutationOptions({
         mutationFn: ({from, to}: { from: string, to: string }) => renameMeetingSpeaker(meetingId, from, to),
         onSuccess: (_rename, _variables, _result, {client}) =>
-            Promise.all([
-                client.invalidateQueries({queryKey: meetingKeys.transcripts(meetingId)}),
-                client.invalidateQueries({queryKey: actionItemKeys.all}),
-            ]),
+            client.invalidateQueries({queryKey: meetingKeys.transcripts(meetingId)}),
     })
 

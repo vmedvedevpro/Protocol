@@ -1,4 +1,4 @@
-import {act, screen, waitFor} from '@testing-library/react'
+import {act, screen, waitFor, within} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import {describe, expect, it, vi} from 'vitest'
 import {renderUi} from '@/test/renderUi'
@@ -88,8 +88,10 @@ describe('TranscriptList', () => {
     it('shows the empty state while there are no lines', () => {
         renderUi(<TranscriptList label="Transcript" lines={[]} empty={<p>No transcript yet</p>}/>)
 
-        expect(screen.getByText('No transcript yet')).toBeInTheDocument()
-        expect(screen.queryByRole('list')).not.toBeInTheDocument()
+        // Within the region: the window's toasts are a list too.
+        const region = screen.getByRole('region', {name: 'Transcript'})
+        expect(within(region).getByText('No transcript yet')).toBeInTheDocument()
+        expect(within(region).queryByRole('list')).not.toBeInTheDocument()
     })
 
     it('follows the end of a live transcript until the user scrolls up', () => {
@@ -115,9 +117,29 @@ describe('TranscriptList', () => {
         expect(screen.getByRole('button', {name: 'Latest'})).toBeInTheDocument()
     })
 
-    it('says more lines are loading', () => {
-        renderUi(<TranscriptList label="Transcript" lines={LINES} onEndReached={() => undefined} loadingMore/>)
+    it('keeps every row in place when a live list stops being live', () => {
+        const {rerender} = renderUi(<TranscriptList label="Transcript" live lines={LINES.slice(0, 2)}/>)
+        rerender(<TranscriptList label="Transcript" live lines={LINES}/>)
+        const arrived = row('Nothing leaves the laptop.')
+        const first = row('Thanks for making time.')
 
-        expect(screen.getByText(/Loading more/)).toBeInTheDocument()
+        rerender(<TranscriptList label="Transcript" lines={LINES}/>)
+
+        expect(row('Nothing leaves the laptop.')).toBe(arrived)
+        expect(row('Thanks for making time.')).toBe(first)
+    })
+
+    it('calls the latest callbacks and cleans the text it shows', async () => {
+        const first = vi.fn()
+        const latest = vi.fn()
+        const clean = (text: string) => text.replace('Thanks for making time.', 'Thanks for the time.')
+        const {rerender} = renderUi(<TranscriptList label="Transcript" lines={LINES} onSeek={first} clean={clean}/>)
+        rerender(<TranscriptList label="Transcript" lines={LINES} onSeek={latest} clean={clean}/>)
+
+        await userEvent.click(screen.getByRole('button', {name: 'Play from 00:04'}))
+
+        expect(first).not.toHaveBeenCalled()
+        expect(latest).toHaveBeenCalledWith(4)
+        expect(screen.getByText('Thanks for the time.')).toBeInTheDocument()
     })
 })

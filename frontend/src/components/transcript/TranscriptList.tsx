@@ -12,7 +12,6 @@ import {ArrowDownIcon} from '@phosphor-icons/react'
 import {AnimatePresence} from 'motion/react'
 import * as m from 'motion/react-m'
 import styled, {css} from 'styled-components'
-import {Spinner} from '@/components/ui/Spinner'
 import {colorTransition, fieldFocusRing, focusRing} from '@/components/ui/styles'
 import {tween} from '@/styles/motion'
 import {
@@ -48,23 +47,27 @@ export interface TranscriptListProps {
     live?: boolean
     /** Shown with the user's own lines: "Jay (You)". */
     userName?: string
-    /** Tidies each line's text for display (Labs › Clean transcript); the saved text never changes. */
+    /**
+     * Tidies each turn's text for display (Labs › Clean transcript); the
+     * saved text never changes. Runs whenever `lines` or `clean` change, so
+     * pass a stable function.
+     */
     clean?: (text: string) => string
-    /** Makes each time a button that plays from there. */
+    /**
+     * Makes each time a button that plays from there. The list calls the
+     * latest one; an inline function renders no row again.
+     */
     onSeek?: (seconds: number) => void
     /**
      * Makes each single voice other than the user's a button that names it
      * on every line of the meeting. Reject to keep the field open; the
-     * caller says why.
+     * caller says why. Called like `onSeek`, the latest one.
      */
     onRenameSpeaker?: (from: string, to: string) => Promise<unknown>
     /** Highlights the turn being played. */
     playback?: PlaybackClock
     /** While true, the highlighted turn is kept in view unless the user scrolled a moment ago. */
     followPlayback?: boolean
-    /** More lines can load: called as the end comes near. */
-    onEndReached?: () => void
-    loadingMore?: boolean
     /** Shown instead of the rows while there are none. */
     empty?: ReactNode
     /** Above the first row, such as a note that the text is still provisional. */
@@ -219,18 +222,6 @@ const Text = styled.p`
     }
 `
 
-const Sentinel = styled.li`
-    height: 1px;
-`
-
-const More = styled.li`
-    display: flex;
-    justify-content: center;
-    padding: ${({theme}) => theme.space[3]};
-    ${({theme}) => theme.text.small};
-    color: ${({theme}) => theme.colors.muted};
-`
-
 // Sticks to the bottom of the view while the user reads back up.
 const Latest = styled(m.button)`
     position: sticky;
@@ -309,27 +300,34 @@ function RenameField({from, onSubmit, onDone}: {
     )
 }
 
-interface TurnRowProps {
-    turn: Turn
-    text: string
-    arriving: boolean
-    userName?: string
-    editing: boolean
-    onSeek?: (seconds: number) => void
-    onRenameSpeaker?: (from: string, to: string) => Promise<unknown>
-    onEdit: (turnId: string | null) => void
+/** What every row shares and never changes: the list's own stable functions. */
+interface RowActions {
+    seek: (seconds: number) => void
+    rename: (from: string, to: string) => Promise<unknown>
+    edit: (turnId: string | null) => void
     register: (turnId: string, element: HTMLElement | null) => void
 }
 
-const TurnRow = memo(function TurnRow({turn, text, arriving, userName, editing, onSeek, onRenameSpeaker, onEdit, register}: TurnRowProps) {
+interface TurnRowProps {
+    turn: Turn
+    /** Fades in: a line that arrived while the list was live. */
+    arriving: boolean
+    userName?: string
+    editing: boolean
+    canSeek: boolean
+    canRename: boolean
+    actions: RowActions
+}
+
+const TurnRow = memo(function TurnRow({turn, arriving, userName, editing, canSeek, canRename, actions}: TurnRowProps) {
     const speaker = turn.speaker
     const time = turn.start === null ? null : formatClock(turn.start)
     // A single voice can be named here; the user's own and overlapping ones cannot.
-    const renameable = !!onRenameSpeaker && !!speaker && !isUserSpeaker(speaker) && speakerParts(speaker).length === 1
+    const renameable = canRename && !!speaker && !isUserSpeaker(speaker) && speakerParts(speaker).length === 1
 
     let name: ReactNode = null
     if (speaker && editing && renameable) {
-        name = <RenameField from={speaker} onSubmit={onRenameSpeaker} onDone={() => onEdit(null)}/>
+        name = <RenameField from={speaker} onSubmit={actions.rename} onDone={() => actions.edit(null)}/>
     } else if (speaker && renameable) {
         name = (
             <SpeakerButton
@@ -338,7 +336,7 @@ const TurnRow = memo(function TurnRow({turn, text, arriving, userName, editing, 
                 $unnamed={isUnnamedSpeaker(speaker)}
                 aria-label={`Name ${speaker}`}
                 title="Rename speaker"
-                onClick={() => onEdit(turn.id)}
+                onClick={() => actions.edit(turn.id)}
             >
                 {speaker}
             </SpeakerButton>
@@ -351,16 +349,16 @@ const TurnRow = memo(function TurnRow({turn, text, arriving, userName, editing, 
         <>
             {time === null
                 ? <span/>
-                : onSeek && turn.start !== null
-                    ? <SeekButton type="button" aria-label={`Play from ${time}`} title="Play from here" onClick={() => onSeek(turn.start!)}>{time}</SeekButton>
+                : canSeek && turn.start !== null
+                    ? <SeekButton type="button" aria-label={`Play from ${time}`} title="Play from here" onClick={() => actions.seek(turn.start!)}>{time}</SeekButton>
                     : <Time>{time}</Time>}
             <div>
                 {name && <Speaker>{name}</Speaker>}
-                <Text>{text}</Text>
+                <Text>{turn.text}</Text>
             </div>
         </>
     )
-    const ref = (element: HTMLElement | null) => register(turn.id, element)
+    const ref = (element: HTMLElement | null) => actions.register(turn.id, element)
 
     return arriving
         ? <ArrivingRow ref={ref} initial={{opacity: 0, y: 4}} animate={{opacity: 1, y: 0}} transition={tween('base', 'enter')}>{content}</ArrivingRow>
@@ -368,17 +366,16 @@ const TurnRow = memo(function TurnRow({turn, text, arriving, userName, editing, 
 }, (before, after) =>
     // Turns are rebuilt whenever lines change; compare what a row shows, so
     // only the rows that changed render again as a live transcript grows.
+    // `actions` never changes.
     before.turn.id === after.turn.id &&
     before.turn.start === after.turn.start &&
     before.turn.speaker === after.turn.speaker &&
-    before.text === after.text &&
+    before.turn.text === after.turn.text &&
     before.arriving === after.arriving &&
     before.userName === after.userName &&
     before.editing === after.editing &&
-    before.onSeek === after.onSeek &&
-    before.onRenameSpeaker === after.onRenameSpeaker &&
-    before.onEdit === after.onEdit &&
-    before.register === after.register)
+    before.canSeek === after.canSeek &&
+    before.canRename === after.canRename)
 
 /**
  * A transcript, saved or live: one row per turn with its time, the voice
@@ -398,33 +395,48 @@ export function TranscriptList({
     onRenameSpeaker,
     playback,
     followPlayback = false,
-    onEndReached,
-    loadingMore = false,
     empty,
     before,
     after,
 }: TranscriptListProps) {
-    const turns = useMemo(() => joinTurns(lines), [lines])
+    const turns = useMemo(() => {
+        const joined = joinTurns(lines)
+        return clean ? joined.map((turn) => ({...turn, text: clean(turn.text) || turn.text})) : joined
+    }, [lines, clean])
     const scroller = useRef<HTMLDivElement>(null)
-    const sentinel = useRef<HTMLLIElement>(null)
     const rows = useRef(new Map<string, HTMLElement>())
     const [editing, setEditing] = useState<string | null>(null)
     const refocus = useRef<string | null>(null)
 
-    // Rows present at the first render arrive with the screen; a live line
-    // arriving later fades in on its own.
+    // Rows present at the first render arrive with the screen; a line that
+    // arrives later while the list is live fades in on its own. Once it has,
+    // it stays the same element: #112 turns `live` off after Stop on the
+    // same list, and a row that changed element type would mount again.
     const [initialIds] = useState(() => new Set(turns.map((turn) => turn.id)))
+    const [arrived] = useState(() => new Set<string>())
+    if (live) {
+        for (const turn of turns) if (!initialIds.has(turn.id)) arrived.add(turn.id)
+    }
 
-    const [register] = useState(() => (turnId: string, element: HTMLElement | null) => {
-        if (element) rows.current.set(turnId, element)
-        else rows.current.delete(turnId)
+    // The callers' functions, kept current without rendering a row again.
+    const callbacks = useRef({onSeek, onRenameSpeaker})
+    useLayoutEffect(() => {
+        callbacks.current = {onSeek, onRenameSpeaker}
     })
-    const [onEdit] = useState(() => (turnId: string | null) => {
-        setEditing((current) => {
-            if (turnId === null) refocus.current = current
-            return turnId
-        })
-    })
+    const [actions] = useState<RowActions>(() => ({
+        seek: (seconds) => callbacks.current.onSeek?.(seconds),
+        rename: (from, to) => callbacks.current.onRenameSpeaker?.(from, to) ?? Promise.resolve(),
+        edit: (turnId) => {
+            setEditing((current) => {
+                if (turnId === null) refocus.current = current
+                return turnId
+            })
+        },
+        register: (turnId, element) => {
+            if (element) rows.current.set(turnId, element)
+            else rows.current.delete(turnId)
+        },
+    }))
 
     // Back on the voice's button after naming it, or after Escape.
     useLayoutEffect(() => {
@@ -514,25 +526,6 @@ export function TranscriptList({
         box.scrollTo?.({top: box.scrollHeight, behavior: reducedMotion() ? 'auto' : 'smooth'})
     }
 
-    // ---- Loading more ------------------------------------------------------
-    const endReached = useRef(onEndReached)
-    useLayoutEffect(() => {
-        endReached.current = onEndReached
-    })
-    const canLoadMore = !!onEndReached
-    useEffect(() => {
-        const target = sentinel.current
-        if (!canLoadMore || loadingMore || !target || typeof IntersectionObserver === 'undefined') return
-        const observer = new IntersectionObserver(
-            (entries) => {
-                if (entries.some((entry) => entry.isIntersecting)) endReached.current?.()
-            },
-            {root: scroller.current, rootMargin: '0px 0px 600px 0px'},
-        )
-        observer.observe(target)
-        return () => observer.disconnect()
-    }, [canLoadMore, loadingMore, turns.length])
-
     const userScrolled = () => {
         lastUserScroll.current = Date.now()
     }
@@ -551,24 +544,20 @@ export function TranscriptList({
             onKeyDown={userScrolled}
         >
             {before}
-            {turns.length === 0 && !loadingMore ? empty : (
+            {turns.length === 0 ? empty : (
                 <Rows $longTimes={longTimes}>
                     {turns.map((turn) => (
                         <TurnRow
                             key={turn.id}
                             turn={turn}
-                            text={clean ? clean(turn.text) || turn.text : turn.text}
-                            arriving={live && !initialIds.has(turn.id)}
+                            arriving={arrived.has(turn.id)}
                             userName={userName}
                             editing={editing === turn.id}
-                            onSeek={onSeek}
-                            onRenameSpeaker={onRenameSpeaker}
-                            onEdit={onEdit}
-                            register={register}
+                            canSeek={!!onSeek}
+                            canRename={!!onRenameSpeaker}
+                            actions={actions}
                         />
                     ))}
-                    {onEndReached && <Sentinel ref={sentinel} aria-hidden="true"/>}
-                    {loadingMore && <More aria-busy="true"><Spinner/>&nbsp;Loading more…</More>}
                 </Rows>
             )}
             {after}

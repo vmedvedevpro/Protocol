@@ -1,17 +1,18 @@
 import type {MutationOptions, QueryClient} from '@tanstack/react-query'
 import {describe, expect, it, vi} from 'vitest'
-import {handlers, type MockArgs} from '@/mocks/handlers'
+import {handlers} from '@/mocks/handlers'
 import {mockState} from '@/mocks/state'
 import {createTestQueryClient} from '@/test/queryClient'
 import {listenNative} from './events'
 import {
-    actionItemsQuery,
     audioSource,
+    deleteFolderMutation,
     deleteMeetingMutation,
     folderKeys,
     foldersQuery,
     getAllTranscripts,
     getMeetingAudio,
+    meetingFolderQuery,
     meetingKeys,
     meetingQuery,
     meetingsQuery,
@@ -26,8 +27,6 @@ import {
     type SummaryProgress,
     summaryQuery,
     summaryTranscriptText,
-    syncSummaryActionItems,
-    TRANSCRIPT_PAGE_SIZE,
 } from './meetings'
 
 /** Runs a mutation's options as useMutation would, without React. */
@@ -47,18 +46,18 @@ describe('meetings', () => {
         expect(meetings.find((meeting) => meeting.id === 'meeting-roadmap')).not.toHaveProperty('group_id')
     })
 
-    it('reads a transcript a page at a time, and all of it at once', async () => {
-        const lines = Array.from({length: TRANSCRIPT_PAGE_SIZE + 5}, (_, index) => ({
+    it('reads the whole transcript in one call, however long', async () => {
+        const lines = Array.from({length: 5000}, (_, index) => ({
             id: `l${index}`, text: `Line ${index}`, timestamp: '09:30:00', audio_start_time: index,
         }))
         mockState.meetings.transcripts['meeting-roadmap'] = lines
-        const client = createTestQueryClient()
+        const read = vi.spyOn(handlers, 'api_get_meeting_transcripts')
 
-        const first = await client.fetchInfiniteQuery(meetingTranscriptsQuery('meeting-roadmap'))
-        expect(first.pages[0].transcripts).toHaveLength(TRANSCRIPT_PAGE_SIZE)
-        expect(meetingTranscriptsQuery('meeting-roadmap').getNextPageParam(first.pages[0], first.pages, 0, [0]))
-            .toBe(TRANSCRIPT_PAGE_SIZE)
-        expect(await getAllTranscripts('meeting-roadmap')).toHaveLength(TRANSCRIPT_PAGE_SIZE + 5)
+        const transcript = await createTestQueryClient().fetchQuery(meetingTranscriptsQuery('meeting-roadmap'))
+
+        expect(transcript).toHaveLength(5000)
+        expect(read).toHaveBeenCalledTimes(1)
+        expect(read.mock.calls[0][0]).toMatchObject({limit: -1, offset: 0})
         expect(await getAllTranscripts('meeting-untitled')).toHaveLength(6)
     })
 
@@ -93,15 +92,15 @@ describe('meetings', () => {
         expect((await client.fetchQuery(meetingQuery('meeting-roadmap'))).title).toBe('Q4 roadmap')
     })
 
-    it('deletes a meeting with its action items and drops its cached queries', async () => {
+    it('deletes a meeting and drops its cached queries', async () => {
         const client = createTestQueryClient()
-        await syncSummaryActionItems('meeting-roadmap', [{text: 'Scope the player'}], 'fp')
         await client.fetchQuery(meetingQuery('meeting-roadmap'))
+        await client.fetchQuery(meetingTranscriptsQuery('meeting-roadmap'))
 
         await run(client, deleteMeetingMutation('meeting-roadmap'), undefined)
 
         expect(client.getQueryState(meetingKeys.detail('meeting-roadmap'))).toBeUndefined()
-        expect(await client.fetchQuery(actionItemsQuery({meetingId: 'meeting-roadmap'}))).toEqual([])
+        expect(client.getQueryState(meetingKeys.transcripts('meeting-roadmap'))).toBeUndefined()
         expect((await client.fetchQuery(meetingsQuery)).some((meeting) => meeting.id === 'meeting-roadmap')).toBe(false)
     })
 
@@ -127,14 +126,33 @@ describe('folders', () => {
             .toEqual({'Acme Corp': 2, 'Weekly Standup': 5, 'Design Team': 2})
     })
 
-    it('renames a folder and writes back what the folders UI does not show', async () => {
+    it('renames a folder, writing back what the folders UI does not show, and leaves open meetings alone', async () => {
         const client = createTestQueryClient()
         const update = vi.spyOn(handlers, 'api_update_group')
         const [acme] = await client.fetchQuery(foldersQuery)
+        await Promise.all([
+            client.fetchQuery(meetingFolderQuery('meeting-acme-review')),
+            client.fetchQuery(meetingTranscriptsQuery('meeting-acme-review')),
+            client.fetchQuery(summaryQuery('meeting-acme-review')),
+        ])
 
         await run(client, renameFolderMutation, {folder: acme, name: 'Acme'})
 
         expect(update.mock.calls[0][0]).toMatchObject({groupId: 'group-acme', name: 'Acme', color: 'orange', kind: 'customer', description: 'Enterprise pilot.'})
+        expect(client.getQueryState(meetingKeys.folder('meeting-acme-review'))?.isInvalidated).toBe(true)
+        expect(client.getQueryState(meetingKeys.transcripts('meeting-acme-review'))?.isInvalidated).toBe(false)
+        expect(client.getQueryState(meetingKeys.summary('meeting-acme-review'))?.isInvalidated).toBe(false)
+    })
+
+    it('deletes a folder, keeping its meetings outside any folder', async () => {
+        const client = createTestQueryClient()
+        await client.fetchQuery(meetingsQuery)
+
+        await run(client, deleteFolderMutation, 'group-acme')
+
+        expect(client.getQueryState(meetingKeys.lists())?.isInvalidated).toBe(true)
+        const meetings = await client.fetchQuery(meetingsQuery)
+        expect(meetings.find((meeting) => meeting.id === 'meeting-acme-review')).not.toHaveProperty('group_id')
     })
 
     it('files a meeting in a folder and back out', async () => {
@@ -211,17 +229,29 @@ describe('summaries', () => {
         expect(done.data).toMatchObject({markdown: expect.stringContaining('## Decisions')})
     })
 
-    it('writes the summary text from clean lines when asked', () => {
-        const text = summaryTranscriptText(
-            [{id: 'a', text: 'um so yes', timestamp: '09:00:01', speaker: 'You'}, {id: 'b', text: 'ok', timestamp: '09:00:05', audio_start_time: 65}],
-            (line) => line.replace(/^um /, ''),
-        )
+    it('writes each line with its time and voice', () => {
+        const text = summaryTranscriptText([
+            {id: 'a', text: 'so yes', timestamp: '09:00:01', speaker: 'You'},
+            {id: 'b', text: 'ok', timestamp: '09:00:05', audio_start_time: 65},
+        ])
 
         expect(text).toBe('09:00:01 You: so yes\n[01:05] ok')
     })
+
+    it('sends clean text, and detects the language from it, when asked', async () => {
+        const process = vi.spyOn(handlers, 'api_process_transcript')
+        const detect = vi.spyOn(handlers, 'api_detect_transcript_summary_language')
+        const clean = vi.fn((text: string) => text.replace(/^Quick /, ''))
+
+        await startSummary({meetingId: 'meeting-untitled', provider: 'ollama', model: 'llama3.2:3b', clean})
+
+        expect(clean).toHaveBeenCalledTimes(6)
+        expect(String(process.mock.calls[0][0].text).split('\n')[0]).toBe('[00:04] You: round of updates. What is everyone working on?')
+        expect((detect.mock.calls[0][0].transcriptTexts as string[])[0]).toBe('round of updates. What is everyone working on?')
+    })
 })
 
-describe('speakers and action items', () => {
+describe('speakers', () => {
     it('renames a voice on every line it is in, overlaps included', async () => {
         mockState.meetings.transcripts['meeting-untitled'][1].speaker = 'Speaker 1 + You'
 
@@ -231,16 +261,5 @@ describe('speakers and action items', () => {
         expect((await getAllTranscripts('meeting-untitled')).map((line) => line.speaker)).toEqual(
             ['You', 'Tom Becker + You', 'You', 'Tom Becker', 'You', 'Speaker 2'],
         )
-    })
-
-    it('replaces a summary\'s items but keeps those the user changed', async () => {
-        const [first] = await syncSummaryActionItems('meeting-roadmap', [{text: 'Scope the player', ownerLabel: 'Marcus Lee'}, {text: 'Design the banner'}], 'v1')
-        const edit = handlers.api_update_action_item as (args: MockArgs) => unknown
-        edit({...first, done: true})
-
-        const items = await syncSummaryActionItems('meeting-roadmap', [{text: 'Ship the banner'}], 'v2')
-
-        expect(items.map((item) => [item.text, item.done])).toEqual([['Scope the player', true], ['Ship the banner', false]])
-        expect(items[0]).toMatchObject({meetingTitle: 'Q4 roadmap planning', ownerLabel: 'Marcus Lee'})
     })
 })
