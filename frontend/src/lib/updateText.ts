@@ -6,16 +6,11 @@
  */
 import type {BusyReason, UpdateError, UpdaterSnapshot} from '@/api/updater'
 
-export const REPOSITORY_URL = 'https://github.com/vmedvedevpro/Protocol'
-export const RELEASES_URL = `${REPOSITORY_URL}/releases`
-export const PRIVACY_URL = `${REPOSITORY_URL}/blob/main/PRIVACY_POLICY.md`
+export const RELEASES_URL = 'https://github.com/vmedvedevpro/Protocol/releases'
 
 /** A release's page, where its notes and packages are. */
 export const releaseUrl = (version: string) => `${RELEASES_URL}/tag/v${version}`
 
-/** What happens before an update is installed. */
-export const DOWNLOAD_NOTE =
-    'Protocol downloads the update only when you click Download, checks its signature, and installs it when you restart or quit, never during a recording.'
 export const RESTART_NOTE =
     'Protocol closes for about half a minute while the update installs, then opens again. Your meetings and settings are kept.'
 export const MAC_PERMISSIONS_NOTE = 'macOS may ask again for microphone and screen recording access after the update.'
@@ -39,7 +34,7 @@ const BUSY_SENTENCES: Record<BusyReason, string> = {
 /** Why Restart and update has to wait. */
 export const busySentence = (reason: BusyReason) => `Protocol can't restart while ${BUSY_SENTENCES[reason]}.`
 
-export function platformName(platform: UpdaterSnapshot['platform']): string {
+function platformName(platform: UpdaterSnapshot['platform']): string {
     if (platform === 'macos') return 'macOS'
     return platform === 'windows' ? 'Windows' : 'Linux'
 }

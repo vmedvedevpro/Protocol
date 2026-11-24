@@ -5,7 +5,7 @@
  * `Snapshot` in updater/mod.rs.
  */
 import {queryOptions} from '@tanstack/react-query'
-import {command} from './core'
+import {command, CommandError} from './core'
 import type {NativeEvent} from './events'
 
 export type BusyReason =
@@ -109,12 +109,12 @@ export type InstallRefusal =
     | {kind: 'notReady'}
     | {kind: 'busy'; reasons: BusyReason[]}
 
-export const isInstallRefusal = (value: unknown): value is InstallRefusal =>
-    typeof value === 'object' && value !== null && 'kind' in value
-
-// Each command answers with the snapshot it left, and native pushes the same
-// snapshot as `updater-status`, which alone writes the cached status
-// (useUpdaterStatusSync); the replies are not written into it.
+/** The refusal an `installUpdate()` rejection carries; null for any other error. */
+export function installRefusal(error: unknown): InstallRefusal | null {
+    if (!(error instanceof CommandError)) return null
+    const {detail} = error
+    return typeof detail === 'object' && detail !== null && 'kind' in detail ? detail as InstallRefusal : null
+}
 
 /** Asks GitHub for a newer release now (Check now). */
 export const checkForUpdates = () => command<UpdaterSnapshot>('updater_check_now')

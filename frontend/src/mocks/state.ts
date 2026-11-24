@@ -39,7 +39,8 @@ function createMockState() {
         // Links `open_external_url` opened, in order, instead of a browser tab
         // (jsdom has no window.open); `__PROTOCOL_MOCK__.state` in pnpm dev.
         openedUrls: [] as string[],
-        // The updater's snapshot and the release a check finds (src/mocks/updater.ts).
+        // The updater's snapshot and the release a check finds, null for
+        // none (src/mocks/updater.ts).
         updater: createMockUpdater(platform),
         updateRelease: createMockUpdateRelease() as Release | null,
         // Fake audio levels (src/mocks/audio.ts): the devices the preview

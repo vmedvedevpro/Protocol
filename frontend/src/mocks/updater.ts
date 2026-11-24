@@ -1,15 +1,14 @@
 import {emit} from '@tauri-apps/api/event'
-import {type Release, UPDATER_STATUS_EVENT, type UpdateSupport, type UpdaterSnapshot} from '@/api/updater'
+import {
+    type Release,
+    UPDATER_STATUS_EVENT,
+    type UpdateActivity,
+    type UpdateSupport,
+    type UpdaterSnapshot,
+} from '@/api/updater'
 import type {Platform} from '@/lib/platform'
 import packageJson from '../../package.json'
 import type {MockHandler} from './handlers'
-
-/** The updater's part of the mock state: the snapshot, and what a check finds. */
-export interface MockUpdaterState {
-    updater: UpdaterSnapshot
-    /** The newer release a check offers; null for none (up to date). */
-    updateRelease: Release | null
-}
 
 // How long a check takes and how often a download moves, so the states show
 // in pnpm dev and Storybook; tests run them back to back.
@@ -60,38 +59,36 @@ export function createMockUpdateRelease(): Release {
     }
 }
 
-const STALE = 'superseded'
-
 /**
  * The handlers of src-tauri/src/updater/commands.rs, spread into `handlers`
  * with the mock state. Each change is pushed as `updater-status`, as native
- * pushes it, and each command answers with the snapshot it left. A running
- * check or download gives up when anything else changes the snapshot (another
- * command, a test's reset), so it never writes into a later test.
+ * pushes it, and each command answers with the snapshot it left. A check
+ * finds `updateRelease`, or nothing when it is null. A running check or
+ * download gives up when something else replaces its activity (a test's
+ * reset), so it never writes into a later test; other changes, such as the
+ * daily check's switch, leave it running.
  */
-export function updaterHandlers(state: MockUpdaterState): Record<string, MockHandler> {
+export function updaterHandlers(state: {updater: UpdaterSnapshot; updateRelease: Release | null}): Record<string, MockHandler> {
     const publish = (patch: Partial<UpdaterSnapshot>) => {
         state.updater = {...state.updater, ...patch}
         // After clearMocks() at the end of a test there is no IPC to send to.
         emit(UPDATER_STATUS_EVENT, state.updater).catch(() => undefined)
         return state.updater
     }
-    /** Waits a step; rejects if the snapshot changed meanwhile. */
-    const step = (since: UpdaterSnapshot) =>
-        new Promise<void>((resolve, reject) =>
-            setTimeout(() => (state.updater === since ? resolve() : reject(STALE)), STEP_MS),
-        )
+    /** Waits a step; false when the activity it waited in was replaced meanwhile. */
+    const step = (since: UpdateActivity) =>
+        new Promise<boolean>((resolve) => setTimeout(() => resolve(state.updater.activity === since), STEP_MS))
     const manualOnly = (support: UpdateSupport) => support.kind === 'manualOnly'
 
-    const download = async (since: UpdaterSnapshot, total: number) => {
-        let current = since
+    const download = async (started: UpdateActivity, total: number) => {
+        let activity = started
         for (let done = 1; done <= DOWNLOAD_STEPS; done++) {
-            await step(current)
+            if (!(await step(activity))) return
             const received = Math.round((total * done) / DOWNLOAD_STEPS)
-            current = publish({activity: {state: 'downloading', received, total}})
+            activity = publish({activity: {state: 'downloading', received, total}}).activity
         }
-        await step(current)
-        if (state.updater.offer) publish({activity: {state: 'idle'}, offer: {...state.updater.offer, downloaded: true}})
+        if (!(await step(activity)) || !state.updater.offer) return
+        publish({activity: {state: 'idle'}, offer: {...state.updater.offer, downloaded: true}})
     }
 
     return {
@@ -100,11 +97,7 @@ export function updaterHandlers(state: MockUpdaterState): Record<string, MockHan
             const {support, activity} = state.updater
             if (support.kind === 'off' || activity.state !== 'idle') return state.updater
             const checking = publish({activity: {state: 'checking', manual: true}, error: null})
-            try {
-                await step(checking)
-            } catch {
-                return state.updater
-            }
+            if (!(await step(checking.activity))) return state.updater
             const release = state.updateRelease
             return publish({
                 activity: {state: 'idle'},
@@ -119,7 +112,7 @@ export function updaterHandlers(state: MockUpdaterState): Record<string, MockHan
             if (!offer || offer.downloaded || offer.manualOnly || activity.state !== 'idle') return state.updater
             const total = 48 * 1024 * 1024
             const started = publish({activity: {state: 'downloading', received: 0, total}, error: null})
-            download(started, total).catch(() => undefined)
+            void download(started.activity, total)
             return started
         },
         updater_install_now: () => {

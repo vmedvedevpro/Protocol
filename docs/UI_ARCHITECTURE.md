@@ -470,9 +470,9 @@ enter and exit, indicators and springs.
 - The updater's commands (`src/api/updater.ts`) each answer with a snapshot,
   and the same snapshot arrives as `updater-status`, which alone writes the
   cached status: a caller ignores the reply. Download runs only on a click and
-  Restart and update only on another. `installUpdate()` rejects with an
-  `InstallRefusal` in the `CommandError`'s `detail` when nothing is ready or
-  work must not be interrupted; a failed install resolves, its error in the
+  Restart and update only on another. `installUpdate()` rejects when nothing
+  is ready or work must not be interrupted; `installRefusal(error)` reads
+  which from the rejection. A failed install resolves, its error in the
   snapshot. What the app says about updates (busy reasons, errors, notes,
   links) is in `src/lib/updateText.ts`, shared by Settings › Updates and the
   Home banner. The mock (`src/mocks/updater.ts`) is an installed copy: a check

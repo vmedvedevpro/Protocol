@@ -8,7 +8,7 @@ import {
     downloadPercent,
     downloadUpdate,
     installUpdate,
-    isInstallRefusal,
+    installRefusal,
     setUpdateAutoCheck,
     UPDATER_STATUS_EVENT,
     type UpdaterSnapshot,
@@ -57,6 +57,16 @@ describe('the updater commands', () => {
         expect(mockState.updater.activity).toEqual({state: 'idle'})
     })
 
+    it('keeps downloading when the daily check is switched meanwhile', async () => {
+        await checkForUpdates()
+        await downloadUpdate()
+
+        await setUpdateAutoCheck(false)
+
+        await vi.waitFor(() => expect(mockState.updater.offer?.downloaded).toBe(true))
+        expect(mockState.updater).toMatchObject({autoCheck: false, activity: {state: 'idle'}})
+    })
+
     it('refuses to install with nothing downloaded', async () => {
         const install = installUpdate()
 
@@ -67,9 +77,9 @@ describe('the updater commands', () => {
     it('refuses to install during work, naming it', async () => {
         mockState.updater = {...ready(), busyReasons: ['recording']}
 
-        const detail = await installUpdate().catch((error: CommandError) => error.detail)
+        const refusal = await installUpdate().catch(installRefusal)
 
-        expect(isInstallRefusal(detail) && detail).toEqual({kind: 'busy', reasons: ['recording']})
+        expect(refusal).toEqual({kind: 'busy', reasons: ['recording']})
         expect(mockState.updater.activity).toEqual({state: 'idle'})
     })
 
@@ -97,10 +107,11 @@ describe('downloadPercent', () => {
     })
 })
 
-describe('isInstallRefusal', () => {
-    it('tells a refusal from an error string', () => {
-        expect(isInstallRefusal({kind: 'busy', reasons: ['summary']})).toBe(true)
-        expect(isInstallRefusal('The installer could not start')).toBe(false)
-        expect(isInstallRefusal(null)).toBe(false)
+describe('installRefusal', () => {
+    it('reads a refusal from a rejected command, and nothing from other errors', () => {
+        expect(installRefusal(new CommandError('updater_install_now', {kind: 'busy', reasons: ['summary']})))
+            .toEqual({kind: 'busy', reasons: ['summary']})
+        expect(installRefusal(new CommandError('updater_install_now', 'The installer could not start'))).toBeNull()
+        expect(installRefusal(new Error('IPC failed'))).toBeNull()
     })
 })
