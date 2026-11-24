@@ -1,8 +1,6 @@
 import {useEffect, useState} from 'react'
 import {useQuery} from '@tanstack/react-query'
-import {useNativeEvent} from '@/api/events'
-import {databaseQuery, FIRST_LAUNCH_DETECTED_EVENT, isFirstLaunchDone, onboardingStatusQuery} from '@/api/onboarding'
-import {toast} from '@/components/ui/toastStore'
+import {databaseQuery, isFirstLaunchDone, onboardingStatusQuery} from '@/api/onboarding'
 
 /**
  * How long "Checking setup…" waits before it offers Retry, as the old
@@ -32,17 +30,6 @@ export function useStartupPhase(): { phase: StartupPhase, retry: () => void } {
     const [slow, setSlow] = useState(false)
     const checking = (status.isFetching && status.data === undefined) || (database.isFetching && database.data === undefined)
 
-    // Native says a new install has no database yet, if this window was
-    // listening half a second after startup; the check above usually came
-    // first, and a database it created makes this one do nothing.
-    useNativeEvent(FIRST_LAUNCH_DETECTED_EVENT, () => void database.refetch())
-
-    // An old database that did not come in leaves an empty one: say so, once.
-    const importError = database.data?.importError
-    useEffect(() => {
-        if (importError) toast.error('Your meetings from Meetily were not imported', {description: importError})
-    }, [importError])
-
     useEffect(() => {
         if (!checking) return
         const timer = window.setTimeout(() => setSlow(true), STARTUP_PATIENCE_MS)
@@ -53,7 +40,8 @@ export function useStartupPhase(): { phase: StartupPhase, retry: () => void } {
         setSlow(false)
         setAttempt(attempt + 1)
         if (status.data === undefined) void status.refetch()
-        if (database.data === undefined) void database.refetch()
+        // Joins a set-up still running (a slow import) instead of cancelling it.
+        if (database.data === undefined) void database.refetch({cancelRefetch: false})
     }
 
     if (status.isSuccess && database.isSuccess) {

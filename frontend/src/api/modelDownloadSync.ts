@@ -1,5 +1,5 @@
 import {type QueryKey, useQueryClient} from '@tanstack/react-query'
-import {useNativeEvent} from '@/api/events'
+import {useNativeEvent} from './events'
 import {
     BUILTIN_AI_DOWNLOAD_PROGRESS_EVENT,
     downloadKey,
@@ -14,7 +14,7 @@ import {
     WHISPER_DOWNLOAD_COMPLETE_EVENT,
     WHISPER_DOWNLOAD_ERROR_EVENT,
     WHISPER_DOWNLOAD_PROGRESS_EVENT,
-} from '@/api/models'
+} from './models'
 
 // Whisper reports a cancel as an error with this text; it is no failure.
 const CANCELLED = /cancelled by user/i
@@ -22,7 +22,8 @@ const CANCELLED = /cancelled by user/i
 /**
  * Keeps `downloadsQuery` from the model download events, and reads a
  * model's list again when its download ends, so it says Available. Mounted
- * once, by the shell, in front of the startup gate: it hears the downloads
+ * once, by the shell (and by the stories of a screen that downloads), in
+ * front of the startup gate: it hears the downloads
  * first launch starts and keeps hearing them after first launch is done.
  * Downloads that ran before the listener are in the lists' own status,
  * which it reads again once it listens.

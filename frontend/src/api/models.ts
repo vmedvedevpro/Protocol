@@ -7,10 +7,11 @@
  * and the event payloads the download commands emit.
  *
  * The lists come from Query. A download's live progress comes only by event,
- * so `useModelDownloadSync` (app/, mounted once by the shell) keeps
- * `downloadsQuery` from the events and refreshes a list when its download
- * ends; `modelState` folds the two into what a screen shows. Cancel, delete
- * and the models chosen for each task belong to Settings (#117).
+ * so `useModelDownloadSync` (`modelDownloadSync.ts`, mounted once by the
+ * shell) keeps `downloadsQuery` from the events and refreshes a list when
+ * its download ends; `modelState` folds the two into what a screen shows.
+ * Cancel, delete and the models chosen for each task belong to Settings
+ * (#117).
  */
 import {queryOptions} from '@tanstack/react-query'
 import {command} from './core'

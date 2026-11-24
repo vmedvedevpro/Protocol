@@ -376,8 +376,8 @@ such a command only on its platform
 
 | Item | Kind | Old file | Owner | Notes |
 | --- | --- | --- | --- | --- |
-| `check_default_legacy_database` | command | `contexts/OnboardingContext.tsx` | #115 | Legacy Meetily database to import. |
-| `check_first_launch` | command | `contexts/OnboardingContext.tsx` | #115 | Is there a database yet. |
+| `check_default_legacy_database` | command | `contexts/OnboardingContext.tsx` | #115 | Not called: importing it copied the file onto itself, emptying it on Linux and macOS; `initialize_fresh_database` migrates that file itself (`DatabaseManager::new`). |
+| `check_first_launch` | command | `contexts/OnboardingContext.tsx` | #115 | Whether native holds the database; Protocol answers it from `AppState` instead of the file, which a failed set-up leaves behind. |
 | `check_homebrew_database` | command | `contexts/OnboardingContext.tsx` | #115 | macOS Homebrew-era database to import. |
 | `complete_onboarding` | command | `contexts/OnboardingContext.tsx` | #115 | Ends first launch. |
 | `create_crash_report_zip` | command | `services/crashReportService.ts` | #110 | Crash report sheet (owner decision 2026-11-24); saves a zip through the dialog plugin. |

@@ -5,7 +5,7 @@ import * as m from 'motion/react-m'
 import styled from 'styled-components'
 import {recommendedSummaryModelQuery} from '@/api/models'
 import {completeOnboarding, onboardingKeys, onboardingStatusQuery, saveOnboardingStep} from '@/api/onboarding'
-import {Screen} from '@/app/shell/Screen'
+import {Screen} from '@/components/screen/Screen'
 import {Button} from '@/components/ui/Button'
 import {toast} from '@/components/ui/toastStore'
 import {platform as appPlatform, type Platform} from '@/lib/platform'
@@ -72,8 +72,8 @@ const isReady = (rows: DownloadRow[], id: string) => rows.find((row) => row.down
  * First launch, in place of the app until it is done: the name, then the
  * downloads with the microphone check. The downloads start when it opens and
  * go on after Done. A restart comes back to the step saved last. Done
- * records the models (`complete_onboarding`) and invalidates
- * `onboardingKeys.all`, and the startup gate lets the app in.
+ * records the models (`complete_onboarding`) and invalidates the status
+ * (`onboardingKeys.status()`), and the startup gate lets the app in.
  */
 export function FirstLaunch({platform = appPlatform}: { platform?: Platform }) {
     const queryClient = useQueryClient()
@@ -101,7 +101,7 @@ export function FirstLaunch({platform = appPlatform}: { platform?: Platform }) {
                 })
             }
             // Pending until the gate has read the status again and lets the app in.
-            return queryClient.invalidateQueries({queryKey: onboardingKeys.all})
+            return queryClient.invalidateQueries({queryKey: onboardingKeys.status()})
         },
         onError: (error) => toast.error('Could not finish setup', {description: error.message}),
     })

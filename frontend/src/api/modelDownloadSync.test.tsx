@@ -14,11 +14,11 @@ import {
     POST_CALL_WHISPER_MODEL,
     whisperModelsQuery,
     builtInModelsQuery,
-} from '@/api/models'
+} from './models'
 import {createMockModels} from '@/mocks/models'
 import {mockState} from '@/mocks/state'
 import {createTestQueryClient} from '@/test/queryClient'
-import {useModelDownloadSync} from './useModelDownloadSync'
+import {useModelDownloadSync} from './modelDownloadSync'
 
 const listening = () => new Promise((resolve) => setTimeout(resolve, 0))
 

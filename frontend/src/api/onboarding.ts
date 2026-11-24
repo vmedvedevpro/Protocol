@@ -7,7 +7,6 @@
 import {queryOptions} from '@tanstack/react-query'
 import {platform as appPlatform, type Platform} from '@/lib/platform'
 import {command} from './core'
-import type {NativeEvent} from './events'
 
 /**
  * Native `OnboardingStatus`, kept in the `onboarding-status.json` store.
@@ -71,27 +70,26 @@ export const completeOnboarding = (args: {model: string, parakeetReady: boolean,
 // --- The database --------------------------------------------------------------
 
 /**
- * Native sends it once, half a second after startup, when no database exists
- * yet. The window may not listen by then, so the shell also checks at
- * startup (`ensureDatabase`); the event only makes it check again.
+ * True while native code holds no database (`AppState`): on a new install
+ * until one is set up, and after a set-up that failed, whose file may be
+ * left behind.
  */
-export const FIRST_LAUNCH_DETECTED_EVENT = 'first-launch-detected' as NativeEvent<null>
-
-/** True while no database file exists: native then holds no database (AppState) until one is set up. */
 export const checkFirstLaunch = () => command<boolean>('check_first_launch')
-
-/** A Meetily database (`meeting_minutes.db`) in the data folder, to import; null when there is none. */
-export const checkDefaultLegacyDatabase = () => command<string | null>('check_default_legacy_database')
 
 /** A database left by the Homebrew-era Python backend on macOS; null when absent or empty. */
 export const checkHomebrewDatabase = (path: string) =>
     command<{exists: boolean, size: number} | null>('check_homebrew_database', {path})
 
-/** Copies an old database in, migrates it and opens it. */
+/** Copies an old database into the data folder as `meeting_minutes.db`, migrates it and opens it. */
 export const importAndInitializeDatabase = (legacyDbPath: string) =>
     command<null>('import_and_initialize_database', {legacyDbPath})
 
-/** Creates an empty database with Parakeet live and the recommended built-in summary model. */
+/**
+ * Opens the database, with Parakeet live and the recommended built-in
+ * summary model. A Meetily database (`meeting_minutes.db`) already in the
+ * data folder is migrated into it (`DatabaseManager::new`); otherwise it
+ * starts empty.
+ */
 export const initializeFreshDatabase = () => command<null>('initialize_fresh_database')
 
 /** Where the Homebrew installs of the old Python backend kept their database. */
@@ -100,65 +98,34 @@ export const HOMEBREW_DATABASES = [
     '/usr/local/var/meetily/meeting_minutes.db',
 ] as const
 
-/** What setting up the database did: `importError` when an old database was found but did not come in. */
-export interface DatabaseSetUp {
-    importError: string | null
-}
-
-const message = (error: unknown) => (error instanceof Error ? error.message : String(error))
-
-async function setUpDatabase(platform: Platform): Promise<DatabaseSetUp> {
-    if (!(await checkFirstLaunch())) return {importError: null}
-    // Old databases to import, as the old app looked for them: Homebrew's
-    // on macOS, then Meetily's in the data folder.
-    const found: string[] = []
+/**
+ * Makes sure native code holds the database. Without it every database
+ * command fails, `complete_onboarding` among them, so first launch never
+ * completes, the updater's onboarding busy reason holds for good and no
+ * update installs. On macOS a Homebrew-era database is imported, as in the
+ * old app; otherwise `initialize_fresh_database` opens the data folder's
+ * database, Meetily's included. A failure rejects, and the gate offers
+ * Retry. With the database held it does nothing.
+ */
+export async function ensureDatabase(platform: Platform = appPlatform): Promise<void> {
+    if (!(await checkFirstLaunch())) return
     if (platform === 'macos') {
         for (const path of HOMEBREW_DATABASES) {
-            if ((await checkHomebrewDatabase(path).catch(() => null))?.exists) found.push(path)
-        }
-    }
-    const legacy = await checkDefaultLegacyDatabase().catch(() => null)
-    if (legacy) found.push(legacy)
-
-    // As in the old app, a failed import goes on to the next database and
-    // at last to an empty one: a database that cannot be read must not keep
-    // the app from starting. The caller says what did not come in.
-    let importError: string | null = null
-    for (const path of found) {
-        try {
-            await importAndInitializeDatabase(path)
-            return {importError: null}
-        } catch (error) {
-            importError = message(error)
+            if ((await checkHomebrewDatabase(path).catch(() => null))?.exists) {
+                await importAndInitializeDatabase(path)
+                return
+            }
         }
     }
     await initializeFreshDatabase()
-    return {importError}
 }
 
-let settingUp: Promise<DatabaseSetUp> | null = null
-
-/**
- * Makes sure the database exists and native code holds it. Without it every
- * database command fails, `complete_onboarding` among them, so first launch
- * never completes, the updater's onboarding busy reason holds for good and
- * no update installs. Imports an old database when there is one, else
- * creates a fresh one; with a database already there it does nothing.
- * Callers at the same time share one run.
- */
-export function ensureDatabase(platform: Platform = appPlatform): Promise<DatabaseSetUp> {
-    settingUp ??= setUpDatabase(platform).finally(() => {
-        settingUp = null
-    })
-    return settingUp
-}
-
-/**
- * The startup gate waits on it before anything reads meetings; Retry and
- * `first-launch-detected` run it again.
- */
+/** The startup gate waits on it before anything reads meetings; Retry runs it again. */
 export const databaseQuery = queryOptions({
     queryKey: onboardingKeys.database(),
-    queryFn: () => ensureDatabase(),
+    queryFn: async () => {
+        await ensureDatabase()
+        return true
+    },
     staleTime: Infinity,
 })

@@ -20,17 +20,15 @@ export function completedOnboarding(): OnboardingStatus {
 }
 
 /**
- * A database that exists. A test of a new install sets `exists: false`, and
- * an old database to import with `legacyPath` or, on macOS,
- * `homebrewPaths`; `importError` makes every import fail with it.
- * `setUps` records each set-up (`fresh`, `import:<path>`), for tests.
+ * Whether native code holds the database (`AppState`); a test of a new
+ * install sets `exists: false`. `homebrewPaths` are old databases to
+ * import on macOS. `setUps` records each set-up (`fresh`,
+ * `import:<path>`), for tests.
  */
 export function createMockDatabase() {
     return {
         exists: true,
-        legacyPath: null as string | null,
         homebrewPaths: [] as string[],
-        importError: null as string | null,
         setUps: [] as string[],
     }
 }
@@ -53,13 +51,9 @@ export function onboardingHandlers(state: {onboarding: OnboardingStatus | null, 
     return {
         // src-tauri/src/database/commands.rs
         check_first_launch: () => !state.database.exists,
-        check_default_legacy_database: () => state.database.legacyPath,
         check_homebrew_database: ({path}) =>
             state.database.homebrewPaths.includes(String(path)) ? {exists: true, size: 4_194_304} : null,
-        import_and_initialize_database: ({legacyDbPath}) => {
-            if (state.database.importError) throw state.database.importError
-            return setUp(`import:${String(legacyDbPath)}`)
-        },
+        import_and_initialize_database: ({legacyDbPath}) => setUp(`import:${String(legacyDbPath)}`),
         initialize_fresh_database: () => setUp('fresh'),
 
         // src-tauri/src/onboarding.rs

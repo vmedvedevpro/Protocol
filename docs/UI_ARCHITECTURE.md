@@ -159,16 +159,18 @@ minibar window has none of it.
   UI sets one up, and without it every database command fails,
   `complete_onboarding` among them, so first launch could never finish,
   `BusyReason::Onboarding` would hold for good and no update would install.
-  At every start `ensureDatabase` asks `check_first_launch`; with no
-  database it imports an old one (Homebrew's on macOS, then Meetily's in the
-  data folder, as the old app did) or calls `initialize_fresh_database`.
-  An import that fails goes on to the next and at last to an empty
-  database, as in the old app, so a broken file cannot keep the app from
-  starting; the gate then says in a toast that the meetings were not
-  imported. Native's `first-launch-detected`, sent once half a second after
-  start, may come before the window listens, so it only makes the gate
-  check again. A failed set-up offers Retry ("Unable to set up the meetings
-  database").
+  At every start `ensureDatabase` asks `check_first_launch`, which Protocol
+  answers from whether `AppState` is managed rather than from the file, so
+  a set-up that failed and left its file behind still reads as missing.
+  With no database it imports Homebrew's on macOS, as the old app did, or
+  calls `initialize_fresh_database`, which also migrates a Meetily database
+  (`meeting_minutes.db`) left in the data folder. `check_default_legacy_database`
+  is not called: importing that file copied it onto itself, which empties
+  it on Linux and macOS. A failed set-up shows "Unable to set up the
+  meetings database" with Retry, which joins a set-up still running
+  (`cancelRefetch: false`). Native's `first-launch-detected` is not
+  listened to, as in the old app: the gate's own check at start sees the
+  same state.
 - First launch (`features/onboarding`, the gate's `firstLaunch` phase, with
   "Welcome" in the Linux title bar) has two steps: the name
   (`useUserNameStore`, under the old key), then the downloads with the
@@ -185,8 +187,8 @@ minibar window has none of it.
   reloads is not started, and Settings offers it. Done calls
   `complete_onboarding` (the summary model and Parakeet, and which were
   downloaded), says the downloads continue if any is unfinished, and
-  invalidates `onboardingKeys.all`, so the gate reads the status again and
-  lets the app in. A model is in use only after its download completed:
+  invalidates the status (`onboardingKeys.status()`), so the gate reads it
+  again and lets the app in. A model is in use only after its download completed:
   native code activates Whisper on completion, and a meeting uses
   Parakeet and the summary model only once they are there.
 - The microphone check asks for the microphone first
@@ -641,9 +643,10 @@ levels) skip Query and React state; see Styling and the next section.
   code owns every download and holds the `modelDownload` busy reason while
   one runs; a download command resolves only when its download ends.
 - A download's progress, its Whisper activation and its last failure come
-  only by event. `useModelDownloadSync` (`app/`, mounted by the shell in
-  front of the startup gate, so first launch's downloads are heard and keep
-  being heard after it) writes them into `downloadsQuery`, which nothing
+  only by event. `useModelDownloadSync` (`src/api/modelDownloadSync.ts`,
+  mounted by the shell in front of the startup gate, so first launch's
+  downloads are heard and keep being heard after it, and by stories of a
+  screen that downloads) writes them into `downloadsQuery`, which nothing
   fetches, and reads a model's list again when its download ends, clearing
   the download only once the list has answered. A second call for a running
   download is refused, and native code sends the refusal as an error event
