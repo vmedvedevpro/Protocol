@@ -162,6 +162,12 @@ const sizes = {
     window: {width: '460px', height: '700px'},
     /** The window's title strip and its bottom bar (the recording panel). */
     bar: {header: '44px', footer: '56px'},
+    /**
+     * The level meter: one bar's width and full height, the source icon
+     * beside it, and the smallest width of the mute button that holds them,
+     * so the button keeps its width when the bars give way to "Muted".
+     */
+    meter: {bar: '3px', height: '16px', icon: '14px', button: '76px'},
 }
 
 /** Motion tokens for CSS transitions; the values live in ./motion.ts. */
