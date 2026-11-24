@@ -44,9 +44,21 @@ export const openPrivacySettings = (pane: PrivacyPane) => command<null>('open_sy
 
 export const permissionKeys = {
     all: ['permissions'] as const,
+    microphone: () => [...permissionKeys.all, 'microphone'] as const,
     systemAudio: () => [...permissionKeys.all, 'systemAudio'] as const,
     systemAudioProbe: () => [...permissionKeys.all, 'systemAudioProbe'] as const,
 }
+
+/**
+ * Whether the microphone opened when asked (`requestMicrophonePermission`),
+ * asked once per session by the screen that explains it; `refetch()` asks
+ * again after the user changed the setting.
+ */
+export const microphoneAccessQuery = queryOptions({
+    queryKey: permissionKeys.microphone(),
+    queryFn: requestMicrophonePermission,
+    staleTime: Infinity,
+})
 
 /** Read again with "Check again", or after a probe (invalidate `permissionKeys.all`). */
 export const systemAudioPermissionQuery = queryOptions({

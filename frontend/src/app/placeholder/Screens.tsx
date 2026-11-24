@@ -93,11 +93,3 @@ export function RecordingPlaceholder() {
         </Placeholder>
     )
 }
-
-export function FirstLaunchPlaceholder() {
-    return (
-        <Placeholder title="Welcome to Protocol">
-            <Note>First launch arrives with #115.</Note>
-        </Placeholder>
-    )
-}

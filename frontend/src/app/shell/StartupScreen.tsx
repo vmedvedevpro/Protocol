@@ -14,6 +14,7 @@ const STATUS: Record<Checking, Status> = {
     checking: {key: 'checking', text: 'Checking setup…', busy: true},
     slow: {key: 'slow', text: 'Setup status is taking longer than expected.', busy: true},
     failed: {key: 'failed', text: 'Unable to check setup status. Please retry.'},
+    databaseFailed: {key: 'databaseFailed', text: 'Unable to set up the meetings database. Please retry.'},
 }
 
 const Centre = styled.div`

@@ -152,8 +152,52 @@ minibar window has none of it.
   "Checking setup…" with a spinner under the title bar; a failed read, or
   one still running after 8 s (`STARTUP_PATIENCE_MS`), offers Retry, as
   the old layout did.
-  Then it shows first launch (#115; first launch invalidates
-  `onboardingKeys.all` when it is done) or the app.
+  Then it shows first launch or the app.
+- The gate also waits for the database (`databaseQuery`, `ensureDatabase`
+  in `src/api/onboarding.ts`), so nothing reads meetings before it exists.
+  On a new install native code holds no database (no `AppState`) until the
+  UI sets one up, and without it every database command fails,
+  `complete_onboarding` among them, so first launch could never finish,
+  `BusyReason::Onboarding` would hold for good and no update would install.
+  At every start `ensureDatabase` asks `check_first_launch`, which Protocol
+  answers from whether `AppState` is managed rather than from the file, so
+  a set-up that failed and left its file behind still reads as missing.
+  With no database it imports Homebrew's on macOS, as the old app did, or
+  calls `initialize_fresh_database`, which also migrates a Meetily database
+  (`meeting_minutes.db`) left in the data folder. `check_default_legacy_database`
+  is not called: importing that file copied it onto itself, which empties
+  it on Linux and macOS. A failed set-up shows "Unable to set up the
+  meetings database" with Retry, which joins a set-up still running
+  (`cancelRefetch: false`). Native's `first-launch-detected` is not
+  listened to, as in the old app: the gate's own check at start sees the
+  same state.
+- First launch (`features/onboarding`, the gate's `firstLaunch` phase, with
+  "Welcome" in the Linux title bar) has two steps: the name
+  (`useUserNameStore`, under the old key), then the downloads with the
+  microphone check. Each step change is saved (`save_onboarding_status_cmd`),
+  so a restart comes back to it. The downloads start as first launch opens
+  and run one after another, Parakeet, Whisper Large V3 Turbo
+  (`enablePostCall`) and the summary model
+  `builtin_ai_get_recommended_model` picks, skipping an installed one; a
+  failure moves on to the next, and its row offers Retry. The list is data
+  (`firstLaunchDownloads`): #117 swaps in Whisper's Intel GPU version and
+  adds Intel's NPU libraries there. The run belongs to the app's
+  `QueryClient`, not the screen, so it goes on after Done, and a failure
+  after Done shows as a toast; a download still queued when the window
+  reloads is not started, and Settings offers it. Done calls
+  `complete_onboarding` (the summary model and Parakeet, and which were
+  downloaded), says the downloads continue if any is unfinished, and
+  invalidates the status (`onboardingKeys.status()`), so the gate reads it
+  again and lets the app in. A model is in use only after its download completed:
+  native code activates Whisper on completion, and a meeting uses
+  Parakeet and the summary model only once they are there.
+- The microphone check asks for the microphone first
+  (`microphoneAccessQuery`), so the system's prompt comes from a step that
+  explains it, then previews it on the ring (`test` mode); the chip changes
+  `preferred_mic_device`. "Test computer audio" runs the Audio Capture
+  probe on macOS, which asks for that permission; on Windows and Linux the
+  ring follows the output for up to 5 s (`LISTEN_MS`) and any level above
+  silence counts. A refusal points to System Settings on macOS.
 - Once first launch is done, a crash report the previous session left
   (`src/api/crashReport.ts`) opens as a sheet over the app: Send Report and
   Save ZIP save the ZIP through the save dialog (Send then opens a GitHub
@@ -599,9 +643,10 @@ levels) skip Query and React state; see Styling and the next section.
   code owns every download and holds the `modelDownload` busy reason while
   one runs; a download command resolves only when its download ends.
 - A download's progress, its Whisper activation and its last failure come
-  only by event. `useModelDownloadSync` (`app/`, mounted by the shell in
-  front of the startup gate, so first launch's downloads are heard and keep
-  being heard after it) writes them into `downloadsQuery`, which nothing
+  only by event. `useModelDownloadSync` (`src/api/modelDownloadSync.ts`,
+  mounted by the shell in front of the startup gate, so first launch's
+  downloads are heard and keep being heard after it, and by stories of a
+  screen that downloads) writes them into `downloadsQuery`, which nothing
   fetches, and reads a model's list again when its download ends, clearing
   the download only once the list has answered. A second call for a running
   download is refused, and native code sends the refusal as an error event
@@ -619,6 +664,8 @@ levels) skip Query and React state; see Styling and the next section.
   Audio Capture probe (`systemAudioProbeQuery`) may prompt and listens for
   5 s, so it runs only on a click (`refetch()`); its answer holds for the
   session and stands in for a record that lags (`systemAudioAllowed`).
+  `microphoneAccessQuery` asks for the microphone once per session; its
+  `refetch()` asks again.
 
 ## Audio levels, the ring and the meters
 
@@ -806,6 +853,9 @@ Outside Tauri, `pnpm dev`, Storybook and every test run on
   `src/mocks/handlers.ts`, so a screen never renders an empty reply as data.
 - To push an event, call `emitMockEvent(EVENT, payload)`; in `pnpm dev`, the
   console has `__PROTOCOL_MOCK__.emit(...)` and `__PROTOCOL_MOCK__.state`.
+- `?firstLaunch` in `pnpm dev` starts as a new install: no database, no
+  first launch saved and no models (`src/mocks/onboarding.ts`,
+  `src/mocks/models.ts`).
 
 ## Storybook
 

@@ -1,14 +1,14 @@
 import {Outlet, useMatches, useNavigate} from 'react-router-dom'
 import styled from 'styled-components'
 import {useNativeEvent} from '@/api/events'
+import {useModelDownloadSync} from '@/api/modelDownloadSync'
 import {TRAY_NAVIGATE_EVENT, TRAY_START_RECORDING_EVENT} from '@/api/tray'
 import {RecordBarContext} from '@/components/screen/recordBar'
+import {FirstLaunch} from '@/features/onboarding/pages/FirstLaunch'
 import {RecordingBar} from '@/features/recording/components/RecordingBar'
 import {useHotkey} from '@/lib/hotkeys'
 import {platform} from '@/lib/platform'
 import {paths} from '@/lib/paths'
-import {FirstLaunchPlaceholder} from '../placeholder/Screens'
-import {useModelDownloadSync} from '../useModelDownloadSync'
 import {CrashReportSheet} from './CrashReportSheet'
 import {useKeepOnTopStore, useKeepOnTopSync} from './keepOnTop'
 import {useStartupPhase} from './startup'
@@ -77,7 +77,7 @@ export function Shell() {
             <Window>
                 <TitleBar
                     platform={platform}
-                    title={handle.title ?? 'Protocol'}
+                    title={phase === 'firstLaunch' ? 'Welcome' : handle.title ?? 'Protocol'}
                     onBack={handle.back ? () => void navigate(paths.home) : undefined}
                     onTop={onTop}
                     onTopChange={setOnTop}
@@ -89,10 +89,8 @@ export function Shell() {
                         <CrashReportSheet/>
                     </>
                 )}
-                {phase === 'firstLaunch' && <FirstLaunchPlaceholder/>}
-                {(phase === 'checking' || phase === 'slow' || phase === 'failed') && (
-                    <StartupScreen phase={phase} onRetry={retry}/>
-                )}
+                {phase === 'firstLaunch' && <FirstLaunch/>}
+                {phase !== 'ready' && phase !== 'firstLaunch' && <StartupScreen phase={phase} onRetry={retry}/>}
             </Window>
         </RecordBarContext>
     )

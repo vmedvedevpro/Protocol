@@ -15,9 +15,7 @@ pub struct DatabaseCheckResult {
 /// Check if this is the first launch (no database exists yet)
 #[tauri::command]
 pub async fn check_first_launch(app: AppHandle) -> Result<bool, String> {
-    DatabaseManager::is_first_launch(&app)
-        .await
-        .map_err(|e| format!("Failed to check first launch: {}", e))
+    Ok(app.try_state::<AppState>().is_none())
 }
 
 /// Check for legacy database in the default app data directory

@@ -6,6 +6,7 @@ import type {PendingCrashReport} from '@/api/crashReport'
 import {TRAY_NAVIGATE_EVENT, TRAY_START_RECORDING_EVENT} from '@/api/tray'
 import {handlers} from '@/mocks/handlers'
 import {emitMockEvent, installMockIpc} from '@/mocks/ipc'
+import {completedOnboarding} from '@/mocks/onboarding'
 import {mockState} from '@/mocks/state'
 import {THEME_STORAGE_KEY, useThemeModeStore} from '@/styles/themeMode'
 import {createTestQueryClient} from '@/test/queryClient'
@@ -81,6 +82,38 @@ describe('App startup', () => {
         } finally {
             vi.useRealTimers()
         }
+    })
+
+    it('offers Retry when the database cannot be set up, and lets first launch in only once it is', async () => {
+        mockState.database.exists = false
+        mockState.onboarding = null
+        const fresh = vi.spyOn(handlers, 'initialize_fresh_database').mockImplementation(() => {
+            throw 'Failed to initialize database: migration 20251110000001 was previously applied but is missing'
+        })
+        renderApp()
+
+        expect(await screen.findByText('Unable to set up the meetings database. Please retry.')).toBeInTheDocument()
+        // Native still holds no database: Retry fails again rather than opening the app.
+        await userEvent.click(screen.getByRole('button', {name: 'Retry'}))
+        await waitFor(() => expect(fresh).toHaveBeenCalledTimes(2))
+        expect(await screen.findByText('Unable to set up the meetings database. Please retry.')).toBeInTheDocument()
+
+        fresh.mockRestore()
+        await userEvent.click(screen.getByRole('button', {name: 'Retry'}))
+
+        await heading('Welcome to Protocol')
+        expect(mockState.database.setUps).toEqual(['fresh'])
+    })
+
+    it('lets the app in once first launch is done', async () => {
+        mockState.onboarding = {...completedOnboarding(), completed: false, current_step: 2}
+        renderApp()
+        await heading('Get ready for the first meeting')
+
+        await userEvent.click(screen.getByRole('button', {name: 'Done'}))
+
+        await heading('Meetings')
+        expect(mockState.onboarding?.completed).toBe(true)
     })
 
     it('shows first launch until it is done, and starts nothing meanwhile', async () => {

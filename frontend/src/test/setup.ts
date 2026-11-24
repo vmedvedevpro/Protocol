@@ -34,8 +34,13 @@ beforeEach(() => {
     installMockIpc()
 })
 
-afterEach(() => {
+afterEach(async () => {
     cleanup()
+    // Work still pending at unmount settles after it: a listen() that resolves
+    // late calls its stop() (src/api/events.ts), the audio preview's queue
+    // runs its stop. Both need the mock IPC, so they get a macrotask, which
+    // runs every microtask before it, while the mocks still exist.
+    await new Promise((resolve) => setTimeout(resolve, 0))
     clearMocks()
     useThemeModeStore.setState({mode: 'system'})
     useKeepOnTopStore.setState({onTop: false})
