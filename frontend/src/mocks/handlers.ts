@@ -1,6 +1,7 @@
 import {emit} from '@tauri-apps/api/event'
 import type {Platform} from '@/lib/platform'
 import {audioHandlers} from './audio'
+import {notesHandlers} from './notes'
 import {mockState} from './state'
 
 export type MockArgs = Record<string, unknown>
@@ -62,6 +63,9 @@ export const handlers: Record<string, MockHandler> = {
     updater_get_status: () => mockState.updater,
 
     ...audioHandlers,
+
+    // src-tauri/src/database/repositories/meeting_notes.rs
+    ...notesHandlers(mockState),
 }
 
 /**
