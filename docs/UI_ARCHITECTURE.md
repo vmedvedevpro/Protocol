@@ -25,6 +25,7 @@ src/
   app/                 App, routes, AppThemeProvider, app-wide sync hooks
   api/                 native domains shared by several features (see below)
   components/ui/       design-system primitives, no feature knowledge
+  components/editor/   the notes editor (BlockNote), loaded as its own chunk
   features/<x>/
     api/               native domains only this feature uses
     components/
