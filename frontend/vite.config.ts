@@ -12,6 +12,11 @@ export default defineConfig({
     resolve: {
         alias: {
             '@': path.resolve(root, 'src'),
+            // @blocknote/react's emoji picker imports this module on demand, and
+            // it imports one chunk of emoji names per locale: 25 chunks, 3.2 MB,
+            // emitted into `out/` and so into the installer. The notes editor
+            // draws none of BlockNote's menus, so the picker never loads them.
+            '@blocknote/core/emoji-data': path.resolve(root, 'src/components/editor/noEmojiData.ts'),
         },
     },
     // Tauri prints the native build log into the same terminal.
