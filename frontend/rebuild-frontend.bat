@@ -1,16 +1,16 @@
 @echo off
 REM Fast frontend-only rebuild for the portable CUDA app.
-REM 1) next build  2) kill protocol  3) cargo relink (embeds ../out)  4) launch
+REM 1) vite build  2) kill protocol  3) cargo relink (embeds ../out)  4) launch
 REM Use this when you only changed TS/CSS. For Rust-only type checks while the
 REM app is running, prefer:  build-cuda-env.bat check
 
 setlocal
 cd /d "%~dp0"
 
-echo [1/4] Next.js export build...
-node node_modules\next\dist\bin\next build
+echo [1/4] Frontend build...
+node node_modules\vite\bin\vite.js build
 if errorlevel 1 (
-  echo Next build failed.
+  echo Frontend build failed.
   exit /b 1
 )
 
