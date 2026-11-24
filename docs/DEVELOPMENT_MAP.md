@@ -135,7 +135,7 @@ Paths below are relative to `frontend/src-tauri/src/` unless marked frontend.
 | `diarization/nemotron.rs` | Validates the pinned model and adapts the attributed Sortformer API to Meetily. Live configuration must not change offline defaults. |
 | `diarization/sortformer/` | Attributed model implementation, including speaker cache, feed/flush, streaming profiles, and ORT session construction. Preserve license/attribution. |
 | `audio/recording_saver.rs`, `audio/incremental_saver.rs` | Persistent transcript/source hints and recording tracks. A displayed rename alone does not update every save path. |
-| `frontend/src/contexts/TranscriptContext.tsx` | Frontend transcript events, ordering/buffering, local recovery, and live state. |
+| `frontend/src/features/recording/` | Frontend recording: the session store and its native sync (`store/session.ts`, `store/runtime.ts`), the start order (`store/start.ts`), live lines and the IndexedDB crash copy (`api/transcript.ts`, `api/recovery.ts`), the save after Stop (`store/save.ts`) and the post-call pass (`store/postCallRunner.ts`). [UI_ARCHITECTURE.md › Recording](UI_ARCHITECTURE.md#recording) describes them. |
 
 ### Time and identity invariants
 
@@ -186,12 +186,16 @@ native code and the main window:
    `system.mp4` from their checkpoints and writes `transcripts.json` (at most
    5 minutes), clears `IS_RECORDING`, then sends `recording-stopped` and,
    to the main window only, `recording-stop-complete` with a `stop_id`.
-2. WebView, `RecordingPostProcessingProvider` → `useRecordingStop`: discards a
-   take under 10 seconds; otherwise waits 4.5 s for late transcript events,
-   saves the meeting and transcript rows (`api_save_transcript`), files the
-   meeting into a pending group, saves call notes and the summary language,
-   clears the IndexedDB recovery record, and opens
-   `/meeting-details?source=recording`, which starts post-call processing.
+2. WebView, `frontend/src/features/recording/store/save.ts` (`saveAfterStop`,
+   heard by `RecordingRuntime` on every screen): discards a take under 10
+   seconds; otherwise polls `get_transcription_status` until the queue is
+   empty (at most 60 s), waits 4.5 s for late transcript events, saves the
+   meeting and transcript rows (`api_save_transcript`), files the meeting
+   into the folder picked while recording, saves the notes and the summary
+   language, marks the IndexedDB recovery record saved, and opens
+   `/meetings/:id` and queues post-call processing. A wait that times out or
+   fails saves nothing and answers `notSaved`; the record stays for
+   recovery.
 3. The WebView answers the Stop with `recording_save_finished(stopId,
    outcome)`: `saved`, `discarded`, `notSaved` or `failed`.
    `audio/save_handoff.rs` tracks the latest handoff from `begin` until that
@@ -225,8 +229,9 @@ gets the question again.
 Tests: `cargo test -p protocol --lib quit:: audio::save_handoff::
 updater::busy::` (the decision matrix, the second quit, the macOS hold, which
 answers let the app exit, handoff ids and the answer window) and
-`frontend/tests/recording-stop/` (the answer for each ending, no meeting page
-when quitting, the `stop_id` hand-over). Limits: Stop and quit does not run
+`frontend/src/features/recording/store/save.test.tsx` (the answer for each
+ending, no meeting page and no post-call pass when quitting, the `stop_id`
+hand-over). Limits: Stop and quit does not run
 speaker identification or the automatic summary; import, retranscription,
 post-call processing and model downloads are not asked about and end with the
 process as before (a summary cut off this way stays pending); Windows shutdown
@@ -249,9 +254,11 @@ always gives the same labels.
 Read [PR34_NEMOTRON.md](PR34_NEMOTRON.md) before changing that contract.
 
 Frontend post-call sequencing lives in
-`frontend/src/components/MeetingDetails/PostCallProcessingWorker.tsx`, owned above
-navigation by `frontend/src/contexts/PostCallJobsContext.tsx`. The page's
-`PostCallProcessingDialog.tsx` registers/detaches only its view. Completion and
+`frontend/src/features/recording/store/postCallRunner.ts`, mounted above
+navigation through `RecordingRuntime` in the shell; screens read the job
+(`src/api/postCall.ts`) and ask the runner to cancel, retry or skip. The old
+UI (`162e8be`) had it in `components/MeetingDetails/PostCallProcessingWorker.tsx`
+and `contexts/PostCallJobsContext.tsx`. Completion and
 transcript refresh target the matching mounted meeting; inactive meetings refresh
 on return. See [OCTOBER_PR_INTEGRATION.md](OCTOBER_PR_INTEGRATION.md) for cancellation
 ownership and lifecycle limits. Related
