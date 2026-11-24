@@ -6,6 +6,7 @@ import {platform} from '@/lib/platform'
 import packageJson from '../../package.json'
 import {createMockDevices} from './devices'
 import {createMockMeetings} from './meetings'
+import {createMockCatalog} from './modelCatalog'
 import {createMockModels} from './models'
 import {createMockNotes} from './notes'
 import {createMockPostCall} from './postCall'
@@ -43,6 +44,8 @@ function createMockState() {
         // none (src/mocks/updater.ts).
         updater: createMockUpdater(platform),
         updateRelease: createMockUpdateRelease() as Release | null,
+        // The model list's status (src/mocks/modelCatalog.ts).
+        catalog: createMockCatalog(),
         // Fake audio levels (src/mocks/audio.ts): the devices the preview
         // monitors (null while it is stopped), and a level from 0 to 1 that
         // holds both sources still instead of the fake conversation.
