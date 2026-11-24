@@ -1,6 +1,6 @@
 import {screen, waitFor} from '@testing-library/react'
 import {describe, expect, it} from 'vitest'
-import {renderUi} from './renderUi'
+import {renderUi} from '@/test/renderUi'
 import {StatusLine} from './StatusLine'
 
 describe('StatusLine', () => {

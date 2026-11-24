@@ -3,8 +3,8 @@ import {screen} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import {describe, expect, it} from 'vitest'
 import {MagnifyingGlassIcon} from '@phosphor-icons/react'
+import {renderUi} from '@/test/renderUi'
 import {Kbd} from './Kbd'
-import {renderUi} from './renderUi'
 import {TextArea, TextField} from './TextField'
 
 describe('TextField', () => {

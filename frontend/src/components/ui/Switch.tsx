@@ -54,15 +54,13 @@ interface SwitchProps {
     /** The accessible name; inside a SettingsRow the row's label names it instead. */
     label?: string
     disabled?: boolean
-    id?: string
 }
 
 /** An on/off setting that applies at once. Space toggles it from the keyboard. */
-export function Switch({checked, onCheckedChange, label, disabled, id}: SwitchProps) {
+export function Switch({checked, onCheckedChange, label, disabled}: SwitchProps) {
     const labelling = useControlLabelling(label)
     return (
         <Track
-            id={id}
             checked={checked}
             onCheckedChange={onCheckedChange}
             disabled={disabled}

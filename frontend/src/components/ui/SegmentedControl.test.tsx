@@ -2,7 +2,7 @@ import {useState} from 'react'
 import {screen, waitFor} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import {describe, expect, it, vi} from 'vitest'
-import {renderUi} from './renderUi'
+import {renderUi} from '@/test/renderUi'
 import {SegmentedControl, TabList, TabPanels, Tabs} from './SegmentedControl'
 
 const RANGES = [

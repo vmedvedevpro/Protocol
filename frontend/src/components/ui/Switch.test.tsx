@@ -2,7 +2,7 @@ import {useState} from 'react'
 import {screen, waitFor} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import {describe, expect, it, vi} from 'vitest'
-import {renderUi} from './renderUi'
+import {renderUi} from '@/test/renderUi'
 import {Switch} from './Switch'
 
 function Controlled({onChange}: { onChange?: (checked: boolean) => void }) {

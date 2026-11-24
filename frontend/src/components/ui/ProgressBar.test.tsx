@@ -1,7 +1,7 @@
 import {screen} from '@testing-library/react'
 import {describe, expect, it} from 'vitest'
+import {renderUi} from '@/test/renderUi'
 import {ProgressBar} from './ProgressBar'
-import {renderUi} from './renderUi'
 
 describe('ProgressBar', () => {
     it('reports its value and scales its fill to it', () => {

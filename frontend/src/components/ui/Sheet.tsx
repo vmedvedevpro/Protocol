@@ -1,4 +1,4 @@
-import {type ReactElement, type ReactNode, useRef} from 'react'
+import {type ReactNode, useRef} from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import {XIcon} from '@phosphor-icons/react'
 import {AnimatePresence} from 'motion/react'
@@ -88,28 +88,40 @@ interface SheetProps {
     description?: string
     /** The actions at the bottom: Cancel inside `<SheetClose asChild>`, then the main action. */
     footer?: ReactNode
-    /** A button that opens the sheet; focus returns to it on close. */
-    trigger?: ReactElement
     children: ReactNode
 }
 
 /**
- * A dialog over the dimmed window. Focus moves into it and stays there until
- * it closes; Escape, the close button and a click on the scrim close it, and
- * focus goes back to the control that had it. It arrives from above on
+ * Where focus goes back when the sheet closes: the control that had it when
+ * the sheet opened. A menu item leaves with its menu, so an item resolves to
+ * the button that opened its menu, through every submenu; Radix names a
+ * menu by that button (`aria-labelledby`).
+ */
+function openerOf(focused: Element | null): HTMLElement | null {
+    let opener = focused
+    for (let menu = opener?.closest('[role="menu"]'); menu; menu = opener?.closest('[role="menu"]')) {
+        opener = document.getElementById(menu.getAttribute('aria-labelledby') ?? '')
+    }
+    return opener instanceof HTMLElement ? opener : null
+}
+
+/**
+ * A dialog over the dimmed window, opened by its owner through `open`. Focus
+ * moves into it and stays there until it closes; Escape, the close button and
+ * a click on the scrim close it, and focus goes back to the control that
+ * opened it (`openerOf`). It arrives from above on
  * `springs.gentle` while the scrim fades in over `base`, and leaves with
  * `tween('base', 'exit')`.
  */
-export function Sheet({open, onOpenChange, title, description, footer, trigger, children}: SheetProps) {
+export function Sheet({open, onOpenChange, title, description, footer, children}: SheetProps) {
     const theme = useTheme()
-    // Radix returns focus only to its own Trigger. A sheet opened from
-    // elsewhere (a menu item, a shortcut) returns it to what had it before.
+    // Radix returns focus only to its own Trigger; the sheet remembers the
+    // opener itself, so a button, a menu item or a shortcut all work alike.
     const returnFocus = useRef<HTMLElement | null>(null)
     const offset = `-${theme.space[4]}`
 
     return (
         <Dialog.Root open={open} onOpenChange={onOpenChange}>
-            {trigger && <Dialog.Trigger asChild>{trigger}</Dialog.Trigger>}
             <AnimatePresence>
                 {open && (
                     <Dialog.Portal forceMount>
@@ -127,12 +139,9 @@ export function Sheet({open, onOpenChange, title, description, footer, trigger, 
                             // Without a description, no dangling aria-describedby.
                             {...(description ? {} : {'aria-describedby': undefined})}
                             onOpenAutoFocus={() => {
-                                if (!trigger && document.activeElement instanceof HTMLElement) {
-                                    returnFocus.current = document.activeElement
-                                }
+                                returnFocus.current = openerOf(document.activeElement)
                             }}
                             onCloseAutoFocus={(event) => {
-                                if (trigger) return
                                 event.preventDefault()
                                 if (returnFocus.current?.isConnected) returnFocus.current.focus()
                             }}

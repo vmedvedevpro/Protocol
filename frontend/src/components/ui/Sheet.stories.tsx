@@ -46,10 +46,10 @@ function SummaryOptions() {
 
     return (
         <Window>
+            <Button onClick={() => setOpen(true)}>Summary options</Button>
             <Sheet
                 open={open}
                 onOpenChange={setOpen}
-                trigger={<Button>Summary options</Button>}
                 title="Summary options"
                 description="Write the summary again with another template, language or instruction."
                 footer={(

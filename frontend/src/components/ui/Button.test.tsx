@@ -3,8 +3,8 @@ import {screen} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import {describe, expect, it, vi} from 'vitest'
 import {GearSixIcon, PushPinIcon} from '@phosphor-icons/react'
+import {renderUi} from '@/test/renderUi'
 import {Button, IconButton} from './Button'
-import {renderUi} from './renderUi'
 
 describe('Button', () => {
     it('is a plain button that reports clicks and Enter', async () => {

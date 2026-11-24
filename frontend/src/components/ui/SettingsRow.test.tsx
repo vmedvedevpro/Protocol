@@ -1,7 +1,7 @@
 import {screen} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import {describe, expect, it, vi} from 'vitest'
-import {renderUi} from './renderUi'
+import {renderUi} from '@/test/renderUi'
 import {SettingsGroup, SettingsNavRow, SettingsRow} from './SettingsRow'
 import {Switch} from './Switch'
 import {TextField} from './TextField'

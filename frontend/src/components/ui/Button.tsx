@@ -108,12 +108,11 @@ const StyledButton = styled.button<{ $variant: ButtonVariant, $size: ButtonSize,
     `};
 `
 
+/** Children are the label, after an icon if it has one. */
 type ButtonProps = ComponentProps<'button'> & {
     /** filled: the one main action; secondary: an outlined action; ghost: Cancel and quiet actions. */
     variant?: ButtonVariant
     size?: ButtonSize
-    /** An icon before the label. */
-    icon?: ReactNode
     /** After the label, usually a `<Kbd tone="fill">` shortcut. */
     trailing?: ReactNode
 }
@@ -121,7 +120,6 @@ type ButtonProps = ComponentProps<'button'> & {
 export function Button({
     variant = 'secondary',
     size = 'md',
-    icon,
     trailing,
     type = 'button',
     children,
@@ -129,7 +127,6 @@ export function Button({
 }: ButtonProps) {
     return (
         <StyledButton type={type} $variant={variant} $size={size} $trailing={trailing !== undefined} {...props}>
-            {icon}
             {children}
             {trailing}
         </StyledButton>

@@ -1,4 +1,4 @@
-import {createContext, type ReactElement, type ReactNode, useContext, useState} from 'react'
+import {type ReactElement, type ReactNode, useState} from 'react'
 import * as RadixTooltip from '@radix-ui/react-tooltip'
 import {AnimatePresence} from 'motion/react'
 import * as m from 'motion/react-m'
@@ -13,16 +13,11 @@ import {px} from './styles'
 const OPEN_DELAY_MS = 500
 const SKIP_DELAY_MS = 300
 
-const SharedProvider = createContext(false)
-
-/**
- * Shares the open delay between every tooltip under it. Mount it once near
- * the root; a tooltip outside one still works, with a provider of its own.
- */
+/** Shares the open delay between every tooltip under it; UiProviders mounts it once. */
 export function TooltipProvider({children}: { children: ReactNode }) {
     return (
         <RadixTooltip.Provider delayDuration={OPEN_DELAY_MS} skipDelayDuration={SKIP_DELAY_MS}>
-            <SharedProvider.Provider value={true}>{children}</SharedProvider.Provider>
+            {children}
         </RadixTooltip.Provider>
     )
 }
@@ -45,22 +40,21 @@ interface TooltipProps {
     content: string
     /** A shortcut that does the same, from `formatShortcut`. */
     shortcut?: string
-    side?: 'top' | 'right' | 'bottom' | 'left'
     /** The control; it must accept a ref and spread its props onto a DOM element. */
     children: ReactElement
 }
 
 /**
- * A hint on hover and keyboard focus. It opens and closes as menus do: a fade
- * and a scale from `SCALE_FROM` toward its control, over `fast`.
+ * A hint under its control on hover and keyboard focus (Radix flips it above
+ * at the window's edge). It opens and closes as menus do: a fade and a scale
+ * from `SCALE_FROM` toward its control, over `fast`.
  */
-export function Tooltip({content, shortcut, side = 'bottom', children}: TooltipProps) {
-    const shared = useContext(SharedProvider)
+export function Tooltip({content, shortcut, children}: TooltipProps) {
     const theme = useTheme()
     // Controlled, so AnimatePresence sees it close and plays the exit.
     const [open, setOpen] = useState(false)
 
-    const tooltip = (
+    return (
         <RadixTooltip.Root open={open} onOpenChange={setOpen}>
             <RadixTooltip.Trigger asChild>{children}</RadixTooltip.Trigger>
             <AnimatePresence>
@@ -70,7 +64,7 @@ export function Tooltip({content, shortcut, side = 'bottom', children}: TooltipP
                         <RadixTooltip.Content
                             forceMount
                             asChild
-                            side={side}
+                            side="bottom"
                             sideOffset={px(theme.space[1.5])}
                             collisionPadding={px(theme.space[2])}
                             aria-label={shortcut ? `${content} (${shortcut})` : content}
@@ -90,6 +84,4 @@ export function Tooltip({content, shortcut, side = 'bottom', children}: TooltipP
             </AnimatePresence>
         </RadixTooltip.Root>
     )
-
-    return shared ? tooltip : <TooltipProvider>{tooltip}</TooltipProvider>
 }

@@ -3,6 +3,7 @@ import {fireEvent, screen, waitFor} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import {describe, expect, it, vi} from 'vitest'
 import {DotsThreeIcon} from '@phosphor-icons/react'
+import {renderUi} from '@/test/renderUi'
 import {IconButton} from './Button'
 import {
     Menu,
@@ -14,7 +15,6 @@ import {
     MenuSeparator,
     MenuSub,
 } from './Menu'
-import {renderUi} from './renderUi'
 
 const ROW_HEIGHT = 28
 

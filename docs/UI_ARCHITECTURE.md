@@ -98,10 +98,13 @@ theme; the motion from the Motion section.
   by its description.
 - `Menu` with `MenuItem`, `MenuCheckboxItem`, `MenuRadioGroup` and
   `MenuRadioItem`, `MenuGroup`, `MenuSub` and `MenuSeparator`.
-- `Sheet`: a dialog over the dimmed window. Without a `trigger` it returns
-  focus to whatever had it when it opened.
-- `Tooltip` shares its open delay through one `TooltipProvider` near the
-  root; outside one it makes its own. The app shell (#110) mounts it.
+- `Sheet`: a dialog over the dimmed window, opened through `open`. On close
+  it returns focus to the control that opened it; for a menu item, which
+  has gone with its menu, that is the menu's button.
+- `Tooltip` shares its open delay through `TooltipProvider`.
+- `UiProviders` (`app/`) is what the primitives expect above them besides
+  the theme: `MotionProvider`, the icon defaults and `TooltipProvider`. App,
+  Storybook's decorator and the tests' `renderUi` (`src/test/`) mount it.
 - `StatusLine` and `ProgressBar`. The bar scales its fill by transform from
   an inline style, so a ticking value makes no new class.
 
@@ -124,7 +127,7 @@ focus); motion (`motion/react`) carries enter and exit, indicators and springs.
   frame would lay the window out again. Something that has to grow appears
   with a fade and a small rise, and the layout moves once.
 - Animated elements are `m.*` (`import * as m from 'motion/react-m'`) under
-  `MotionProvider` (in `App` and in Storybook's decorator). It loads
+  `MotionProvider` (through `UiProviders`). It loads
   `domAnimation` (`app/motionFeatures.ts`) as its own chunk after the first
   render; until then an `m` element keeps the values it mounted with and
   catches up when the chunk arrives. Its `strict` mode rejects the full
@@ -336,9 +339,9 @@ export const Light: Story = {globals: {theme: 'light'}}
 export const Dark: Story = {globals: {theme: 'dark'}}
 ```
 
-The decorator in `.storybook/preview.tsx` provides the theme, `GlobalStyle`, the
-icon defaults, `TooltipProvider` and a query client on the mock IPC. The
-toolbar switches the theme for stories that do not set it.
+The decorator in `.storybook/preview.tsx` provides the theme, `GlobalStyle`,
+`UiProviders` and a query client on the mock IPC. The toolbar switches the
+theme for stories that do not set it.
 
 `@storybook/addon-a11y` runs axe on every story in its Accessibility panel, in
 both themes; a violation there is fixed in the component, not hidden in the
@@ -365,6 +368,8 @@ story.
 - jsdom has no `matchMedia`; `setSystemDark()` from `src/test/matchMedia.ts`
   flips the OS theme.
 - Test behavior through the UI: roles and visible text, `userEvent` for input.
+  `renderUi` (`src/test/renderUi.ts`) renders under the light theme and
+  `UiProviders`, as the app does; its `rerender` keeps them.
   Give each test its own client from `createTestQueryClient()`
   (`src/test/queryClient.ts`): it does not retry, so a rejected command shows
   as an error at once instead of after Query's 7 s of retries.

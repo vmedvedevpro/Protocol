@@ -2,33 +2,54 @@ import {useState} from 'react'
 import {screen, waitFor} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import {describe, expect, it} from 'vitest'
-import {Button} from './Button'
-import {renderUi} from './renderUi'
+import {DotsThreeIcon} from '@phosphor-icons/react'
+import {renderUi} from '@/test/renderUi'
+import {Button, IconButton} from './Button'
+import {Menu, MenuItem} from './Menu'
 import {Sheet, SheetClose} from './Sheet'
 import {TextField} from './TextField'
 
-function Export({withTrigger = true}: { withTrigger?: boolean }) {
+function ExportSheet({open, onOpenChange}: { open: boolean, onOpenChange: (open: boolean) => void }) {
+    return (
+        <Sheet
+            open={open}
+            onOpenChange={onOpenChange}
+            title="Export"
+            description="Save the meeting as a file or copy it."
+            footer={<SheetClose asChild><Button variant="ghost">Cancel</Button></SheetClose>}
+        >
+            <TextField label="File name" defaultValue="Acme pilot"/>
+        </Sheet>
+    )
+}
+
+function FromButton() {
     const [open, setOpen] = useState(false)
     return (
         <>
-            {!withTrigger && <Button onClick={() => setOpen(true)}>Open from elsewhere</Button>}
-            <Sheet
-                open={open}
-                onOpenChange={setOpen}
-                trigger={withTrigger ? <Button>Export</Button> : undefined}
-                title="Export"
-                description="Save the meeting as a file or copy it."
-                footer={<SheetClose asChild><Button variant="ghost">Cancel</Button></SheetClose>}
-            >
-                <TextField label="File name" defaultValue="Acme pilot"/>
-            </Sheet>
+            <Button onClick={() => setOpen(true)}>Export</Button>
+            <ExportSheet open={open} onOpenChange={setOpen}/>
         </>
     )
 }
 
+function FromMenu() {
+    const [open, setOpen] = useState(false)
+    return (
+        <>
+            <Menu trigger={<IconButton label="More actions" tooltip={false}><DotsThreeIcon/></IconButton>}>
+                <MenuItem onSelect={() => setOpen(true)}>Export</MenuItem>
+            </Menu>
+            <ExportSheet open={open} onOpenChange={setOpen}/>
+        </>
+    )
+}
+
+const closed = () => waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+
 describe('Sheet', () => {
     it('opens as a named, described dialog and takes the focus', async () => {
-        renderUi(<Export/>)
+        renderUi(<FromButton/>)
 
         await userEvent.click(screen.getByRole('button', {name: 'Export'}))
 
@@ -37,39 +58,43 @@ describe('Sheet', () => {
         await waitFor(() => expect(dialog).toContainElement(document.activeElement as HTMLElement))
     })
 
-    it('closes on Escape and gives the focus back to its trigger', async () => {
-        renderUi(<Export/>)
-        const trigger = screen.getByRole('button', {name: 'Export'})
-
-        await userEvent.click(trigger)
-        await screen.findByRole('dialog')
-        await userEvent.keyboard('{Escape}')
-
-        await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
-        expect(trigger).toHaveFocus()
-    })
-
-    it('closes from Cancel and the close button', async () => {
-        renderUi(<Export/>)
-
-        await userEvent.click(screen.getByRole('button', {name: 'Export'}))
-        await userEvent.click(await screen.findByRole('button', {name: 'Cancel'}))
-        await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
-
-        await userEvent.click(screen.getByRole('button', {name: 'Export'}))
-        await userEvent.click(await screen.findByRole('button', {name: 'Close'}))
-        await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
-    })
-
-    it('gives the focus back to what had it when opened without a trigger', async () => {
-        renderUi(<Export withTrigger={false}/>)
-        const opener = screen.getByRole('button', {name: 'Open from elsewhere'})
+    it('closes on Escape and gives the focus back to the button that opened it', async () => {
+        renderUi(<FromButton/>)
+        const opener = screen.getByRole('button', {name: 'Export'})
 
         await userEvent.click(opener)
         await screen.findByRole('dialog')
         await userEvent.keyboard('{Escape}')
 
-        await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+        await closed()
         expect(opener).toHaveFocus()
+    })
+
+    it('closes from Cancel and the close button', async () => {
+        renderUi(<FromButton/>)
+
+        await userEvent.click(screen.getByRole('button', {name: 'Export'}))
+        await userEvent.click(await screen.findByRole('button', {name: 'Cancel'}))
+        await closed()
+
+        await userEvent.click(screen.getByRole('button', {name: 'Export'}))
+        await userEvent.click(await screen.findByRole('button', {name: 'Close'}))
+        await closed()
+    })
+
+    it('gives the focus to the menu button when opened from a menu item that has gone', async () => {
+        renderUi(<FromMenu/>)
+        const menuButton = screen.getByRole('button', {name: 'More actions'})
+
+        menuButton.focus()
+        await userEvent.keyboard('{Enter}')
+        await waitFor(() => expect(screen.getByRole('menuitem', {name: 'Export'})).toHaveFocus())
+        await userEvent.keyboard('{Enter}')
+        await screen.findByRole('dialog', {name: 'Export'})
+        await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument())
+
+        await userEvent.keyboard('{Escape}')
+        await closed()
+        expect(menuButton).toHaveFocus()
     })
 })

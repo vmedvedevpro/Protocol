@@ -18,7 +18,7 @@ function Tips() {
         <Row>
             <IconButton label="Settings" shortcut={formatShortcut(',')}><GearSixIcon size={17}/></IconButton>
             <IconButton label="Keep on top" pressed><PushPinIcon/></IconButton>
-            <Tooltip content="Stop and save" shortcut={formatShortcut('S')} side="top">
+            <Tooltip content="Stop and save" shortcut={formatShortcut('S')}>
                 <Button>Stop</Button>
             </Tooltip>
         </Row>
