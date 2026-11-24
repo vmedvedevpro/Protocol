@@ -643,12 +643,17 @@ every platform (#70; rc.10 and 1.22.0 before):
 | Platform | Runtime | Loaded |
 | --- | --- | --- |
 | Windows x64 | `Microsoft.ML.OnnxRuntime.DirectML` 1.24.4 and `Microsoft.AI.DirectML` 1.15.4 (NuGet) | `load-dynamic`, by absolute path from `binaries/onnxruntime/`; `DirectML.dll` is preloaded by absolute path |
-| Linux x64 | Microsoft's `onnxruntime-linux-x64-1.24.4` (GitHub release), CPU only | `load-dynamic`, `binaries/onnxruntime/libonnxruntime.so` from the deb's or AppImage's resources |
+| Linux x64 | `Microsoft.ML.OnnxRuntime` 1.24.4 (NuGet), its `runtimes/linux-x64` CPU build | `load-dynamic`, `binaries/onnxruntime/libonnxruntime.so` from the deb's or AppImage's resources |
 | macOS arm64 | pyke's 1.31.0 CoreML build, downloaded by `ort` (`download-binaries`) | linked statically |
 
 - `build/onnxruntime.rs` downloads the Windows and Linux archives and checks
   the size and SHA-256 of each archive and of every file it stages (Linux
-  stages `libonnxruntime.so.1.24.4` as `libonnxruntime.so` and the license).
+  stages `libonnxruntime.so` and the license). Linux took the runtime from
+  Microsoft's `onnxruntime-linux-x64-1.24.4` GitHub release until the
+  `microsoft/onnxruntime` repository disappeared from GitHub in November 2026
+  (#104); the NuGet package's linux-x64 library is that release's
+  `libonnxruntime.so.1.24.4` byte for byte, so the staged library's pin did
+  not change (the package's `LICENSE` has CRLF line endings).
   `tauri.windows.conf.json` and `tauri.linux.conf.json` bundle
   `binaries/onnxruntime/*`. Linux does not use ort's own binaries: their 1.31.0
   build needs glibc 2.38 (`__isoc23_strtol` and relatives), more than the
