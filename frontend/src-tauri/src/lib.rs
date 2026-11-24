@@ -42,7 +42,6 @@ pub mod crash_report;
 pub mod database;
 pub mod diarization;
 mod optional_models;
-pub mod notifications;
 pub mod ollama;
 pub mod onboarding;
 pub mod onnx_runtime;
@@ -72,13 +71,13 @@ pub mod tray;
 pub mod updater;
 pub mod utils;
 pub mod whisper_engine;
+#[cfg(windows)]
+mod windows_app_identity;
 
 use audio::{list_audio_devices, AudioDevice, trigger_audio_permission};
 use log::{error as log_error, info as log_info};
-use notifications::commands::NotificationManagerState;
 use std::sync::Arc;
 use tauri::{AppHandle, Manager, Runtime};
-use tokio::sync::RwLock;
 
 static RECORDING_FLAG: AtomicBool = AtomicBool::new(false);
 
@@ -133,24 +132,6 @@ async fn start_recording<R: Runtime>(
 
             log_info!("Recording started successfully");
 
-            // Show recording started notification through NotificationManager
-            // This respects user's notification preferences
-            let notification_manager_state = app.state::<NotificationManagerState<R>>();
-            if let Err(e) = notifications::commands::show_recording_started_notification(
-                &app,
-                &notification_manager_state,
-                meeting_name.clone(),
-            )
-            .await
-            {
-                log_error!(
-                    "Failed to show recording started notification: {}",
-                    e
-                );
-            } else {
-                log_info!("Successfully showed recording started notification");
-            }
-
             Ok(())
         }
         Err(e) => {
@@ -193,23 +174,6 @@ async fn stop_recording<R: Runtime>(app: AppHandle<R>, args: RecordingArgs) -> R
                         return Err(err_msg);
                     }
                 }
-            }
-
-            // Show recording stopped notification through NotificationManager
-            // This respects user's notification preferences
-            let notification_manager_state = app.state::<NotificationManagerState<R>>();
-            if let Err(e) = notifications::commands::show_recording_stopped_notification(
-                &app,
-                &notification_manager_state,
-            )
-            .await
-            {
-                log_error!(
-                    "Failed to show recording stopped notification: {}",
-                    e
-                );
-            } else {
-                log_info!("Successfully showed recording stopped notification");
             }
 
             Ok(true)
@@ -296,9 +260,6 @@ async fn start_recording_with_devices_and_meeting<R: Runtime>(
     log_info!("ðŸš€ CALLED start_recording_with_devices_and_meeting - Mic: {:?}, System: {:?}, Meeting: {:?}",
              mic_device_name, system_device_name, meeting_name);
 
-    // Clone meeting_name for notification use later
-    let meeting_name_for_notification = meeting_name.clone();
-
     // Call the recording module functions that support meeting names
     let recording_result = match (mic_device_name.clone(), system_device_name.clone()) {
         (None, None) => {
@@ -329,22 +290,6 @@ async fn start_recording_with_devices_and_meeting<R: Runtime>(
     match recording_result {
         Ok(_) => {
             log_info!("Recording started successfully via tauri command");
-
-            // Show recording started notification through NotificationManager
-            // This respects user's notification preferences
-            let notification_manager_state = app.state::<NotificationManagerState<R>>();
-            if let Err(e) = notifications::commands::show_recording_started_notification(
-                &app,
-                &notification_manager_state,
-                meeting_name_for_notification.clone(),
-            )
-            .await
-            {
-                log_error!(
-                    "Failed to show recording started notification: {}",
-                    e
-                );
-            }
 
             Ok(())
         }
@@ -377,7 +322,7 @@ pub fn run() {
     // Set the unpackaged Windows app identity before Tauri creates any HWNDs.
     // The taskbar and installer shortcuts use this same AUMID.
     #[cfg(windows)]
-    notifications::native_windows::ensure_app_identity();
+    windows_app_identity::bind_process();
 
     let mut builder = tauri::Builder::default();
 
@@ -395,14 +340,10 @@ pub fn run() {
     }
 
     builder
-        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .manage(Arc::new(RwLock::new(
-            None::<notifications::manager::NotificationManager<tauri::Wry>>,
-        )) as NotificationManagerState<tauri::Wry>)
         .manage(summary::summary_engine::ModelManagerState(Arc::new(tokio::sync::Mutex::new(None))))
         .setup(|_app| {
             if let Err(error) = crash_report::start_session() {
@@ -428,32 +369,6 @@ pub fn run() {
             // In-app updates: restores a downloaded update, then checks daily
             // while automatic checks are on (src/updater/).
             updater::init(_app.handle());
-
-            // Initialize notification system with proper defaults
-            log::info!("Initializing notification system...");
-            let app_for_notif = _app.handle().clone();
-            tauri::async_runtime::spawn(async move {
-                let notif_state = app_for_notif.state::<NotificationManagerState<tauri::Wry>>();
-                match notifications::commands::initialize_notification_manager(app_for_notif.clone()).await {
-                    Ok(manager) => {
-                        // Set default consent and permissions on first launch
-                        if let Err(e) = manager.set_consent(true).await {
-                            log::error!("Failed to set initial consent: {}", e);
-                        }
-                        if let Err(e) = manager.request_permission().await {
-                            log::error!("Failed to request initial permission: {}", e);
-                        }
-
-                        // Store the initialized manager
-                        let mut state_lock = notif_state.write().await;
-                        *state_lock = Some(manager);
-                        log::info!("Notification system initialized with default permissions");
-                    }
-                    Err(e) => {
-                        log::error!("Failed to initialize notification manager: {}", e);
-                    }
-                }
-            });
 
             // Portable build: one-time, non-destructive migration of any legacy
             // data from the OS app-data dir into the install-local root. Runs
@@ -764,10 +679,6 @@ pub fn run() {
             audio::recording_preferences::select_custom_app_executable,
             // Language preference commands
             set_language_preference,
-            // Notification system commands
-            notifications::commands::get_notification_settings,
-            notifications::commands::set_notification_settings,
-            notifications::commands::show_simple_notification,
             // System audio (Audio Capture) permission commands
             audio::permissions::trigger_system_audio_permission_command,
             audio::permissions::get_system_audio_permission_status,
