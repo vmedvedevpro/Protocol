@@ -1383,8 +1383,10 @@ label/explanation markup display only the label; the full summary is retained.
 Missing summaries remain an explicit empty state. Cards link to the existing meeting detail route; Home
 refreshes its list on entry after a summary is saved. `StartupTranscriptRecovery`
 now mounts in the shared layout so IndexedDB recovery checks still run when Home
-opens first. Tray/notification start events from Home route to `/` with the
-auto-start flag for the recording hook. Topic extraction remains heuristic and
+opens first. Notification start events from Home route to `/` with the
+auto-start flag for the recording hook; the tray's Start emits
+`request-recording-toggle` to the main window instead (#110,
+[UI_ARCHITECTURE.md › Tray](UI_ARCHITECTURE.md#tray)). Topic extraction remains heuristic and
 depends on a recognizable Key Topics heading or legacy section. Verification
 covers frontend/native builds and the Windows installer payload; a local installer
 is not a published release.
