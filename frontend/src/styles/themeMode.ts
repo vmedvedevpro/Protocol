@@ -5,10 +5,10 @@ import type {ThemeName} from './theme'
 
 export type ThemeMode = ThemeName | 'system'
 
-export const THEME_MODES: readonly {mode: ThemeMode; label: string}[] = [
-    {mode: 'light', label: 'Light'},
-    {mode: 'dark', label: 'Dark'},
-    {mode: 'system', label: 'Match system'},
+export const THEME_MODES: readonly {value: ThemeMode; label: string}[] = [
+    {value: 'light', label: 'Light'},
+    {value: 'dark', label: 'Dark'},
+    {value: 'system', label: 'Match system'},
 ]
 
 /**

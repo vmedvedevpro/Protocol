@@ -11,6 +11,9 @@ import {createTestQueryClient} from '@/test/queryClient'
 import packageJson from '../../package.json'
 import {App} from './App'
 
+// The radio itself is invisible to the pointer; a user clicks its label.
+const option = (name: string) => screen.getByRole('radio', {name}).closest('label') as HTMLElement
+
 function renderApp() {
     return render(
         <QueryClientProvider client={createTestQueryClient()}>
@@ -49,13 +52,13 @@ describe('App', () => {
         const setTheme = vi.spyOn(handlers, 'plugin:window|set_theme')
         renderApp()
 
-        await userEvent.click(screen.getByText('Dark'))
+        await userEvent.click(option('Dark'))
 
         expect(screen.getByRole('radio', {name: 'Dark'})).toBeChecked()
         expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe('dark')
         await waitFor(() => expect(setTheme).toHaveBeenLastCalledWith(expect.objectContaining({value: 'dark'})))
 
-        await userEvent.click(screen.getByText('Match system'))
+        await userEvent.click(option('Match system'))
 
         // null hands the window back to the OS theme.
         await waitFor(() => expect(setTheme).toHaveBeenLastCalledWith(expect.objectContaining({value: null})))
@@ -64,7 +67,7 @@ describe('App', () => {
     it('follows the OS again when the other window removes the saved theme', async () => {
         const setTheme = vi.spyOn(handlers, 'plugin:window|set_theme')
         renderApp()
-        await userEvent.click(screen.getByText('Dark'))
+        await userEvent.click(option('Dark'))
 
         localStorage.removeItem(THEME_STORAGE_KEY)
         act(() => {

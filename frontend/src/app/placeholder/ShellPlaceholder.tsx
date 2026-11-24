@@ -1,9 +1,12 @@
 import {useQuery} from '@tanstack/react-query'
 import {MagnifyingGlassIcon} from '@phosphor-icons/react'
+import {AnimatePresence} from 'motion/react'
+import * as m from 'motion/react-m'
 import styled from 'styled-components'
 import {appVersionQuery} from '@/api/app'
 import {type UpdateError, type UpdaterSnapshot, updaterStatusQuery} from '@/api/updater'
 import {formatShortcut, platform, type Platform} from '@/lib/platform'
+import {tween} from '@/styles/motion'
 import {ThemeSwitch} from './ThemeSwitch'
 
 // A stand-in until the window shell and the screens arrive: one 460×700
@@ -146,6 +149,31 @@ const Kbd = styled.kbd`
     ${({theme}) => theme.text.caption};
 `
 
+// A transform needs a box; a plain inline span would ignore it.
+const StatusText = styled(m.span)`
+    display: inline-block;
+`
+
+// A status that changes in place: the old line leaves upwards, the new one
+// arrives from below (only the fade under reduced motion).
+function UpdateStatus({status}: { status: string }) {
+    return (
+        <Muted role="status">
+            <AnimatePresence mode="wait" initial={false}>
+                <StatusText
+                    key={status}
+                    initial={{opacity: 0, y: 4}}
+                    animate={{opacity: 1, y: 0}}
+                    exit={{opacity: 0, y: -4}}
+                    transition={tween('fast')}
+                >
+                    {status}
+                </StatusText>
+            </AnimatePresence>
+        </Muted>
+    )
+}
+
 export function ShellPlaceholder() {
     const {data: version} = useQuery(appVersionQuery)
     const {data: updater, isError: updaterUnavailable} = useQuery(updaterStatusQuery)
@@ -180,7 +208,7 @@ export function ShellPlaceholder() {
                         Search
                         <Kbd>{formatShortcut('K')}</Kbd>
                     </Hint>
-                    <Muted role="status">{describeUpdates(updater, updaterUnavailable)}</Muted>
+                    <UpdateStatus status={describeUpdates(updater, updaterUnavailable)}/>
                 </Footer>
             </Frame>
         </Page>

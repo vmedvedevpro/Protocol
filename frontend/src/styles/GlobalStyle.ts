@@ -1,4 +1,5 @@
 import {createGlobalStyle} from 'styled-components'
+import {THEME_TRANSITION_ATTRIBUTE} from './themeTransition'
 
 export const GlobalStyle = createGlobalStyle`
     *,
@@ -39,5 +40,22 @@ export const GlobalStyle = createGlobalStyle`
 
     h1, h2, h3, h4, p {
         margin: 0;
+    }
+
+    /* A theme change (changeThemeSmoothly): the old frame fades into the new. */
+    ::view-transition-old(root),
+    ::view-transition-new(root) {
+        animation-duration: ${({theme}) => theme.motion.duration.slow};
+        animation-timing-function: ${({theme}) => theme.motion.easing.standard};
+    }
+
+    /* The same change where View Transitions are missing: colours fade. */
+    html[${THEME_TRANSITION_ATTRIBUTE}],
+    html[${THEME_TRANSITION_ATTRIBUTE}] *,
+    html[${THEME_TRANSITION_ATTRIBUTE}] *::before,
+    html[${THEME_TRANSITION_ATTRIBUTE}] *::after {
+        transition-property: background-color, border-color, color, fill, stroke, box-shadow !important;
+        transition-duration: ${({theme}) => theme.motion.duration.slow} !important;
+        transition-timing-function: ${({theme}) => theme.motion.easing.standard} !important;
     }
 `
