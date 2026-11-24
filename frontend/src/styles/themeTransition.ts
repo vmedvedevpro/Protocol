@@ -1,25 +1,27 @@
-import {durations} from './motion'
-
-/** Set on <html> while a theme change fades; GlobalStyle reads it. */
-export const THEME_TRANSITION_ATTRIBUTE = 'data-theme-transition'
-
-let fadeTimer: number | undefined
+import {flushSync} from 'react-dom'
 
 /**
- * Applies a theme change as a colour fade instead of a cut: while the
- * attribute is on, every element transitions its colours for
- * `durations.slow` (GlobalStyle). Nothing moves, so it stays on under reduced
- * motion. The switch, an OS switch in system mode and a change from the other
- * window all come through here.
- *
- * Not View Transitions: while one runs, the whole window is a snapshot and
- * every click lands on the document element (CSSWG resolution in
- * w3c/csswg-drafts#7797), so clicks made during the fade would be lost.
+ * The theme switch's `view-transition-name`. GlobalStyle shows it only live:
+ * its thumb is already sliding, and an old snapshot would freeze a second
+ * thumb on the previous option.
+ */
+export const THEME_SWITCH_TRANSITION_NAME = 'theme-switch'
+
+/**
+ * Applies a theme change. Where the webview has View Transitions, the old
+ * window crossfades into the new one over `durations.base` (`flushSync`
+ * paints the new theme inside the callback); only opacity changes, so it
+ * stays on under reduced motion. Clicks made during those 200 ms are lost:
+ * hit testing skips whatever a transition captured, and a theme change
+ * captures the whole window. Elsewhere (WebKitGTK may lack them) the theme
+ * switches at once: fading each colour on its own would drag muted text
+ * through the background's grey. The switch, an OS switch in system mode and
+ * a change from the other window all come through here.
  */
 export function changeThemeSmoothly(apply: () => void) {
-    const root = document.documentElement
-    root.setAttribute(THEME_TRANSITION_ATTRIBUTE, '')
-    apply()
-    window.clearTimeout(fadeTimer)
-    fadeTimer = window.setTimeout(() => root.removeAttribute(THEME_TRANSITION_ATTRIBUTE), durations.slow)
+    if (typeof document.startViewTransition !== 'function') {
+        apply()
+        return
+    }
+    document.startViewTransition(() => flushSync(apply))
 }

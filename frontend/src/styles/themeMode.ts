@@ -81,8 +81,8 @@ const systemDarkQuery = () => (darkQuery ??= window.matchMedia('(prefers-color-s
 
 function subscribeToSystemTheme(onChange: () => void) {
     const query = systemDarkQuery()
-    // The OS theme shows only in system mode, and there it fades like a click
-    // on the switch; otherwise nothing visible changes.
+    // The OS theme shows only in system mode, and there it crossfades like a
+    // click on the switch; otherwise nothing visible changes.
     const onSystemChange = () => {
         if (useThemeModeStore.getState().mode === 'system') changeThemeSmoothly(onChange)
         else onChange()

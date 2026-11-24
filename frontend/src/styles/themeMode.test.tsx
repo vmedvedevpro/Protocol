@@ -1,11 +1,12 @@
 import {act, renderHook} from '@testing-library/react'
-import {afterEach, describe, expect, it} from 'vitest'
+import {afterEach, describe, expect, it, vi} from 'vitest'
 import {setSystemDark} from '@/test/matchMedia'
 import {readThemeMode, THEME_STORAGE_KEY, useResolvedTheme, useThemeModeStore} from './themeMode'
-import {THEME_TRANSITION_ATTRIBUTE} from './themeTransition'
+
+type StartViewTransition = (update: () => void) => unknown
 
 afterEach(() => {
-    document.documentElement.removeAttribute(THEME_TRANSITION_ATTRIBUTE)
+    delete (document as { startViewTransition?: StartViewTransition }).startViewTransition
 })
 
 describe('theme mode', () => {
@@ -59,17 +60,17 @@ describe('theme mode', () => {
         expect(result.current).toBe('light')
     })
 
-    it('fades an OS switch in system mode, and only there', () => {
-        const fading = () => document.documentElement.hasAttribute(THEME_TRANSITION_ATTRIBUTE)
+    it('crossfades an OS switch in system mode, and only there', () => {
+        const startViewTransition = vi.fn<StartViewTransition>((update) => update())
+        Object.assign(document, {startViewTransition})
         const {result} = renderHook(() => useResolvedTheme())
 
         act(() => setSystemDark(true))
         expect(result.current).toBe('dark')
-        expect(fading()).toBe(true)
+        expect(startViewTransition).toHaveBeenCalledOnce()
 
         act(() => useThemeModeStore.getState().setMode('light'))
-        document.documentElement.removeAttribute(THEME_TRANSITION_ATTRIBUTE)
         act(() => setSystemDark(false))
-        expect(fading()).toBe(false)
+        expect(startViewTransition).toHaveBeenCalledOnce()
     })
 })

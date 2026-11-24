@@ -87,8 +87,8 @@ is never decoration. CSS transitions carry state feedback (hover, press,
 focus); motion (`motion/react`) carries enter and exit, indicators and springs.
 
 - Tokens live in `src/styles/motion.ts`: durations `fast` (120 ms: hover,
-  press, focus), `base` (200 ms: most changes of state) and `slow` (320 ms:
-  large surfaces, the theme's colour fade); easings `standard`, `enter` and
+  press, focus), `base` (200 ms: most changes of state, the theme crossfade)
+  and `slow` (320 ms: large surfaces); easings `standard`, `enter` and
   `exit`; springs `snappy` (indicators) and `gentle` (sheets, panels). CSS
   reads `theme.motion.duration.*` and `theme.motion.easing.*`; motion/react
   reads `tween(duration, easing)` and `springs.*`. A literal duration or curve
@@ -144,21 +144,20 @@ focus); motion (`motion/react`) carries enter and exit, indicators and springs.
     copy in the thumb.
   - Every theme change goes through `changeThemeSmoothly(apply)`: a click on
     the switch, an OS switch in system mode, and a change made in the other
-    window. While `html[data-theme-transition]` is set, every element fades
-    its colours over `slow`; the switch's thumb slides on its own spring.
-    View Transitions are not used. While one runs, the window is a snapshot
-    and every click lands on the document element (the CSSWG resolution in
-    w3c/csswg-drafts#7797). `::view-transition { pointer-events: none }` does
-    not help, because a whole-window crossfade has to capture the root. Clicks
-    made during the fade would be lost; on Windows, WebView2 is Chromium and
-    behaves this way.
+    window. Where the webview has View Transitions, the old window crossfades
+    into the new one over `base`; the theme switch is left out of the
+    snapshot, so its thumb slides once. Clicks made during those 200 ms are
+    lost: hit testing skips what a transition captured, and a theme change
+    captures the whole window. Where View Transitions are missing (WebKitGTK
+    may lack them), the theme switches at once. Colours never transition one
+    by one, because muted text would pass through the background's grey.
   - Values that change every frame (audio levels, the ring) stay outside
     motion and React; see Styling.
 - Reduced motion: `MotionProvider` sets `reducedMotion="user"`, so transform
   animations jump to their end while opacity still fades. CSS movement goes
   inside `MOTION_OK` (`@media (prefers-reduced-motion: no-preference)`);
-  colour and opacity transitions stay outside it, and so does the theme's
-  colour fade, which moves nothing. motion reads the setting when an element
+  colour and opacity transitions stay outside it, and so does the theme
+  crossfade, which moves nothing. motion reads the setting when an element
   mounts: a change while the window is open reaches elements mounted after it,
   and all of them after a reload; CSS follows at once. The `ReducedMotion`
   story of `SegmentedControl` shows it, and Orca's browser emulates the setting

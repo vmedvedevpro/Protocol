@@ -1,24 +1,29 @@
 import {afterEach, describe, expect, it, vi} from 'vitest'
-import {durations} from './motion'
-import {changeThemeSmoothly, THEME_TRANSITION_ATTRIBUTE} from './themeTransition'
+import {changeThemeSmoothly} from './themeTransition'
+
+type StartViewTransition = (update: () => void) => unknown
 
 afterEach(() => {
-    document.documentElement.removeAttribute(THEME_TRANSITION_ATTRIBUTE)
-    vi.useRealTimers()
+    delete (document as { startViewTransition?: StartViewTransition }).startViewTransition
 })
 
 describe('changeThemeSmoothly', () => {
-    it('fades colours for the slow duration around the change', () => {
-        vi.useFakeTimers()
-        const fading: boolean[] = []
-        const apply = vi.fn(() => fading.push(document.documentElement.hasAttribute(THEME_TRANSITION_ATTRIBUTE)))
+    it('applies the change inside a view transition where the webview has them', () => {
+        const startViewTransition = vi.fn<StartViewTransition>((update) => update())
+        Object.assign(document, {startViewTransition})
+        const apply = vi.fn()
 
         changeThemeSmoothly(apply)
 
-        expect(fading).toEqual([true])
-        vi.advanceTimersByTime(durations.slow - 1)
-        expect(document.documentElement.hasAttribute(THEME_TRANSITION_ATTRIBUTE)).toBe(true)
-        vi.advanceTimersByTime(1)
-        expect(document.documentElement.hasAttribute(THEME_TRANSITION_ATTRIBUTE)).toBe(false)
+        expect(startViewTransition).toHaveBeenCalledOnce()
+        expect(apply).toHaveBeenCalledOnce()
+    })
+
+    it('applies it at once where they are missing', () => {
+        const apply = vi.fn()
+
+        changeThemeSmoothly(apply)
+
+        expect(apply).toHaveBeenCalledOnce()
     })
 })

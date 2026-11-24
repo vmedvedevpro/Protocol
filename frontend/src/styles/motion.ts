@@ -10,9 +10,9 @@ import type {Transition} from 'motion/react'
 export const durations = {
     /** Hover, press and focus: feedback that has to feel immediate. */
     fast: 120,
-    /** A status line, a fade, a menu: most changes of state. */
+    /** A status line, a fade, a menu, the theme crossfade: most changes of state. */
     base: 200,
-    /** Large surfaces: a sheet, the colour fade of a theme change. */
+    /** Large surfaces: a sheet, a panel. */
     slow: 320,
 } as const
 

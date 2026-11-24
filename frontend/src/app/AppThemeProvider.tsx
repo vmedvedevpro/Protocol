@@ -20,7 +20,8 @@ export function AppThemeProvider({children}: { children: ReactNode }) {
     // The main window and the minibar share localStorage: a change in one
     // arrives in the other as a storage event. A removed key (or a cleared
     // storage, key null) reads as `system`; rehydrating writes nothing back.
-    // It fades like a click on the switch.
+    // It crossfades like a click on the switch; the storage is synchronous,
+    // so the new mode lands inside the transition's update.
     useEffect(() => {
         const onStorage = (event: StorageEvent) => {
             if (event.key !== THEME_STORAGE_KEY && event.key !== null) return

@@ -6,14 +6,13 @@ import {UPDATER_STATUS_EVENT, type UpdaterSnapshot} from '@/api/updater'
 import {handlers} from '@/mocks/handlers'
 import {emitMockEvent, installMockIpc} from '@/mocks/ipc'
 import {mockState} from '@/mocks/state'
-import {THEME_STORAGE_KEY} from '@/styles/themeMode'
-import {THEME_TRANSITION_ATTRIBUTE} from '@/styles/themeTransition'
+import {THEME_STORAGE_KEY, useThemeModeStore} from '@/styles/themeMode'
 import {createTestQueryClient} from '@/test/queryClient'
 import packageJson from '../../package.json'
 import {App} from './App'
 
 afterEach(() => {
-    document.documentElement.removeAttribute(THEME_TRANSITION_ATTRIBUTE)
+    delete (document as { startViewTransition?: unknown }).startViewTransition
 })
 
 // The radio itself is invisible to the pointer; a user clicks its label.
@@ -105,18 +104,25 @@ describe('App', () => {
         await waitFor(() => expect(setTheme).toHaveBeenLastCalledWith(expect.objectContaining({value: null})))
     })
 
-    it('fades a theme change made in the other window', async () => {
+    it('crossfades a theme change made in the other window', async () => {
         renderApp()
         await userEvent.click(option('Dark'))
-        document.documentElement.removeAttribute(THEME_TRANSITION_ATTRIBUTE)
+        const modes: string[] = []
+        Object.assign(document, {
+            startViewTransition: (update: () => void) => {
+                update()
+                modes.push(useThemeModeStore.getState().mode)
+            },
+        })
 
         localStorage.setItem(THEME_STORAGE_KEY, 'light')
         act(() => {
             window.dispatchEvent(new StorageEvent('storage', {key: THEME_STORAGE_KEY, oldValue: 'dark', newValue: 'light'}))
         })
 
+        // The storage is synchronous: the mode changed inside the update.
+        expect(modes).toEqual(['light'])
         expect(screen.getByRole('radio', {name: 'Light'})).toBeChecked()
-        expect(document.documentElement.hasAttribute(THEME_TRANSITION_ATTRIBUTE)).toBe(true)
     })
 
     it('serves the minibar window its own route, as the minibar window', async () => {
