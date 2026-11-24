@@ -65,10 +65,6 @@ export const editorStyles = css`
     &&& .bn-editor {
         flex: 1;
         padding-inline: 0;
-        border-radius: 0;
-        background: transparent;
-        color: ${({theme}) => theme.colors.text};
-        caret-color: ${({theme}) => theme.colors.text};
     }
 
     &&& .bn-default-styles {

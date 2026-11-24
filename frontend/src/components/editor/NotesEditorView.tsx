@@ -27,7 +27,7 @@ import styled, {useTheme} from 'styled-components'
 import {blocksToMarkdownSafely} from '@/lib/blocknote-markdown'
 import {durations, tween} from '@/styles/motion'
 import {editorStyles} from './editorStyles'
-import type {NotesEditorProps} from './types'
+import type {NotesEditorProps} from './NotesEditor'
 
 /**
  * BlockNote with the old editor's menus: the formatting toolbar on a
@@ -61,8 +61,8 @@ export default function NotesEditorView({
         animations: false,
     })
 
-    // The content is read once per mount; NotesEditorProps says so.
-    const initial = useRef({blocks: initialBlocks, markdown: initialMarkdown})
+    // The content and autoFocus are read once per mount; NotesEditorProps says so.
+    const initial = useRef({blocks: initialBlocks, markdown: initialMarkdown, autoFocus})
     // The last Markdown that converted, kept when a later conversion fails.
     const lastMarkdown = useRef(initialMarkdown ?? '')
     const reportChange = useEffectEvent(() => {
@@ -71,8 +71,8 @@ export default function NotesEditorView({
             source: 'notes-editor',
             fallbackMarkdown: lastMarkdown.current,
         })
-        if (result.ok && result.markdown !== undefined) lastMarkdown.current = result.markdown
-        onChange?.({json: blocks, markdown: result.markdown ?? lastMarkdown.current})
+        lastMarkdown.current = result.markdown ?? lastMarkdown.current
+        onChange?.({json: blocks, markdown: lastMarkdown.current})
     })
     const reportReady = useEffectEvent(() => onReady?.())
 
@@ -80,6 +80,8 @@ export default function NotesEditorView({
     // goes before the change listener: the loaded notes are not an edit.
     useLayoutEffect(() => {
         loadContent(editor, initial.current.blocks, initial.current.markdown)
+        // BlockNoteView's own autoFocus only sets a data attribute in 0.57.
+        if (initial.current.autoFocus) editor.focus()
         reportReady()
         return editor.onChange(() => reportChange())
     }, [editor])
@@ -89,7 +91,6 @@ export default function NotesEditorView({
             <Editor
                 editor={editor}
                 editable={editable}
-                autoFocus={autoFocus}
                 portalElements={PORTALS}
                 // The controllers below replace these, with the menu motion.
                 formattingToolbar={false}

@@ -4,8 +4,7 @@ import {ThemeProvider} from 'styled-components'
 import {describe, expect, it, vi} from 'vitest'
 import {SAMPLE_MARKDOWN_ONLY_NOTES, SAMPLE_NOTES_BLOCKS, SAMPLE_NOTES_MARKDOWN} from '@/mocks/notes'
 import {lightTheme} from '@/styles/theme'
-import {NotesEditor} from './NotesEditor'
-import type {NotesEditorProps} from './types'
+import {NotesEditor, type NotesEditorProps} from './NotesEditor'
 
 function renderEditor(props: NotesEditorProps = {}) {
     return render(
@@ -75,6 +74,13 @@ describe('NotesEditor', () => {
         expect(json).toHaveLength(SAMPLE_NOTES_BLOCKS.length)
         expect(json[4]).toMatchObject({type: 'checkListItem', props: {checked: true}})
         expect(markdown).toContain('* [x] Draft the retention statement')
+    })
+
+    it('puts the caret in the notes with autoFocus', async () => {
+        renderEditor({initialBlocks: SAMPLE_NOTES_BLOCKS, autoFocus: true})
+
+        const notes = await screen.findByRole('textbox', {name: 'Notes'})
+        await waitFor(() => expect(notes).toHaveFocus())
     })
 
     it('is read-only when not editable', async () => {
