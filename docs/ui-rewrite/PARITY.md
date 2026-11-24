@@ -147,7 +147,7 @@ Keep on top; they are new in #110, not parity items.
 | `get_recording_meeting_name` | command | `services/recordingService.ts` | #112 | Title of the running recording after a reload. |
 | `get_recording_state` | command | `app/layout.tsx`, `services/recordingService.ts` | #112 | Native timer, pause and mute state; the minibar polls it every 500 ms (#116). |
 | `get_transcript_history` | command | `services/transcriptService.ts` | #112 | Live transcript backfill after a WebView reload. |
-| `get_transcription_status` | command | `services/transcriptService.ts` | #112 | Polled after Stop until the transcription queue is empty. |
+| `get_transcription_status` | command | `services/transcriptService.ts` | #112 | Polled every 500 ms after Stop; the only thing that ends the wait (60 s cap, see invariants). |
 | `is_recording` | command | `components/RecordingControls.tsx`, `services/recordingService.ts` | #112 | Probed on mount; a failure shows "Recording is unavailable". |
 | `parakeet_has_available_models` | command | `contexts/OnboardingContext.tsx`, `hooks/useRecordingStart.ts`, `lib/parakeet.ts` | #112 | Start prefetch; also onboarding (#115). |
 | `parakeet_init` | command | `contexts/OnboardingContext.tsx`, `hooks/useRecordingStart.ts`, `lib/parakeet.ts` | #112 | Start prefetch; also onboarding readiness (#115). |
@@ -443,7 +443,7 @@ Keep on top; they are new in #110, not parity items.
 | --- | --- | --- | --- | --- |
 | `recording-started` | event | `services/recordingService.ts` | #112 | The RECORDING state comes from native, not from the start call. |
 | `recording-stopped` | event | `services/recordingService.ts` | #112 | |
-| `recording-paused` | event | `services/recordingService.ts` | #112 | Also the minibar (#116). |
+| `recording-paused` | event | `services/recordingService.ts` | #112 | The minibar polls `is_paused` instead (#116). |
 | `recording-resumed` | event | `services/recordingService.ts` | #112 | |
 | `recording-stop-complete` | event | `contexts/RecordingPostProcessingProvider.tsx` | #112 | Main window only, with `stop_id`, folder and meeting name; starts the save. |
 | `recording-error` | event | `contexts/RecordingPostProcessingProvider.tsx` | #112 | |
@@ -453,12 +453,12 @@ Keep on top; they are new in #110, not parity items.
 | `audio-levels` | event | `components/RecordingVoiceLane.tsx`, `components/onboarding/steps/AudioTestStep.tsx` | #109 | Device-preview meters. |
 | `recording-audio-route-warning` | event | `app/layout.tsx` | #112 | Toast for 30 s plus an OS notification. |
 | `live-diarization-error` | event | `app/layout.tsx` | #112 | "Live speaker labeling unavailable"; no engine substitution. |
-| `chunk-drop-warning` | event | `hooks/useModalState.ts`, `services/recordingService.ts` | #112 | "Transcription is falling behind". |
+| `chunk-drop-warning` | event | `hooks/useModalState.ts`, `services/recordingService.ts` | dropped | Native never emits it, so "Transcription is falling behind" never opens. #112 adds a native emitter if it wants that warning. |
 | `transcript-update` | event | `services/transcriptService.ts` | #112 | Live lines; ordered and buffered by sequence id, saved to IndexedDB. |
-| `transcript-error` | event | `services/transcriptService.ts`, `components/RecordingControls.tsx` | #112 | |
+| `transcript-error` | event | `services/transcriptService.ts`, `components/RecordingControls.tsx` | dropped | Native never emits it. |
 | `transcription-error` | event | `services/transcriptService.ts`, `components/RecordingControls.tsx`, `hooks/useModalState.ts` | #112 | "The recording stopped" dialog. |
 | `transcription-warning` | event | `hooks/useModalState.ts` | #112 | |
-| `transcription-complete` | event | `services/transcriptService.ts`, `hooks/useRecordingStop.ts` | #112 | Ends the wait for the transcription queue after Stop. |
+| `transcription-complete` | event | `services/transcriptService.ts`, `hooks/useRecordingStop.ts` | dropped | Native never emits it; the wait after Stop ends by polling `get_transcription_status`. |
 | `speech-detected` | event | `services/recordingService.ts` | dropped | `onSpeechDetected` exists but nothing subscribes. |
 | `request-recording-toggle` | event | `app/layout.tsx` | #110 | Nothing emits it: the listener is dead. Tray Start reloads `/` instead (see Routes and windows); #110 can make `tray.rs` emit it. |
 | `tray-navigate` | event | `app/layout.tsx` | #110 | Path to open. |
@@ -466,15 +466,14 @@ Keep on top; they are new in #110, not parity items.
 | `meeting-ended` | event | `app/layout.tsx` | dropped | Auto-record dropped. |
 | `start-recording-from-notification` | event | `app/layout.tsx` | #112 | Proposed; open question 11. Every Windows toast emits it from its "Start recording" button and from a click on its body (`notifications/native_windows.rs`), including the kept recording started/stopped notifications. The listener starts a recording once first launch is done and the notice is acknowledged. |
 | `retranscription-progress` | event | `components/MeetingDetails/PostCallProcessingWorker.tsx`, `components/MeetingDetails/RetranscribeDialog.tsx` | #112 | Also Enhance transcript (#119); filter by meeting id. |
-| `retranscription-complete` | event | same | #112 | |
-| `retranscription-error` | event | same | #112 | |
+| `retranscription-complete` | event | same, `hooks/useSpeechChoice.ts` | #112 | The speech choice refreshes on it: the Intel GPU version ran or fell back (#117). |
+| `retranscription-error` | event | same, `hooks/useSpeechChoice.ts` | #112 | Same refresh as on completion (#117). |
 | `import-progress` | event | `hooks/useImportAudio.ts` | #119 | |
 | `import-complete` | event | `hooks/useImportAudio.ts` | #119 | |
 | `import-error` | event | `hooks/useImportAudio.ts` | #119 | |
 | `summary-progress` | event | `hooks/meeting-details/useSummaryGeneration.ts` | #113 | |
-| `model-config-updated` | event | `contexts/ConfigContext.tsx`, `components/SummaryModelSettings.tsx` | #117 | The UI also emits it after saving the summary model, so other views reload. |
 | `transcript-config-changed` | event | `contexts/ConfigContext.tsx` | #117 | Live model changed natively. |
-| `post-call-transcript-config-changed` | event | `contexts/OptionalModelDownloadsContext.tsx` | #117 | After-meeting model changed natively (optional Whisper activation). |
+| `post-call-transcript-config-changed` | event | `contexts/OptionalModelDownloadsContext.tsx`, `hooks/useSpeechChoice.ts` | #117 | After-meeting model changed natively (optional Whisper activation). |
 | `diarization-engine-changed` | event | `components/DiarizationSettings.tsx`, `hooks/useDiarizationEngine.ts`, `contexts/OptionalModelDownloadsContext.tsx` | #117 | Native Nemotron activation; refreshes Settings, first launch and open speaker dialogs. |
 | `diarization-download-progress` | event | `components/DiarizationSettings.tsx`, `contexts/OptionalModelDownloadsContext.tsx` | #117 | |
 | `optional-model-removed` | event | `components/WhisperModelManager.tsx`, `contexts/OptionalModelDownloadsContext.tsx`, `hooks/useSpeechChoice.ts` | #117 | |
@@ -521,6 +520,7 @@ them. Listed so their effects are not lost.
 | `open-global-search` | DOM event | `components/Sidebar/index.tsx`, `components/GlobalSearchDialog.tsx` | #118 | |
 | `af-open-group-editor` | DOM event | `components/groups/GroupEditor.tsx` | #113 | New folder from anywhere. |
 | `confidenceIndicatorChanged` | DOM event | `contexts/ConfigContext.tsx` | #117 | |
+| `model-config-updated` | UI event | `contexts/ConfigContext.tsx`, `components/SummaryModelSettings.tsx`, `app/meeting-details/page.tsx` | #117 | A Tauri event the UI emits to every window after saving the summary model, so other views reload; native never emits it. |
 | `af-sidebar-width` | DOM event | `components/Sidebar/SidebarProvider.tsx` | dropped | No sidebar in the design. |
 | `meetily-automation-changed` | DOM event | `lib/meeting-automation.ts` | dropped | Auto-record dropped. |
 
@@ -604,7 +604,7 @@ and must survive saves (see invariants).
 | Transcription language (Whisper only) | dialog | `app/_components/SettingsModal.tsx` | dropped | Language moves to Settings (#114) and cannot change during a recording. |
 | Set up transcription to record / Transcription models | dialog | `app/_components/SettingsModal.tsx`, `hooks/useModalState.ts` | #112 | Shown when Record has no model; the design sends the user to Speech models (#117) instead of a modal. |
 | The recording stopped | dialog | `app/_components/SettingsModal.tsx` | #112 | `transcription-error`. |
-| Transcription is falling behind | dialog | `app/_components/SettingsModal.tsx` | #112 | `chunk-drop-warning`. |
+| Transcription is falling behind | dialog | `app/_components/SettingsModal.tsx` | dropped | Opens only on `chunk-drop-warning`, which native never emits. |
 | Finishing your recording / Saving your meeting / Opening your meeting | notice | `components/PostCallHandoffCard.tsx` | #112 | The design: minibar "Finishing…", then the processing screen. |
 | Post-call processing: speaker count, progress, cancel, continue without audio | dialog | `components/MeetingDetails/PostCallProcessingDialog.tsx`, `PostCallProcessingWorker.tsx` | #112 | The design drops the count question for a status line and "N speakers · change" (#113). |
 | Identify speakers again (count or automatic) | dialog | `components/meeting/MeetingHeader.tsx` | #113 | "4 speakers found. Change the count". |
@@ -746,7 +746,7 @@ row says otherwise.
 | Speaker edits keep rows, text, timestamps and provenance | invariant | `components/people/SpeakerIdentityDialog.tsx`, `lib/live-speaker-edits.ts` | #119 | `reassign_transcript_speaker` with `from` changes one voice of an overlap row; `rename_meeting_speaker` renames for the meeting; rerunning diarization changes labels only (#113). Live edits are stored before the UI changes and replayed by sequence id (#112). |
 | No silent engine substitution | invariant | `app/layout.tsx`, `components/DiarizationSettings.tsx` | #112 | Show `live-diarization-error`; keep source labels; never switch to another speaker engine. |
 | Recording start order | invariant | `hooks/useRecordingStart.ts`, `lib/recording-launch.ts` | #112 | First launch done and, except for the tray Start, the notice acknowledged → `check_transcription_runtime` → load the live model (Parakeet or Whisper), reporting integrity failures and running downloads → automatic title (folder name and date, or day and time slot) and pending folder → `start_recording_with_devices_and_meeting` → start timestamps. The recording state comes from `recording-started`, not from the call. |
-| Stop and save order (#32) | invariant | `contexts/RecordingPostProcessingProvider.tsx`, `hooks/useRecordingStop.ts`, `lib/recording-save.ts` | #112 | Every Stop (window, tray, minibar, quit) ends in native finalization, then `recording-stop-complete` to the main window. The WebView discards a take under 10 s, waits 4.5 s for late lines, saves with `api_save_transcript`, files into the pending folder, saves live notes and the summary language, marks the IndexedDB record saved, opens the meeting with `source=recording` unless the app is quitting, and answers `recording_save_finished(stopId, outcome)` within 120 s. The listener lives in the main window on every route. |
+| Stop and save order (#32) | invariant | `contexts/RecordingPostProcessingProvider.tsx`, `hooks/useRecordingStop.ts`, `lib/recording-save.ts` | #112 | Every Stop (window, tray, minibar, quit) ends in native finalization, then `recording-stop-complete` with a `stop_id` to the main window; the listener lives there on every route. The WebView then: discards a take under 10 s (`discard_recording_folder`, answer `discarded`); polls `get_transcription_status` every 500 ms for up to 60 s until `!is_processing && chunks_in_queue === 0`, or the queue is empty and nothing happened for 8 s (a poll error ends the wait undone); after a completed wait, waits 4 s for late lines, flushes the buffer and waits 500 ms; saves only after a completed wait: `api_save_transcript`, the pending folder, live notes, the pinned or detected summary language, the IndexedDB record marked saved; answers `recording_save_finished(stopId, 'saved')` before refreshing, and opens the meeting with `source=recording` only when that answer says the app is not quitting. A 60 s timeout or a poll error saves nothing: the status returns to idle, the answer is `notSaved` and the transcript stays in IndexedDB for recovery; keeping that branch is a #112 decision. Errors answer `failed`; native waits 120 s for an answer. |
 | Post-call pass order | invariant | `components/MeetingDetails/PostCallProcessingWorker.tsx`, `contexts/PostCallJobsContext.tsx` | #112 | Retranscription → reload → diarization → reload → summary. Listeners register before the start call and filter by meeting id; jobs live above navigation; meetings without audio continue with the live transcript. |
 | Meeting language lives in native memory only | invariant | `contexts/ConfigContext.tsx` | #114 | Push the saved `primaryLanguage` with `set_language_preference` at startup and on every change; locked during a recording. |
 | Read-modify-write for native settings objects | invariant | `components/RecordingSettings.tsx`, `components/RecordingControls.tsx`, `contexts/ConfigContext.tsx` | #114 | `set_recording_preferences` and `set_notification_settings` replace the whole object; fields the UI does not show must be written back unchanged. |
@@ -757,4 +757,4 @@ row says otherwise.
 | One theme for both windows | invariant | `lib/app-theme.ts` | #106 | Paint before React from `meetily_theme`; `system` calls `setTheme(null)`, so Tauri passes OS changes through. |
 | Notes keep their stored format | invariant | `components/editor/NotesEditor.tsx`, `lib/blocknote-markdown.ts` | #111 | Saved as Markdown plus BlockNote JSON; summaries never overwrite notes. |
 | A removed summary provider stays unselected | invariant | `contexts/ConfigContext.tsx`, `hooks/meeting-details/useSummaryGeneration.ts` | #117 | A saved provider native no longer offers loads as `provider: ''`; show "Select provider" and "Choose a summary provider" instead of defaulting to Ollama; such a refusal disarms the automatic summary (#113). |
-| Recovery only with transcript lines | invariant | `hooks/useTranscriptRecovery.ts` | #112 | Offer recovery for IndexedDB meetings with at least one line; rebuild audio from checkpoints when present. |
+| Which meetings recovery offers | invariant | `hooks/useTranscriptRecovery.ts`, `contexts/TranscriptContext.tsx` | #112 | Every unsaved IndexedDB meeting updated within 7 days and more than 2 s ago, once per session. The record is created at `recording-started`, before any line, so a meeting without lines is offered too and fails on Recover with "No transcripts found for this meeting"; filtering those out is a #112 decision. Audio is rebuilt from checkpoints when `has_audio_checkpoints` finds them. |
