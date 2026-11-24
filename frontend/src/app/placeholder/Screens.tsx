@@ -2,12 +2,9 @@ import type {ReactNode} from 'react'
 import {GearIcon} from '@phosphor-icons/react'
 import {useNavigate, useParams, useSearchParams} from 'react-router-dom'
 import styled from 'styled-components'
-import {Ring} from '@/components/ring/Ring'
 import {Button, IconButton} from '@/components/ui/Button'
-import {Kbd} from '@/components/ui/Kbd'
 import {formatShortcut} from '@/lib/platform'
 import {paths} from '../paths'
-import {DockedBar} from '../shell/DockedBar'
 import {Screen} from '../shell/Screen'
 import {ThemeSwitch} from './ThemeSwitch'
 
@@ -45,24 +42,14 @@ const Note = styled.p`
     color: ${({theme}) => theme.colors.muted};
 `
 
-const BarTitle = styled.span`
-    ${({theme}) => theme.text.body};
-    font-weight: ${({theme}) => theme.fontWeights.medium};
-`
-
-const BarLine = styled.span`
-    ${({theme}) => theme.text.small};
-    color: ${({theme}) => theme.colors.muted};
-`
-
-function Placeholder({title, actions, bar, children}: {
+function Placeholder({title, actions, recordBar, children}: {
     title: string
     actions?: ReactNode
-    bar?: ReactNode
+    recordBar?: boolean
     children: ReactNode
 }) {
     return (
-        <Screen bar={bar}>
+        <Screen recordBar={recordBar}>
             <Head>
                 <Title>{title}</Title>
                 {actions}
@@ -74,7 +61,6 @@ function Placeholder({title, actions, bar, children}: {
 
 export function HomePlaceholder() {
     const navigate = useNavigate()
-    const record = formatShortcut('R')
 
     return (
         <Placeholder
@@ -84,20 +70,7 @@ export function HomePlaceholder() {
                     <GearIcon size={17}/>
                 </IconButton>
             )}
-            bar={(
-                <DockedBar
-                    label="Record"
-                    ring={<Ring mode="idle" size={56}/>}
-                    action={(
-                        <Button variant="filled" trailing={<Kbd tone="fill">{record}</Kbd>} onClick={() => void navigate(paths.recording)}>
-                            Record
-                        </Button>
-                    )}
-                >
-                    <BarTitle>Ready to record</BarTitle>
-                    <BarLine>The recording bar arrives with #112.</BarLine>
-                </DockedBar>
-            )}
+            recordBar
         >
             <Note>The meetings list arrives with #113.</Note>
             <Button size="sm" onClick={() => void navigate(paths.meeting('sample'))}>Open a sample meeting</Button>
