@@ -80,10 +80,9 @@ router's list goes to `/`.
 
 ## Native data
 
-- Every call goes through `command()` in `src/api/core.ts`; its third argument
-  passes invoke options (headers) through. It rejects with a `CommandError`
-  whose `message` is the Rust error string and whose `detail` is the raw value,
-  for commands that reject with an enum.
+- Every call goes through `command()` in `src/api/core.ts`. It rejects with a
+  `CommandError` whose `message` is the Rust error string and whose `detail` is
+  the raw value, for commands that reject with an enum.
 - A domain file (`src/api/updater.ts`, or `features/<x>/api/…` when one feature
   owns it) holds the payload types mirroring the Rust ones, one wrapper per
   command, the event names, the query keys and the `queryOptions`. No React in

@@ -2,7 +2,6 @@ import {renderHook} from '@testing-library/react'
 import {describe, expect, it, vi} from 'vitest'
 import {emitMockEvent} from '@/mocks/ipc'
 import {mockState} from '@/mocks/state'
-import {command} from './core'
 import {useNativeEvent} from './events'
 import {UPDATER_STATUS_EVENT} from './updater'
 
@@ -39,16 +38,5 @@ describe('native events', () => {
             expect.objectContaining({event: UPDATER_STATUS_EVENT, target: {kind: 'AnyLabel', label: 'main'}}),
             undefined,
         )
-    })
-})
-
-describe('command', () => {
-    it('passes invoke options through', async () => {
-        const ipc = spyOnIpc()
-        const options = {headers: {'X-Request': 'probe'}}
-
-        await command('updater_get_status', undefined, options)
-
-        expect(ipc).toHaveBeenCalledWith('updater_get_status', {}, options)
     })
 })
