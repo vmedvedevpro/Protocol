@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@blocknote/ariakit':
+        specifier: 0.57.0
+        version: 0.57.0(@floating-ui/dom@1.8.0)(@types/hast@3.0.5)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(typescript@6.0.3)
       '@blocknote/core':
         specifier: 0.57.0
         version: 0.57.0(@types/hast@3.0.5)
@@ -117,6 +120,37 @@ packages:
   '@adobe/css-tools@4.5.0':
     resolution: {integrity: sha512-6OzddxPio9UiWTCemp4N8cYLV2ZN1ncRnV1cVGtve7dhPOtRkleRyx32GQCYSwDYgaHU3USMm84tNsvKzRCa1Q==}
 
+  '@ariakit/components@0.1.16':
+    resolution: {integrity: sha512-c7Si9XlYxietoHb63ibgJCDNim30w6pMeGT3Pps9nJ7YS1rffCf+Y/YpqJYOlZ7BNQFk/qg3+1PvZc9kwH/DBw==}
+
+  '@ariakit/react-components@0.7.3':
+    resolution: {integrity: sha512-zKxdn+QbSxk2kPYurCH1FZYjJ8IVQxMYcDPxV6u2+JjmsmaCC6BZ0QCmxJ5BVPvCxc7A2zSkIDO1Fw4+OWOvJA==}
+    peerDependencies:
+      react: ^17.0.0 || ^18.0.0 || ^19.0.0
+      react-dom: ^17.0.0 || ^18.0.0 || ^19.0.0
+
+  '@ariakit/react-store@0.1.14':
+    resolution: {integrity: sha512-guEnGSPKvAzgNIOudhs3h6WvJQQVOSXDqvKg5+rtGTkoPfI6A5rjZTDdF50D0ej7T5JLG08lCFNmfbzrT0KBEQ==}
+    peerDependencies:
+      react: ^17.0.0 || ^18.0.0 || ^19.0.0
+
+  '@ariakit/react-utils@0.2.9':
+    resolution: {integrity: sha512-BHGU4MzRqCbeNoyXqCfsgCU8h8tgz6aBN1wZP2uJhpunlPlUh4itVRw6z4X/8T1tXhGGlLK9nU5PQGZx0QvuiA==}
+    peerDependencies:
+      react: ^17.0.0 || ^18.0.0 || ^19.0.0
+
+  '@ariakit/react@0.4.44':
+    resolution: {integrity: sha512-Spkk2nX/O6O8iVfv+Z4x8gjga+iXex4aRQpm8UyKiv2qvptW5am2/sXEus829mGTEhSTurSgiOBKtin4oTANUA==}
+    peerDependencies:
+      react: ^17.0.0 || ^18.0.0 || ^19.0.0
+      react-dom: ^17.0.0 || ^18.0.0 || ^19.0.0
+
+  '@ariakit/store@0.1.12':
+    resolution: {integrity: sha512-Kdn1Q4b/E+TRUaakvLgjLsvcKtBhzB4sU6wu461ExVRmwNJE7N4yK8+Oljz211CFt2cwhuVEtkrki63CejJWiw==}
+
+  '@ariakit/utils@0.2.3':
+    resolution: {integrity: sha512-kdXn5ZtDngEIJAJ878WMeNYc+FZ3+XVc4FckuJlRpAXAVWX5ymDzSQ/UqAr4Y1YWPc9MbT90F8o+WVhiOyVN9Q==}
+
   '@babel/code-frame@7.29.7':
     resolution: {integrity: sha512-Aup7aUOfpbAUg2ROOJN6Iw5f9DMBlzu0mIkm/malLQFN/YQgO48wCj0Kxa3sEHJvPVFg7siR+qRInwXd2qhQKw==}
     engines: {node: '>=6.9.0'}
@@ -187,6 +221,12 @@ packages:
   '@babel/types@7.29.15':
     resolution: {integrity: sha512-/XKpKDakL//LZ66bq1XsZOswuqeI5MZqPLDu18o3XdkU1fNJ7bdPtzgnc4ZNS+bBGHV0FJG8jjb8SwcC3nNVQQ==}
     engines: {node: '>=6.9.0'}
+
+  '@blocknote/ariakit@0.57.0':
+    resolution: {integrity: sha512-vq3O/WMvDEc48LO/ROcoL13plC7GVR4PCf3zpbhN8D2bkg4HDb4AWToUjAx4ANCTomMNTEjLwHgPMXwWJwowQQ==}
+    peerDependencies:
+      react: ^18.0 || ^19.0 || >= 19.0.0-rc
+      react-dom: ^18.0 || ^19.0 || >= 19.0.0-rc
 
   '@blocknote/core@0.57.0':
     resolution: {integrity: sha512-zoNZwhhP/eL8T3aSZ4+lKJ/2Xs3aJYrF21AC3BiEgvb8hKX4VDAXq7iOMWTvgIcrDh05fpWfX7ZRqbXVc+3SKg==}
@@ -2555,6 +2595,48 @@ snapshots:
 
   '@adobe/css-tools@4.5.0': {}
 
+  '@ariakit/components@0.1.16':
+    dependencies:
+      '@ariakit/store': 0.1.12
+      '@ariakit/utils': 0.2.3
+
+  '@ariakit/react-components@0.7.3(react-dom@19.3.1(react@19.3.1))(react@19.3.1)':
+    dependencies:
+      '@ariakit/components': 0.1.16
+      '@ariakit/react-store': 0.1.14(react@19.3.1)
+      '@ariakit/react-utils': 0.2.9(react@19.3.1)
+      '@ariakit/store': 0.1.12
+      '@ariakit/utils': 0.2.3
+      '@floating-ui/dom': 1.8.0
+      react: 19.3.1
+      react-dom: 19.3.1(react@19.3.1)
+
+  '@ariakit/react-store@0.1.14(react@19.3.1)':
+    dependencies:
+      '@ariakit/react-utils': 0.2.9(react@19.3.1)
+      '@ariakit/store': 0.1.12
+      '@ariakit/utils': 0.2.3
+      react: 19.3.1
+      use-sync-external-store: 1.7.0(react@19.3.1)
+
+  '@ariakit/react-utils@0.2.9(react@19.3.1)':
+    dependencies:
+      '@ariakit/store': 0.1.12
+      '@ariakit/utils': 0.2.3
+      react: 19.3.1
+
+  '@ariakit/react@0.4.44(react-dom@19.3.1(react@19.3.1))(react@19.3.1)':
+    dependencies:
+      '@ariakit/react-components': 0.7.3(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
+      react: 19.3.1
+      react-dom: 19.3.1(react@19.3.1)
+
+  '@ariakit/store@0.1.12':
+    dependencies:
+      '@ariakit/utils': 0.2.3
+
+  '@ariakit/utils@0.2.3': {}
+
   '@babel/code-frame@7.29.7':
     dependencies:
       '@babel/helper-validator-identifier': 7.29.7
@@ -2656,6 +2738,32 @@ snapshots:
     dependencies:
       '@babel/helper-string-parser': 7.29.15
       '@babel/helper-validator-identifier': 7.29.7
+
+  '@blocknote/ariakit@0.57.0(@floating-ui/dom@1.8.0)(@types/hast@3.0.5)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(typescript@6.0.3)':
+    dependencies:
+      '@ariakit/react': 0.4.44(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
+      '@blocknote/core': 0.57.0(@types/hast@3.0.5)
+      '@blocknote/react': 0.57.0(@floating-ui/dom@1.8.0)(@types/hast@3.0.5)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(typescript@6.0.3)
+      react: 19.3.1
+      react-dom: 19.3.1(react@19.3.1)
+    transitivePeerDependencies:
+      - '@floating-ui/dom'
+      - '@lezer/common'
+      - '@lezer/highlight'
+      - '@types/hast'
+      - '@types/react'
+      - '@types/react-dom'
+      - '@y/prosemirror'
+      - '@y/protocols'
+      - '@y/y'
+      - highlight.js
+      - lowlight
+      - refractor
+      - sugar-high
+      - typescript
+      - y-prosemirror
+      - y-protocols
+      - yjs
 
   '@blocknote/core@0.57.0(@types/hast@3.0.5)':
     dependencies:

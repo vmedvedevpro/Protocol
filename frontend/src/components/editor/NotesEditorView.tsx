@@ -1,21 +1,40 @@
-import '@blocknote/react/style.css'
-import {useEffectEvent, useLayoutEffect, useRef} from 'react'
-import type {BlockNoteEditor, PartialBlock} from '@blocknote/core'
+import '@blocknote/ariakit/style.css'
+import {type ComponentProps, useEffectEvent, useLayoutEffect, useRef} from 'react'
+import type {
+    BlockNoteEditor,
+    DefaultBlockSchema,
+    DefaultInlineContentSchema,
+    DefaultStyleSchema,
+    PartialBlock,
+} from '@blocknote/core'
 import {en} from '@blocknote/core/locales'
-import {BlockNoteViewRaw, useCreateBlockNote} from '@blocknote/react'
+import {BlockNoteView} from '@blocknote/ariakit'
+import {
+    DragHandleButton,
+    EmojiPickerController,
+    FilePanelController,
+    type FloatingUIOptions,
+    FormattingToolbarController,
+    LinkToolbarController,
+    SideMenu,
+    SideMenuController,
+    type SideMenuProps,
+    SuggestionMenuController,
+    useCreateBlockNote,
+} from '@blocknote/react'
 import * as m from 'motion/react-m'
-import styled, {keyframes, useTheme} from 'styled-components'
+import styled, {useTheme} from 'styled-components'
 import {blocksToMarkdownSafely} from '@/lib/blocknote-markdown'
-import {tween} from '@/styles/motion'
+import {durations, tween} from '@/styles/motion'
+import {editorStyles} from './editorStyles'
 import type {NotesEditorProps} from './types'
 
 /**
- * BlockNote on `@blocknote/core` and `@blocknote/react` alone, with no UI
- * library: without one, BlockNoteView draws none of its menus (formatting
- * toolbar, slash menu, side menu, emoji picker), and the design shows none.
- * Formatting comes from Markdown shortcuts as you type (`- `, `1. `, `[] `,
- * `# `, `> `) and the usual keys (Ctrl B, Ctrl I, Tab to indent).
- * The default export is the lazy chunk NotesEditor loads.
+ * BlockNote with the old editor's menus: the formatting toolbar on a
+ * selection, the slash menu, the emoji picker (`:` and two letters), the link
+ * toolbar, the file panel, table handles, and the drag handle with its block
+ * menu. Their components come from @blocknote/ariakit; editorStyles restyles
+ * them from the theme. The default export is the lazy chunk NotesEditor loads.
  */
 export default function NotesEditorView({
     initialBlocks,
@@ -27,13 +46,14 @@ export default function NotesEditorView({
     onChange,
     onReady,
 }: NotesEditorProps) {
-    const theme = useTheme()
     const editor = useCreateBlockNote({
         dictionary: {
             ...en,
-            // No slash menu, so no "type '/' for commands" on every empty line;
-            // headings and list items keep their own hints.
-            placeholders: {...en.placeholders, emptyDocument: placeholder, default: undefined},
+            placeholders: {
+                ...en.placeholders,
+                emptyDocument: placeholder,
+                default: "Type '/' for headings, lists, and checklists",
+            },
         },
         domAttributes: {editor: {'aria-label': label}},
         // A block changing type would animate its font size, which lays the
@@ -66,8 +86,77 @@ export default function NotesEditorView({
 
     return (
         <Root initial={{opacity: 0}} animate={{opacity: 1}} transition={tween('base', 'enter')}>
-            <BlockNoteViewRaw editor={editor} editable={editable} autoFocus={autoFocus} theme={theme.name}/>
+            <Editor
+                editor={editor}
+                editable={editable}
+                autoFocus={autoFocus}
+                portalElements={PORTALS}
+                // The controllers below replace these, with the menu motion.
+                formattingToolbar={false}
+                linkToolbar={false}
+                slashMenu={false}
+                emojiPicker={false}
+                sideMenu={false}
+                filePanel={false}
+            >
+                <FormattingToolbarController floatingUIOptions={MENU_MOTION}/>
+                <LinkToolbarController floatingUIOptions={MENU_MOTION}/>
+                <SuggestionMenuController
+                    triggerCharacter="/"
+                    shouldOpen={(state) => !state.selection.$from.parent.type.isInGroup('tableContent')}
+                    floatingUIOptions={MENU_MOTION}
+                />
+                <EmojiPickerController triggerCharacter=":" floatingUIOptions={MENU_MOTION}/>
+                <SideMenuController sideMenu={DragHandleOnly} floatingUIOptions={SIDE_MENU_OPTIONS}/>
+                <FilePanelController floatingUIOptions={MENU_MOTION}/>
+            </Editor>
         </Root>
+    )
+}
+
+/**
+ * The menus render into a layer on <body>, so the scrolling panel around the
+ * notes cannot clip them; BlockNote gives that layer the editor's classes.
+ */
+const PORTALS = {default: 'body'}
+
+// Menus and popovers fade over `fast` (UI_ARCHITECTURE.md, Motion); their
+// scale from 0.96 is in editorStyles.
+const MENU_MOTION: FloatingUIOptions = {useTransitionStylesProps: {duration: durations.fast}}
+
+type Middleware = NonNullable<NonNullable<FloatingUIOptions['useFloatingOptions']>['middleware']>[number]
+
+/**
+ * Centres the drag handle on its block's first line. BlockNote moves it down
+ * by constants made for its own heading sizes (27 px for a level-2 heading),
+ * and the notes' headings are smaller, so it measures the line instead.
+ */
+const onFirstLine: Middleware = {
+    name: 'onFirstLine',
+    fn({y, elements, rects}) {
+        // The reference is BlockNote's virtual element around the block.
+        const block = (elements.reference as {contextElement?: Element}).contextElement
+        const text = block?.querySelector('.bn-inline-content')
+        if (!block || !text) return {}
+        const line = parseFloat(getComputedStyle(text).lineHeight)
+        if (!Number.isFinite(line)) return {}
+        const lineTop = text.getBoundingClientRect().top - block.getBoundingClientRect().top
+        return {y: y + lineTop + (line - rects.floating.height) / 2}
+    },
+}
+
+const SIDE_MENU_OPTIONS: FloatingUIOptions = {...MENU_MOTION, useFloatingOptions: {middleware: [onFirstLine]}}
+
+/**
+ * The side menu without its + button: the design keeps the text 20 px from
+ * the window's edge, and that gutter holds the drag handle alone. A '/' on
+ * any line opens what + did, and the handle opens the block menu.
+ */
+function DragHandleOnly(props: SideMenuProps) {
+    return (
+        <SideMenu {...props}>
+            <DragHandleButton {...props}/>
+        </SideMenu>
     )
 }
 
@@ -93,152 +182,27 @@ function loadContent(editor: BlockNoteEditor, blocks: unknown, markdown: string 
     }
 }
 
-const placeholderIn = keyframes`
-    from {
-        opacity: 0;
-    }
-`
-
-// BlockNote's stylesheet arrives with this chunk, in an order against
-// styled-components' that is not fixed. Its rules are one or two classes
-// deep, so every override sits under `&&` (this class twice) and wins either
-// way. BlockNote also sets a light or dark palette on .bn-root; only its
-// highlight colours stay, for notes the old app saved with text colours.
 const Root = styled(m.div)`
     display: flex;
     flex-direction: column;
     min-height: 100%;
+`
 
-    && .bn-root {
-        --bn-font-family: ${({theme}) => theme.fonts.sans};
-        --bn-colors-editor-text: ${({theme}) => theme.colors.text};
-        --bn-colors-editor-background: transparent;
-        --bn-colors-border: ${({theme}) => theme.colors.border};
-        --bn-border-radius: ${({theme}) => theme.radii.sm};
-    }
+type ViewProps = Omit<
+    ComponentProps<typeof BlockNoteView<DefaultBlockSchema, DefaultInlineContentSchema, DefaultStyleSchema>>,
+    'theme'
+>
 
-    && .bn-container {
-        display: flex;
-        flex: 1;
-        flex-direction: column;
-    }
+/**
+ * BlockNoteView in the app's light or dark scheme. Its own `theme` prop
+ * cannot go through styled(), which reads `theme` as the styled-components
+ * theme.
+ */
+function SchemedView(props: ViewProps) {
+    const theme = useTheme()
+    return <BlockNoteView {...props} theme={theme.name}/>
+}
 
-    /* The host pads the panel; BlockNote's inline padding is room for its side menu. */
-    && .bn-editor {
-        flex: 1;
-        padding-inline: 0;
-        border-radius: 0;
-        background: transparent;
-        color: ${({theme}) => theme.colors.text};
-        caret-color: ${({theme}) => theme.colors.text};
-    }
-
-    && .bn-default-styles {
-        font-family: ${({theme}) => theme.fonts.sans};
-        ${({theme}) => theme.text.notes};
-    }
-
-    /* Lines follow each other at the notes' line height, as in the design. */
-    && .bn-block-outer {
-        line-height: inherit;
-        transition: none;
-    }
-
-    && .bn-block-content,
-    && .bn-block-content::before {
-        padding-block: 0;
-        transition: none;
-    }
-
-    && .bn-block-group .bn-block-group {
-        margin-left: ${({theme}) => theme.space[5]};
-    }
-
-    && .bn-block-content[data-content-type='heading'] {
-        --level: 1em;
-        --prev-level: 1em;
-        padding-top: ${({theme}) => theme.space[3]};
-    }
-
-    && .bn-block-group > .bn-block-outer:first-child .bn-block-content[data-content-type='heading'] {
-        padding-top: 0;
-    }
-
-    && .bn-block-content[data-content-type='heading'] .bn-inline-content {
-        ${({theme}) => theme.text.notes};
-        font-weight: ${({theme}) => theme.fontWeights.semibold};
-    }
-
-    && .bn-block-content[data-content-type='heading'][data-level='1'] .bn-inline-content {
-        ${({theme}) => theme.text.notesHeading};
-    }
-
-    /* Markers take the indent of a nested list, so children line up with the text. */
-    && .bn-block-content[data-content-type='bulletListItem']::before,
-    && .bn-block-content[data-content-type='numberedListItem']::before {
-        min-width: ${({theme}) => theme.space[5]};
-        padding-right: 0;
-    }
-
-    && .bn-block-content[data-content-type='checkListItem'] > div:has(> input) {
-        height: ${({theme}) => theme.text.notes.lineHeight};
-    }
-
-    && .bn-block-content[data-content-type='checkListItem'] > div > input {
-        height: ${({theme}) => theme.text.notes.lineHeight};
-        margin: 0 ${({theme}) => theme.space[1.5]} 0 ${({theme}) => theme.space[0.5]};
-        accent-color: ${({theme}) => theme.colors.text};
-    }
-
-    && .bn-block-content[data-content-type='checkListItem'] .bn-inline-content {
-        transition: color ${({theme}) => theme.motion.duration.fast} ${({theme}) => theme.motion.easing.standard};
-    }
-
-    && .bn-block-content[data-content-type='checkListItem'][data-checked='true'] .bn-inline-content {
-        color: ${({theme}) => theme.colors.muted};
-    }
-
-    && .bn-block-content[data-content-type='quote'] blockquote {
-        padding-left: ${({theme}) => theme.space[3]};
-        border-left: 2px solid ${({theme}) => theme.colors.border};
-        color: ${({theme}) => theme.colors.soft};
-    }
-
-    && .bn-inline-content code {
-        padding: 0 ${({theme}) => theme.space[1]};
-        border-radius: ${({theme}) => theme.radii.xs};
-        background: ${({theme}) => theme.colors.surface};
-        font-family: ${({theme}) => theme.fonts.mono};
-    }
-
-    && .bn-block-content[data-content-type='codeBlock'] {
-        margin-block: ${({theme}) => theme.space[1]};
-        border-radius: ${({theme}) => theme.radii.md};
-        background: ${({theme}) => theme.colors.surface};
-        color: ${({theme}) => theme.colors.text};
-    }
-
-    && .bn-block-content[data-content-type='codeBlock'] > pre {
-        padding: ${({theme}) => theme.space[3]};
-        font-family: ${({theme}) => theme.fonts.mono};
-        ${({theme}) => theme.text.body};
-    }
-
-    && .bn-block-content[data-content-type='codeBlock'] > div > select {
-        color: ${({theme}) => theme.colors.muted};
-    }
-
-    && .bn-editor a {
-        color: inherit;
-        text-decoration: underline;
-        text-decoration-color: ${({theme}) => theme.colors.muted};
-        text-underline-offset: ${({theme}) => theme.space[0.5]};
-    }
-
-    /* The placeholder fades in each time the notes become empty. */
-    && .bn-block-content:has(.ProseMirror-trailingBreak:only-child)::after {
-        color: ${({theme}) => theme.colors.muted};
-        font-style: normal;
-        animation: ${placeholderIn} ${({theme}) => theme.motion.duration.base} ${({theme}) => theme.motion.easing.enter};
-    }
+const Editor = styled(SchemedView)`
+    ${editorStyles}
 `
