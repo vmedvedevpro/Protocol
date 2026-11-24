@@ -8,8 +8,12 @@ export interface MockDevices {
     recordingPreferences: RecordingPreferences
 }
 
+/** The default microphone and output, whose levels the fake feed sends (src/mocks/audio.ts). */
+export const MOCK_MICROPHONE = 'MacBook Pro Microphone'
+export const MOCK_SPEAKERS = 'MacBook Pro Speakers'
+
 /** The folder native code falls back to (`get_default_recordings_folder` in recording_preferences.rs). */
-export function mockDefaultRecordingsFolder(platform: Platform): string {
+function mockDefaultRecordingsFolder(platform: Platform): string {
     if (platform === 'windows') return 'C:\\Users\\preview\\Music\\protocol-recordings'
     if (platform === 'macos') return '/Users/preview/Movies/protocol-recordings'
     return '/home/preview/Documents/protocol-recordings'
@@ -17,19 +21,16 @@ export function mockDefaultRecordingsFolder(platform: Platform): string {
 
 /**
  * The old preview's devices (`162e8be:frontend/src/dev/preview/index.ts`),
- * and native's defaults for the preferences: nothing chosen yet. The first
- * microphone and speakers carry the names the fake level feed gives the
- * defaults (`MOCK_MICROPHONE`, `MOCK_SPEAKERS` in src/mocks/audio.ts), spelled
- * out because audio.ts imports the state, which imports this file.
+ * and native's defaults for the preferences: nothing chosen yet.
  */
 export function createMockDevices(platform: Platform): MockDevices {
     return {
         list: [
-            {name: 'MacBook Pro Microphone', device_type: 'Input'},
+            {name: MOCK_MICROPHONE, device_type: 'Input'},
             {name: 'Studio Display Microphone', device_type: 'Input'},
             // Long enough to be cut short in a select.
             {name: 'Headset Microphone (Jabra Evolve2 65 – Bluetooth Hands-Free)', device_type: 'Input'},
-            {name: 'MacBook Pro Speakers', device_type: 'Output'},
+            {name: MOCK_SPEAKERS, device_type: 'Output'},
             {name: 'Studio Display Speakers', device_type: 'Output'},
         ],
         recordingPreferences: {

@@ -11,6 +11,7 @@ import {
     SILENCE_DB,
 } from '@/api/audio'
 import type {NativeEvent} from '@/api/events'
+import {MOCK_MICROPHONE, MOCK_SPEAKERS} from './devices'
 import type {MockArgs, MockHandler} from './handlers'
 import {mockState} from './state'
 
@@ -21,8 +22,6 @@ import {mockState} from './state'
  * slider) holds both at one level instead. Tests emit their own samples.
  */
 
-export const MOCK_MICROPHONE = 'MacBook Pro Microphone'
-export const MOCK_SPEAKERS = 'MacBook Pro Speakers'
 
 // Native sends about 25 recording samples a second per source, and the device
 // preview about 12 updates a second.

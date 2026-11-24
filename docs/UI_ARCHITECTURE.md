@@ -435,10 +435,10 @@ enter and exit, indicators and springs.
   `pinSummaryLanguage`, which keeps it on the recent list.
 - The recording preferences (`src/api/devices.ts`) are one native object that
   `set_recording_preferences` replaces whole. Change them only with
-  `updateRecordingPreferences(patch)` (or its mutation): it queues each update
-  behind the last and reads the stored object again before writing it, so
-  fields no screen shows and changes made at once all survive, and it keeps
-  the legacy single-app fields on the first chosen app.
+  `updateRecordingPreferencesMutation()`: its updates share a mutation scope,
+  so they run one at a time, and each reads the stored object again before
+  writing it, so fields no screen shows and changes made at once all
+  survive; it keeps the legacy single-app fields on the first chosen app.
 - Data that native code pushes whole by event gets `staleTime: Infinity`, and
   only the event writes it (see Events). Other data keeps the default
   `staleTime` and is invalidated after the mutations that change it.

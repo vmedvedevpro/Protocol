@@ -103,6 +103,17 @@ describe('summary language', () => {
         expect(recents()).toEqual(['ru'])
     })
 
+    it('keeps the pinned language on a full list', () => {
+        stored({[SUMMARY_LANGUAGE_RECENTS_KEY]: '["de","fr","es","it","en"]', [SUMMARY_LANGUAGE_DEFAULT_KEY]: 'en'})
+
+        addRecentSummaryLanguage('ru')
+        expect(recents()).toEqual(['ru', 'de', 'fr', 'es', 'en'])
+
+        pinSummaryLanguage('uk')
+        expect(pinned()).toBe('uk')
+        expect(recents()).toEqual(['uk', 'ru', 'de', 'fr', 'es'])
+    })
+
     it('keeps the five newest and unpins a language taken off the list', () => {
         for (const code of ['en', 'ru', 'de', 'fr', 'es', 'it']) addRecentSummaryLanguage(code)
         expect(recents()).toEqual(['it', 'es', 'fr', 'de', 'ru'])

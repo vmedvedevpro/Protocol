@@ -2,8 +2,8 @@
  * Audio devices and the recording preferences (src-tauri/src/audio/:
  * `get_audio_devices` in lib.rs, recording_preferences.rs). The preferences
  * are one object in the `recording_preferences.json` plugin store, which
- * native code replaces whole on every save; `updateRecordingPreferences` is
- * the only way the UI changes it.
+ * native code replaces whole on every save; `updateRecordingPreferencesMutation`
+ * is the only way the UI changes it.
  */
 import {mutationOptions, queryOptions} from '@tanstack/react-query'
 import {command} from './core'
@@ -46,7 +46,7 @@ export interface RecordingPreferences {
     /**
      * The older single-app format. Native keeps it equal to the first target,
      * and re-adds a target from it when the list is empty, so it must be null
-     * whenever the list is (`updateRecordingPreferences` does that).
+     * whenever the list is (`updateRecordingPreferencesMutation` does that).
      */
     per_app_target_app: string | null
     per_app_target_name: string | null
@@ -105,43 +105,31 @@ export type RecordingPreferencesPatch = Partial<
     Omit<RecordingPreferences, 'per_app_target_app' | 'per_app_target_name'>
 >
 
-// Every update waits for the one before it: two read-modify-writes in flight
-// at once would both read the same object, and the second write would undo
-// the first (a gain still saving while a device changes).
-let queue: Promise<unknown> = Promise.resolve()
-
 /**
- * Changes some preferences and keeps the rest. Native replaces the whole
- * object on save, so the update reads the stored one again just before it
- * writes: fields the UI never shows (`file_format`, `system_audio_backend`)
- * and fields another screen changed go back unchanged. Native also checks the
+ * Changes some recording preferences and keeps the rest; the only way the UI
+ * changes them. Native replaces the whole object on save, so each update
+ * reads the stored one again just before it writes: fields the UI never
+ * shows (`file_format`, `system_audio_backend`) and fields another screen
+ * changed go back unchanged. Updates share a scope, so they run one at a time:
+ * two read-modify-writes at once would both read the same object, and the
+ * second write would undo the first. The cached preferences show the change at
+ * once and are read again once it lands or fails. Native also checks the
  * folder is writable and rejects the save if it is not, storing nothing.
- * Resolves with the object it wrote.
- */
-export function updateRecordingPreferences(patch: RecordingPreferencesPatch): Promise<RecordingPreferences> {
-    const update = queue.then(async () => {
-        const stored = await getRecordingPreferences()
-        const next: RecordingPreferences = {...stored, ...patch}
-        if (patch.per_app_targets) {
-            const [first] = patch.per_app_targets
-            next.per_app_target_app = first?.executable ?? null
-            next.per_app_target_name = first?.name ?? null
-        }
-        await command<void>('set_recording_preferences', {preferences: next})
-        return next
-    })
-    // A failed update must not stop the ones queued after it.
-    queue = update.catch(() => undefined)
-    return update
-}
-
-/**
- * `updateRecordingPreferences` as a mutation: the cached preferences show the
- * change at once and are read again once it lands, or once it fails.
  */
 export const updateRecordingPreferencesMutation = () =>
     mutationOptions({
-        mutationFn: updateRecordingPreferences,
+        mutationFn: async (patch: RecordingPreferencesPatch) => {
+            const stored = await getRecordingPreferences()
+            const next: RecordingPreferences = {...stored, ...patch}
+            if (patch.per_app_targets) {
+                const [first] = patch.per_app_targets
+                next.per_app_target_app = first?.executable ?? null
+                next.per_app_target_name = first?.name ?? null
+            }
+            await command<void>('set_recording_preferences', {preferences: next})
+            return next
+        },
+        scope: {id: 'recording-preferences'},
         onMutate: async (patch, {client}) => {
             const {queryKey} = recordingPreferencesQuery
             await client.cancelQueries({queryKey})

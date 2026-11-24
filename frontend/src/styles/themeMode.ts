@@ -1,6 +1,7 @@
 import {useSyncExternalStore} from 'react'
 import {create} from 'zustand'
 import {persist, type PersistStorage} from 'zustand/middleware'
+import {safely} from '@/lib/storage'
 import type {ThemeName} from './theme'
 import {changeThemeSmoothly} from './themeTransition'
 
@@ -38,16 +39,6 @@ interface ThemeModeState {
 }
 
 type PersistedThemeMode = Pick<ThemeModeState, 'mode'>
-
-// Storage can be unavailable in a locked-down webview; the theme then just
-// isn't remembered.
-function safely<T>(action: () => T): T | null {
-    try {
-        return action()
-    } catch {
-        return null
-    }
-}
 
 const bareStringStorage: PersistStorage<PersistedThemeMode> = {
     getItem: (name) => ({state: {mode: readThemeMode(safely(() => localStorage.getItem(name)))}, version: 0}),

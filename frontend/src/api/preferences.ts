@@ -15,21 +15,12 @@ import {useEffect} from 'react'
 import {create} from 'zustand'
 import {persist, type PersistStorage} from 'zustand/middleware'
 import {DETECT_LANGUAGE, normaliseSummaryLanguage} from '@/lib/languages'
+import {safely} from '@/lib/storage'
 import {command} from './core'
 
 interface StoredValue<T> {
     value: T
     set: (value: T) => void
-}
-
-// Storage can be unavailable in a locked-down webview; the value then just
-// isn't remembered.
-function safely<T>(action: () => T): T | null {
-    try {
-        return action()
-    } catch {
-        return null
-    }
 }
 
 /**
@@ -153,12 +144,22 @@ export const useRecentSummaryLanguagesStore = storedValue(SUMMARY_LANGUAGE_RECEN
     JSON.stringify(codes),
 )
 
-/** Puts a language first in the recent list, dropping the oldest past the limit. */
+/**
+ * Puts a language first in the recent list. Past the limit the oldest
+ * language goes, unless it is the pinned one: that one stays on the list.
+ */
 export function addRecentSummaryLanguage(code: string) {
     const language = normaliseSummaryLanguage(code)
     if (!language) return
     const {value: recents, set} = useRecentSummaryLanguagesStore.getState()
-    set([language, ...recents.filter((recent) => recent !== language)].slice(0, MAX_RECENT_SUMMARY_LANGUAGES))
+    const pinned = useSummaryLanguageStore.getState().value
+    const next = [language, ...recents.filter((recent) => recent !== language)]
+    if (next.length > MAX_RECENT_SUMMARY_LANGUAGES) {
+        let oldest = next.length - 1
+        while (oldest > 0 && next[oldest] === pinned) oldest--
+        next.splice(oldest, 1)
+    }
+    set(next)
 }
 
 /** Takes a language off the recent list, and unpins it if it was pinned. */
@@ -177,10 +178,11 @@ export function removeRecentSummaryLanguage(code: string) {
 export function pinSummaryLanguage(code: string | null) {
     const language = code === null ? null : normaliseSummaryLanguage(code)
     if (code !== null && !language) return
+    // Pinned first, so adding it to a full list never drops it again.
+    useSummaryLanguageStore.getState().set(language)
     if (language && !useRecentSummaryLanguagesStore.getState().value.includes(language)) {
         addRecentSummaryLanguage(language)
     }
-    useSummaryLanguageStore.getState().set(language)
 }
 
 // --- Keeping windows and native in step --------------------------------------
@@ -227,16 +229,6 @@ export function usePreferencesSync() {
 
 /** The providers native code offers (`LLMProvider::from_str` in summary/llm_client.rs). */
 export type SummaryProvider = 'builtin-ai' | 'claude' | 'openai' | 'groq' | 'openrouter' | 'ollama' | 'custom-openai'
-
-export const SUMMARY_PROVIDERS: readonly {id: SummaryProvider; label: string; needsApiKey: boolean}[] = [
-    {id: 'builtin-ai', label: 'Built-in AI', needsApiKey: false},
-    {id: 'claude', label: 'Claude', needsApiKey: true},
-    {id: 'openai', label: 'OpenAI', needsApiKey: true},
-    {id: 'groq', label: 'Groq', needsApiKey: true},
-    {id: 'openrouter', label: 'OpenRouter', needsApiKey: true},
-    {id: 'ollama', label: 'Ollama', needsApiKey: false},
-    {id: 'custom-openai', label: 'Custom server', needsApiKey: false},
-]
 
 /** Mirrors `ModelConfig` in src-tauri/src/api/api.rs. */
 export interface SummaryModelConfig {

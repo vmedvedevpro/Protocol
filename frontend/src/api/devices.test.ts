@@ -1,3 +1,4 @@
+import type {QueryClient} from '@tanstack/react-query'
 import {describe, expect, it, vi} from 'vitest'
 import {handlers, type MockArgs} from '@/mocks/handlers'
 import {mockState} from '@/mocks/state'
@@ -8,10 +9,14 @@ import {
     deviceKeys,
     deviceLabel,
     deviceValue,
+    type RecordingPreferencesPatch,
     recordingPreferencesQuery,
-    updateRecordingPreferences,
     updateRecordingPreferencesMutation,
 } from './devices'
+
+function update(client: QueryClient, patch: RecordingPreferencesPatch) {
+    return client.getMutationCache().build(client, updateRecordingPreferencesMutation()).execute(patch)
+}
 
 const zoom = {id: 'Zoom.exe', name: 'Zoom', executable: 'Zoom.exe'}
 const teams = {id: 'ms-teams.exe', name: 'Microsoft Teams', executable: 'ms-teams.exe'}
@@ -26,7 +31,7 @@ describe('audio devices', () => {
     })
 })
 
-describe('updateRecordingPreferences', () => {
+describe('updateRecordingPreferencesMutation', () => {
     it('writes the whole stored object back, with fields the UI never shows', async () => {
         mockState.devices.recordingPreferences = {
             ...mockState.devices.recordingPreferences,
@@ -36,7 +41,7 @@ describe('updateRecordingPreferences', () => {
             preferred_system_device: 'MacBook Pro Speakers (output)',
         }
 
-        await updateRecordingPreferences({mic_gain: 1.5})
+        await update(createTestQueryClient(), {mic_gain: 1.5})
 
         expect(mockState.devices.recordingPreferences).toMatchObject({
             mic_gain: 1.5,
@@ -59,9 +64,10 @@ describe('updateRecordingPreferences', () => {
             return copy
         })
 
+        const client = createTestQueryClient()
         await Promise.all([
-            updateRecordingPreferences({preferred_mic_device: 'Studio Display Microphone (input)'}),
-            updateRecordingPreferences({system_gain: 2}),
+            update(client, {preferred_mic_device: 'Studio Display Microphone (input)'}),
+            update(client, {system_gain: 2}),
         ])
 
         expect(mockState.devices.recordingPreferences).toMatchObject({
@@ -75,21 +81,23 @@ describe('updateRecordingPreferences', () => {
             throw 'Failed to save recording preferences: Recording directory is not writable'
         })
 
-        await expect(updateRecordingPreferences({save_folder: '/read-only'})).rejects.toThrow('not writable')
-        await updateRecordingPreferences({auto_save: false})
+        const client = createTestQueryClient()
+        await expect(update(client, {save_folder: '/read-only'})).rejects.toThrow('not writable')
+        await update(client, {auto_save: false})
 
         expect(mockState.devices.recordingPreferences.save_folder).not.toBe('/read-only')
         expect(mockState.devices.recordingPreferences.auto_save).toBe(false)
     })
 
     it('keeps the legacy single-app fields on the first chosen app, and empty with none', async () => {
-        await updateRecordingPreferences({per_app_targets: [teams, zoom]})
+        const client = createTestQueryClient()
+        await update(client, {per_app_targets: [teams, zoom]})
         expect(mockState.devices.recordingPreferences).toMatchObject({
             per_app_target_app: 'ms-teams.exe',
             per_app_target_name: 'Microsoft Teams',
         })
 
-        await updateRecordingPreferences({per_app_targets: []})
+        await update(client, {per_app_targets: []})
         // Native would bring Teams back from a stale legacy field.
         expect(mockState.devices.recordingPreferences).toMatchObject({
             per_app_targets: [],
@@ -99,8 +107,8 @@ describe('updateRecordingPreferences', () => {
     })
 })
 
-describe('updateRecordingPreferencesMutation', () => {
-    it('shows the change at once and reads the stored object again after it', async () => {
+describe('the cached preferences', () => {
+    it('show the change at once and reads the stored object again after it', async () => {
         const client = createTestQueryClient()
         await client.fetchQuery(recordingPreferencesQuery)
         const write = handlers.set_recording_preferences
@@ -110,9 +118,7 @@ describe('updateRecordingPreferencesMutation', () => {
             return write(args)
         })
 
-        const saving = client.getMutationCache().build(client, updateRecordingPreferencesMutation()).execute({
-            auto_save: false,
-        })
+        const saving = update(client, {auto_save: false})
         await settleIpc()
         expect(client.getQueryData(recordingPreferencesQuery.queryKey)?.auto_save).toBe(false)
 
