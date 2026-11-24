@@ -35,11 +35,13 @@ or a name), meeting detection and auto-record.
 
 1. **Recording disclosure notice.** `components/RecordingNotice.tsx` shows
    "Before you record" (tell participants, obtain consent) after setup on every
-   launch until "Permanently acknowledge" is checked (`recording-notice.json`).
-   It cannot be dismissed any other way, and until it is acknowledged tray and
-   notification starts do nothing. The design has no such screen; proposed
-   owner #112 (before the first Record) or #115 (first launch). Keep it or
-   drop it?
+   launch until "Permanently acknowledge" is checked (`recording-notice.json`):
+   "I understand" alone closes it until the next launch, the checkbox closes
+   it for good. Until it is acknowledged, notification starts do nothing. The
+   old tray Start already bypasses it: native reloads `/`, which starts the
+   recording behind the open notice (see Routes and windows). The design has
+   no such screen; proposed owner #112 (before the first Record) or #115
+   (first launch). Keep it, and then gate the tray Start too, or drop it?
 2. **Crash report dialog.** After a crash the old shell showed
    `CrashReportDialog` ("Protocol encountered a problem": save a report zip or
    dismiss) before the app. Not in the design; proposed owner #110 (startup
@@ -82,6 +84,16 @@ or a name), meeting detection and auto-record.
     `minWidth` 700, and the layout raises the minimum to `COMPACT_MIN_WIDTH`.
     The design is a 460×700 window. #110 needs the native window settings
     changed with it.
+11. **"Start recording" on every Windows toast.** On Windows every
+    notification goes through `notifications/native_windows.rs::show_toast`,
+    which always adds a "Start recording" button and the line "Tap Start
+    recording to begin in Protocol."; the button and a click on the toast body
+    emit `start-recording-from-notification`. The kept notifications use it:
+    recording started and stopped (#114) and the audio route warning (#112),
+    so in the old app a click on a "Recording stopped" toast starts a new
+    recording. The button was meant for meeting detection, which is dropped.
+    Remove it in `native_windows.rs` and drop the listener with it (proposed,
+    #112), or keep a gated listener?
 
 ## Routes and windows
 
@@ -113,7 +125,7 @@ or a name), meeting detection and auto-record.
 | Chunk-load reload script | window | `app/layout.tsx` | dropped | Next.js chunk errors in WebView2. |
 | Tray menu | tray | native `tray.rs` | #110 | Start, Pause, Resume, Stop Recording; Open Main Window; Settings; Update Available, Restart to Update, Check for Updates; Quit (asks during a recording, native `quit.rs`). Icons: #120. |
 | Tray navigation | tray | `app/layout.tsx` | #110 | `tray-navigate` carries a path; route it client-side (see invariants). |
-| Tray Start Recording | tray | `app/layout.tsx` | #110 | `request-recording-toggle`; refused with a toast during first launch; starts through #112. |
+| Tray Start Recording | tray | native `tray.rs` (`toggle_recording_handler`), `hooks/useRecordingStart.ts` | #110 | Native sets sessionStorage `autoStartRecording` with `window.eval` and reloads the window at `/` (`window.location.assign`); the new `/` starts a recording when it finds the flag, with no first-launch or notice check. The reload drops a meeting still being saved and queued post-call jobs. #110 changes that branch of `tray.rs` to emit an event handled client-side and gated by first launch and the notice (#112 starts the recording), or the new `/` must honour the flag. Native already disables Start until first launch is done or a Parakeet model exists. |
 | Ctrl/⌘ K search | hotkey | `components/GlobalSearchDialog.tsx` | #118 | |
 | ← / → skip 5 s in the player | hotkey | `components/meeting/AudioPlayerBar.tsx` | #113 | |
 | F2 rename, Esc clears the selection in meeting lists | hotkey | `components/Sidebar/index.tsx`, `app/meetings/page.tsx` | #113 | |
@@ -448,11 +460,11 @@ Keep on top; they are new in #110, not parity items.
 | `transcription-warning` | event | `hooks/useModalState.ts` | #112 | |
 | `transcription-complete` | event | `services/transcriptService.ts`, `hooks/useRecordingStop.ts` | #112 | Ends the wait for the transcription queue after Stop. |
 | `speech-detected` | event | `services/recordingService.ts` | dropped | `onSpeechDetected` exists but nothing subscribes. |
-| `request-recording-toggle` | event | `app/layout.tsx` | #110 | Tray Start Recording. |
+| `request-recording-toggle` | event | `app/layout.tsx` | #110 | Nothing emits it: the listener is dead. Tray Start reloads `/` instead (see Routes and windows); #110 can make `tray.rs` emit it. |
 | `tray-navigate` | event | `app/layout.tsx` | #110 | Path to open. |
 | `meeting-detected` | event | `app/layout.tsx` | dropped | Meeting detection dropped. |
 | `meeting-ended` | event | `app/layout.tsx` | dropped | Auto-record dropped. |
-| `start-recording-from-notification` | event | `app/layout.tsx` | dropped | Only the meeting-detected notification has that button. |
+| `start-recording-from-notification` | event | `app/layout.tsx` | #112 | Proposed; open question 11. Every Windows toast emits it from its "Start recording" button and from a click on its body (`notifications/native_windows.rs`), including the kept recording started/stopped notifications. The listener starts a recording once first launch is done and the notice is acknowledged. |
 | `retranscription-progress` | event | `components/MeetingDetails/PostCallProcessingWorker.tsx`, `components/MeetingDetails/RetranscribeDialog.tsx` | #112 | Also Enhance transcript (#119); filter by meeting id. |
 | `retranscription-complete` | event | same | #112 | |
 | `retranscription-error` | event | same | #112 | |
@@ -624,7 +636,7 @@ and must survive saves (see invariants).
 | Recording start errors (integrity, still downloading, no model) | toast | `lib/recording-start-errors.ts`, `hooks/useRecordingStart.ts` | #112 | |
 | Live speaker labeling unavailable | toast | `app/layout.tsx` | #112 | |
 | Recording audio route warning | toast | `app/layout.tsx` | #112 | Plus an OS notification. |
-| Please complete setup first | toast | `app/layout.tsx` | #110 | Tray start during first launch. |
+| Please complete setup first | toast | `app/layout.tsx` | dropped | Unreachable: the `request-recording-toggle` listener has no emitter, and the notification and detection listeners are not registered during first launch (the notice is mounted only after it). |
 | Please drop an audio file | toast | `app/layout.tsx` | #119 | |
 | Whisper downloaded but could not switch, Retry | notice | `components/TranscriptSettings.tsx` | #117 | Native retries the switch only. |
 | No speech model, recording can't start | notice | `components/TranscriptSettings.tsx` | #117 | Also the Record button (#112). |
@@ -678,7 +690,7 @@ session.
 | `indexeddb_current_meeting_id` | sessionStorage | `contexts/TranscriptContext.tsx`, `lib/live-speaker-edits.ts`, `hooks/useRecordingStop.ts` | #112 | Not needed after the update. Recovery id of the running recording. |
 | `af-live-title` | sessionStorage | `lib/live-session.ts` | #112 | Not needed after the update. Title typed during the recording. |
 | `pendingRecordingGroup` | sessionStorage | `lib/groups.ts` | #112 | Not needed after the update. Open question 8. |
-| `autoStartRecording`, `af-stop-requested` | sessionStorage | `lib/recording-launch.ts`, `hooks/useRecordingStart.ts`, `components/RecordingControls.tsx` | #112 | Not needed after the update. Start/stop handoff across navigation. |
+| `autoStartRecording`, `af-stop-requested` | sessionStorage | `lib/recording-launch.ts`, `hooks/useRecordingStart.ts`, `components/RecordingControls.tsx`, native `tray.rs` | #112 | Not needed after the update. Start/stop handoff across navigation. Native `tray.rs` writes `autoStartRecording` for the tray Start; keep reading it until #110 makes the tray emit an event instead. |
 | `recovery_dialog_shown` | sessionStorage | `app/page.tsx` | #112 | Not needed after the update. Recovery offered once per session. |
 | `post-call-processing:<meetingId>`, `post-call-summary-started:<meetingId>` | sessionStorage | `components/MeetingDetails/PostCallProcessingWorker.tsx`, `contexts/PostCallJobsContext.tsx`, `app/meeting-details/page-content.tsx` | #112 | Not needed after the update. Post-call pass and auto-summary run once per meeting. |
 | `af-action-backfill-done` | sessionStorage | `lib/action-item-sync.ts` | #113 | Not needed after the update. Action-item backfill once per session. |
@@ -733,14 +745,14 @@ row says otherwise.
 | `You` comes from the microphone source | invariant | `utils/speakerUtils.ts`, `lib/speakerLabels.ts` | #112 | Never infer identity from a model's speaker number; `Speaker N` is meeting-local; the user's name only decorates `You` for display. |
 | Speaker edits keep rows, text, timestamps and provenance | invariant | `components/people/SpeakerIdentityDialog.tsx`, `lib/live-speaker-edits.ts` | #119 | `reassign_transcript_speaker` with `from` changes one voice of an overlap row; `rename_meeting_speaker` renames for the meeting; rerunning diarization changes labels only (#113). Live edits are stored before the UI changes and replayed by sequence id (#112). |
 | No silent engine substitution | invariant | `app/layout.tsx`, `components/DiarizationSettings.tsx` | #112 | Show `live-diarization-error`; keep source labels; never switch to another speaker engine. |
-| Recording start order | invariant | `hooks/useRecordingStart.ts`, `lib/recording-launch.ts` | #112 | Notice acknowledged and first launch done → `check_transcription_runtime` → load the live model (Parakeet or Whisper), reporting integrity failures and running downloads → automatic title (folder name and date, or day and time slot) and pending folder → `start_recording_with_devices_and_meeting` → start timestamps. The recording state comes from `recording-started`, not from the call. |
+| Recording start order | invariant | `hooks/useRecordingStart.ts`, `lib/recording-launch.ts` | #112 | First launch done and, except for the tray Start, the notice acknowledged → `check_transcription_runtime` → load the live model (Parakeet or Whisper), reporting integrity failures and running downloads → automatic title (folder name and date, or day and time slot) and pending folder → `start_recording_with_devices_and_meeting` → start timestamps. The recording state comes from `recording-started`, not from the call. |
 | Stop and save order (#32) | invariant | `contexts/RecordingPostProcessingProvider.tsx`, `hooks/useRecordingStop.ts`, `lib/recording-save.ts` | #112 | Every Stop (window, tray, minibar, quit) ends in native finalization, then `recording-stop-complete` to the main window. The WebView discards a take under 10 s, waits 4.5 s for late lines, saves with `api_save_transcript`, files into the pending folder, saves live notes and the summary language, marks the IndexedDB record saved, opens the meeting with `source=recording` unless the app is quitting, and answers `recording_save_finished(stopId, outcome)` within 120 s. The listener lives in the main window on every route. |
 | Post-call pass order | invariant | `components/MeetingDetails/PostCallProcessingWorker.tsx`, `contexts/PostCallJobsContext.tsx` | #112 | Retranscription → reload → diarization → reload → summary. Listeners register before the start call and filter by meeting id; jobs live above navigation; meetings without audio continue with the live transcript. |
 | Meeting language lives in native memory only | invariant | `contexts/ConfigContext.tsx` | #114 | Push the saved `primaryLanguage` with `set_language_preference` at startup and on every change; locked during a recording. |
 | Read-modify-write for native settings objects | invariant | `components/RecordingSettings.tsx`, `components/RecordingControls.tsx`, `contexts/ConfigContext.tsx` | #114 | `set_recording_preferences` and `set_notification_settings` replace the whole object; fields the UI does not show must be written back unchanged. |
 | A first launch creates the database | invariant | `contexts/OnboardingContext.tsx` | #115 | `check_first_launch` → import a legacy database (default location or Homebrew) or `initialize_fresh_database`, before anything reads meetings. |
-| Starts wait for first launch | invariant | `app/layout.tsx`, native `tray.rs` | #110 | Tray and notification starts are refused during first launch; the tray also checks for a Parakeet model natively. |
-| Tray navigation stays client-side | invariant | `app/layout.tsx`, native `tray.rs` | #110 | A reload would drop a meeting still being saved and queued post-call jobs. Old paths (`/settings`, `/settings?section=about`) must resolve, or `tray.rs` changes with the router. |
+| Starts wait for first launch | invariant | `app/layout.tsx`, native `tray.rs` | #110 | Notification starts are not registered until first launch is done and the notice is acknowledged. The tray Start is not gated in the WebView today: native enables it once first launch is done or a Parakeet model exists, and its `autoStartRecording` flag survives the reload that ends first launch, so a recording can start right after it. The new tray path gets the same gate as the notification path. |
+| Tray navigation stays client-side | invariant | `app/layout.tsx`, native `tray.rs` | #110 | A reload would drop a meeting still being saved and queued post-call jobs. `tray-navigate` routes client-side, but the tray Start branch reloads the document today (see Routes and windows). Old paths (`/settings`, `/settings?section=about`) must resolve, or `tray.rs` changes with the router. |
 | Minibar reads native time and owns no stop logic | invariant | `app/minibar/page.tsx` | #116 | Timer from `get_recording_state` (`active_duration`), not a local counter; Stop calls `stop_recording_from_minibar` and the main window saves. |
 | One theme for both windows | invariant | `lib/app-theme.ts` | #106 | Paint before React from `meetily_theme`; `system` calls `setTheme(null)`, so Tauri passes OS changes through. |
 | Notes keep their stored format | invariant | `components/editor/NotesEditor.tsx`, `lib/blocknote-markdown.ts` | #111 | Saved as Markdown plus BlockNote JSON; summaries never overwrite notes. |
