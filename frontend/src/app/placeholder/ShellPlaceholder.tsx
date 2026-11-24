@@ -1,12 +1,11 @@
 import {useQuery} from '@tanstack/react-query'
 import {MagnifyingGlassIcon} from '@phosphor-icons/react'
-import {AnimatePresence} from 'motion/react'
-import * as m from 'motion/react-m'
 import styled from 'styled-components'
 import {appVersionQuery} from '@/api/app'
 import {type UpdateError, type UpdaterSnapshot, updaterStatusQuery} from '@/api/updater'
+import {Kbd} from '@/components/ui/Kbd'
+import {type Status, StatusLine} from '@/components/ui/StatusLine'
 import {formatShortcut, platform, type Platform} from '@/lib/platform'
-import {tween} from '@/styles/motion'
 import {ThemeSwitch} from './ThemeSwitch'
 
 // A stand-in until the window shell and the screens arrive: one 460×700
@@ -21,19 +20,11 @@ const FAILED: Record<UpdateError['action'], string> = {
     install: "Couldn't start the update",
 }
 
-/**
- * The footer's update line. `key` names what the line means and `text` says
- * it: a download keeps one key while its percent climbs, so the line swaps
- * (UpdateStatus) only when the meaning changes.
- */
-interface UpdateLine {
-    key: string
-    text: string
-}
-
-// The order of Settings › About on main: what the updater is doing, then a
-// failure the user saw happen, then the offer, then the last check.
-function describeUpdates(snapshot: UpdaterSnapshot | undefined, unavailable: boolean): UpdateLine {
+// The footer's update line, in the order of Settings › About on main: what
+// the updater is doing, then a failure the user saw happen, then the offer,
+// then the last check. A download keeps one key while its percent climbs
+// beside the text, so the line swaps only when the meaning changes.
+function describeUpdates(snapshot: UpdaterSnapshot | undefined, unavailable: boolean): Status {
     if (!snapshot) {
         return unavailable
             ? {key: 'unavailable', text: 'Update status unavailable'}
@@ -49,8 +40,8 @@ function describeUpdates(snapshot: UpdaterSnapshot | undefined, unavailable: boo
     if (activity.state === 'checking') return {key: 'checking', text: 'Checking for updates…'}
     if (activity.state === 'installing') return {key: 'installing', text: 'Starting the update…'}
     if (activity.state === 'downloading') {
-        const percent = activity.total ? ` ${Math.floor((activity.received / activity.total) * 100)}%` : ''
-        return {key: 'downloading', text: `Downloading ${offer?.release.version ?? 'the update'}…${percent}`}
+        const percent = activity.total ? `${Math.floor((activity.received / activity.total) * 100)}%` : undefined
+        return {key: 'downloading', text: `Downloading ${offer?.release.version ?? 'the update'}…`, value: percent}
     }
     // A failed automatic check shows only in Settings (status.rs).
     if (error && !error.background) return {key: `failed-${error.action}`, text: FAILED[error.action]}
@@ -163,41 +154,6 @@ const Hint = styled(Muted)`
     gap: ${({theme}) => theme.space[1.5]};
 `
 
-const Kbd = styled.kbd`
-    padding: 1px ${({theme}) => theme.space[1.5]};
-    border-radius: ${({theme}) => theme.radii.xs};
-    background: ${({theme}) => theme.colors.surface};
-    color: ${({theme}) => theme.colors.muted};
-    font-family: inherit;
-    ${({theme}) => theme.text.caption};
-`
-
-// A transform needs a box; a plain inline span would ignore it.
-const StatusText = styled(m.span)`
-    display: inline-block;
-`
-
-// A status that changes in place: when its meaning changes, the old line
-// leaves upwards and the new one arrives from below (only the fade under
-// reduced motion). Within one meaning the text updates where it stands.
-function UpdateStatus({status}: { status: UpdateLine }) {
-    return (
-        <Muted role="status">
-            <AnimatePresence mode="wait" initial={false}>
-                <StatusText
-                    key={status.key}
-                    initial={{opacity: 0, y: 4}}
-                    animate={{opacity: 1, y: 0}}
-                    exit={{opacity: 0, y: -4}}
-                    transition={tween('fast')}
-                >
-                    {status.text}
-                </StatusText>
-            </AnimatePresence>
-        </Muted>
-    )
-}
-
 export function ShellPlaceholder() {
     const {data: version} = useQuery(appVersionQuery)
     const {data: updater, isError: updaterUnavailable} = useQuery(updaterStatusQuery)
@@ -232,7 +188,7 @@ export function ShellPlaceholder() {
                         Search
                         <Kbd>{formatShortcut('K')}</Kbd>
                     </Hint>
-                    <UpdateStatus status={describeUpdates(updater, updaterUnavailable)}/>
+                    <StatusLine status={describeUpdates(updater, updaterUnavailable)}/>
                 </Footer>
             </Frame>
         </Page>
