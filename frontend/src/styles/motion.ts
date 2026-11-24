@@ -44,6 +44,14 @@ export const springs = {
 } as const satisfies Record<string, Transition>
 
 /**
+ * A spinner, the sign of a wait of unknown length (components/ui/Spinner):
+ * one `turn` in milliseconds, at a constant speed. One that stands in for
+ * content which usually arrives at once, such as a lazy chunk, shows only
+ * after `delay` milliseconds, so a fast load does not flash it.
+ */
+export const spinner = {turn: 900, delay: 400} as const
+
+/**
  * The scale a menu, select list or tooltip grows from toward its anchor, and
  * the one a pressed button shrinks to: small enough to read as movement,
  * not as a zoom.

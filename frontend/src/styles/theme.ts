@@ -6,7 +6,7 @@
  * never branches on the mode.
  */
 
-import {cubicBezier, durations, easings} from './motion'
+import {cubicBezier, durations, easings, spinner} from './motion'
 
 export type ThemeName = 'light' | 'dark'
 
@@ -234,6 +234,10 @@ const motion = {
         standard: cubicBezier(easings.standard),
         enter: cubicBezier(easings.enter),
         exit: cubicBezier(easings.exit),
+    },
+    spinner: {
+        turn: `${spinner.turn}ms`,
+        delay: `${spinner.delay}ms`,
     },
 }
 

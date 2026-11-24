@@ -9,9 +9,10 @@ import type {StartupPhase} from './startup'
 
 type Checking = Exclude<StartupPhase, 'firstLaunch' | 'ready'>
 
+// `slow` is still waiting on the same read, so its spinner keeps turning.
 const STATUS: Record<Checking, Status> = {
-    checking: {key: 'checking', text: 'Checking setup…'},
-    slow: {key: 'slow', text: 'Setup status is taking longer than expected.'},
+    checking: {key: 'checking', text: 'Checking setup…', busy: true},
+    slow: {key: 'slow', text: 'Setup status is taking longer than expected.', busy: true},
     failed: {key: 'failed', text: 'Unable to check setup status. Please retry.'},
 }
 

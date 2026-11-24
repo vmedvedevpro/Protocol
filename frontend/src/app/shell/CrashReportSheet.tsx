@@ -25,12 +25,6 @@ const FAILED: Record<CrashAction, string> = {
     ignore: "Couldn't dismiss the crash report.",
 }
 
-const PENDING: Record<CrashAction, string> = {
-    send: 'Preparing…',
-    save: 'Saving…',
-    ignore: 'Ignoring…',
-}
-
 /**
  * How a choice ended: `cancelled` in the save dialog, `done`, or
  * `browserFailed` when Send saved the ZIP but the browser did not open.
@@ -169,7 +163,8 @@ export function CrashReportSheet() {
     })
     const busy = resolve.isPending
     const browserFailed = resolve.data === 'browserFailed'
-    const label = (action: CrashAction, idle: string) => (busy && resolve.variables === action ? PENDING[action] : idle)
+    // The choice in progress shows a spinner; the other two wait, disabled.
+    const pending = (action: CrashAction) => busy && resolve.variables === action
 
     if (!report) return null
 
@@ -186,16 +181,26 @@ export function CrashReportSheet() {
                 </SheetClose>
             ) : (
                 <>
-                    <Button variant="ghost" disabled={busy} onClick={() => resolve.mutate('ignore')}>
-                        {label('ignore', 'Ignore')}
+                    <Button
+                        variant="ghost"
+                        disabled={busy}
+                        pending={pending('ignore')}
+                        onClick={() => resolve.mutate('ignore')}
+                    >
+                        Ignore
                     </Button>
-                    <Button disabled={busy} onClick={() => resolve.mutate('save')}>
+                    <Button disabled={busy} pending={pending('save')} onClick={() => resolve.mutate('save')}>
                         <FileZipIcon aria-hidden/>
-                        {label('save', 'Save ZIP')}
+                        Save ZIP
                     </Button>
-                    <Button variant="filled" disabled={busy} onClick={() => resolve.mutate('send')}>
+                    <Button
+                        variant="filled"
+                        disabled={busy}
+                        pending={pending('send')}
+                        onClick={() => resolve.mutate('send')}
+                    >
                         <PaperPlaneTiltIcon aria-hidden/>
-                        {label('send', 'Send Report')}
+                        Send Report
                     </Button>
                 </>
             )}

@@ -13,6 +13,13 @@ describe('StatusLine', () => {
         expect(screen.getByText('42%')).toBeInTheDocument()
     })
 
+    it('turns a spinner before a busy status, outside what screen readers hear', () => {
+        const {container} = renderUi(<StatusLine status={{key: 'checking', text: 'Checking for updates…', busy: true}}/>)
+
+        expect(screen.getByRole('status')).toHaveTextContent('Checking for updates…')
+        expect(container.querySelector('svg')).toHaveAttribute('aria-hidden', 'true')
+    })
+
     it('updates a value in place and swaps the line when the meaning changes', async () => {
         const {rerender} = renderUi(<StatusLine status={{key: 'downloading', text: 'Downloading…', value: '42%'}}/>)
         const text = screen.getByText('Downloading…')

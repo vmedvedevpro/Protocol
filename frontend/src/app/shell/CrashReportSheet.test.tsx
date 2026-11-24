@@ -40,6 +40,30 @@ describe('CrashReportSheet', () => {
         await waitFor(() => expect(screen.queryByText(/No audio, recordings/)).not.toBeInTheDocument())
     })
 
+    it('turns a spinner on the choice in progress while the others wait', async () => {
+        mockState.crashReport = PANIC
+        let choose: (path: string | null) => void = () => {}
+        vi.spyOn(handlers, 'plugin:dialog|save').mockImplementation(
+            () => new Promise<string | null>((resolve) => {
+                choose = resolve
+            }),
+        )
+        renderSheet()
+
+        const save = await screen.findByRole('button', {name: 'Save ZIP'})
+        await userEvent.click(save)
+        await waitFor(() => expect(save).toHaveAttribute('aria-busy', 'true'))
+        const send = screen.getByRole('button', {name: 'Send Report'})
+        expect(send).toBeDisabled()
+        expect(send).not.toHaveAttribute('aria-busy')
+
+        // Cancelled in the save dialog: the sheet stays, ready again.
+        choose(null)
+        await waitFor(() => expect(save).toBeEnabled())
+        expect(save).not.toHaveAttribute('aria-busy')
+        expect(send).toBeEnabled()
+    })
+
     it('dismisses a sent report whose browser did not open, so no second ZIP is written', async () => {
         mockState.crashReport = PANIC
         // As open_external_url does when ShellExecuteW or xdg-open fails.
