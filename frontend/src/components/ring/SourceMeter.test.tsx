@@ -37,6 +37,20 @@ describe('SourceMeter', () => {
         expect(await screen.findByRole('tooltip')).toHaveTextContent('Turn on computer audio')
     })
 
+    it('warns that computer audio is too loud, and says what to do', async () => {
+        renderUi(<SourceMeter source="system" muted={false} level={null} warning="loud" onToggle={() => {}}/>)
+
+        const button = screen.getByRole('button', {name: 'Mute computer audio, too loud'})
+        expect(button).toHaveAttribute('aria-pressed', 'false')
+        await userEvent.tab()
+        expect(await screen.findByRole('tooltip')).toHaveTextContent(/Too loud: computer audio is being limited/)
+    })
+
+    it('leaves the warning out while muted', () => {
+        renderUi(<SourceMeter source="system" muted level={null} warning="quiet" onToggle={() => {}}/>)
+        expect(screen.getByRole('button', {name: 'Muted computer audio'})).toBeInTheDocument()
+    })
+
     it('moves its bars with its own source only', async () => {
         renderUi(<SourceMeter source="mic" muted={false} level={MIC} onToggle={() => {}}/>)
         const bars = [...screen.getByRole('button').querySelectorAll<HTMLElement>('[aria-hidden="true"] > span')]

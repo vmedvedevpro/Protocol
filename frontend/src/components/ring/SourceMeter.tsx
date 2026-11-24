@@ -1,4 +1,4 @@
-import {MicrophoneIcon, MicrophoneSlashIcon, SpeakerHighIcon, SpeakerSlashIcon} from '@phosphor-icons/react'
+import {MicrophoneIcon, MicrophoneSlashIcon, SpeakerHighIcon, SpeakerSlashIcon, WarningIcon} from '@phosphor-icons/react'
 import {AnimatePresence} from 'motion/react'
 import * as m from 'motion/react-m'
 import styled, {css, useTheme} from 'styled-components'
@@ -7,6 +7,7 @@ import {colorTransition, focusRing} from '@/components/ui/styles'
 import {Tooltip} from '@/components/ui/Tooltip'
 import {VisuallyHidden} from '@/components/ui/VisuallyHidden'
 import {MOTION_OK, SCALE_FROM, tween} from '@/styles/motion'
+import type {LevelWarning} from './levelAdvice'
 import {LevelMeter} from './LevelMeter'
 
 const NAMES: Record<AudioSource, string> = {mic: 'microphone', system: 'computer audio'}
@@ -16,9 +17,20 @@ const ICONS = {
     system: {on: SpeakerHighIcon, muted: SpeakerSlashIcon},
 } as const
 
+const WARNINGS: Record<LevelWarning, { name: string, advice: string }> = {
+    loud: {
+        name: 'too loud',
+        advice: 'Too loud: computer audio is being limited. Lower the call or playback volume, or System volume in Settings › Recording.',
+    },
+    quiet: {
+        name: 'low audio',
+        advice: 'Low audio: computer audio is very quiet. If someone is speaking, raise the call or playback volume, or System volume in Settings › Recording.',
+    },
+}
+
 // Muted inverts the button (the text colour as its fill), so it stands out
 // without a hue, as the design's notes ask: the ring is the only colour.
-const Button = styled.button<{ $muted: boolean }>`
+const Button = styled.button<{ $muted: boolean, $warning: boolean }>`
     display: inline-flex;
     flex: none;
     align-items: center;
@@ -52,6 +64,11 @@ const Button = styled.button<{ $muted: boolean }>`
             }
         `)}
 
+    /* A warning outlines the button in the text colour: it stands out without a hue. */
+    ${({$warning, $muted}) => $warning && !$muted && css`
+        box-shadow: inset 0 0 0 1px ${({theme}) => theme.colors.text};
+    `}
+
     ${focusRing};
 
     ${MOTION_OK} {
@@ -76,27 +93,37 @@ interface SourceMeterProps {
     level: LevelFeed | null
     /** Mute or turn the source back on; the caller owns the native call. */
     onToggle: () => void
+    /**
+     * Advice on the level (`useSystemAudioWarning`, computer audio only): a
+     * warning icon takes the source's place, the bars stay, and the tooltip
+     * says what to do.
+     */
+    warning?: LevelWarning | null
 }
 
 /**
  * The microphone or computer-audio button of the recording bar and the
  * minibar: the source's icon and its level, or, when muted, a slashed icon and
- * "Muted" on an inverted fill. The swap animates as a status change.
+ * "Muted" on an inverted fill. A level warning puts a warning icon in the
+ * source's place and outlines the button. Each swap animates as a status
+ * change.
  */
-export function SourceMeter({source, muted, level, onToggle}: SourceMeterProps) {
+export function SourceMeter({source, muted, level, onToggle, warning = null}: SourceMeterProps) {
     const theme = useTheme()
     const name = NAMES[source]
-    const Icon = ICONS[source][muted ? 'muted' : 'on']
+    const shown = muted ? null : warning
+    const Icon = shown ? WarningIcon : ICONS[source][muted ? 'muted' : 'on']
+    const state = muted ? 'muted' : shown ?? 'on'
 
     // The name comes from the content, so it holds the visible "Muted"
     // (WCAG 2.5.3): "Mute microphone" while on, "Muted microphone" while
     // muted, with aria-pressed for the state. The tooltip says what a click does.
     return (
-        <Tooltip content={muted ? `Turn on ${name}` : `Mute ${name}`}>
-            <Button type="button" aria-pressed={muted} $muted={muted} onClick={onToggle}>
+        <Tooltip content={muted ? `Turn on ${name}` : shown ? WARNINGS[shown].advice : `Mute ${name}`}>
+            <Button type="button" aria-pressed={muted} $muted={muted} $warning={!!shown} onClick={onToggle}>
                 <AnimatePresence mode="wait" initial={false}>
                     <Content
-                        key={muted ? 'muted' : 'on'}
+                        key={state}
                         initial={{opacity: 0, y: 4}}
                         animate={{opacity: 1, y: 0}}
                         exit={{opacity: 0, y: -4}}
@@ -111,7 +138,7 @@ export function SourceMeter({source, muted, level, onToggle}: SourceMeterProps) 
                         ) : (
                             <>
                                 <LevelMeter level={level}/>
-                                <VisuallyHidden>{`Mute ${name}`}</VisuallyHidden>
+                                <VisuallyHidden>{shown ? `Mute ${name}, ${WARNINGS[shown].name}` : `Mute ${name}`}</VisuallyHidden>
                             </>
                         )}
                     </Content>
