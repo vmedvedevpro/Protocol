@@ -1406,45 +1406,43 @@ cannot read safely. Data flow, limits, packaging and the update path:
 
 ### Speaker colors in transcripts
 
-`speakerUtils.ts` supplies the shared dot/text palette for the live and post-call
-virtualized transcript, the live speakers list, the person card and the identify
-dialog. The Tailwind scan must include `src/utils`, where the palette class names
-are declared, or named speakers can render without a dot or text color in
-production. A named person is drawn in their avatar's colour (`colorForName`),
+In the old UI (`162e8be`), `speakerUtils.ts` supplies the shared dot/text
+palette for the live and post-call virtualized transcript, the live speakers
+list, the person card and the identify dialog. A named person is drawn in their avatar's colour (`colorForName`),
 so they look the same in the transcript, the meeting header and their contact
 page; their transcript bubbles take a faint wash of it (`.af-speaker-bubble`).
 Unnamed voices ("Speaker 2") get palette slots by first-spoken meeting order, so
 they stay apart until identified; `You` uses the theme accent. The palette has
 eight slots, so meetings with more than eight unnamed voices reuse colors.
-The focused `tests/lib/speaker-colors.test.mjs` checks slot continuity and the
-contact colour; the Next production CSS output must also contain every dot
-palette class.
 
 ### Themes (#96)
 
-`lib/app-theme.ts` owns the theme. The preference (`light`, `dark` or
-`system`, the default) lives in localStorage under `meetily_theme`, which the
-main window and the minibar share, so a `storage` event repaints the other
-window. Values saved before #96 map on read: Midnight and Charcoal to `dark`,
-Vanilla to `light`. The palettes are channel tokens in `globals.css` under
-`:root[data-theme='light' | 'dark']`; the dark one also carries the `dark`
-class for `dark:` variants and BlockNote. `THEME_BOOT_SCRIPT` paints before
-React with the same rules as `normalizeThemePreference` and must stay in step
-with it.
+`frontend/src/styles/themeMode.ts` owns the theme mode; the rules are in
+[UI_ARCHITECTURE.md](UI_ARCHITECTURE.md). The preference (`light`, `dark` or
+`system`, the default) lives in localStorage under `meetily_theme` as a bare
+string, which the main window and the minibar share, so a `storage` event
+repaints the other window (`AppThemeProvider`). Values saved before #96 map on
+read: Midnight and Charcoal to `dark`, Vanilla to `light`; a missing or
+unknown value reads as `system`. The palettes are the light and dark themes in
+`src/styles/theme.ts`. The boot script in `frontend/index.html` sets
+`color-scheme` before the bundle runs with the same rules as `readThemeMode`
+and must stay in step with it.
 
 `system` reads `prefers-color-scheme`, which under Tauri reports the window's
 theme, not the OS one. So the windows start with no forced theme
-(`tauri.conf.json` and `tauri.windows.conf.json` set none), `applyAppTheme`
+(`tauri.conf.json` and `tauri.windows.conf.json` set none), `AppThemeProvider`
 calls `setTheme(null)` for `system` and `setTheme('light' | 'dark')`
-otherwise, and on Windows Tauri passes each OS switch (tao's
-`WM_SETTINGCHANGE` handling emits `ThemeChanged`) on to WebView2's preferred
-color scheme, where `useAppTheme`'s media query listener picks it up. wry sets
-that scheme on the WebView2 profile, which both windows share, so the last
-window to change its theme sets it for both; while the preference is
-`system` neither window has a forced theme, so they agree.
+otherwise (`setWindowTheme` in `src/api/window.ts`), and on Windows Tauri
+passes each OS switch (tao's `WM_SETTINGCHANGE` handling emits
+`ThemeChanged`) on to WebView2's preferred color scheme, where
+`useResolvedTheme`'s media query listener picks it up. wry sets that scheme on
+the WebView2 profile, which both windows share, so the last window to change
+its theme sets it for both; while the preference is `system` neither window
+has a forced theme, so they agree.
 
-`tests/lib/app-theme.test.ts` checks the mapping of saved values, the
-resolution and that the boot script paints what the module would. The browser
+`src/styles/themeMode.test.tsx` checks the mapping of saved values and the
+resolution, and `src/styles/themeBoot.test.ts` that the boot script paints
+what the module would. The browser
 preview was checked with emulated `prefers-color-scheme`. The OS switch in the
 desktop app rests on tauri-runtime-wry 2.12.3 and tao 0.37.2 as read in their
 source, not on a run in the app; on Linux the media query follows what
@@ -1479,16 +1477,17 @@ General) and Labs > Meeting automation, which only acts on detection's events.
 The code, the saved settings and the `layout.tsx` listeners stay; turning
 detection back on after a fix means flipping both constants. #6 waits for that.
 
-From `frontend/`, run all frontend test files in separate Bun processes. The
-portable runner discovers `tests/**/*.test.{js,mjs,ts,tsx}` and fails if any file
-fails. CI uses the same command, including optional-download, diarization, Labs,
-and audio-level lifecycle tests. Isolation is required: summary-language tests
-define a read-only `window`, while meeting-automation tests install their own
-window; combining them in one Bun process caused repeated CI failures.
+From `frontend/`, the frontend checks are `pnpm run lint`, `pnpm test` (Vitest
+runs every test file in one invocation), `pnpm run build` and
+`pnpm run build-storybook`, as CI's `pr-checks.yml` runs them. Where tests live
+and how they use the mock IPC is in
+[UI_ARCHITECTURE.md › Tests](UI_ARCHITECTURE.md#tests).
 
 ```text
-pnpm dlx bun@1.3.10 scripts/test-isolated.mjs
+pnpm run lint
+pnpm test
 pnpm run build
+pnpm run build-storybook
 ```
 
 Native tests containing `live_nemotron` cover timeline attribution, retained tail,
@@ -1505,9 +1504,10 @@ Run with `--ignored --nocapture --test-threads=1`; a normal unit-test pass does
 not mean these model tests ran. Use nonprivate fixtures and report synthetic
 throughput separately from real-call accuracy and concurrent-ASR performance.
 
-Do not run Next builds concurrently with native commands embedding `frontend/out`
-or with standalone TypeScript checking. When using pnpm in this environment,
-`PNPM_CONFIG_ENABLE_GLOBAL_VIRTUAL_STORE=false` avoids the known store-layout issue.
+Do not run `pnpm run build` concurrently with native commands embedding
+`frontend/out`. When using pnpm in this environment,
+`PNPM_CONFIG_ENABLE_GLOBAL_VIRTUAL_STORE=false` avoids the known store-layout
+issue.
 
 | Note | Purpose |
 | --- | --- |

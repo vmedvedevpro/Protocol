@@ -1,15 +1,31 @@
 import {emit} from '@tauri-apps/api/event'
 import {mockIPC, mockWindows} from '@tauri-apps/api/mocks'
 import type {NativeEvent} from '@/api/events'
-import {handlers, type MockArgs} from './handlers'
+import {handlers, type MockArgs, platformHandlers} from './handlers'
 import {mockState, type MockState} from './state'
 
+// `handlers` answers first, so a platform-only command left there too would
+// answer on every platform.
+for (const own of Object.values(platformHandlers)) {
+    for (const command of Object.keys(own)) {
+        if (Object.hasOwn(handlers, command)) {
+            throw new Error(
+                `"${command}" is in both handlers and platformHandlers in src/mocks/handlers.ts; keep it in platformHandlers only`,
+            )
+        }
+    }
+}
+
 function handle(command: string, args: unknown): unknown {
-    const handler = handlers[command]
+    const handler = handlers[command] ?? platformHandlers[mockState.platform][command]
+    if (handler) return handler((args ?? {}) as MockArgs)
+    // Registered on another platform only: here native has no such command.
+    if (Object.values(platformHandlers).some((own) => Object.hasOwn(own, command))) {
+        throw `Command ${command} not found`
+    }
     // Loud on purpose: a screen that calls a command nobody mocked fails here,
     // not with an empty reply that looks like real data.
-    if (!handler) throw new Error(`The mock IPC has no handler for "${command}"; add one in src/mocks/handlers.ts`)
-    return handler((args ?? {}) as MockArgs)
+    throw new Error(`The mock IPC has no handler for "${command}"; add one in src/mocks/handlers.ts`)
 }
 
 /**

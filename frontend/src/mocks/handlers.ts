@@ -1,3 +1,4 @@
+import type {Platform} from '@/lib/platform'
 import {mockState} from './state'
 
 export type MockArgs = Record<string, unknown>
@@ -14,6 +15,35 @@ export const handlers: Record<string, MockHandler> = {
     'plugin:app|version': () => mockState.appVersion,
     'plugin:window|set_theme': () => null,
 
+    // src-tauri/src/api/api.rs
+    open_external_url: ({url}) => {
+        // Tauri rejects before the command runs when the argument is missing.
+        if (url === undefined) {
+            throw 'invalid args `url` for command `open_external_url`: command open_external_url missing required key url'
+        }
+        const link = String(url)
+        if (!link.startsWith('https://') && !link.startsWith('http://')) {
+            throw 'Only HTTP and HTTPS links can be opened'
+        }
+        mockState.openedUrls.push(link)
+        return null
+    },
+
     // src-tauri/src/updater/commands.rs
     updater_get_status: () => mockState.updater,
+}
+
+/**
+ * Commands native code registers on one platform only (`#[cfg]` in
+ * `generate_handler!`; "Windows only" and "macOS only" in PARITY.md). The mock
+ * answers one only when `mockState.platform` matches: src/lib/platform.ts sets
+ * it (`?platform=` in the browser), and a test or story can change it.
+ * Elsewhere it rejects as Tauri does for a command that does not exist, which
+ * screens show as "not available". A command is in one of the two maps, never
+ * both; ipc.ts refuses to load otherwise.
+ */
+export const platformHandlers: Record<Platform, Record<string, MockHandler>> = {
+    windows: {},
+    macos: {},
+    linux: {},
 }
