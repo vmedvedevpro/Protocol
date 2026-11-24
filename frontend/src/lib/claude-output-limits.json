@@ -1,0 +1,22 @@
+{
+  "defaultTokens": 8192,
+  "fallbackLimit": 8192,
+  "applicationLimit": 64000,
+  "models": [
+    { "prefix": "claude-3-opus", "limit": 4096 },
+    { "prefix": "claude-3-sonnet", "limit": 4096 },
+    { "prefix": "claude-3-haiku", "limit": 4096 },
+    { "prefix": "claude-3-5-", "limit": 8192 },
+    { "prefix": "claude-3-7-", "limit": 64000 },
+    { "prefix": "claude-sonnet-4", "limit": 64000 },
+    { "prefix": "claude-haiku-4-5", "limit": 64000 },
+    { "prefix": "claude-opus-4-5", "limit": 64000 },
+    { "prefix": "claude-opus-4-6", "limit": 128000 },
+    { "prefix": "claude-opus-4-7", "limit": 128000 },
+    { "prefix": "claude-opus-4-8", "limit": 128000 },
+    { "prefix": "claude-opus-4", "limit": 32000 },
+    { "prefix": "claude-opus-5", "limit": 128000 },
+    { "prefix": "claude-sonnet-5", "limit": 128000 },
+    { "prefix": "claude-fable-5", "limit": 128000 }
+  ]
+}

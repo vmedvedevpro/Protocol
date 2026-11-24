@@ -40,6 +40,12 @@ src/
 A feature imports from `components/ui`, `api`, `lib` and `styles`, never from
 another feature. Something two features need moves down to one of those.
 
+`src/lib/claude-output-limits.json` also belongs to native code:
+`src-tauri/src/summary/llm_client.rs` embeds it with `include_str!` at compile
+time, so moving or renaming it breaks the native build, which the frontend
+checks do not run. The summary settings on `main` read their limits from it,
+and the new ones should too.
+
 Two windows load the same `index.html`: the main window at `/`, and the minibar,
 which `minibar.rs` opens as `WebviewUrl::App("minibar")`, at `/minibar`. Tauri's
 asset resolver falls back to `index.html` for that path (as the Vite dev server
