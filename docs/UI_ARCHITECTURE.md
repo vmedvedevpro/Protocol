@@ -115,7 +115,8 @@ minibar window has none of it.
   `lib` so that features can navigate too) names every path: `/` the meetings, `/meetings/:meetingId` a meeting, `/recording` the
   recording screen, `/settings` with an optional `?section=` (the old UI's
   section ids, which the tray still sends; it replaces the old
-  `meetily-settings-*` sessionStorage keys), and `/minibar` outside the shell.
+  `meetily-settings-*` sessionStorage keys), `/settings/:page` a page inside
+  Settings (see Settings), and `/minibar` outside the shell.
   It is a data router (`createBrowserRouter`), for `handle` and
   `useMatches` now and `lazy` and `useBlocker` later. Native code knows
   `/settings`, `/settings?section=about` and `/minibar`: they keep resolving,
@@ -142,8 +143,7 @@ minibar window has none of it.
   meetings, leaves with the old screen, and focus would fall to `<body>`.
   The first screen of the page (location key `default`) leaves focus alone.
 - Screens are placeholders in `app/placeholder/Screens.tsx` until their tasks
-  replace them in the route table; the theme switch sits on the Settings
-  placeholder until #114.
+  replace them in the route table.
 
 ### Startup
 
@@ -252,7 +252,8 @@ theme; the motion from the Motion section.
 - `Switch`, `Select`, `TextField` and `TextArea`. `SettingsGroup`,
   `SettingsRow` and `SettingsNavRow` lay out a settings card; a control in a
   row without a name of its own (`label`, `aria-label`, `aria-labelledby`)
-  is named by the row's label and described by its description. A focused
+  is named by the row's label and described by its description, which may
+  be a `StatusLine` for a status that changes (an update's). A focused
   field draws a 2 px stroke in the text colour on its edge
   (`fieldFocusRing`), so focus differs from hover's `muted` border. The
   stroke is one outline over the border, never a border plus a spread
@@ -711,6 +712,42 @@ levels) skip Query and React state; see Styling and the next section.
   keep their element when `live` turns off after Stop. A
   voice other than the user's can be named in place (`onRenameSpeaker`);
   the user's own label comes from the microphone and is never renamed here.
+
+## Settings
+
+- `features/settings` owns `/settings` and `/settings/:page`. The page shows
+  the simple settings, or with the Advanced switch on (stored under
+  `protocol-settings-advanced`) the four sections in tabs: General,
+  Recording, AI and Advanced. Both views use the same rows
+  (`components/PreferenceRows.tsx`), so turning Advanced off only hides
+  sections and every value stays.
+- `?section=` names the tab, written with `replace`. `sections.ts` maps the
+  old UI's nine ids onto the four; one in a link turns Advanced on, and
+  `about` (the tray's Check for Updates…) lands on General › Updates, which
+  scrolls itself into view and turns the id into `general`. Turning Advanced
+  off drops the id.
+- The recording preferences are changed through `useRecordingPreferences`,
+  which saves with `updateRecordingPreferencesMutation()` and shows a toast
+  if native refuses. A volume slider saves 250 ms after it rests, and on
+  unmount if it has not. The microphone meter beside it follows the device
+  preview (`useAudioLevelMonitoring`: the chosen microphone, or the default
+  devices) while nothing records. During a recording it follows the
+  recording's own level, since a preview would open the device a second
+  time. The meeting language is disabled from Record until the meeting is
+  saved (`useRecordingBusy`).
+- General › Updates shows the updater snapshot that `updater-status` keeps
+  current (App mounts `useUpdaterStatusSync`; stories and tests mount it
+  themselves): its status line, the one action of the state, the download's
+  progress, the release's notes behind "What's new" (`ReleaseNotes` renders
+  the changelog's Markdown subset, never HTML), and a busy refusal kept for
+  10 s. Model updates checks the model list (`src/api/modelCatalog.ts`,
+  kept current from `model-catalog-changed`); each model's own update is
+  offered on the models' pages (#117).
+- #117 adds the AI and Advanced panels in `SectionView`
+  (`pages/SettingsPage.tsx`), the search beside the tabs, and the pages in
+  `pages/SettingsSubpage.tsx` (`PAGES`, `paths.settingsPage`). A page
+  opened from the simple page goes back to it; with Advanced on, it goes
+  back to its section.
 
 ## Mock IPC
 
