@@ -78,9 +78,10 @@ router's list goes to `/`.
 
 ## Native data
 
-- Every call goes through `command()` in `src/api/core.ts`. It rejects with a
-  `CommandError` whose `message` is the Rust error string and whose `detail` is
-  the raw value, for commands that reject with an enum.
+- Every call goes through `command()` in `src/api/core.ts`; its third argument
+  passes invoke options (headers) through. It rejects with a `CommandError`
+  whose `message` is the Rust error string and whose `detail` is the raw value,
+  for commands that reject with an enum.
 - A domain file (`src/api/updater.ts`, or `features/<x>/api/…` when one feature
   owns it) holds the payload types mirroring the Rust ones, one wrapper per
   command, the event names, the query keys and the `queryOptions`. No React in
@@ -105,12 +106,22 @@ router's list goes to `/`.
 
 ## Events
 
-Native code emits with `app.emit(name, payload)`. To use an event:
+Native code emits with `app.emit(name, payload)`, or `emit_to(label, …)` for
+one window. To use an event:
 
-1. Add it to `NativeEvents` in `src/api/events.ts` with its payload type.
-2. Subscribe with `useNativeEvent(name, handler)`. It registers once, always
+1. Declare its name in the domain file that owns it, typed with its payload:
+
+   ```ts
+   export const UPDATER_STATUS_EVENT = 'updater-status' as NativeEvent<UpdaterSnapshot>
+   ```
+
+   `src/api/events.ts` keeps no list of events, so it never imports from a
+   feature, and a bare string does not type-check where an event is expected.
+2. Subscribe with `useNativeEvent(EVENT, handler)`. It registers once, always
    calls the latest handler, and removes a listener that finishes registering
-   after an unmount.
+   after an unmount. Without a `target`, a listener also hears events native
+   code sent to the other window; an event meant for one window is heard with
+   `{target: getCurrentWindow().label}`.
 3. Write the payload into the cache instead of refetching. When the event
    carries the whole value, `setQueryData`; when it only says something
    changed, `invalidateQueries`:

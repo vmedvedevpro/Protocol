@@ -1,31 +1,42 @@
 import {useEffect, useEffectEvent} from 'react'
-import {listen, type UnlistenFn} from '@tauri-apps/api/event'
-import {UPDATER_STATUS_EVENT, type UpdaterSnapshot} from './updater'
+import {listen, type Options, type UnlistenFn} from '@tauri-apps/api/event'
+
+declare const payloadType: unique symbol
 
 /**
- * Every native event the UI listens to, by name, with its payload. Add an
- * entry next to the domain wrapper that owns the event.
+ * A native event's name, carrying its payload type. The domain file that owns
+ * the event declares it next to its wrappers:
+ * `export const UPDATER_STATUS_EVENT = 'updater-status' as NativeEvent<UpdaterSnapshot>`.
  */
-export interface NativeEvents {
-    [UPDATER_STATUS_EVENT]: UpdaterSnapshot
+export type NativeEvent<T> = string & { readonly [payloadType]: T }
+
+/**
+ * Without `options.target`, a listener hears every event of that name,
+ * including those native code sent to another window with `emit_to`; a
+ * window or webview label as `target` limits it to that one and to events
+ * sent to all.
+ */
+export function listenNative<T>(
+    event: NativeEvent<T>,
+    handler: (payload: T) => void,
+    options?: Options,
+): Promise<UnlistenFn> {
+    return listen<T>(event, (message) => handler(message.payload), options)
 }
 
-export type NativeEventName = keyof NativeEvents
-
-export function listenNative<E extends NativeEventName>(
-    event: E,
-    handler: (payload: NativeEvents[E]) => void,
-): Promise<UnlistenFn> {
-    return listen<NativeEvents[E]>(event, (message) => handler(message.payload))
+export interface NativeEventOptions {
+    /** A window or webview label; see listenNative. */
+    target?: string
 }
 
 /**
  * Calls `handler` with each `event` payload while the component is mounted.
  * The handler always sees the latest props; the listener is registered once.
  */
-export function useNativeEvent<E extends NativeEventName>(
-    event: E,
-    handler: (payload: NativeEvents[E]) => void,
+export function useNativeEvent<T>(
+    event: NativeEvent<T>,
+    handler: (payload: T) => void,
+    {target}: NativeEventOptions = {},
 ) {
     const onEvent = useEffectEvent(handler)
 
@@ -34,7 +45,7 @@ export function useNativeEvent<E extends NativeEventName>(
         // must still remove the listener once it exists.
         let disposed = false
         let unlisten: UnlistenFn | undefined
-        listenNative(event, (payload) => onEvent(payload)).then(
+        listenNative(event, (payload: T) => onEvent(payload), {target}).then(
             (stop) => {
                 if (disposed) stop()
                 else unlisten = stop
@@ -45,5 +56,5 @@ export function useNativeEvent<E extends NativeEventName>(
             disposed = true
             unlisten?.()
         }
-    }, [event])
+    }, [event, target])
 }

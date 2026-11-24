@@ -6,8 +6,7 @@
  */
 import {queryOptions} from '@tanstack/react-query'
 import {command} from './core'
-
-export const UPDATER_STATUS_EVENT = 'updater-status'
+import type {NativeEvent} from './events'
 
 export type BusyReason =
     | 'recording'
@@ -81,6 +80,9 @@ export interface UpdaterSnapshot {
     busyReasons: BusyReason[]
     updatedFrom: string | null
 }
+
+/** Sent to every window whenever the snapshot changes. */
+export const UPDATER_STATUS_EVENT = 'updater-status' as NativeEvent<UpdaterSnapshot>
 
 export const updaterKeys = {
     all: ['updater'] as const,

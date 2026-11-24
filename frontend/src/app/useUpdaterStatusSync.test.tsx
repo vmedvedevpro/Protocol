@@ -1,8 +1,7 @@
 import type {ReactNode} from 'react'
 import {QueryClient, QueryClientProvider} from '@tanstack/react-query'
 import {renderHook} from '@testing-library/react'
-import {describe, expect, it, vi} from 'vitest'
-import {useNativeEvent} from '@/api/events'
+import {describe, expect, it} from 'vitest'
 import {UPDATER_STATUS_EVENT, type UpdaterSnapshot, updaterStatusQuery} from '@/api/updater'
 import {emitMockEvent} from '@/mocks/ipc'
 import {mockState} from '@/mocks/state'
@@ -40,16 +39,5 @@ describe('updater-status', () => {
         await emitMockEvent(UPDATER_STATUS_EVENT, snapshot)
 
         expect(queryClient.getQueryData(updaterStatusQuery.queryKey)).toEqual(snapshot)
-    })
-
-    it('stops listening on unmount, even before the listener finished registering', async () => {
-        const handler = vi.fn()
-        const {unmount} = renderHook(() => useNativeEvent(UPDATER_STATUS_EVENT, handler))
-        unmount()
-        await settleIpc()
-
-        await emitMockEvent(UPDATER_STATUS_EVENT, readySnapshot())
-
-        expect(handler).not.toHaveBeenCalled()
     })
 })

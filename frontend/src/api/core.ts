@@ -1,4 +1,4 @@
-import {invoke, type InvokeArgs} from '@tauri-apps/api/core'
+import {invoke, type InvokeArgs, type InvokeOptions} from '@tauri-apps/api/core'
 
 export {isTauri} from '@tauri-apps/api/core'
 
@@ -27,9 +27,9 @@ function describe(command: string, detail: unknown): string {
 }
 
 /** Calls a Tauri command; every wrapper in src/api goes through it. */
-export async function command<T>(name: string, args?: InvokeArgs): Promise<T> {
+export async function command<T>(name: string, args?: InvokeArgs, options?: InvokeOptions): Promise<T> {
     try {
-        return await invoke<T>(name, args)
+        return await invoke<T>(name, args, options)
     } catch (error) {
         throw new CommandError(name, error)
     }

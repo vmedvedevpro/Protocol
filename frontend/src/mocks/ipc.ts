@@ -1,6 +1,6 @@
 import {emit} from '@tauri-apps/api/event'
 import {mockIPC, mockWindows} from '@tauri-apps/api/mocks'
-import type {NativeEventName, NativeEvents} from '@/api/events'
+import type {NativeEvent} from '@/api/events'
 import {handlers, type MockArgs} from './handlers'
 import {mockState, type MockState} from './state'
 
@@ -26,7 +26,7 @@ export function installMockIpc() {
 }
 
 /** Delivers a native event to the page's listeners, as `app.emit` in Rust does. */
-export function emitMockEvent<E extends NativeEventName>(event: E, payload: NativeEvents[E]): Promise<void> {
+export function emitMockEvent<T>(event: NativeEvent<T>, payload: T): Promise<void> {
     return emit(event, payload)
 }
 
