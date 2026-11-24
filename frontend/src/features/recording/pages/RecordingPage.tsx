@@ -1,6 +1,7 @@
 import {useMemo, useState} from 'react'
 import {SparkleIcon} from '@phosphor-icons/react'
 import styled from 'styled-components'
+import {errorMessage} from '@/api/core'
 import {useUserName} from '@/api/preferences'
 import {NotesEditor} from '@/components/editor/NotesEditor'
 import {TranscriptList} from '@/components/transcript/TranscriptList'
@@ -160,12 +161,11 @@ function SummaryPanel() {
 
     const summarize = async () => {
         const {notes} = useSessionStore.getState()
-        const transcript = lines.map((line) => (line.speaker ? `${line.speaker}: ${line.text}` : line.text)).join('\n')
         setPending(true)
         try {
-            setAnswer(await summarizeSoFar(transcript, notes?.markdown ?? null))
+            setAnswer(await summarizeSoFar(lines, notes?.markdown ?? null))
         } catch (error) {
-            toast.error('Could not summarize', {description: error instanceof Error ? error.message : String(error)})
+            toast.error('Could not summarize', {description: errorMessage(error)})
         } finally {
             setPending(false)
         }

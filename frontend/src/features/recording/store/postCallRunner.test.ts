@@ -1,6 +1,7 @@
 import {waitFor} from '@testing-library/react'
+import {emit} from '@tauri-apps/api/event'
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
-import {postCallControls, postCallJobs, registerPostCallControls} from '@/api/postCall'
+import {postCallControls, postCallJobs, registerPostCallControls, RETRANSCRIPTION_ERROR_EVENT} from '@/api/postCall'
 import {useAutoSummaryStore} from '@/api/preferences'
 import {handlers} from '@/mocks/handlers'
 import {mockState} from '@/mocks/state'
@@ -70,6 +71,35 @@ describe('the post-call pass', () => {
 
         await waitFor(() => expect(postCallJobs.get(MEETING)).toBeNull())
         expect(invoke.mock.calls.map(([command]) => command)).toContain('diarize_meeting')
+    })
+
+    it('hears an error native sends before the start returns', async () => {
+        useAutoSummaryStore.getState().set(false)
+        vi.spyOn(handlers, 'start_retranscription_command').mockImplementationOnce(async ({meetingId}) => {
+            await emit(RETRANSCRIPTION_ERROR_EVENT, {meeting_id: String(meetingId), error: 'Audio file not found'})
+            return {meeting_id: String(meetingId), message: 'Retranscription started'}
+        })
+        await start()
+
+        await waitFor(() => expect(postCallJobs.get(MEETING)).toMatchObject({state: 'failed', step: 'transcript', error: 'Audio file not found'}))
+    })
+
+    it('starts the next meeting only once native lets go of the model after the time limit', async () => {
+        useAutoSummaryStore.getState().set(false)
+        // Native looks at a cancel between chunks: this one notices it 200 ms in.
+        mockState.postCall.stepMs = 200
+        RUNNER_TIMING.retranscriptionLimitMs = 10
+        await start()
+        await startPostCall({meetingId: 'meeting-1on1', folderPath: '/preview/1on1', audioSaved: true})
+        await waitFor(() => expect(mockState.postCall.retranscribing).toBe(MEETING), {interval: 1})
+        // Only the first run is past its limit; the next one runs at full speed.
+        RUNNER_TIMING.retranscriptionLimitMs = DEFAULT_TIMING.retranscriptionLimitMs
+        mockState.postCall.stepMs = 0
+
+        await waitFor(() => expect(postCallJobs.get(MEETING)).toMatchObject({state: 'failed', step: 'transcript'}))
+        expect(postCallJobs.get(MEETING)?.error).toContain('took too long')
+        // Started while native still held the first, it would fail with "Retranscription already in progress".
+        await waitFor(() => expect(postCallJobs.get('meeting-1on1')).toBeNull())
     })
 
     it('cancels a running retranscription natively and ends the pass', async () => {

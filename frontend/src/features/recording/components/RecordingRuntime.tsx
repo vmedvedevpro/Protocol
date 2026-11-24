@@ -2,7 +2,7 @@ import {useEffect, useState} from 'react'
 import {useQueryClient} from '@tanstack/react-query'
 import {useNavigate} from 'react-router-dom'
 import {useNativeEvent} from '@/api/events'
-import {registerPostCallControls} from '@/api/postCall'
+import {registerPostCallControls, usePostCallBusy} from '@/api/postCall'
 import {paths} from '@/lib/paths'
 import {setUiActivity, UI_ACTIVITY_RENEW_MS, type UiActivity} from '../api/activity'
 import {
@@ -22,7 +22,7 @@ import {
 import {TRANSCRIPT_UPDATE_EVENT} from '../api/transcript'
 import {registerLinks} from '../store/links'
 import {flushLiveNotes} from '../store/liveNotes'
-import {runnerControls, usePostCallWorking} from '../store/postCallRunner'
+import {runnerControls} from '../store/postCallRunner'
 import {
     onAudioRouteWarning,
     onLiveDiarizationError,
@@ -48,18 +48,16 @@ import {RecoverySheet} from './RecoverySheet'
  */
 function useUiActivityReport() {
     const finishing = useSessionStore((state) => state.phase === 'finishing')
-    const postCall = usePostCallWorking()
-    const activities: UiActivity[] = [...(finishing ? ['recordingSave' as const] : []), ...(postCall ? ['postCall' as const] : [])]
-    const key = activities.join(',')
+    const postCall = usePostCallBusy()
 
     useEffect(() => {
-        const list = key ? (key.split(',') as UiActivity[]) : []
+        const list: UiActivity[] = [...(finishing ? ['recordingSave' as const] : []), ...(postCall ? ['postCall' as const] : [])]
         const send = () => void setUiActivity(list).catch(() => undefined)
         send()
         if (list.length === 0) return
         const renew = setInterval(send, UI_ACTIVITY_RENEW_MS)
         return () => clearInterval(renew)
-    }, [key])
+    }, [finishing, postCall])
 }
 
 /**

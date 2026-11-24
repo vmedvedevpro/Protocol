@@ -6,14 +6,14 @@
  * relabels those rows, and the summary reads the result. Native
  * retranscribes one meeting at a time, so passes queue.
  *
- * The runner is the only writer of `postCallJobs` (src/api/postCall.ts);
- * the shell mounts it above navigation (PostCallRunner), so a pass goes on
- * while the user moves between screens. Screens ask it to cancel, retry or
- * skip through `postCallControls`. After each step the meeting's queries are
- * refetched, so the screen showing it follows.
+ * The runner is the only writer of `postCallJobs` (src/api/postCall.ts).
+ * RecordingRuntime, which the shell mounts above navigation, registers its
+ * controls, so a pass goes on while the user moves between screens. Screens
+ * ask it to cancel, retry or skip through `postCallControls`. After each
+ * step the meeting's queries are refetched, so the screen showing it follows.
  */
-import {create} from 'zustand'
-import {subscribeNative} from '@/api/events'
+import {errorMessage} from '@/api/core'
+import {listenNative} from '@/api/events'
 import {
     cancelSummary,
     diarizationAvailable,
@@ -58,23 +58,10 @@ interface Pass {
     cancel: AbortController
 }
 
-/** Whether a pass runs or waits its turn, for the updater's activity report. */
-const useRunnerStore = create<{ working: boolean }>(() => ({working: false}))
-
-/**
- * A pass runs or is queued. One that failed and waits for Retry or Skip
- * holds no native work, so it does not keep an update from installing.
- */
-export const usePostCallWorking = () => useRunnerStore((state) => state.working)
-
 const passes = new Map<string, Pass>()
 /** Meetings waiting for native's one retranscription, in order. */
 let queue: string[] = []
 let running: string | null = null
-
-function track() {
-    useRunnerStore.setState({working: running !== null || queue.length > 0})
-}
 
 class Cancelled extends Error {
     constructor() {
@@ -92,56 +79,62 @@ export const RUNNER_TIMING = {
     releasePollMs: 500,
 }
 
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
 /**
  * Retranscribes and resolves when native says it is complete. The listeners
- * are registered before the start, and filter by meeting: a short file can
- * finish before the call returns.
+ * are registered before the start (PARITY.md): a short file can finish, and
+ * a missing one fail, before the call returns. They filter by meeting.
  */
 async function retranscribe(pass: Pass) {
     if (!pass.folderPath) throw new Error('The recording folder is unavailable, so the transcript cannot be improved.')
     const model = await resolvePostCallModel()
     const language = useMeetingLanguageStore.getState().value
     const {meetingId} = pass
-    const stops: (() => void)[] = []
+    let settle!: { resolve: () => void, reject: (error: Error) => void }
+    const done = new Promise<void>((resolve, reject) => {
+        settle = {resolve, reject}
+    })
+    // Awaited below; an end heard before that is no unhandled rejection.
+    done.catch(() => undefined)
+    const stops = await Promise.all([
+        listenNative(RETRANSCRIPTION_PROGRESS_EVENT, (event) => {
+            if (event.meeting_id === meetingId) postCallJobs.progress(meetingId, event.progress_percentage)
+        }),
+        listenNative(RETRANSCRIPTION_COMPLETE_EVENT, (event) => {
+            if (event.meeting_id === meetingId) settle.resolve()
+        }),
+        listenNative(RETRANSCRIPTION_ERROR_EVENT, (event) => {
+            if (event.meeting_id === meetingId) settle.reject(pass.cancel.signal.aborted ? new Cancelled() : new Error(event.error))
+        }),
+    ])
+    const cancel = () => void cancelRetranscription(meetingId).catch(() => undefined)
+    pass.cancel.signal.addEventListener('abort', cancel, {once: true})
+    const limit = setTimeout(() => {
+        cancel()
+        settle.reject(new Error('Improving the transcript took too long and was stopped.'))
+    }, RUNNER_TIMING.retranscriptionLimitMs)
     try {
-        await new Promise<void>((resolve, reject) => {
-            stops.push(subscribeNative(RETRANSCRIPTION_PROGRESS_EVENT, (event) => {
-                if (event.meeting_id === meetingId) postCallJobs.progress(meetingId, event.progress_percentage)
-            }))
-            stops.push(subscribeNative(RETRANSCRIPTION_COMPLETE_EVENT, (event) => {
-                if (event.meeting_id === meetingId) resolve()
-            }))
-            stops.push(subscribeNative(RETRANSCRIPTION_ERROR_EVENT, (event) => {
-                if (event.meeting_id !== meetingId) return
-                reject(pass.cancel.signal.aborted ? new Cancelled() : new Error(event.error))
-            }))
-            const cancel = () => void cancelRetranscription(meetingId).catch(() => undefined)
-            pass.cancel.signal.addEventListener('abort', cancel, {once: true})
-            stops.push(() => pass.cancel.signal.removeEventListener('abort', cancel))
-            const limit = setTimeout(() => {
-                cancel()
-                reject(new Error('Improving the transcript took too long and was stopped.'))
-            }, RUNNER_TIMING.retranscriptionLimitMs)
-            stops.push(() => clearTimeout(limit))
-            // The listeners register asynchronously; the start waits one turn for them.
-            setTimeout(() => {
-                if (pass.cancel.signal.aborted) return reject(new Cancelled())
-                startRetranscription({
-                    meetingId,
-                    meetingFolderPath: pass.folderPath!,
-                    // Parakeet detects the language itself.
-                    language: model.provider === 'parakeet' || language === 'auto' ? null : language,
-                    model: model.name,
-                    provider: model.provider,
-                }).catch(reject)
-            }, 0)
-        })
+        if (pass.cancel.signal.aborted) throw new Cancelled()
+        // Together, so the time limit covers a start that never answers too.
+        await Promise.all([
+            startRetranscription({
+                meetingId,
+                meetingFolderPath: pass.folderPath,
+                // Parakeet detects the language itself.
+                language: model.provider === 'parakeet' || language === 'auto' ? null : language,
+                model: model.name,
+                provider: model.provider,
+            }),
+            done,
+        ])
     } finally {
         stops.forEach((stop) => stop())
-    }
-    // A cancelled run may still hold the model for a moment; the next pass waits for it.
-    while (await isRetranscriptionInProgress(meetingId).catch(() => false)) {
-        await new Promise((resolve) => setTimeout(resolve, RUNNER_TIMING.releasePollMs))
+        pass.cancel.signal.removeEventListener('abort', cancel)
+        clearTimeout(limit)
+        // After a cancel, an error or the time limit native may still finish
+        // its chunk and hold the model; the next pass, or a Retry, waits for it.
+        while (await isRetranscriptionInProgress(meetingId).catch(() => false)) await wait(RUNNER_TIMING.releasePollMs)
     }
 }
 
@@ -157,7 +150,7 @@ async function summarize(pass: Pass) {
     pass.cancel.signal.addEventListener('abort', abort, {once: true})
     try {
         for (; ;) {
-            await new Promise((resolve) => setTimeout(resolve, RUNNER_TIMING.summaryPollMs))
+            await wait(RUNNER_TIMING.summaryPollMs)
             if (pass.cancel.signal.aborted) throw new Cancelled()
             const summary = await getSummary(pass.meetingId)
             void queries().invalidateQueries({queryKey: meetingKeys.summary(pass.meetingId)})
@@ -195,7 +188,6 @@ function finish(meetingId: string) {
     queue = queue.filter((id) => id !== meetingId)
     postCallJobs.end(meetingId)
     if (running === meetingId) running = null
-    track()
     void queries().invalidateQueries({queryKey: meetingKeys.lists()})
     next()
 }
@@ -203,18 +195,16 @@ function finish(meetingId: string) {
 /** Runs `pass` from `step` to its last step; stops at a failure, which waits for Retry or Skip. */
 async function runFrom(pass: Pass, step: PostCallStep) {
     running = pass.meetingId
-    track()
     for (const current of pass.steps.slice(pass.steps.indexOf(step))) {
         postCallJobs.run(pass.meetingId, current)
         try {
             await runStep(pass, current)
         } catch (error) {
             if (error instanceof Cancelled || pass.cancel.signal.aborted) return finish(pass.meetingId)
-            postCallJobs.fail(pass.meetingId, error instanceof Error ? error.message : String(error))
+            postCallJobs.fail(pass.meetingId, errorMessage(error))
             // The failed meeting holds no native work: the next pass may run while it waits.
             running = null
             next()
-            track()
             return
         }
         if (pass.cancel.signal.aborted) return finish(pass.meetingId)
@@ -227,7 +217,6 @@ function next() {
     const meetingId = queue.shift()
     const pass = meetingId ? passes.get(meetingId) : undefined
     if (pass) void runFrom(pass, pass.resumeFrom)
-    track()
 }
 
 /** Goes on from `step` now, or queues it behind the pass that runs. */
@@ -240,7 +229,6 @@ function resume(pass: Pass, step: PostCallStep) {
     // Queued again with the steps left, so the screen shows where it goes on.
     postCallJobs.queue(pass.meetingId, pass.steps.slice(pass.steps.indexOf(step)))
     queue.push(pass.meetingId)
-    track()
 }
 
 /**
@@ -262,7 +250,6 @@ export async function startPostCall({meetingId, folderPath, audioSaved}: PostCal
     passes.set(meetingId, {meetingId, folderPath, steps, resumeFrom: steps[0], cancel: new AbortController()})
     postCallJobs.queue(meetingId, steps)
     queue.push(meetingId)
-    track()
     next()
 }
 
@@ -309,5 +296,4 @@ export function resetPostCallRunner() {
     passes.clear()
     queue = []
     running = null
-    track()
 }

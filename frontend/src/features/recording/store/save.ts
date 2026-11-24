@@ -5,6 +5,7 @@
  * with a `stop_id`; the save below answers it with `recording_save_finished`.
  * A quit waits up to 120 s for that answer.
  */
+import {errorMessage} from '@/api/core'
 import {folderKeys, meetingKeys, saveTranscript, setMeetingFolder} from '@/api/meetings'
 import {saveMeetingNotes} from '@/api/notes'
 import {toast} from '@/components/ui/toastStore'
@@ -61,7 +62,7 @@ export async function stopRecording() {
     } catch (error) {
         // Still recording: say so, and let the user try again. The timer goes on from the take's length.
         session.set({phase, step: null, clock: {seconds: session.get().clock.seconds, at: Date.now()}})
-        toast.error('Could not stop the recording', {description: error instanceof Error ? error.message : String(error)})
+        toast.error('Could not stop the recording', {description: errorMessage(error)})
     }
 }
 
@@ -100,6 +101,23 @@ async function waitForTranscription(): Promise<WaitResult> {
 }
 
 let saving = false
+
+/**
+ * Offers the notes when they did not reach a meeting. They stay in this
+ * window's storage only until the next start, and recovery brings back the
+ * transcript, not the notes, so the toast waits until it is used or closed.
+ */
+function offerNotesCopy(markdown: string | undefined, description: string) {
+    if (!markdown?.trim()) return
+    toast.warning('Your notes were not saved', {
+        id: 'recording-notes',
+        description,
+        action: {label: 'Copy notes', onClick: () => void navigator.clipboard?.writeText(markdown)},
+        duration: Infinity,
+    })
+}
+
+const NOT_RECOVERED = 'Copy them now: recovering the meeting brings back its transcript, not its notes.'
 
 /**
  * The save after `recording-stop-complete`: discard a short take, wait for
@@ -147,11 +165,13 @@ export async function saveAfterStop(stop: RecordingStopComplete) {
             // Kept for recovery: the crash copy has every line that arrived.
             answered = true
             await answer(stop.stop_id, 'notSaved')
+            const {notes} = session.get()
             session.clear()
             toast.error('The meeting was not saved', {
                 description: 'Transcription did not finish in time. Protocol offers to recover it the next time it starts.',
                 duration: 10_000,
             })
+            offerNotesCopy(notes?.markdown, NOT_RECOVERED)
             return
         }
 
@@ -185,34 +205,24 @@ export async function saveAfterStop(stop: RecordingStopComplete) {
             queries().invalidateQueries({queryKey: meetingKeys.lists()}),
             queries().invalidateQueries({queryKey: folderKeys.all}),
         ])
-        if (notesSaved) {
-            clearLiveNotes()
-        } else if (notes) {
-            // The notes stay in this window's storage until the next start, and the toast waits to copy them.
-            const markdown = notes.markdown
-            toast.warning('Your notes were not saved on the meeting', {
-                description: 'Copy them now and paste them into the meeting’s notes.',
-                action: {label: 'Copy notes', onClick: () => void navigator.clipboard?.writeText(markdown)},
-                duration: Infinity,
-            })
-        }
+        if (notesSaved) clearLiveNotes()
+        else offerNotesCopy(notes?.markdown, 'Copy them now and paste them into the meeting’s notes.')
         session.clear()
         if (!quitting) {
             links.openMeeting(meetingId)
             startPostCall({meetingId, folderPath: stop.folder_path ?? null, audioSaved: !stop.audio_save_error})
         }
     } catch (error) {
-        if (!answered) {
-            answered = true
-            await answer(stop.stop_id, 'failed')
-        }
+        // Native waits for one answer; a failure after it (opening the meeting) is not answered twice.
+        if (!answered) await answer(stop.stop_id, 'failed')
+        const {notes} = session.get()
         session.clear()
         toast.error('Could not save the meeting', {
-            description: `${error instanceof Error ? error.message : String(error)} Protocol offers to recover it the next time it starts.`,
+            description: `${errorMessage(error)} Protocol offers to recover it the next time it starts.`,
             duration: 10_000,
         })
+        offerNotesCopy(notes?.markdown, NOT_RECOVERED)
     } finally {
-        if (!answered) await answer(stop.stop_id, 'notSaved')
         saving = false
     }
 }

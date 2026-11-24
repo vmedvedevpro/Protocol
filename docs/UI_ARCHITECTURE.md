@@ -579,7 +579,8 @@ post-call runner writes `postCallJobs` (Recording below).
 - `postCall.ts`: the pass after a recording is saved (retranscription,
   diarization, the automatic summary), one job per meeting:
   `usePostCallJob(meetingId)` is the meeting's job while it is queued, runs
-  or failed, and null once it has ended. The recording's runner, mounted
+  or failed, and null once it has ended; `usePostCallBusy()` is whether any
+  job is queued or runs. The recording's runner, mounted
   once by the shell above navigation, writes it (`postCallJobs`); a screen
   asks it to cancel, retry or skip a step through `postCallControls`, never
   by writing a job. When a step ends the runner invalidates the meeting's
@@ -781,8 +782,9 @@ quit is saved whatever screen is open. The minibar window mounts none of it.
   (written at most every 500 ms, and when the window hides). The editor
   mounts from the session, keyed by the recording, so a view switch never
   mounts it from an older copy; from Stop on it is read-only, so the notes
-  saved are the ones on screen. A failed notes save leaves a toast that
-  copies them.
+  saved are the ones on screen. When they do not reach a meeting (the notes
+  save failed, or the meeting was not saved at all, since recovery brings
+  back only the transcript) a toast waits to copy them.
 - **Stop and save** (`store/save.ts`) follows PARITY.md › Stop and save
   order: `stop_recording` with the save path, then on
   `recording-stop-complete` a take under 10 s is discarded (folder and crash
@@ -803,6 +805,11 @@ quit is saved whatever screen is open. The minibar window mounts none of it.
   on. One meeting at a time; each step waits for the one before. A failed
   step waits for Retry or Skip; a skipped one leaves the list. Cancel stops
   native between chunks. A retranscription past 30 minutes is cancelled.
+  Its listeners are registered (`listenNative`, awaited) before the start,
+  since a missing audio file fails at once; after a cancel, an error or the
+  limit the step waits until `is_retranscription_in_progress_command` says
+  native let go of the model, so the next meeting or a Retry does not fail
+  with "Retranscription already in progress".
 - **Recovery** (`api/recovery.ts`, `store/recover.ts`, `RecoverySheet`):
   IndexedDB `MeetilyRecoveryDB` v1 as the old UI wrote it. A recording's
   record is made at its start; every line is added. Once per page load the
@@ -820,11 +827,13 @@ quit is saved whatever screen is open. The minibar window mounts none of it.
 - **The screen** (`pages/RecordingPage`): the title (click to rename), when it
   started, the folder picker, More actions (copy the transcript, recording
   settings), then Notes, Transcript (live, with speaker naming) and Summary
-  ("Summarize so far": `ask_live_assistant` with the transcript and, to
-  steer it, the notes; not saved).
+  ("Summarize so far": `ask_live_assistant` with the newest lines within
+  12 000 characters and, to steer it, the first 3 000 characters of the
+  notes, the old UI's budgets, since native sends the context to the model
+  in one request; not saved).
 - **Busy and the updater**: the save reports `recordingSave` and a running
-  or queued pass `postCall` (Native data above); a failed pass waiting for
-  the user holds nothing.
+  or queued pass `postCall` (Native data above; `usePostCallBusy` reads it
+  from the jobs); a failed pass waiting for the user holds nothing.
 - `store/queries.ts`: the store works outside React, on the query client
   `RecordingRuntime` registers (the app's, a test's or a story's).
   `store/reset.ts` forgets every module's state; `src/test/setup.ts` runs it

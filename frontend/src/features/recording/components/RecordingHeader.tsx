@@ -10,6 +10,7 @@ import {focusRing} from '@/components/ui/styles'
 import {toast} from '@/components/ui/toastStore'
 import {Tooltip} from '@/components/ui/Tooltip'
 import {paths} from '@/lib/paths'
+import {transcriptText} from '../api/transcript'
 import {startedLabel} from '../lib/titles'
 import {renameRecording, setFolder} from '../store/runtime'
 import {useSessionStore} from '../store/session'
@@ -101,10 +102,8 @@ const NO_FOLDER = ''
 
 /** The live transcript so far, one turn a line, for pasting elsewhere. */
 async function copyTranscript() {
-    const {lines} = useSessionStore.getState()
-    const text = lines.map((line) => (line.speaker ? `${line.speaker}: ${line.text}` : line.text)).join('\n')
     try {
-        await navigator.clipboard.writeText(text)
+        await navigator.clipboard.writeText(transcriptText(useSessionStore.getState().lines))
         toast.success('Transcript copied', {id: 'copy-transcript'})
     } catch {
         toast.error('Could not copy the transcript', {id: 'copy-transcript'})

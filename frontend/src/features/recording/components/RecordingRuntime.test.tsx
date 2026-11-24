@@ -74,6 +74,10 @@ describe('RecordingRuntime', () => {
 
         await waitFor(() => expect(mockState.live.recording).toBeNull())
         expect(toastTitles()).toContain('The recording stopped')
+        // Native then hands the take over, and one this short is discarded. Waiting for
+        // that keeps its toast out of the next test on a slow machine.
+        await waitFor(() => expect(mockState.live.saveAnswers).toEqual([{stopId: 1, outcome: 'discarded'}]))
+        await waitFor(() => expect(toastTitles()).toContain('Recording cancelled'))
     })
 
     it('shows the audio route warning in the app for 30 seconds', async () => {

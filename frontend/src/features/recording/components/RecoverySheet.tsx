@@ -1,12 +1,13 @@
 import {useEffect, useState} from 'react'
 import styled from 'styled-components'
+import {errorMessage} from '@/api/core'
 import {Button} from '@/components/ui/Button'
 import {Sheet} from '@/components/ui/Sheet'
 import {toast} from '@/components/ui/toastStore'
-import {getRecoveryLines} from '../api/recovery'
+import {deleteRecovery} from '../api/recovery'
 import {startedLabel} from '../lib/titles'
 import {links} from '../store/links'
-import {claimRecoveryOffer, deleteRecoverable, findRecoverable, type RecoverableMeeting, recoverMeeting} from '../store/recover'
+import {claimRecoveryOffer, findRecoverable, type RecoverableMeeting, recoverMeeting} from '../store/recover'
 
 const List = styled.ul`
     display: flex;
@@ -59,15 +60,8 @@ const Confirm = styled.span`
 const linesLabel = (count: number) => `${count} ${count === 1 ? 'line' : 'lines'}`
 
 function RecoverableItem({meeting, onDone}: { meeting: RecoverableMeeting, onDone: (meetingId: string) => void }) {
-    const [preview, setPreview] = useState('')
     const [confirming, setConfirming] = useState(false)
     const [pending, setPending] = useState<'recover' | 'delete' | null>(null)
-
-    useEffect(() => {
-        void getRecoveryLines(meeting.meetingId)
-            .then((lines) => setPreview(lines.slice(0, 3).map((line) => line.text.trim()).join(' ')))
-            .catch(() => undefined)
-    }, [meeting.meetingId])
 
     const recover = async () => {
         setPending('recover')
@@ -83,7 +77,7 @@ function RecoverableItem({meeting, onDone}: { meeting: RecoverableMeeting, onDon
             })
             onDone(meeting.meetingId)
         } catch (error) {
-            toast.error('Could not recover the meeting', {description: error instanceof Error ? error.message : String(error)})
+            toast.error('Could not recover the meeting', {description: errorMessage(error)})
             setPending(null)
         }
     }
@@ -91,10 +85,10 @@ function RecoverableItem({meeting, onDone}: { meeting: RecoverableMeeting, onDon
     const remove = async () => {
         setPending('delete')
         try {
-            await deleteRecoverable(meeting.meetingId)
+            await deleteRecovery(meeting.meetingId)
             onDone(meeting.meetingId)
         } catch (error) {
-            toast.error('Could not delete the meeting', {description: error instanceof Error ? error.message : String(error)})
+            toast.error('Could not delete the meeting', {description: errorMessage(error)})
             setPending(null)
             setConfirming(false)
         }
@@ -104,7 +98,7 @@ function RecoverableItem({meeting, onDone}: { meeting: RecoverableMeeting, onDon
         <Item aria-label={meeting.title}>
             <Name>{meeting.title || 'Untitled meeting'}</Name>
             <Meta>{`${startedLabel(new Date(meeting.startTime))} · ${linesLabel(meeting.lines)}${meeting.audio ? ' · audio can be rebuilt' : ''}`}</Meta>
-            {preview && <Preview>{preview}</Preview>}
+            {meeting.preview && <Preview>{meeting.preview}</Preview>}
             <Actions>
                 {confirming ? (
                     <>

@@ -2,6 +2,7 @@ import {waitFor} from '@testing-library/react'
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 import {postCallJobs} from '@/api/postCall'
 import {useAutoSummaryStore} from '@/api/preferences'
+import {useToastStore} from '@/components/ui/toastStore'
 import {speakMockLine} from '@/mocks/live'
 import {mockState} from '@/mocks/state'
 import {spyOnIpc} from '@/test/ipc'
@@ -90,6 +91,27 @@ describe('Stop and save', () => {
         expect(mockState.meetings.meetings).toHaveLength(before)
         expect((await listRecoverable(Date.now() + 60_000)).map((copy) => copy.meetingId)).toContain(recoveryId)
         expect(toastTitles()).toContain('The meeting was not saved')
+    })
+
+    it('offers the notes for copying when the meeting is not saved', async () => {
+        await record()
+        setLiveNotes({markdown: 'Ship the export dialog', json: []})
+        mockState.live.transcription = {chunks_in_queue: 2, is_processing: true, last_activity_ms: 0}
+        const writeText = vi.fn(() => Promise.resolve())
+        Object.defineProperty(navigator, 'clipboard', {value: {writeText}, configurable: true})
+
+        try {
+            await stopRecording()
+
+            await waitFor(() => expect(mockState.live.saveAnswers).toEqual([{stopId: 1, outcome: 'notSaved'}]))
+            // Recovery brings back the transcript only, so the notes are offered now.
+            const notes = useToastStore.getState().toasts.find((toast) => toast.title === 'Your notes were not saved')
+            expect(notes?.action?.label).toBe('Copy notes')
+            notes?.action?.onClick()
+            expect(writeText).toHaveBeenCalledWith('Ship the export dialog')
+        } finally {
+            delete (navigator as { clipboard?: unknown }).clipboard
+        }
     })
 
     it('ends the wait undone when the status cannot be read', async () => {

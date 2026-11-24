@@ -6,29 +6,15 @@
  * first lets the start say why it cannot record: an integrity failure, a
  * download still running, or no model at all.
  */
-import {command} from '@/api/core'
+import {command, errorMessage} from '@/api/core'
 import {getParakeetModels, getWhisperModels, type SpeechModelStatus} from '@/api/models'
 
 /** The prefix native puts on a runtime that cannot start (onnx_runtime.rs `START_ERROR_CODE`). */
 const RUNTIME_ERROR = 'TRANSCRIPTION_RUNTIME_INITIALIZATION_FAILED'
 
-/** The text of a rejected command: usually a string, sometimes an Error or an object. */
-function errorText(error: unknown): string {
-    if (error instanceof Error) return error.message
-    if (typeof error === 'string') return error
-    if (error == null) return ''
-    const message = (error as { message?: unknown }).message
-    if (typeof message === 'string') return message
-    try {
-        return JSON.stringify(error) ?? String(error)
-    } catch {
-        return String(error)
-    }
-}
-
 /** The runtime's reason, or null when `error` is not a runtime failure. */
 export function runtimeMessage(error: unknown): string | null {
-    const text = errorText(error)
+    const text = errorMessage(error)
     if (!text.startsWith(RUNTIME_ERROR)) return null
     return text.slice(RUNTIME_ERROR.length).replace(/^:\s*/, '')
         || 'Speech recognition could not initialize. Restart Protocol; if it continues, repair or reinstall the app.'
@@ -40,7 +26,7 @@ export function runtimeMessage(error: unknown): string | null {
  * any other failure.
  */
 export function modelIntegrityMessage(error: unknown): string | null {
-    const text = errorText(error)
+    const text = errorMessage(error)
     if (text.includes('failed its integrity check and could not be deleted')) {
         return 'The speech model failed its integrity check and could not be deleted. Close any program that has it open, then download it again in Speech models.'
     }
@@ -50,7 +36,7 @@ export function modelIntegrityMessage(error: unknown): string | null {
 
 /** A readable reason for a rejected start, from native's text. */
 export function describeStartError(error: unknown): { title: string, message: string } {
-    const raw = errorText(error)
+    const raw = errorMessage(error)
     const text = raw.toLowerCase()
     // Only "not currently running" means opening an app helps; other
     // per-app failures fall through to native's own reason.
@@ -124,7 +110,7 @@ export async function prepareSpeech(): Promise<SpeechProblem | null> {
             return null
         }
         const models = await getParakeetModels()
-        if (!(await command<boolean>('parakeet_has_available_models'))) {
+        if (!models.some((model) => isAvailable(model.status))) {
             return models.some((model) => isDownloading(model.status)) ? {kind: 'downloading'} : {kind: 'missing'}
         }
         if (!(await command<boolean>('parakeet_is_model_loaded'))) {

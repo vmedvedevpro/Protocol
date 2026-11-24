@@ -4,12 +4,12 @@
  * (api/recovery.ts). Recover saves the copy as a meeting, with its audio
  * rebuilt from native's checkpoints when they are there.
  */
+import {errorMessage} from '@/api/core'
 import {folderKeys, meetingKeys, saveTranscript} from '@/api/meetings'
 import {queries} from './queries'
 import {
     type AudioRecovery,
     cleanupCheckpoints,
-    deleteRecovery,
     getRecoveryLines,
     getRecoveryMeeting,
     hasAudioCheckpoints,
@@ -43,6 +43,8 @@ export function resetRecoveryOffer() {
 /** A meeting the recovery sheet offers. */
 export interface RecoverableMeeting extends RecoveryMeeting {
     lines: number
+    /** Its first three lines, to tell the meetings apart. */
+    preview: string
     /** Native left audio checkpoints to rebuild its audio from. */
     audio: boolean
 }
@@ -59,9 +61,10 @@ export async function findRecoverable(): Promise<RecoverableMeeting[]> {
     const recoveryId = session.get().recoveryId
     const meetings = (await listRecoverable()).filter((meeting) => meeting.meetingId !== recoveryId)
     const offered = await Promise.all(meetings.map(async (meeting) => {
-        const lines = (await getRecoveryLines(meeting.meetingId)).length
+        const lines = await getRecoveryLines(meeting.meetingId)
+        const preview = lines.slice(0, 3).map((line) => line.text.trim()).join(' ')
         const audio = meeting.folderPath ? await hasAudioCheckpoints(meeting.folderPath).catch(() => false) : false
-        return {...meeting, lines, audio}
+        return {...meeting, lines: lines.length, preview, audio}
     }))
     return offered.filter((meeting) => meeting.lines > 0)
 }
@@ -85,7 +88,7 @@ export async function recoverMeeting(recoveryId: string): Promise<Recovered> {
             status: 'failed' as const,
             chunk_count: 0,
             estimated_duration_seconds: 0,
-            message: error instanceof Error ? error.message : String(error),
+            message: errorMessage(error),
         }))
     }
 
@@ -116,6 +119,3 @@ export async function recoverMeeting(recoveryId: string): Promise<Recovered> {
     void queries().invalidateQueries({queryKey: folderKeys.all})
     return {meetingId, audio}
 }
-
-/** Deletes an interrupted meeting's copy for good. */
-export const deleteRecoverable = (recoveryId: string) => deleteRecovery(recoveryId)

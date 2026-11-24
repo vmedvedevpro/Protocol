@@ -5,6 +5,7 @@
  * call. RecordingRuntime (components) subscribes these to the events.
  */
 import type {AudioSource} from '@/api/audio'
+import {errorMessage} from '@/api/core'
 import type {AudioDevice} from '@/api/devices'
 import {meetingsQuery} from '@/api/meetings'
 import {toast} from '@/components/ui/toastStore'
@@ -33,8 +34,6 @@ import {restoreLiveNotes} from './liveNotes'
 import {stopRecording} from './save'
 import {addLine, finishSession, holdClock, renameVoice, session, type SessionFolder} from './session'
 import {startRecording} from './start'
-
-const errorMessage = (error: unknown) => (error instanceof Error ? error.message : String(error))
 
 /** `recording-started`. */
 export const onRecordingStarted = beginSession
@@ -176,17 +175,18 @@ export async function togglePause() {
     try {
         if (phase === 'recording') await pauseRecording()
         else await resumeRecording()
-        holdClock(phase === 'recording')
     } catch (error) {
         toast.error(phase === 'recording' ? 'Could not pause' : 'Could not resume', {description: errorMessage(error)})
     }
 }
 
-/** Mutes or turns on one source; computer audio and the microphone are independent. */
+/**
+ * Mutes or turns on one source; computer audio and the microphone are
+ * independent. The session follows native's `*-mute-changed` event.
+ */
 export async function setSourceMuted(source: AudioSource, muted: boolean) {
     try {
-        const now = await (source === 'mic' ? setMicrophoneMuted(muted) : setSystemAudioMuted(muted))
-        onMuteChanged(source, {muted: now})
+        await (source === 'mic' ? setMicrophoneMuted(muted) : setSystemAudioMuted(muted))
     } catch (error) {
         toast.error(source === 'mic' ? 'Could not change the microphone' : 'Could not change computer audio', {
             description: errorMessage(error),

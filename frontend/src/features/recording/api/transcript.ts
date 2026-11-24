@@ -132,3 +132,23 @@ export function insertLine(lines: readonly LiveLine[], line: LiveLine): LiveLine
     while (at > 0 && after(lines[at - 1], line)) at--
     return [...lines.slice(0, at), line, ...lines.slice(at)]
 }
+
+/**
+ * The lines as text, one a line with its speaker ("Speaker 2: …"), for the
+ * clipboard and the live assistant. With a `budget` in characters, the
+ * newest lines that fit, in order: a long meeting would not fit a model's
+ * context, and recent talk matters most.
+ */
+export function transcriptText(lines: readonly LiveLine[], budget = Infinity): string {
+    const kept: string[] = []
+    let used = 0
+    for (let at = lines.length - 1; at >= 0; at--) {
+        const {speaker, text} = lines[at]
+        const line = speaker ? `${speaker}: ${text.trim()}` : text.trim()
+        // Each line costs its newline too.
+        if (used + line.length + 1 > budget) break
+        kept.push(line)
+        used += line.length + 1
+    }
+    return kept.reverse().join('\n')
+}

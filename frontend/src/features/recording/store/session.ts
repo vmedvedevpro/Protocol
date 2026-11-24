@@ -102,7 +102,6 @@ export function clockSeconds(state: Pick<SessionState, 'clock' | 'phase'>, now =
     return state.clock.seconds + (running && state.clock.at > 0 ? Math.max(0, now - state.clock.at) / 1000 : 0)
 }
 
-/** Stops the timer where it is (pause) or starts it again (resume). */
 /**
  * Capture is ending: the timer stops at the take's length, which the save
  * reads (a take under 10 s is discarded). Only a running or paused session
@@ -114,6 +113,7 @@ export function finishSession(step = 'Finishing…', now = Date.now()) {
     useSessionStore.setState({phase: 'finishing', step, clock: {seconds: clockSeconds(state, now), at: now}})
 }
 
+/** Stops the timer where it is (pause) or starts it again (resume). */
 export function holdClock(paused: boolean, now = Date.now()) {
     const state = useSessionStore.getState()
     const seconds = clockSeconds(state, now)
