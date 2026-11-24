@@ -1,6 +1,7 @@
 import {css, keyframes} from 'styled-components'
+import {colorTransition, focusRing, popoverItem, popoverSurface} from '@/components/ui/styles'
 import {ICON_DEFAULTS} from '@/styles/icons'
-import {MOTION_OK} from '@/styles/motion'
+import {MOTION_OK, SCALE_FROM} from '@/styles/motion'
 
 // The icons in BlockNote's buttons and menu rows (Phosphor, editorIcons) take
 // the app's icon size whatever size BlockNote asks for.
@@ -18,10 +19,10 @@ const placeholderIn = keyframes`
 `
 
 // The fade comes from BlockNote's popover (over `fast`, NotesEditorView);
-// this adds the scale from 0.96 that menus and popovers open with.
+// this adds the scale that menus and popovers open with.
 const menuIn = keyframes`
     from {
-        transform: scale(0.96);
+        transform: scale(${SCALE_FROM});
     }
 `
 
@@ -188,7 +189,9 @@ export const editorStyles = css`
     }
 
     /* ---- Menus: the formatting toolbar, the slash menu, the emoji picker,
-       the link toolbar, the file panel and the menus they open ---- */
+       the link toolbar, the file panel and the menus they open. They share
+       the surface, rows, buttons and fields of the app's own menus and
+       controls (src/components/ui). ---- */
 
     &&& .bn-ak-toolbar,
     &&& .bn-ak-menu,
@@ -196,12 +199,9 @@ export const editorStyles = css`
     &&& .bn-suggestion-menu,
     &&& .bn-frimousse-picker,
     &&& .bn-panel {
-        border: 1px solid ${({theme}) => theme.colors.border};
-        border-radius: ${({theme}) => theme.radii.md};
-        background: ${({theme}) => theme.colors.raised};
-        color: ${({theme}) => theme.colors.text};
-        box-shadow: ${({theme}) => theme.shadows.popover};
+        ${popoverSurface};
         ${({theme}) => theme.text.small};
+        transform-origin: top left;
     }
 
     /* Each button has an empty tooltip holder after it, so a gap would count
@@ -211,18 +211,8 @@ export const editorStyles = css`
         flex-wrap: wrap;
         gap: 0;
         max-width: calc(100vw - ${({theme}) => theme.space[4]});
-        padding: ${({theme}) => theme.space[1]};
         overflow: visible;
         transform-origin: bottom left;
-    }
-
-    &&& .bn-ak-menu,
-    &&& .bn-ak-popover,
-    &&& .bn-suggestion-menu,
-    &&& .bn-frimousse-picker,
-    &&& .bn-panel {
-        padding: ${({theme}) => theme.space[1]};
-        transform-origin: top left;
     }
 
     &&& .bn-suggestion-menu {
@@ -269,9 +259,10 @@ export const editorStyles = css`
         margin: ${({theme}) => theme.space[1]} 0;
     }
 
-    /* Buttons in the toolbar and the side menu: colour and background change
-       on hover, and a press scales to 0.96. The table's handles and extend
-       buttons keep BlockNote's sizes, which the table leaves room for. */
+    /* Buttons in the toolbar and the side menu press like the app's buttons:
+       colour and background change on hover, a press scales them down. The
+       table's handles and extend buttons keep BlockNote's sizes, which the
+       table leaves room for. */
     &&& .bn-ak-button:not(.bn-table-handle, .bn-table-cell-handle, .bn-extend-button) {
         height: ${({theme}) => theme.sizes.control.sm};
         min-width: ${({theme}) => theme.sizes.control.sm};
@@ -285,9 +276,8 @@ export const editorStyles = css`
         color: ${({theme}) => theme.colors.soft};
         box-shadow: none;
         ${({theme}) => theme.text.label};
-        transition:
-            background-color ${({theme}) => theme.motion.duration.fast} ${({theme}) => theme.motion.easing.standard},
-            color ${({theme}) => theme.motion.duration.fast} ${({theme}) => theme.motion.easing.standard};
+        ${colorTransition};
+        ${focusRing};
     }
 
     &&& .bn-ak-button:hover,
@@ -311,21 +301,12 @@ export const editorStyles = css`
 
     ${MOTION_OK} {
         &&& .bn-ak-button {
-            transition:
-                background-color ${({theme}) => theme.motion.duration.fast} ${({theme}) => theme.motion.easing.standard},
-                color ${({theme}) => theme.motion.duration.fast} ${({theme}) => theme.motion.easing.standard},
-                transform ${({theme}) => theme.motion.duration.fast} ${({theme}) => theme.motion.easing.standard};
+            transition-property: color, background-color, border-color, transform;
         }
 
         &&& .bn-ak-button:active {
-            transform: scale(0.96);
+            transform: scale(${SCALE_FROM});
         }
-    }
-
-    &&& .bn-ak-button[data-focus-visible],
-    &&& .bn-ak-menu-item[data-focus-visible] {
-        outline: 2px solid ${({theme}) => theme.colors.text};
-        outline-offset: 1px;
     }
 
     &&& .bn-ak-button svg {
@@ -334,32 +315,33 @@ export const editorStyles = css`
     }
 
     /* Menu rows: the slash menu, the block type and colour menus, the drag
-       handle's menu. The row under the pointer or the keyboard is filled. */
+       handle's menu. They are the app's menu rows, except that the row under
+       the pointer or the keyboard fills itself: the app's sliding highlight
+       is a Radix menu's. Ariakit's lists are flex columns that scroll, so the
+       rows keep their height instead of shrinking to fit. */
     &&& .bn-ak-menu-item,
     &&& .bn-ak-select-item {
-        min-height: ${({theme}) => theme.sizes.control.sm};
-        padding: ${({theme}) => theme.space[1]} ${({theme}) => theme.space[2]};
-        border-radius: ${({theme}) => theme.radii.sm};
+        ${popoverItem};
+        flex-shrink: 0;
         background: transparent;
-        color: ${({theme}) => theme.colors.text};
-        ${({theme}) => theme.text.label};
-        font-weight: ${({theme}) => theme.fontWeights.regular};
-        transition: background-color ${({theme}) => theme.motion.duration.fast} ${({theme}) => theme.motion.easing.standard};
     }
 
     &&& .bn-ak-menu-item:hover,
     &&& .bn-ak-menu-item[data-active-item],
     &&& .bn-ak-menu-item[aria-selected='true'],
     &&& .bn-ak-menu-item[aria-expanded='true'],
+    &&& .bn-ak-menu-item:active,
+    &&& .bn-ak-menu-item[data-active],
     &&& .bn-ak-select-item[data-active-item] {
         background: ${({theme}) => theme.colors.surface};
         color: ${({theme}) => theme.colors.text};
     }
 
-    &&& .bn-ak-menu-item:active,
-    &&& .bn-ak-menu-item[data-active] {
+    /* A slash menu row also has a line that says what the block is. */
+    &&& .bn-suggestion-menu-item {
+        height: auto;
+        min-height: ${({theme}) => theme.sizes.control.sm};
         padding-block: ${({theme}) => theme.space[1]};
-        background: ${({theme}) => theme.colors.surface};
     }
 
     &&& .bn-ak-group-label {
@@ -370,14 +352,10 @@ export const editorStyles = css`
         font-weight: ${({theme}) => theme.fontWeights.medium};
     }
 
+    /* An item's icon is muted beside its text, as in the app's menus. */
     &&& .bn-ak-suggestion-menu-item-section[data-position='left'] {
-        width: ${({theme}) => theme.sizes.control.sm};
-        height: ${({theme}) => theme.sizes.control.sm};
         padding: 0;
-        border: 1px solid ${({theme}) => theme.colors.border};
-        border-radius: ${({theme}) => theme.radii.sm};
-        background: ${({theme}) => theme.colors.bg};
-        color: ${({theme}) => theme.colors.soft};
+        color: ${({theme}) => theme.colors.muted};
     }
 
     &&& .bn-ak-suggestion-menu-item-section[data-position='left'] svg {
@@ -386,7 +364,7 @@ export const editorStyles = css`
     }
 
     &&& .bn-ak-suggestion-menu-item-title {
-        ${({theme}) => theme.text.label};
+        ${({theme}) => theme.text.body};
     }
 
     &&& .bn-ak-suggestion-menu-item-subtitle {
@@ -394,50 +372,61 @@ export const editorStyles = css`
         ${({theme}) => theme.text.caption};
     }
 
+    /* A shortcut, as the app's Kbd draws one on a surface. */
     &&& .bn-ak-suggestion-menu-item-section[data-position='right'] {
-        padding: 0 ${({theme}) => theme.space[1]};
+        padding: 1px ${({theme}) => theme.space[1.5]};
         border-radius: ${({theme}) => theme.radii.xs};
         background: ${({theme}) => theme.colors.surface};
         color: ${({theme}) => theme.colors.muted};
         box-shadow: none;
-        font-family: ${({theme}) => theme.fonts.sans};
+        font-family: inherit;
         ${({theme}) => theme.text.caption};
     }
 
+    /* Inverted, as the app's Tooltip. */
     &&& .bn-ak-tooltip {
         padding: ${({theme}) => theme.space[1]} ${({theme}) => theme.space[2]};
-        border: 1px solid ${({theme}) => theme.colors.border};
+        border: 0;
         border-radius: ${({theme}) => theme.radii.sm};
-        background: ${({theme}) => theme.colors.raised};
-        color: ${({theme}) => theme.colors.text};
+        background: ${({theme}) => theme.colors.text};
+        color: ${({theme}) => theme.colors.bg};
         box-shadow: ${({theme}) => theme.shadows.popover};
         ${({theme}) => theme.text.small};
     }
 
+    /* The link form's fields, as the app's small outlined TextField. */
     &&& .bn-ak-input {
         height: ${({theme}) => theme.sizes.control.sm};
         padding: 0 ${({theme}) => theme.space[2]};
         border: 1px solid ${({theme}) => theme.colors.border};
         border-radius: ${({theme}) => theme.radii.sm};
-        background: ${({theme}) => theme.colors.bg};
+        background: ${({theme}) => theme.colors.raised};
         color: ${({theme}) => theme.colors.text};
         box-shadow: none;
-        ${({theme}) => theme.text.small};
+        ${({theme}) => theme.text.label};
+        font-weight: ${({theme}) => theme.fontWeights.regular};
+        ${colorTransition};
     }
 
-    /* A field's icon (the link form's) is muted beside its text, as in the app's menus. */
-    &&& .bn-ak-input-wrapper > svg {
-        color: ${({theme}) => theme.colors.muted};
+    &&& .bn-ak-input:hover {
+        border-color: ${({theme}) => theme.colors.muted};
+    }
+
+    &&& .bn-ak-input:focus,
+    &&& .bn-ak-input[data-focus-visible] {
+        border-color: ${({theme}) => theme.colors.text};
+        outline: none;
     }
 
     &&& .bn-ak-input::placeholder {
         color: ${({theme}) => theme.colors.muted};
+        opacity: 1;
     }
 
-    &&& .bn-ak-input:focus-visible,
-    &&& .bn-ak-input[data-focus-visible] {
-        outline: 2px solid ${({theme}) => theme.colors.text};
-        outline-offset: -1px;
+    /* A field's icon is muted, as in the app's TextField. */
+    &&& .bn-ak-input-wrapper > svg {
+        flex: none;
+        color: ${({theme}) => theme.colors.muted};
     }
 
     /* ---- The drag handle, alone in the host's 20 px gutter, and the table's handles ---- */
