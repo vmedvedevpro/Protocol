@@ -1,6 +1,7 @@
 import type {UpdaterSnapshot} from '@/api/updater'
 import {platform} from '@/lib/platform'
 import packageJson from '../../package.json'
+import {createMockNotes} from './notes'
 
 /**
  * Everything the mock IPC answers from, and nothing a handler does not read.
@@ -33,6 +34,8 @@ function createMockState() {
         // (jsdom has no window.open); `__PROTOCOL_MOCK__.state` in pnpm dev.
         openedUrls: [] as string[],
         updater,
+        // `meeting_notes` rows by meeting id (src/mocks/notes.ts).
+        meetingNotes: createMockNotes(),
     }
 }
 

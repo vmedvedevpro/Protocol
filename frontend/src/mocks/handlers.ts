@@ -1,4 +1,5 @@
 import type {Platform} from '@/lib/platform'
+import {notesHandlers} from './notes'
 import {mockState} from './state'
 
 export type MockArgs = Record<string, unknown>
@@ -31,6 +32,9 @@ export const handlers: Record<string, MockHandler> = {
 
     // src-tauri/src/updater/commands.rs
     updater_get_status: () => mockState.updater,
+
+    // src-tauri/src/database/repositories/meeting_notes.rs
+    ...notesHandlers(mockState),
 }
 
 /**
