@@ -18,6 +18,22 @@ describe('Button', () => {
         expect(onClick).toHaveBeenCalledTimes(2)
     })
 
+    it('waits while pending: disabled, busy, still named by its label', async () => {
+        const onClick = vi.fn()
+        const {rerender} = renderUi(<Button onClick={onClick}>Save ZIP</Button>)
+
+        rerender(<Button onClick={onClick} pending>Save ZIP</Button>)
+        const button = screen.getByRole('button', {name: 'Save ZIP'})
+        expect(button).toBeDisabled()
+        expect(button).toHaveAttribute('aria-busy', 'true')
+        await userEvent.click(button)
+        expect(onClick).not.toHaveBeenCalled()
+
+        rerender(<Button onClick={onClick}>Save ZIP</Button>)
+        expect(button).toBeEnabled()
+        expect(button).not.toHaveAttribute('aria-busy')
+    })
+
     it('ignores a disabled click', async () => {
         const onClick = vi.fn()
         renderUi(<Button onClick={onClick} disabled>Export</Button>)

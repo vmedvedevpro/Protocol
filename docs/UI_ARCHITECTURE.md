@@ -133,8 +133,9 @@ shell's own commands. The minibar window has none of it.
 
 - Until native code says whether first launch is done
   (`get_onboarding_status`, `src/api/onboarding.ts`) the main window shows
-  "Checking setup…" under the title bar; a failed read, or one still running
-  after 8 s (`STARTUP_PATIENCE_MS`), offers Retry, as the old layout did.
+  "Checking setup…" with a spinner under the title bar; a failed read, or
+  one still running after 8 s (`STARTUP_PATIENCE_MS`), offers Retry, as
+  the old layout did.
   Then it shows first launch (#115; first launch invalidates
   `onboardingKeys.all` when it is done) or the app.
 - Once first launch is done, a crash report the previous session left
@@ -227,7 +228,8 @@ DropdownMenu, Switch, Tooltip) or from native elements; the look from the
 theme; the motion from the Motion section.
 
 - `Button` (filled, secondary, ghost; `sm` 28 px in rows, `md` 30 px in
-  footers) and `IconButton`, whose required `label` is its accessible name
+  footers; `pending` while what it started runs, see Motion) and
+  `IconButton`, whose required `label` is its accessible name
   and its tooltip. `Kbd` shows a shortcut on the window, a grey field or a
   filled button.
 - `SegmentedControl`, and `Tabs` with `TabList` and `TabPanels` (see Motion).
@@ -235,8 +237,11 @@ theme; the motion from the Motion section.
   `SettingsRow` and `SettingsNavRow` lay out a settings card; a control in a
   row without a name of its own (`label`, `aria-label`, `aria-labelledby`)
   is named by the row's label and described by its description. A focused
-  field adds a 1 px ring in the text colour to its border
-  (`fieldFocusRing`), so focus differs from hover's `muted` border. An
+  field draws a 2 px stroke in the text colour on its edge
+  (`fieldFocusRing`), so focus differs from hover's `muted` border. The
+  stroke is one outline over the border, never a border plus a spread
+  shadow: the two snap to device pixels separately, and at a fractional
+  display scale (175 %) one side comes out thinner. An
   external `SettingsNavRow` says "(opens in browser)" to screen readers.
 - `VisuallyHidden` holds text only assistive technology reads.
 - Menu and select rows keep the design's faint highlight; the keyboard's row
@@ -254,27 +259,40 @@ theme; the motion from the Motion section.
 - `UiProviders` (`app/`) is what the primitives expect above them besides
   the theme: `MotionProvider`, the icon defaults and `TooltipProvider`. App,
   Storybook's decorator and the tests' `renderUi` (`src/test/`) mount it.
-- `StatusLine` and `ProgressBar`. The bar scales its fill by transform from
-  an inline style, so a ticking value makes no new class.
+- `StatusLine`, whose `busy` status turns a spinner before its text, and
+  `ProgressBar`. The bar scales its fill by transform from an inline
+  style, so a ticking value makes no new class. `Spinner` marks a wait of
+  unknown length (see Motion).
+- `Collapse` holds what a disclosure shows and hides (see Motion); the
+  button that toggles it sets `aria-expanded`.
 
 ## Motion
 
-Motion shows what changed: where a selection went, what arrived, what left. It
-is never decoration. CSS transitions carry state feedback (hover, press,
-focus); motion (`motion/react`) carries enter and exit, indicators and springs.
+Motion shows what changed: where a selection went, what arrived, what left,
+and that a wait is still running. It is never decoration. CSS transitions
+carry state feedback (hover, press, focus); motion (`motion/react`) carries
+enter and exit, indicators and springs.
 
 - Tokens live in `src/styles/motion.ts`: durations `fast` (120 ms: hover,
   press, focus), `base` (200 ms: most changes of state, the theme crossfade)
   and `slow` (320 ms: large surfaces); easings `standard`, `enter` and
-  `exit`; springs `snappy` (indicators) and `gentle` (sheets, panels). CSS
-  reads `theme.motion.duration.*` and `theme.motion.easing.*`; motion/react
+  `exit`; springs `snappy` (indicators) and `gentle` (sheets, panels); and
+  `spinner`: one `turn` (900 ms, linear) and the `delay` (400 ms) before a
+  delayed spinner shows. CSS reads `theme.motion.duration.*`,
+  `theme.motion.easing.*` and `theme.motion.spinner.*`; motion/react
   reads `tween(duration, easing)` and `springs.*`. A literal duration or curve
-  in a component is a missing token. Foundations/Tokens plays them side by
-  side.
+  in a component is a missing token. Foundations/Tokens plays the durations,
+  easings and springs side by side; UI/Spinner shows the spinner's.
 - Only `transform` and `opacity` animate, plus colours in state feedback and
   the theme change. Width, height, top, left and margin never animate: each
   frame would lay the window out again. Something that has to grow appears
-  with a fade and a small rise, and the layout moves once.
+  with a fade and a small rise, and the layout moves once. The one exception
+  is `Collapse`, a disclosure's content ("What's included?", advanced
+  settings): it grows its height under a clip, because what follows it has
+  to slide rather than jump, and its text must not fade, since text that
+  ends an opacity animation is rasterized again and visibly blinks. It is a
+  short block in a sheet or a settings card, so laying it out each frame
+  is cheap.
 - Animated elements are `m.*` (`import * as m from 'motion/react-m'`) under
   `MotionProvider` (through `UiProviders`). It loads
   `domAnimation` (`app/motionFeatures.ts`) as its own chunk after the first
@@ -299,6 +317,26 @@ focus); motion (`motion/react`) carries enter and exit, indicators and springs.
   JavaScript animation). Select cannot: closed, Radix keeps its items in a
   detached fragment, which shows the current label and selects by typing, so
   its list stays forced in for `fast` after it closes.
+- Waits always move, though the window otherwise moves little: a wait of
+  unknown length shows a `Spinner`, a wait whose share is known shows how
+  far it has got (a `ProgressBar`, or a percent that climbs), and static
+  text alone never marks a wait, since it looks frozen. The spinner is
+  Phosphor's CircleNotch turning in the current colour, sized to the text
+  (`1em`) and hidden from screen readers: the text beside it, or
+  `aria-busy` on what waits, says what the wait is. It is essential motion
+  and keeps turning under reduced motion. Where waits show:
+  - `StatusLine` turns one before a `busy` status, such as "Checking for
+    updates…" or the startup gate's "Checking setup…".
+  - A spinner standing in for something that usually ends at once is
+    `delayed`: it fades in only after `spinner.delay`, so a fast load or
+    action shows nothing rather than a flash. The notes editor's fallback,
+    while its BlockNote chunk loads, turns one on the notes' first line.
+  - `Button`'s `pending` disables the button and sets `aria-busy` at once;
+    if what the click started runs past `spinner.delay`, the label turns
+    transparent in one step (never fading), keeping the button's width, and
+    a delayed spinner fades in over it until the action ends. So Ignore,
+    which usually ends at once, keeps its label. The crash report sheet's
+    Send Report, Save ZIP and Ignore use it.
 - What animates and how:
   - Tabs and segmented controls: the thumb slides; the panel below swaps
     with a `base` crossfade, without sliding.
@@ -314,6 +352,10 @@ focus); motion (`motion/react`) carries enter and exit, indicators and springs.
     nothing.
   - Lists: a new row fades in rising 4 px over `base`, a removed row fades
     out; no stagger, and no reordering animation (it needs layout).
+  - Disclosures: `Collapse` grows from nothing to its content's height over
+    `base` and shrinks back the same way, at full opacity throughout; its
+    button's caret turns over `fast`. The clip holds only while the height
+    moves, so a focus ring at the content's edge shows once it is open.
   - Status changes (a status line, a badge, a count): `AnimatePresence
     mode="wait"` with the old value leaving and the new one arriving, opacity
     and 4 px of `y` over `fast`, as the shell's update status does. The key
@@ -335,7 +377,8 @@ focus); motion (`motion/react`) carries enter and exit, indicators and springs.
   - Values that change every frame (audio levels, the ring) stay outside
     motion and React; see Styling.
 - Reduced motion: `MotionProvider` sets `reducedMotion="user"`, so transform
-  animations jump to their end while opacity still fades. CSS movement goes
+  and size animations (`Collapse`'s height) jump to their end while opacity
+  still fades. The spinner's turn stays outside `MOTION_OK`. CSS movement goes
   inside `MOTION_OK` (`@media (prefers-reduced-motion: no-preference)`);
   colour and opacity transitions stay outside it, and so does the theme
   crossfade, which moves nothing. motion reads the setting when an element

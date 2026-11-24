@@ -12,12 +12,18 @@ export const focusRing = css`
 `
 
 /**
- * A focused text field: its border turns to the text colour (the field's
- * own rule) and this ring doubles it, so focus differs from hover's `muted`
- * border by more than a shade. Drawn at once, like focusRing.
+ * A focused text field: a 2 px stroke in the text colour, so focus differs
+ * from hover's `muted` border by more than a shade. One outline drawn over
+ * the field's 1 px border and the first pixel of its padding (outlines follow
+ * `border-radius` in Chromium and WebKit): a border plus a 1 px spread
+ * shadow snap to device pixels separately, and at a fractional scale such
+ * as 175 % one side came out thinner. The field still turns its border to
+ * the text colour, so no rounding shows a seam. Drawn at once, like
+ * focusRing.
  */
 export const fieldFocusRing = css`
-    box-shadow: 0 0 0 1px ${({theme}) => theme.colors.text};
+    outline: 2px solid ${({theme}) => theme.colors.text};
+    outline-offset: -2px;
 `
 
 /**

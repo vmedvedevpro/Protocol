@@ -21,9 +21,10 @@ const MEANINGS = [
 type Meaning = (typeof MEANINGS)[number]['value']
 
 // The bottom bar's update line. Picking another meaning swaps the line;
+// while checking, a spinner turns before it (a wait of unknown length);
 // while downloading, the percent climbs in place beside it.
-function Updates() {
-    const [meaning, setMeaning] = useState<Meaning>('downloading')
+function Updates({initial = 'downloading'}: { initial?: Meaning }) {
+    const [meaning, setMeaning] = useState<Meaning>(initial)
     const [percent, setPercent] = useState(40)
     useEffect(() => {
         if (meaning !== 'downloading') return
@@ -32,7 +33,7 @@ function Updates() {
     }, [meaning])
 
     const status: Status = {
-        checking: {key: 'checking', text: 'Checking for updates…'},
+        checking: {key: 'checking', text: 'Checking for updates…', busy: true},
         downloading: {key: 'downloading', text: 'Downloading 0.7.0…', value: `${percent}%`},
         ready: {key: 'ready', text: 'Update 0.7.0 is ready'},
     }[meaning]
@@ -58,8 +59,12 @@ export const Light: Story = {globals: {theme: 'light'}}
 
 export const Dark: Story = {globals: {theme: 'dark'}}
 
-/** Reduced motion: lines swap with a fade, without moving. */
+/** Checking for updates: a wait of unknown length, so the spinner turns before the text. */
+export const Checking: Story = {globals: {theme: 'light'}, args: {initial: 'checking'}}
+
+/** Reduced motion: lines swap with a fade, without moving; the spinner still turns. */
 export const ReducedMotion: Story = {
     globals: {theme: 'light'},
+    args: {initial: 'checking'},
     decorators: [(Story) => <MotionConfig reducedMotion="always"><Story/></MotionConfig>],
 }

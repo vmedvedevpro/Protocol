@@ -1,6 +1,8 @@
 import type {ComponentProps, ReactNode} from 'react'
-import styled, {css} from 'styled-components'
+import styled, {css, keyframes} from 'styled-components'
+import {ICON_DEFAULTS} from '@/styles/icons'
 import {MOTION_OK, SCALE_FROM} from '@/styles/motion'
+import {Spinner} from './Spinner'
 import {colorTransition, focusRing} from './styles'
 import {Tooltip} from './Tooltip'
 
@@ -85,6 +87,7 @@ const pressable = css`
 
 const StyledButton = styled.button<{ $variant: ButtonVariant, $size: ButtonSize, $trailing: boolean }>`
     ${pressable};
+    position: relative;
     gap: ${({theme}) => theme.space[2]};
     ${({$variant}) => VARIANTS[$variant]};
     white-space: nowrap;
@@ -108,6 +111,36 @@ const StyledButton = styled.button<{ $variant: ButtonVariant, $size: ButtonSize,
     `};
 `
 
+const hide = keyframes`
+    to {
+        opacity: 0;
+    }
+`
+
+// The label and what goes with it, laid out as the button lays out its
+// children. While pending it turns transparent when the delayed spinner
+// arrives, in one step and never by fading (text ending an opacity animation
+// blinks), so an action that ends at once never swaps the label out. It
+// keeps the button's width and stays in the accessibility tree, so the
+// button keeps its name.
+const Content = styled.span<{ $pending: boolean }>`
+    display: inline-flex;
+    align-items: center;
+    gap: inherit;
+
+    ${({$pending}) => $pending && css`
+        animation: ${hide} 0s ${({theme}) => theme.motion.spinner.delay} forwards;
+    `};
+`
+
+const Pending = styled.span`
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+`
+
 /** Children are the label, after an icon if it has one. */
 type ButtonProps = ComponentProps<'button'> & {
     /** filled: the one main action; secondary: an outlined action; ghost: Cancel and quiet actions. */
@@ -115,20 +148,39 @@ type ButtonProps = ComponentProps<'button'> & {
     size?: ButtonSize
     /** After the label, usually a `<Kbd tone="fill">` shortcut. */
     trailing?: ReactNode
+    /**
+     * What the click started is still running: the button is disabled and
+     * `aria-busy` at once, and if it runs past `theme.motion.spinner.delay` a
+     * spinner stands in for the label at the button's width until it ends.
+     */
+    pending?: boolean
 }
 
 export function Button({
     variant = 'secondary',
     size = 'md',
     trailing,
+    pending = false,
+    disabled,
     type = 'button',
     children,
     ...props
 }: ButtonProps) {
     return (
-        <StyledButton type={type} $variant={variant} $size={size} $trailing={trailing !== undefined} {...props}>
-            {children}
-            {trailing}
+        <StyledButton
+            type={type}
+            disabled={disabled || pending}
+            aria-busy={pending || undefined}
+            $variant={variant}
+            $size={size}
+            $trailing={trailing !== undefined}
+            {...props}
+        >
+            <Content $pending={pending}>
+                {children}
+                {trailing}
+            </Content>
+            {pending && <Pending><Spinner delayed size={ICON_DEFAULTS.size}/></Pending>}
         </StyledButton>
     )
 }

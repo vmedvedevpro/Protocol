@@ -1,6 +1,6 @@
 import {useState} from 'react'
 import type {Meta, StoryObj} from '@storybook/react-vite'
-import {DotsThreeIcon, GearSixIcon, PushPinIcon, XIcon} from '@phosphor-icons/react'
+import {DotsThreeIcon, FileZipIcon, GearSixIcon, PaperPlaneTiltIcon, PushPinIcon, XIcon} from '@phosphor-icons/react'
 import styled from 'styled-components'
 import {formatShortcut} from '@/lib/platform'
 import {Button, IconButton} from './Button'
@@ -19,7 +19,8 @@ const Row = styled.div`
 `
 
 // The artboards' buttons: a sheet's footer, Record with its shortcut, a
-// banner's small actions, and the header's icon buttons.
+// banner's small actions, and the header's icon buttons. The second row
+// waits: a spinner stands in for the clicked button's label, at its width.
 function Buttons() {
     const [onTop, setOnTop] = useState(true)
     return (
@@ -28,6 +29,11 @@ function Buttons() {
                 <Button variant="ghost">Cancel</Button>
                 <Button variant="filled">Export</Button>
                 <Button variant="filled" disabled>Export</Button>
+            </Row>
+            <Row>
+                <Button variant="ghost" disabled>Ignore</Button>
+                <Button disabled><FileZipIcon aria-hidden/>Save ZIP</Button>
+                <Button variant="filled" pending><PaperPlaneTiltIcon aria-hidden/>Send Report</Button>
             </Row>
             <Row>
                 <Button variant="filled" trailing={<Kbd tone="fill">{formatShortcut('R')}</Kbd>}>Record</Button>

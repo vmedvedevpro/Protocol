@@ -431,7 +431,6 @@ export const editorStyles = css`
     &&& .bn-ak-input:focus,
     &&& .bn-ak-input[data-focus-visible] {
         border-color: ${({theme}) => theme.colors.text};
-        outline: none;
         ${fieldFocusRing};
     }
 
