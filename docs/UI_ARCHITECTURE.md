@@ -22,7 +22,8 @@ pnpm run tauri:dev     the desktop app; Tauri starts Vite on 3118 (devUrl)
 ```text
 src/
   main.tsx             entry: mock IPC outside Tauri in dev, QueryClientProvider, App
-  app/                 App, routes, hotkeys, AppThemeProvider, app-wide sync hooks
+  app/                 the composition root: App, routes, AppThemeProvider,
+                       app-wide sync hooks
     shell/             the main window's frame (Window shell below)
     placeholder/       stand-ins for the screens until their tasks replace them
   api/                 native domains shared by several features (see below)
@@ -30,6 +31,7 @@ src/
   components/editor/   the notes editor (BlockNote), loaded as its own chunk; its
                        schema names checklist checkboxes by their item's text
   components/transcript/  the transcript of a saved or a live meeting
+  components/screen/   Screen: a route's <main> and the footer it docks bars in
   features/<x>/
     api/               native domains only this feature uses
     components/
@@ -37,14 +39,20 @@ src/
     pages/             route components
     store/             Zustand stores of client state
     types/
-  lib/                 framework-free helpers (queryClient, platform, paths)
+  lib/                 helpers without feature knowledge (queryClient, platform,
+                       paths, hotkeys)
   styles/              tokens, GlobalStyle, fonts, icon defaults, theme mode
   mocks/               the in-memory mock IPC and its state
   test/                Vitest setup and fakes
 ```
 
-A feature imports from `components/ui`, `api`, `lib` and `styles`, never from
+A feature imports from `components`, `api`, `lib` and `styles`, never from
 another feature. Something two features need moves down to one of those.
+`app/` is the composition root: it imports features and puts them together,
+and nothing imports it: features, `components`, `api` and `lib` never import
+from `app/`. Where a shared piece shows something a feature owns, `app/`
+hands it down, as the shell gives `Screen` the recording bar
+(`RecordBarContext`).
 
 `src/lib/claude-output-limits.json` also belongs to native code:
 `src-tauri/src/summary/llm_client.rs` embeds it with `include_str!` at compile
@@ -61,8 +69,9 @@ router's list goes to `/`. Window shell below has the routes.
 ## Window shell
 
 `app/shell/` is the frame every screen of the main window lives in (#110):
-the title bar, the screen, the bar docked under it, the startup gate and the
-shell's own commands. The minibar window has none of it.
+the title bar, the startup gate and the shell's own commands; each screen
+renders `components/screen/Screen` with the bars docked under it. The
+minibar window has none of it.
 
 ### Window and title bar
 
@@ -117,9 +126,12 @@ shell's own commands. The minibar window has none of it.
   screen has the banner, main and contentinfo landmarks. The footer docks
   the recording bar (`RecordingBar`, laid out by `DockedBar`, both in
   `features/recording`: the ring, what is happening, Record or Stop) over the
-  screen's own `bar`, the meeting's player (#113). The recording bar shows
-  on every screen while a recording starts, runs or is being saved, and
-  idle (Record) only where the screen sets `recordBar`: Home. The status
+  screen's own `bar`, the meeting's player (#113). The shell provides the
+  bar through `RecordBarContext` (`components/screen/recordBar.ts`), so
+  `Screen` imports no feature; a story or a test without the provider
+  docks none. The recording bar shows on every screen while a recording
+  starts, runs or is being saved, and idle (Record) only where the screen
+  sets `recordBar`: Home. The status
   line of model downloads (#117) goes in the same footer on every screen;
   with nothing in it, the footer is `:empty` and hidden from the eye and
   from screen readers.
@@ -170,7 +182,7 @@ shell's own commands. The minibar window has none of it.
 
 ### Hotkeys
 
-- `app/hotkeys.ts` is the window's one keydown listener, attached when the
+- `lib/hotkeys.ts` is the window's one keydown listener, attached when the
   module loads. A screen, or a part of one, registers with
   `useHotkey({code, mod, shift}, run)` while mounted; the shell registers its
   defaults with `level: 'app'`.
@@ -280,10 +292,10 @@ theme; the motion from the Motion section.
   replaces it where it stands (a loading toast and its outcome); the
   Toaster announces the new text, since Radix announces a toast only when
   it appears. A mouse drag never dismisses one.
-- `UiProviders` (`app/`) is what the primitives expect above them besides
-  the theme: `MotionProvider`, the icon defaults, `TooltipProvider` and the
-  `Toaster`. App, Storybook's decorator and the tests' `renderUi`
-  (`src/test/`) mount it.
+- `UiProviders` (`components/ui/`) is what the primitives expect above
+  them besides the theme: `MotionProvider`, the icon defaults,
+  `TooltipProvider` and the `Toaster`. App, Storybook's decorator and the
+  tests' `renderUi` (`src/test/`) mount it.
 - `StatusLine`, whose `busy` status turns a spinner before its text, and
   `ProgressBar`. The bar scales its fill by transform from an inline
   style, so a ticking value makes no new class. `Spinner` marks a wait of
@@ -319,8 +331,8 @@ enter and exit, indicators and springs.
   short block in a sheet or a settings card, so laying it out each frame
   is cheap.
 - Animated elements are `m.*` (`import * as m from 'motion/react-m'`) under
-  `MotionProvider` (through `UiProviders`). It loads
-  `domAnimation` (`app/motionFeatures.ts`) as its own chunk after the first
+  `MotionProvider` (through `UiProviders`). It loads `domAnimation`
+  (`components/ui/motionFeatures.ts`) as its own chunk after the first
   render; until then an `m` element keeps the values it mounted with and
   catches up when the chunk arrives. Its `strict` mode rejects the full
   `motion.*`. Import nothing from

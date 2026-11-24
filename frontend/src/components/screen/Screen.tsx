@@ -1,9 +1,9 @@
-import {type ReactNode, useEffect, useRef, useState} from 'react'
+import {type ReactNode, use, useEffect, useRef, useState} from 'react'
 import * as m from 'motion/react-m'
 import {useLocation} from 'react-router-dom'
 import styled from 'styled-components'
-import {RecordingBar} from '@/features/recording/components/RecordingBar'
 import {tween} from '@/styles/motion'
+import {RecordBarContext} from './recordBar'
 
 // A screen arrives with a fade and a 4 px rise; the screen it replaces goes
 // at once, so a click never waits for an exit.
@@ -60,6 +60,7 @@ export interface ScreenProps {
  * navigation (location key `default`), leaves focus where it is.
  */
 export function Screen({bar, recordBar = false, children}: ScreenProps) {
+    const renderRecordBar = use(RecordBarContext)
     const main = useRef<HTMLElement>(null)
     const {key} = useLocation()
     // Read on mount only: a screen that changes its own search params keeps focus.
@@ -81,7 +82,7 @@ export function Screen({bar, recordBar = false, children}: ScreenProps) {
                 {children}
             </Main>
             <Footer>
-                <RecordingBar idle={recordBar}/>
+                {renderRecordBar?.(recordBar)}
                 {bar}
             </Footer>
         </>
