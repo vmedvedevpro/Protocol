@@ -204,6 +204,9 @@ for stories that do not set it.
   and clears the DOM, the theme mode and localStorage after it. Change a reply
   for one test with `vi.spyOn(handlers, 'command').mockImplementation(…)`; spies
   are restored after each test.
+- The mock takes the window label from the path when it is installed
+  (`minibar` for `/minibar`, otherwise `main`). A test of the minibar sets the
+  path, then calls `installMockIpc()` again before rendering.
 - jsdom has no `matchMedia`; `setSystemDark()` from `src/test/matchMedia.ts`
   flips the OS theme.
 - Test behavior through the UI: roles and visible text, `userEvent` for input.

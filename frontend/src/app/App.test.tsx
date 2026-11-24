@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event'
 import {describe, expect, it, vi} from 'vitest'
 import {UPDATER_STATUS_EVENT, type UpdaterSnapshot} from '@/api/updater'
 import {handlers} from '@/mocks/handlers'
-import {emitMockEvent} from '@/mocks/ipc'
+import {emitMockEvent, installMockIpc} from '@/mocks/ipc'
 import {mockState} from '@/mocks/state'
 import {THEME_STORAGE_KEY} from '@/styles/themeMode'
 import {createTestQueryClient} from '@/test/queryClient'
@@ -75,12 +75,17 @@ describe('App', () => {
         await waitFor(() => expect(setTheme).toHaveBeenLastCalledWith(expect.objectContaining({value: null})))
     })
 
-    it('serves the minibar window its own route', () => {
+    it('serves the minibar window its own route, as the minibar window', async () => {
         window.history.replaceState(null, '', '/minibar')
+        // setup.ts installed the mock as the main window; minibar.rs labels
+        // the window that opens /minibar `minibar`.
+        installMockIpc()
+        const setTheme = vi.spyOn(handlers, 'plugin:window|set_theme')
 
         renderApp()
 
         expect(screen.getByText('Minibar placeholder')).toBeInTheDocument()
+        await waitFor(() => expect(setTheme).toHaveBeenCalledWith(expect.objectContaining({label: 'minibar'})))
     })
 
     it('sends an unknown route home', () => {
