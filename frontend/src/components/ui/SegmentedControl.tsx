@@ -1,8 +1,9 @@
 import {createContext, type KeyboardEvent, type ReactNode, useContext, useId, useRef} from 'react'
-import {AnimatePresence, useIsPresent, useMotionValue, useTransform} from 'motion/react'
+import {useMotionValue, useTransform} from 'motion/react'
 import * as m from 'motion/react-m'
 import styled, {css} from 'styled-components'
-import {springs, tween} from '@/styles/motion'
+import {springs} from '@/styles/motion'
+import {Crossfade, CrossfadeView} from './Crossfade'
 import {focusRing} from './styles'
 
 export interface SegmentedOption<T extends string> {
@@ -294,18 +295,7 @@ export function TabList() {
     )
 }
 
-// The leaving and the arriving panel share one grid cell, so they crossfade
-// in place; the area takes the taller one's height until the old one is gone.
-const PanelStack = styled.div`
-    display: grid;
-    flex: 1;
-    grid-template: minmax(0, 1fr) / minmax(0, 1fr);
-    min-height: 0;
-`
-
-const Panel = styled(m.div)`
-    grid-area: 1 / 1;
-    min-height: 0;
+const Panel = styled(CrossfadeView)`
     overflow-y: auto;
 
     &:focus-visible {
@@ -315,20 +305,8 @@ const Panel = styled(m.div)`
 `
 
 function TabPanel({index, ids, children}: { index: number, ids: string, children: ReactNode }) {
-    // A leaving panel is out of reach while it fades.
-    const present = useIsPresent()
     return (
-        <Panel
-            role="tabpanel"
-            id={panelId(ids, index)}
-            aria-labelledby={tabId(ids, index)}
-            tabIndex={0}
-            inert={!present}
-            initial={{opacity: 0}}
-            animate={{opacity: 1}}
-            exit={{opacity: 0}}
-            transition={tween('base')}
-        >
+        <Panel role="tabpanel" id={panelId(ids, index)} aria-labelledby={tabId(ids, index)} tabIndex={0}>
             {children}
         </Panel>
     )
@@ -344,10 +322,8 @@ export function TabPanels<T extends string>({children}: TabPanelsProps<T>) {
     const {ids, options, value} = useTabs('TabPanels')
     const at = indexOf(options, value)
     return (
-        <PanelStack>
-            <AnimatePresence initial={false}>
-                <TabPanel key={value} index={at} ids={ids}>{children(value as T)}</TabPanel>
-            </AnimatePresence>
-        </PanelStack>
+        <Crossfade>
+            <TabPanel key={value} index={at} ids={ids}>{children(value as T)}</TabPanel>
+        </Crossfade>
     )
 }

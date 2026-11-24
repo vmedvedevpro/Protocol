@@ -2,6 +2,7 @@ import type {Platform} from '@/lib/platform'
 import {audioHandlers} from './audio'
 import {devicesHandlers} from './devices'
 import {meetingsHandlers} from './meetings'
+import {modelCatalogHandlers} from './modelCatalog'
 import {modelsHandlers} from './models'
 import {notesHandlers} from './notes'
 import {macosPermissionsHandlers, permissionsHandlers} from './permissions'
@@ -41,6 +42,9 @@ export const handlers: Record<string, MockHandler> = {
 
     // src-tauri/src/updater/commands.rs
     ...updaterHandlers(mockState),
+
+    // src-tauri/src/model_catalog/commands.rs
+    ...modelCatalogHandlers(mockState),
 
     ...audioHandlers,
 

@@ -7,6 +7,7 @@ import {postCallJobs} from '@/api/postCall'
 import {rereadPreferences} from '@/api/preferences'
 import {recordingPhase} from '@/api/recordingPhase'
 import {useKeepOnTopStore} from '@/app/shell/keepOnTop'
+import {useAdvancedSettingsStore} from '@/features/settings/store/advanced'
 import {resetToasts} from '@/components/ui/toastStore'
 import {installMockIpc} from '@/mocks/ipc'
 import {resetMockState} from '@/mocks/state'
@@ -22,6 +23,10 @@ Element.prototype.hasPointerCapture ??= () => false
 Element.prototype.setPointerCapture ??= () => {}
 Element.prototype.releasePointerCapture ??= () => {}
 
+// jsdom does not scroll: Radix Select and Settings › Updates call
+// scrollIntoView.
+Element.prototype.scrollIntoView ??= () => {}
+
 // Every test runs on the same mock IPC as the browser, from a fresh state.
 beforeEach(() => {
     installMatchMedia()
@@ -34,6 +39,7 @@ afterEach(() => {
     clearMocks()
     useThemeModeStore.setState({mode: 'system'})
     useKeepOnTopStore.setState({onTop: false})
+    useAdvancedSettingsStore.setState({advanced: false})
     resetToasts()
     postCallJobs.reset()
     recordingPhase.set('idle')

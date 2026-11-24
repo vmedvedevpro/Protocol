@@ -83,7 +83,7 @@ same day.
 | `/person?id=…` | route | `app/person/page.tsx` | #118 | Opens from search or a name. |
 | `/contacts` | route | `app/contacts/page.tsx` | dropped | Contacts page dropped by the owner. |
 | `/groups`, `/groups?id=…` | route | `app/groups/page.tsx`, `components/groups/*` | dropped | Groups become folders in the meetings list (#113). |
-| `/settings?section=…` | route | `app/settings/page.tsx` | #114 | Sections `general`, `recording`, `transcription`, `summaries`, `agents`, `detection`, `local`, `labs`, `about` map onto General, Recording, AI, Advanced (#114, #117). The tray sends `/settings` and `/settings?section=about`. |
+| `/settings?section=…` | route | `app/settings/page.tsx` | #114 | Sections `general`, `recording`, `transcription`, `summaries`, `agents`, `detection`, `local`, `labs`, `about` map onto General, Recording, AI, Advanced (#114, #117). The tray sends `/settings` and `/settings?section=about`. Since #114 a section id turns Advanced on, and `about` lands on General › Updates ([UI_ARCHITECTURE.md › Settings](../UI_ARCHITECTURE.md#settings)). |
 | `/minibar` | route | `app/minibar/page.tsx` | #116 | The whole UI of the `minibar` window. Native opens this path (`minibar.rs`, `WebviewUrl::App("minibar")`); keep it or change it there. |
 | Startup gate: "Checking setup…", retry after 8 s or an error | route | `app/layout.tsx` | #110 | Waits for `get_onboarding_status`, then the crash report check. |
 | First launch instead of the app | route | `app/layout.tsx`, `components/onboarding/*` | #115 | Old flow has 5 steps (welcome, setup overview, downloads, name, audio test, which also asks for the microphone and macOS audio permissions); the design has 2. `PermissionsStep` is exported but never rendered. Completion reloads the window. The new first launch downloads Parakeet, Whisper Large V3 Turbo and the built-in summary model that `builtin_ai_get_recommended_model` picks, all in the background (owner decision 2026-11-24). |
@@ -264,7 +264,7 @@ such a command only on its platform
 | --- | --- | --- | --- | --- |
 | `get_audio_devices` | command | `components/RecordingControls.tsx`, `components/onboarding/steps/AudioTestStep.tsx`, `hooks/usePermissionCheck.ts` | #114 | Device lists (moved from the record card); also the bar's "Change inputs" (#112) and the mic test (#115). |
 | `get_database_directory` | command | `components/RecordingControls.tsx`, `contexts/ConfigContext.tsx` | #117 | Advanced › Local AI › Models and recordings; also builds the `stop_recording` save path (#112). |
-| `get_default_recordings_folder_path` | command | `components/RecordingSettings.tsx`, `contexts/ConfigContext.tsx` | #114 | Shown when no folder is saved. |
+| `get_default_recordings_folder_path` | command | `components/RecordingSettings.tsx`, `contexts/ConfigContext.tsx` | #114 | Shown when no folder is saved. Not called since #114: `get_recording_preferences` already answers the default folder in `save_folder` when none is stored, and `set_recording_preferences` rejects an empty one. |
 | `get_recordable_apps` | command | `hooks/useAppAudio.ts` | #117 | Chosen apps subpage. |
 | `get_recording_preferences` | command | `components/RecordingControls.tsx`, `components/RecordingSettings.tsx`, `components/TranscriptSettings.tsx` +3 | #114 | Save audio, folder, devices, volumes, chosen apps, Faster live text. |
 | `open_external_url` | command | `components/About.tsx`, `components/AboutSettings.tsx`, `components/CudaReconfigurationNotice.tsx` +6 | #106 | Links (About, credits, driver pages); one wrapper in `src/api`: `openExternalUrl` in `src/api/links.ts`. |
@@ -535,7 +535,7 @@ default settings mode; the rest sits behind the Advanced switch.
 | System volume | setting | same | #114 | `system_gain`. |
 | Computer audio: all apps or only chosen apps | setting | `components/recording/AppAudioSource.tsx`, `hooks/useAppAudio.ts` | #114 | `per_app_recording_enabled`; Windows and macOS. The app list is a subpage (#117). |
 | Chosen apps list | setting | `components/recording/AppAudioSource.tsx` | #117 | `per_app_targets`; open apps, apps playing sound, browse for an executable. |
-| Import a recording | setting | `app/settings/page.tsx` (`ImportCard`) | #114 | Opens Import (#119). |
+| Import a recording | setting | `app/settings/page.tsx` (`ImportCard`) | #114 | Opens Import (#119). Settings › Recording shows the row with its button disabled until #119 wires it. |
 | Recording file format | setting | native `recording_preferences.rs` | #114 | `file_format`; never shown. Keep it when saving (see invariants). |
 | System audio backend | setting | native `recording_preferences.rs` | #114 | `system_audio_backend`; never shown, keep when saving. |
 | Legacy single app target | setting | native `recording_preferences.rs`, `hooks/useAppAudio.ts` | #117 | `per_app_target_app` and `per_app_target_name` follow `per_app_targets[0]` and are null when the list is empty: native re-adds a target from them when the list is empty, so a stale value brings a removed app back. |
@@ -636,7 +636,7 @@ removal #126).
 | Recording toasts (start, pause, devices, mute) | toast | `components/RecordingControls.tsx` (6), `hooks/useRecordingStart.ts` (7), `hooks/useRecordingStop.ts` (5), `contexts/TranscriptContext.tsx` (6), `contexts/RecordingPostProcessingProvider.tsx` (2), `components/recording/RecordingPill.tsx` (1) | #112 | Counts are `toast` calls per file. |
 | Meeting toasts (summary, copy, rename, delete, action items) | toast | `hooks/meeting-details/useSummaryGeneration.ts` (29), `hooks/meeting-details/useCopyOperations.ts` (11), `app/meeting-details/page-content.tsx` (7), `lib/meeting-actions.ts` (6), `components/meeting/MeetingHeader.tsx` (3), others (4) | #113 | Includes "Bilingual transcript detected". |
 | Dialog toasts (import, enhance, export, templates, speakers) | toast | `components/MeetingDetails/TemplateEditorModal.tsx` (8), `RetranscribeDialog.tsx` (4), `components/people/SpeakerIdentityDialog.tsx` (4), `ImportAudioDialog.tsx` (3), `ExportMeetingsDialog.tsx` (2), `hooks/useImportAudio.ts` (1) | #119 | |
-| Settings toasts | toast | `components/ModelSettingsModal.tsx` (12), `WhisperModelManager.tsx` (8), `ParakeetModelManager.tsx` (8), `RecordingSettings.tsx` (7), `DiarizationSettings.tsx` (7), `BuiltInModelManager.tsx` (6), `LocalStackStatus.tsx` (5), others | #117 | General and Recording ones (#114): `RecordingSettings.tsx`. |
+| Settings toasts | toast | `components/ModelSettingsModal.tsx` (12), `WhisperModelManager.tsx` (8), `ParakeetModelManager.tsx` (8), `RecordingSettings.tsx` (7), `DiarizationSettings.tsx` (7), `BuiltInModelManager.tsx` (6), `LocalStackStatus.tsx` (5), others | #117 | General and Recording ones (#114): `RecordingSettings.tsx`. Since #114 they report failures (saving, changing or opening the folder) and the folder change; the old "saved" toast after every change is gone, since the control shows the new value. |
 | Person and contact toasts | toast | `app/person/page.tsx` (6), `components/people/*` (6) | #118 | |
 | First launch toasts | toast | `components/onboarding/steps/DownloadProgressStep.tsx` (3) | #115 | |
 

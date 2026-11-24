@@ -1,10 +1,10 @@
 import {useEffect, useState} from 'react'
 import {createBrowserRouter, RouterProvider} from 'react-router-dom'
 import {usePreferencesSync} from '@/api/preferences'
+import {useUpdaterStatusSync} from '@/api/updater'
 import {AppThemeProvider} from './AppThemeProvider'
 import {routes} from './routes'
 import {UiProviders} from '@/components/ui/UiProviders'
-import {useUpdaterStatusSync} from './useUpdaterStatusSync'
 
 /** The webview's own menu (Reload, Inspect) stays out of a release, as in the old app. */
 function useNoContextMenuInRelease() {

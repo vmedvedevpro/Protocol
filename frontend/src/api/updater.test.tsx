@@ -1,6 +1,13 @@
+import type {ReactNode} from 'react'
+import {type QueryClient, QueryClientProvider, useQuery} from '@tanstack/react-query'
+import {renderHook, waitFor} from '@testing-library/react'
 import {describe, expect, it, vi} from 'vitest'
+import {handlers} from '@/mocks/handlers'
+import {emitMockEvent} from '@/mocks/ipc'
 import {createMockUpdateRelease} from '@/mocks/updater'
 import {mockState} from '@/mocks/state'
+import {settleIpc} from '@/test/ipc'
+import {createTestQueryClient} from '@/test/queryClient'
 import {CommandError} from './core'
 import {listenNative} from './events'
 import {
@@ -12,6 +19,8 @@ import {
     setUpdateAutoCheck,
     UPDATER_STATUS_EVENT,
     type UpdaterSnapshot,
+    updaterStatusQuery,
+    useUpdaterStatusSync,
 } from './updater'
 
 /** Every `updater-status` the mock pushes, in order. */
@@ -113,5 +122,63 @@ describe('installRefusal', () => {
             .toEqual({kind: 'busy', reasons: ['summary']})
         expect(installRefusal(new CommandError('updater_install_now', 'The installer could not start'))).toBeNull()
         expect(installRefusal(new Error('IPC failed'))).toBeNull()
+    })
+})
+
+function wrapperWith(queryClient: QueryClient) {
+    return function Wrapper({children}: { children: ReactNode }) {
+        return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    }
+}
+
+/** A screen that shows the status, under App's sync hook. */
+function useStatusOnScreen() {
+    useQuery(updaterStatusQuery)
+    useUpdaterStatusSync()
+}
+
+describe('updater-status', () => {
+    it('replaces the cached snapshot with the one the event carries', async () => {
+        const queryClient = createTestQueryClient()
+        await queryClient.fetchQuery(updaterStatusQuery)
+        renderHook(() => useUpdaterStatusSync(), {wrapper: wrapperWith(queryClient)})
+        await settleIpc()
+
+        const snapshot = ready()
+        await emitMockEvent(UPDATER_STATUS_EVENT, snapshot)
+        await settleIpc()
+
+        expect(queryClient.getQueryData(updaterStatusQuery.queryKey)).toEqual(snapshot)
+    })
+
+    it('keeps the event over a reply that was still in flight when it arrived', async () => {
+        const before = mockState.updater
+        let reply: (snapshot: UpdaterSnapshot) => void = () => {}
+        vi.spyOn(handlers, 'updater_get_status').mockImplementation(
+            () => new Promise<UpdaterSnapshot>((resolve) => (reply = resolve)),
+        )
+        const queryClient = createTestQueryClient()
+        renderHook(() => useStatusOnScreen(), {wrapper: wrapperWith(queryClient)})
+        await settleIpc()
+
+        const snapshot = ready()
+        await emitMockEvent(UPDATER_STATUS_EVENT, snapshot)
+        // Native code answered the read before it sent the event, but the
+        // reply reaches the webview after it.
+        reply(before)
+        await settleIpc()
+
+        expect(queryClient.getQueryData(updaterStatusQuery.queryKey)).toEqual(snapshot)
+    })
+
+    it('reads the snapshot again once listening, so a change sent before that is not lost', async () => {
+        const queryClient = createTestQueryClient()
+        await queryClient.fetchQuery(updaterStatusQuery)
+        // The snapshot changed before the listener existed; its event went nowhere.
+        mockState.updater = ready()
+
+        renderHook(() => useStatusOnScreen(), {wrapper: wrapperWith(queryClient)})
+
+        await waitFor(() => expect(queryClient.getQueryData(updaterStatusQuery.queryKey)).toEqual(mockState.updater))
     })
 })

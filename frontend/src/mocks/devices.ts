@@ -6,6 +6,10 @@ import type {MockHandler} from './handlers'
 export interface MockDevices {
     list: AudioDevice[]
     recordingPreferences: RecordingPreferences
+    /** What the folder picker answers; null is Cancel. */
+    pickedFolder: string | null
+    /** Folders `open_recordings_folder` opened, in order, instead of a file manager. */
+    openedFolders: string[]
 }
 
 /** The default microphone and output, whose levels the fake feed sends (src/mocks/audio.ts). */
@@ -25,6 +29,8 @@ function mockDefaultRecordingsFolder(platform: Platform): string {
  */
 export function createMockDevices(platform: Platform): MockDevices {
     return {
+        pickedFolder: platform === 'windows' ? 'D:\\Meetings' : '/home/preview/Meetings',
+        openedFolders: [],
         list: [
             {name: MOCK_MICROPHONE, device_type: 'Input'},
             {name: 'Studio Display Microphone', device_type: 'Input'},
@@ -58,7 +64,8 @@ const clampGain = (gain: number) => Math.min(MAX_GAIN, Math.max(MIN_GAIN, gain))
  * The handlers of `get_audio_devices` (lib.rs) and recording_preferences.rs,
  * spread into `handlers` with the mock state. A save stores the whole object
  * it gets, as native does, after native's own corrections: gains clamped and
- * the legacy single-app fields following the first target.
+ * the legacy single-app fields following the first target. The folder picker
+ * answers `pickedFolder` and saves nothing, as native's does.
  */
 export function devicesHandlers(state: {devices: MockDevices}): Record<string, MockHandler> {
     return {
@@ -81,6 +88,11 @@ export function devicesHandlers(state: {devices: MockDevices}): Record<string, M
                 next.per_app_targets = [{id: executable, name: next.per_app_target_name ?? executable, executable}]
             }
             state.devices.recordingPreferences = next
+            return null
+        },
+        select_recording_folder: () => state.devices.pickedFolder,
+        open_recordings_folder: () => {
+            state.devices.openedFolders.push(state.devices.recordingPreferences.save_folder)
             return null
         },
     }

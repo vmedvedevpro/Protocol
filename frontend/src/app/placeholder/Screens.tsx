@@ -1,12 +1,11 @@
 import type {ReactNode} from 'react'
 import {GearIcon} from '@phosphor-icons/react'
-import {useNavigate, useParams, useSearchParams} from 'react-router-dom'
+import {useNavigate, useParams} from 'react-router-dom'
 import styled from 'styled-components'
 import {Button, IconButton} from '@/components/ui/Button'
 import {formatShortcut} from '@/lib/platform'
 import {paths} from '@/lib/paths'
 import {Screen} from '@/components/screen/Screen'
-import {ThemeSwitch} from './ThemeSwitch'
 
 // Stand-ins for the screens until their tasks replace them in the route
 // table (routes.tsx): each has its h1 and the controls that exercise the
@@ -91,18 +90,6 @@ export function RecordingPlaceholder() {
     return (
         <Placeholder title="Recording">
             <Note>The recording screen arrives with #112.</Note>
-        </Placeholder>
-    )
-}
-
-export function SettingsPlaceholder() {
-    const [search] = useSearchParams()
-    const section = search.get('section')
-    return (
-        <Placeholder title="Settings">
-            {section && <Note>Opened at the old section “{section}”.</Note>}
-            <ThemeSwitch/>
-            <Note>Settings arrive with #114 and #117.</Note>
         </Placeholder>
     )
 }
