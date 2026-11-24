@@ -131,6 +131,16 @@ jobs:
           # tauri-bundler writes the data archive without the usual ./ prefix.
           grep -Eq ' (\./)?usr/bin/protocol$' "$contents"
           grep -Eq ' (\./)?usr/bin/protocol-mcp$' "$contents"
+          # The deb takes ffmpeg from the distribution (#100).
+          if grep -Eq ' (\./)?usr/bin/ffmpeg$' "$contents"; then
+            echo "The deb carries its own ffmpeg, which collides with the distribution's ffmpeg package"
+            exit 1
+          fi
+          depends=$(dpkg-deb --field "$deb" Depends)
+          if [[ ", $depends," != *", ffmpeg,"* ]]; then
+            echo "The deb does not depend on ffmpeg: $depends"
+            exit 1
+          fi
           if grep -Eq 'runtime-deps|installer-variants' "$contents"; then
             echo "The deb carries the Windows resource folders"
             exit 1
@@ -141,6 +151,8 @@ jobs:
           # Settings gives an AppImage's agents "$APPIMAGE" --mcp-server, which
           # execs this file (main.rs).
           grep -q '/usr/bin/protocol-mcp$' "$appimage_contents"
+          # The AppImage keeps the pinned ffmpeg next to the executable.
+          grep -q '/usr/bin/ffmpeg$' "$appimage_contents"
           mcp_version=$(APPIMAGE_EXTRACT_AND_RUN=1 "$appimage" --mcp-server --version)
           echo "$mcp_version"
           [[ "$mcp_version" == "protocol-mcp "* ]]
