@@ -9,7 +9,7 @@ import {
     startModelUpdate,
     updatePhaseLine,
 } from '@/api/modelCatalog'
-import {downloadKey, type DownloadState, modelState, type ModelState, type SpeechModelStatus} from '@/api/models'
+import {downloadKey, type DownloadState, type ModelEngine, modelState, type ModelState, type SpeechModelStatus} from '@/api/models'
 import {Button} from '@/components/ui/Button'
 import {ProgressBar} from '@/components/ui/ProgressBar'
 import {SettingsRow} from '@/components/ui/SettingsRow'
@@ -21,10 +21,11 @@ import {RowControls, RowValue, Warning} from '../styles'
 import {RemoveSheet} from './RemoveSheet'
 
 export interface ModelRowProps {
-    /** "Parakeet Lightning", "Whisper Large V3 Turbo". */
+    /** "Parakeet Lightning", "Whisper Large V3 Turbo", "NVIDIA Nemotron". */
     name: string
     /** The download it has in `downloadsQuery`, by its engine. */
-    engine: 'parakeet' | 'whisper' | 'intelGpu'
+    engine: ModelEngine
+    /** The model as its list says; a download without a list (Nemotron, Intel's) passes `Available` or `Missing`. */
     model: {name: string, status?: SpeechModelStatus, size_bytes?: number | null}
     /** What it is used for now ("In use during meetings"), shown strong while installed. */
     use?: string | null
@@ -34,6 +35,8 @@ export interface ModelRowProps {
     /** Its state instead of the one its status and download give (the Intel GPU version's). */
     state?: ModelState
     onDownload?: () => void
+    /** The download button's word while missing: Download, or Switch for the Intel GPU version. */
+    downloadLabel?: string
     onCancel?: () => void
     onRemove?: () => Promise<unknown>
     /** What removing it frees or changes, for the sheet. */
@@ -45,12 +48,13 @@ export interface ModelRowProps {
 }
 
 /**
- * One speech model on Settings › Speech models: installed (and what for),
- * downloading below 100 % until native has verified it, failed with Retry,
- * damaged with Download again, or missing with its size. An installed
- * model the catalog has a newer revision of offers its update.
+ * One downloadable model in Settings: a speech model, Nemotron, the Intel
+ * GPU version or Intel's libraries. Installed (and what for), downloading
+ * below 100 % until native has verified it, failed with Retry, damaged with
+ * Download again, or missing with its size. An installed model the catalog
+ * has a newer revision of offers its update.
  */
-export function ModelRow({name, engine, model, use, description, downloads, state, onDownload, onCancel, onRemove, removeDetail, catalog, children}: ModelRowProps) {
+export function ModelRow({name, engine, model, use, description, downloads, state, onDownload, downloadLabel = 'Download', onCancel, onRemove, removeDetail, catalog, children}: ModelRowProps) {
     const [removing, setRemoving] = useState(false)
     const shown = state ?? modelState(model.status, downloads[downloadKey(engine, model.name)])
     const damaged = shown.kind === 'missing' && isCorrupted(model.status)
@@ -73,9 +77,10 @@ export function ModelRow({name, engine, model, use, description, downloads, stat
     } else if (shown.kind === 'failed') {
         control = onDownload && <Button size="sm" aria-label={`Retry downloading ${name}`} onClick={onDownload}>Retry</Button>
     } else if (shown.kind === 'missing') {
+        const verb = damaged ? 'Download again' : downloadLabel
         control = onDownload && (
-            <Button size="sm" aria-label={`${damaged ? 'Download again' : 'Download'} ${name}`} onClick={onDownload}>
-                {withSize(damaged ? 'Download again' : 'Download', model.size_bytes)}
+            <Button size="sm" aria-label={`${verb} ${name}`} onClick={onDownload}>
+                {withSize(verb, model.size_bytes)}
             </Button>
         )
     }

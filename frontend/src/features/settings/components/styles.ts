@@ -53,3 +53,34 @@ export const RowControls = styled.div`
     align-items: center;
     gap: ${({theme}) => theme.space[1.5]};
 `
+
+
+/** A text button that opens what follows it in a Collapse, its caret turning: What's new, Credits. */
+export const Disclosure = styled.button`
+    display: inline-flex;
+    align-items: center;
+    gap: ${({theme}) => theme.space[1]};
+    align-self: flex-start;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-radius: ${({theme}) => theme.radii.xs};
+    background: none;
+    ${({theme}) => theme.text.small};
+    font-weight: ${({theme}) => theme.fontWeights.medium};
+    color: ${({theme}) => theme.colors.soft};
+    cursor: pointer;
+    ${focusRing};
+
+    &:hover {
+        color: ${({theme}) => theme.colors.text};
+    }
+
+    > svg {
+        transition: transform ${({theme}) => theme.motion.duration.base} ${({theme}) => theme.motion.easing.standard};
+    }
+
+    &[aria-expanded='true'] > svg {
+        transform: rotate(180deg);
+    }
+`

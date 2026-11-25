@@ -280,6 +280,22 @@ export type Downloads = Record<string, DownloadState>
 
 export const downloadKey = (engine: ModelEngine, model: string) => `${engine}:${model}`
 
+/** What a download is called where only its key is known, such as the footer's line. */
+const DOWNLOAD_LABELS: Record<ModelEngine, string> = {
+    parakeet: 'Parakeet',
+    whisper: 'Whisper',
+    builtIn: 'the summary model',
+    nemotron: 'NVIDIA Nemotron',
+    intelGpu: 'Whisper for the Intel GPU',
+    intelLibraries: "Intel's libraries",
+}
+
+/** A download's name by its `downloadKey`; a key of no known engine is "a model". */
+export function downloadLabel(key: string): string {
+    const engine = key.slice(0, key.indexOf(':'))
+    return Object.hasOwn(DOWNLOAD_LABELS, engine) ? DOWNLOAD_LABELS[engine as ModelEngine] : 'a model'
+}
+
 export const modelKeys = {
     all: ['models'] as const,
     parakeet: () => [...modelKeys.all, 'parakeet'] as const,

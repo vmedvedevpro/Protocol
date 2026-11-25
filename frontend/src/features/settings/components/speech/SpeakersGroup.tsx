@@ -1,4 +1,4 @@
-import {type ReactNode, useEffect, useEffectEvent, useRef, useState} from 'react'
+import {type ReactNode, useState} from 'react'
 import {CaretDownIcon} from '@phosphor-icons/react'
 import {useMutation, useQuery} from '@tanstack/react-query'
 import styled from 'styled-components'
@@ -18,42 +18,13 @@ import {openLink} from '@/api/links'
 import {downloadKey, downloadsQuery, uninstallOptionalModel} from '@/api/models'
 import {Button} from '@/components/ui/Button'
 import {Collapse} from '@/components/ui/Collapse'
-import {ProgressBar} from '@/components/ui/ProgressBar'
 import {SettingsGroup, SettingsRadioGroup, SettingsRadioRow, SettingsRow} from '@/components/ui/SettingsRow'
-import {StatusLine} from '@/components/ui/StatusLine'
-import {colorTransition, focusRing} from '@/components/ui/styles'
+import {focusRing} from '@/components/ui/styles'
 import {toast} from '@/components/ui/toastStore'
-import {formatModelSize, withSize} from '@/lib/sizes'
-import {Range, SliderLine, SliderValue, Warning} from '../styles'
-import {facts} from './modelText'
-import {RemoveSheet} from './RemoveSheet'
-
-const CreditsButton = styled.button`
-    display: inline-flex;
-    align-items: center;
-    gap: ${({theme}) => theme.space[1]};
-    padding: 0;
-    border: 0;
-    background: transparent;
-    color: ${({theme}) => theme.colors.muted};
-    font: inherit;
-    ${({theme}) => theme.text.small};
-    cursor: pointer;
-    ${colorTransition};
-    ${focusRing};
-
-    &:hover {
-        color: ${({theme}) => theme.colors.text};
-    }
-
-    > svg {
-        transition: transform ${({theme}) => theme.motion.duration.fast} ${({theme}) => theme.motion.easing.standard};
-    }
-
-    &[aria-expanded='true'] > svg {
-        transform: rotate(180deg);
-    }
-`
+import {formatModelSize} from '@/lib/sizes'
+import {useDebouncedSave} from '../../hooks/useDebouncedSave'
+import {Disclosure, Range, SliderLine, SliderValue, Warning} from '../styles'
+import {ModelRow} from './ModelRow'
 
 const Credits = styled.p`
     padding-top: ${({theme}) => theme.space[2]};
@@ -80,22 +51,11 @@ function Credit({href, children}: {href: string, children: ReactNode}) {
     return <Link type="button" onClick={() => openLink(href)}>{children}</Link>
 }
 
-// A drag saves once it rests this long, as the volumes do.
-const THRESHOLD_SAVE_MS = 250
-
 function ThresholdRow({threshold}: {threshold: number}) {
     const save = useMutation(setNemotronThresholdMutation())
-    const [draft, setDraft] = useState<number | null>(null)
-    const pending = useRef<number | null>(null)
-    const timer = useRef<ReturnType<typeof setTimeout>>(undefined)
-    const flush = () => {
-        clearTimeout(timer.current)
-        if (pending.current === null) return
-        save.mutate(pending.current, {onError: (error) => toast.error('Couldn’t save the threshold', {description: errorMessage(error)})})
-        pending.current = null
-    }
-    const flushOnLeave = useEffectEvent(flush)
-    useEffect(() => () => flushOnLeave(), [])
+    const {draft, change} = useDebouncedSave((value: number) => save.mutate(value, {
+        onError: (error) => toast.error('Couldn’t save the threshold', {description: errorMessage(error)}),
+    }))
     const value = draft ?? threshold
 
     return (
@@ -109,16 +69,7 @@ function ThresholdRow({threshold}: {threshold: number}) {
                     max={THRESHOLD.max}
                     step={THRESHOLD.step}
                     value={value}
-                    onChange={(event) => {
-                        const next = Number(event.target.value)
-                        setDraft(next)
-                        pending.current = next
-                        clearTimeout(timer.current)
-                        timer.current = setTimeout(() => {
-                            flush()
-                            setDraft(null)
-                        }, THRESHOLD_SAVE_MS)
-                    }}
+                    onChange={(event) => change(Number(event.target.value))}
                 />
                 <SliderValue>{value.toFixed(2)}</SliderValue>
             </SliderLine>
@@ -130,19 +81,18 @@ function ThresholdRow({threshold}: {threshold: number}) {
  * Who said what: Pyannote, built in, or NVIDIA Nemotron, downloaded on
  * demand. Choosing Nemotron before it is installed downloads it, and native
  * chooses it once the download is verified; until then Pyannote stays.
- * Removal goes back to Pyannote first (`uninstall_optional_model`).
+ * Its row is a `ModelRow`; removal goes back to Pyannote first
+ * (`uninstall_optional_model`).
  */
 export function SpeakersGroup() {
     const status = useQuery(diarizationStatusQuery)
-    const download = useQuery(downloadsQuery).data[downloadKey('nemotron', NEMOTRON)]
+    const downloads = useQuery(downloadsQuery).data
     const choose = useMutation(setDiarizationEngineMutation())
-    const [removing, setRemoving] = useState(false)
     const [credits, setCredits] = useState(false)
 
     const engine = activeEngine(status.data)
     const installed = !!status.data?.nemotron_available
     const size = status.data?.nemotron_download_size
-    const downloading = download?.state === 'downloading'
 
     const getNemotron = () => {
         void downloadNemotron()
@@ -174,25 +124,22 @@ export function SpeakersGroup() {
                 />
             </SettingsRadioGroup>
             <SettingsGroup>
-                <SettingsRow
-                    label="NVIDIA Nemotron"
-                    description={downloading
-                        ? <StatusLine status={{key: 'nemotron', text: 'Downloading', value: `${Math.floor(download.progress)}%`}}/>
-                        : installed ? 'Installed' : facts('Downloaded when you choose it', formatModelSize(size))}
-                    control={downloading ? null : installed ? (
-                        <Button size="sm" variant="ghost" aria-label="Remove NVIDIA Nemotron" onClick={() => setRemoving(true)}>Remove</Button>
-                    ) : (
-                        <Button size="sm" aria-label="Download NVIDIA Nemotron" onClick={getNemotron}>
-                            {withSize(download?.state === 'failed' ? 'Retry' : 'Download', size)}
-                        </Button>
-                    )}
+                <ModelRow
+                    name="NVIDIA Nemotron"
+                    engine="nemotron"
+                    model={{name: NEMOTRON, status: installed ? 'Available' : 'Missing', size_bytes: size}}
+                    use={engine === 'nemotron' && installed ? 'Identifies speakers in new meetings' : null}
+                    description="Downloaded when you choose it"
+                    downloads={downloads}
+                    onDownload={getNemotron}
+                    onRemove={() => uninstallOptionalModel('nemotron').catch((error) =>
+                        toast.error('Couldn’t remove NVIDIA Nemotron', {description: errorMessage(error)}))}
+                    removeDetail={`${size ? `This frees about ${formatModelSize(size)}. ` : ''}Pyannote identifies speakers from then on.`}
                 >
-                    {downloading && <ProgressBar label="Downloading NVIDIA Nemotron" value={download.progress}/>}
-                    {download?.state === 'failed' && <Warning role="alert">{download.error}</Warning>}
-                    {engine === 'nemotron' && !installed && !downloading && (
+                    {engine === 'nemotron' && !installed && downloads[downloadKey('nemotron', NEMOTRON)]?.state !== 'downloading' && (
                         <Warning role="alert">Nemotron is chosen but not downloaded, so speakers can’t be identified. Download it, or choose Pyannote</Warning>
                     )}
-                </SettingsRow>
+                </ModelRow>
                 {engine === 'nemotron' && installed && <ThresholdRow threshold={status.data?.nemotron_threshold ?? THRESHOLD.default}/>}
                 <SettingsRow
                     label="Model files and credits"
@@ -204,10 +151,10 @@ export function SpeakersGroup() {
                     )}
                 >
                     <div>
-                        <CreditsButton type="button" aria-expanded={credits} onClick={() => setCredits(!credits)}>
+                        <Disclosure type="button" aria-expanded={credits} onClick={() => setCredits(!credits)}>
                             Credits
-                            <CaretDownIcon size={12} aria-hidden/>
-                        </CreditsButton>
+                            <CaretDownIcon size={11} aria-hidden/>
+                        </Disclosure>
                         <Collapse open={credits}>
                             <Credits>
                                 {status.data?.model_dir && <>Folder: {status.data.model_dir}. </>}
@@ -223,14 +170,6 @@ export function SpeakersGroup() {
                     </div>
                 </SettingsRow>
             </SettingsGroup>
-            <RemoveSheet
-                open={removing}
-                onOpenChange={setRemoving}
-                name="NVIDIA Nemotron"
-                detail={`${size ? `This frees about ${formatModelSize(size)}. ` : ''}Pyannote identifies speakers from then on.`}
-                onRemove={() => uninstallOptionalModel('nemotron').catch((error) =>
-                    toast.error('Couldn’t remove NVIDIA Nemotron', {description: errorMessage(error)}))}
-            />
         </>
     )
 }

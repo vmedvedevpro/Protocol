@@ -135,8 +135,10 @@ minibar window has none of it.
   line of model downloads (`DownloadLine`) goes in the same footer on
   every screen the shell shows once ready (`DownloadLineContext`), not on
   first launch, which lists its own: what downloads and how far, below
-  100 % until the completion event, and a click opens Settings › Speech
-  models. With nothing in it, the footer is `:empty` and hidden from the
+  100 % until the completion event, or while several run only how many
+  (a mean percent would go back when one more starts); names come from
+  `downloadLabel` (`src/api/models.ts`), and a click opens Settings ›
+  Speech models. With nothing in it, the footer is `:empty` and hidden from the
   eye and from screen readers.
 - A screen arrives with a fade and a 4 px rise over `base`; the screen it
   replaces leaves at once, so a click never waits for an exit.
@@ -1095,7 +1097,8 @@ recording and hides the main window: minimizing the main window does it
   (`SpeechModels`, the `View` of its `PAGES` entry) shows the pair for this
   computer with its Intel paths, then every Parakeet and Whisper model with
   its download, Cancel, Retry, Remove after a sheet, a damaged copy's
-  Download again and the catalog's update; native reads missing sizes
+  Download again and the catalog's update; every download row there,
+  Nemotron's and the Intel ones included, is a `ModelRow`; native reads missing sizes
   (`model_catalog_request_sizes`). Tests: `components/speech/*.test.tsx`;
   stories: `Settings/Speech`.
 - #117 adds the AI and Advanced panels in `SectionView`

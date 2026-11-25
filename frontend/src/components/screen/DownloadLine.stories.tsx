@@ -3,7 +3,7 @@ import type {Meta, StoryObj} from '@storybook/react-vite'
 import {useModelDownloadSync} from '@/api/modelDownloadSync'
 import {downloadWhisperModel} from '@/api/models'
 import {mockState} from '@/mocks/state'
-import {DownloadLineContext} from './downloadLine'
+import {DownloadLineContext} from './downloadLineContext'
 import {Screen} from './Screen'
 import {StoryWindow} from './StoryWindow'
 

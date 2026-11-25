@@ -35,7 +35,6 @@ import {ProgressBar} from '@/components/ui/ProgressBar'
 import {SettingsGroup, SettingsRow} from '@/components/ui/SettingsRow'
 import {StatusLine} from '@/components/ui/StatusLine'
 import {Veil} from '@/components/ui/Veil'
-import {focusRing} from '@/components/ui/styles'
 import {Switch} from '@/components/ui/Switch'
 import {
     busySentence,
@@ -48,7 +47,7 @@ import {
     RESTART_NOTE,
 } from '@/lib/updateText'
 import {ReleaseNotes} from '@/components/releaseNotes/ReleaseNotes'
-import {Warning} from './styles'
+import {Disclosure, Warning} from './styles'
 import {appUpdateStatus, catalogStatus} from './updateStatus'
 
 /** How long a refused Restart and update keeps saying why. */
@@ -77,35 +76,6 @@ const Notes = styled.div`
     gap: ${({theme}) => theme.space[1]};
     ${({theme}) => theme.text.small};
     color: ${({theme}) => theme.colors.muted};
-`
-
-const Disclosure = styled.button`
-    display: inline-flex;
-    align-items: center;
-    gap: ${({theme}) => theme.space[1]};
-    align-self: flex-start;
-    margin: 0;
-    padding: 0;
-    border: 0;
-    border-radius: ${({theme}) => theme.radii.xs};
-    background: none;
-    ${({theme}) => theme.text.small};
-    font-weight: ${({theme}) => theme.fontWeights.medium};
-    color: ${({theme}) => theme.colors.soft};
-    cursor: pointer;
-    ${focusRing};
-
-    &:hover {
-        color: ${({theme}) => theme.colors.text};
-    }
-
-    > svg {
-        transition: transform ${({theme}) => theme.motion.duration.base} ${({theme}) => theme.motion.easing.standard};
-    }
-
-    &[aria-expanded='true'] > svg {
-        transform: rotate(180deg);
-    }
 `
 
 const WhatsNewBody = styled.div`

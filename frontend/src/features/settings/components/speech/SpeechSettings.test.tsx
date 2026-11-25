@@ -58,6 +58,17 @@ describe('Settings › AI, speech', () => {
         expect(await screen.findByRole('slider', {name: 'Speech threshold'})).toBeInTheDocument()
     })
 
+    it('removes Nemotron after asking, and Pyannote identifies speakers again', async () => {
+        mockState.diarization.engine = 'nemotron'
+        mockState.diarization.nemotronInstalled = true
+        renderSection('ai')
+        await userEvent.click(await screen.findByRole('button', {name: 'Remove NVIDIA Nemotron'}))
+        await userEvent.click(within(await screen.findByRole('dialog', {name: 'Remove NVIDIA Nemotron?'})).getByRole('button', {name: 'Remove'}))
+
+        await waitFor(() => expect(screen.getByRole('radio', {name: /Pyannote/})).toBeChecked())
+        expect(mockState.diarization.nemotronInstalled).toBe(false)
+    })
+
     it('opens Speech models from its row', async () => {
         const {router} = renderSection('ai')
         await userEvent.click(await screen.findByRole('button', {name: /Downloaded models/}))

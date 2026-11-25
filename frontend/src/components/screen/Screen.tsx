@@ -5,7 +5,7 @@ import styled from 'styled-components'
 import {Veil} from '@/components/ui/Veil'
 import {tween} from '@/styles/motion'
 import {DownloadLine} from './DownloadLine'
-import {DownloadLineContext} from './downloadLine'
+import {DownloadLineContext} from './downloadLineContext'
 import {RecordBarContext} from './recordBar'
 
 // A screen arrives with a 4 px rise under a veil (Veil); the screen it

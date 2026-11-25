@@ -3,13 +3,7 @@ import {useQuery} from '@tanstack/react-query'
 import {useNavigate} from 'react-router-dom'
 import styled from 'styled-components'
 import {catalogStatusQuery} from '@/api/modelCatalog'
-import {
-    builtInModelsQuery,
-    type DownloadState,
-    downloadsQuery,
-    speechModelLabel,
-    whisperModelsQuery,
-} from '@/api/models'
+import {downloadLabel, type DownloadState, downloadsQuery} from '@/api/models'
 import {ProgressBar} from '@/components/ui/ProgressBar'
 import {StatusLine, type Status} from '@/components/ui/StatusLine'
 import {colorTransition, keyboardRowRing} from '@/components/ui/styles'
@@ -61,27 +55,14 @@ interface Running {
     state: DownloadState
 }
 
-/** What a download is called on the line, from its key and the lists that name it. */
+/** What downloads now: the model downloads by their key's label, and the catalog's updates. */
 function useRunning(): Running[] {
     const downloads = useQuery(downloadsQuery).data
     const catalog = useQuery({...catalogStatusQuery, retry: false}).data
-    const keys = Object.keys(downloads).filter((key) => downloads[key].state !== 'failed')
-    const whisper = useQuery({...whisperModelsQuery, enabled: keys.some((key) => key.startsWith('whisper:'))}).data
-    const builtIn = useQuery({...builtInModelsQuery, enabled: keys.some((key) => key.startsWith('builtIn:'))}).data
-
-    const running = keys.map((key): Running => {
-        const [engine, model] = [key.slice(0, key.indexOf(':')), key.slice(key.indexOf(':') + 1)]
-        const listed = whisper?.find(({name}) => name === model)
-        const name = engine === 'parakeet' ? 'Parakeet'
-            : engine === 'whisper' ? (listed ? speechModelLabel('whisper', listed) : 'Whisper')
-            : engine === 'builtIn' ? (builtIn?.find(({name: id}) => id === model)?.display_name ?? 'the summary model')
-            : engine === 'nemotron' ? 'NVIDIA Nemotron'
-            : engine === 'intelGpu' ? 'Whisper for the Intel GPU'
-            : "Intel's libraries"
-        return {name, state: downloads[key]}
-    })
-    const updates = (catalog?.operations ?? []).filter(({phase}) => phase === 'downloading')
-    for (const update of updates) {
+    const running = Object.entries(downloads)
+        .filter(([, state]) => state.state !== 'failed')
+        .map(([key, state]): Running => ({name: downloadLabel(key), state}))
+    for (const update of (catalog?.operations ?? []).filter(({phase}) => phase === 'downloading')) {
         running.push({
             name: `the ${update.id} update`,
             state: {state: 'downloading', progress: update.totalBytes > 0 ? (update.doneBytes / update.totalBytes) * 100 : 0},
@@ -93,7 +74,7 @@ function useRunning(): Running[] {
 /**
  * The footer's line while any model downloads (owner decision 2026-11-24,
  * in place of the old download panel): what downloads and how far, below
- * 100 % until native has verified it. A click opens Settings › Speech
+ * 100 % until native has verified it, or how many while several do. A click opens Settings › Speech
  * models, where each download has its row, Cancel and Retry.
  */
 export function DownloadLine() {
@@ -101,18 +82,15 @@ export function DownloadLine() {
     const running = useRunning()
     if (running.length === 0) return null
 
-    const percents = running.flatMap(({state}) => (state.state === 'downloading' ? [Math.min(state.progress, 99)] : []))
-    const percent = percents.length ? percents.reduce((sum, value) => sum + value, 0) / percents.length : null
+    // One download shows its percent; several only that they run, since a
+    // mean of their percents would go back when one more starts.
     const [first] = running
-    const activating = running.length === 1 && first.state.state === 'activating'
-    const status: Status = activating
-        ? {key: 'activating', text: `Turning on ${first.name}`, busy: true}
-        : {
-            key: running.length === 1 ? `one:${first.name}` : 'several',
-            text: running.length === 1 ? `Downloading ${first.name}` : `Downloading ${running.length} models`,
-            value: percent === null ? undefined : `${Math.floor(percent)}%`,
-            busy: percent === null,
-        }
+    const percent = running.length === 1 && first.state.state === 'downloading' ? Math.min(first.state.progress, 99) : null
+    const status: Status = running.length > 1
+        ? {key: 'several', text: `Downloading ${running.length} models`, busy: true}
+        : percent === null
+            ? {key: 'activating', text: `Turning on ${first.name}`, busy: true}
+            : {key: `one:${first.name}`, text: `Downloading ${first.name}`, value: `${Math.floor(percent)}%`}
 
     return (
         <Button type="button" onClick={() => void navigate(paths.settingsPage('speech-models'))}>

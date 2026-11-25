@@ -1,5 +1,4 @@
 import {useQuery, useQueryClient} from '@tanstack/react-query'
-import {errorMessage} from '@/api/core'
 import {
     cancelIntelDownload,
     companionQuery,
@@ -20,14 +19,13 @@ import {
 } from '@/api/intel'
 import {gpuFallbackReason, localStackQuery} from '@/api/localStack'
 import {trackIntelDownload} from '@/api/modelDownloadSync'
-import {downloadKey, PARAKEET_MODEL, POST_CALL_WHISPER_MODEL, speechModelLabel} from '@/api/models'
+import {PARAKEET_MODEL, POST_CALL_WHISPER_MODEL, speechModelLabel} from '@/api/models'
 import {Button} from '@/components/ui/Button'
-import {ProgressBar} from '@/components/ui/ProgressBar'
-import {SettingsGroup, SettingsRow} from '@/components/ui/SettingsRow'
+import {SettingsGroup} from '@/components/ui/SettingsRow'
 import {StatusLine} from '@/components/ui/StatusLine'
 import {toast} from '@/components/ui/toastStore'
-import {formatModelSize, withSize} from '@/lib/sizes'
-import {type SpeechModel, useModelUse, useSpeechModels} from '../../hooks/useSpeechModels'
+import {formatModelSize} from '@/lib/sizes'
+import {useModelUse, useSpeechModels} from '../../hooks/useSpeechModels'
 import {RowControls, RowValue, Warning} from '../styles'
 import {ModelRow} from './ModelRow'
 import {facts} from './modelText'
@@ -61,10 +59,6 @@ export function ForThisComputer() {
     const fellBack = gpuInstalled ? gpuFallback(offered, availability, gpuFallbackReason(stack)) : null
     const npuOn = !!npu && (npu.state === 'ready' || npu.active)
 
-    const gpuKey = offered ? downloadKey('intelGpu', offered.id) : ''
-    const gpuDownload = offered ? downloads[gpuKey] : undefined
-    const librariesKey = downloadKey('intelLibraries', INTEL_LIBRARIES_ID)
-    const libraries = downloads[librariesKey]
     // A download of the Intel GPU version brings the libraries the NPU needs.
     const librariesWanted = !!npu && npuWantsLibraries(npu, live?.status === 'Available') && !(offered && !offered.installed)
 
@@ -104,8 +98,20 @@ export function ForThisComputer() {
                     <Button size="sm" variant="ghost" onClick={retry(retryNpu)}>Try again</Button>
                 </RowControls>
             )}
-            {librariesWanted && <LibrariesRow state={libraries} bytes={offered?.runtime?.downloadSize ?? companion?.runtime?.downloadSize} onDownload={getLibraries} onCancel={() => cancelIntel(INTEL_LIBRARIES_ID)}/>}
         </ModelRow>
+    )
+
+    // Intel's libraries alone, for the NPU; the row goes once the NPU stops waiting for them.
+    const librariesRow = librariesWanted && (
+        <ModelRow
+            name="Intel's libraries"
+            engine="intelLibraries"
+            model={{name: INTEL_LIBRARIES_ID, status: 'Missing', size_bytes: companion?.runtime?.downloadSize}}
+            description="Parakeet runs on the Intel NPU once they are downloaded"
+            downloads={downloads}
+            onDownload={getLibraries}
+            onCancel={() => cancelIntel(INTEL_LIBRARIES_ID)}
+        />
     )
 
     const whisperRow = gpuInstalled && gpuVersion && offered ? (
@@ -143,7 +149,7 @@ export function ForThisComputer() {
             downloads={downloads}
             onDownload={() => download(copy, {activate: true})}
             onCancel={() => cancel(copy)}
-            onRemove={() => remove(copy as SpeechModel)}
+            onRemove={() => remove(copy)}
             removeDetail={facts(formatModelSize(copy.size_bytes) && `This frees ${formatModelSize(copy.size_bytes)}`, 'Transcripts after meetings then use the live model') + '.'}
         />
     )
@@ -152,49 +158,19 @@ export function ForThisComputer() {
         <SettingsGroup title="For this computer" note="Picked for your hardware: live text while you record, and a more accurate transcript after each meeting.">
             {parakeetRow}
             {whisperRow}
+            {librariesRow}
             {offered && !offered.installed && (
-                <SettingsRow
-                    label="Use your Intel GPU"
-                    description={gpuDownload?.state === 'downloading'
-                        ? <StatusLine status={{key: 'gpu', text: 'Downloading', value: `${Math.floor(gpuDownload.progress)}%`}}/>
-                        : facts('A faster Whisper for this computer', formatModelSize(offered.downloadSize))}
-                    control={gpuDownload?.state === 'downloading'
-                        ? <Button size="sm" variant="ghost" aria-label="Cancel downloading the Intel GPU version" onClick={() => cancelIntel(offered.id)}>Cancel</Button>
-                        : <Button size="sm" onClick={switchToGpu}>{gpuDownload?.state === 'failed' ? 'Retry' : 'Switch'}</Button>}
-                >
-                    {gpuDownload?.state === 'downloading' && <ProgressBar label="Downloading the Intel GPU version" value={gpuDownload.progress}/>}
-                    {gpuDownload?.state === 'failed' && <Warning role="alert">{intelError(gpuDownload.error)}</Warning>}
-                </SettingsRow>
+                <ModelRow
+                    name="Whisper for the Intel GPU"
+                    engine="intelGpu"
+                    model={{name: offered.id, status: 'Missing', size_bytes: offered.downloadSize}}
+                    description="A faster Whisper for this computer, used after meetings"
+                    downloads={downloads}
+                    downloadLabel="Switch"
+                    onDownload={switchToGpu}
+                    onCancel={() => cancelIntel(offered.id)}
+                />
             )}
         </SettingsGroup>
-    )
-}
-
-/** Intel's libraries alone, for the NPU: offered, downloading, or failed. */
-function LibrariesRow({state, bytes, onDownload, onCancel}: {
-    state: ReturnType<typeof useSpeechModels>['downloads'][string] | undefined
-    bytes: number | null | undefined
-    onDownload: () => void
-    onCancel: () => void
-}) {
-    if (state?.state === 'downloading') {
-        return (
-            <>
-                <RowControls>
-                    <StatusLine status={{key: 'libraries', text: "Downloading Intel's libraries", value: `${Math.floor(state.progress)}%`}}/>
-                    <Button size="sm" variant="ghost" aria-label="Cancel downloading Intel's libraries" onClick={onCancel}>Cancel</Button>
-                </RowControls>
-                <ProgressBar label="Downloading Intel's libraries" value={state.progress}/>
-            </>
-        )
-    }
-    return (
-        <>
-            <RowControls>
-                <RowValue>Runs on the Intel NPU once Intel’s libraries are downloaded</RowValue>
-                <Button size="sm" onClick={onDownload}>{withSize(state?.state === 'failed' ? 'Retry' : "Download Intel's libraries", bytes)}</Button>
-            </RowControls>
-            {state?.state === 'failed' && <Warning role="alert">{`Intel's libraries didn't download: ${intelError(errorMessage(state.error))}`}</Warning>}
-        </>
     )
 }

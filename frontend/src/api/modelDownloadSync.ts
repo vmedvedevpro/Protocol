@@ -1,10 +1,10 @@
 import {type QueryClient, type QueryKey, useQueryClient} from '@tanstack/react-query'
-import {errorMessage} from './core'
 import {DIARIZATION_DOWNLOAD_PROGRESS_EVENT, DIARIZATION_ENGINE_CHANGED_EVENT, diarizationKeys, NEMOTRON} from './diarization'
 import {useEventQuerySync, useNativeEvent} from './events'
 import {
     companionQuery,
     INTEL_LIBRARIES_ID,
+    intelError,
     intelKeys,
     isIntelCancelled,
     NPU_STATUS_EVENT,
@@ -44,8 +44,9 @@ function setDownload(queryClient: QueryClient, key: string, state: DownloadState
  * Runs an Intel download (the Intel GPU version, or Intel's libraries
  * alone) and keeps its record in `downloadsQuery`. Native sends their
  * progress by event but no event when one fails, so the command's rejection
- * is the only word of a failure: it is written here, and a cancel clears the
- * record. Rejects as the command does, a cancel included.
+ * is the only word of a failure: it is written here in the UI's words
+ * (`intelError`), and a cancel clears the record. Rejects as the command
+ * does, a cancel included.
  */
 export async function trackIntelDownload(queryClient: QueryClient, engine: 'intelGpu' | 'intelLibraries', id: string, run: () => Promise<unknown>) {
     const key = downloadKey(engine, id)
@@ -58,7 +59,7 @@ export async function trackIntelDownload(queryClient: QueryClient, engine: 'inte
     try {
         await run()
     } catch (error) {
-        setDownload(queryClient, key, isIntelCancelled(error) ? null : {state: 'failed', error: errorMessage(error)})
+        setDownload(queryClient, key, isIntelCancelled(error) ? null : {state: 'failed', error: intelError(error)})
         void reread()
         throw error
     }

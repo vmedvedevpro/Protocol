@@ -6,7 +6,7 @@ import {describe, expect, it} from 'vitest'
 import {downloadKey, type Downloads, downloadsQuery, PARAKEET_MODEL} from '@/api/models'
 import {createTestQueryClient} from '@/test/queryClient'
 import {renderUi} from '@/test/renderUi'
-import {DownloadLineContext} from './downloadLine'
+import {DownloadLineContext} from './downloadLineContext'
 import {Screen} from './Screen'
 
 function renderLine(shown = true) {
@@ -38,14 +38,16 @@ describe('DownloadLine', () => {
         expect(router.state.location.pathname).toBe('/settings/speech-models')
     })
 
-    it('counts several downloads and leaves failed ones to their rows', async () => {
+    it('counts several downloads without a percent, and leaves failed ones to their rows', async () => {
         const {set} = renderLine()
         set({
             [downloadKey('parakeet', PARAKEET_MODEL)]: {state: 'downloading', progress: 20},
             [downloadKey('nemotron', 'nemotron')]: {state: 'downloading', progress: 40},
             [downloadKey('whisper', 'small')]: {state: 'failed', error: 'Network'},
         })
-        expect(await screen.findByRole('button', {name: /Downloading 2 models/})).toHaveTextContent('30%')
+        const line = await screen.findByRole('button', {name: /Downloading 2 models/})
+        expect(line).not.toHaveTextContent('%')
+        expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
     })
 
     it('is not there where the shell does not offer it, as on first launch', () => {
