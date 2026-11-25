@@ -96,6 +96,15 @@ that model lists ask Hugging Face for sizes whether the switch is on or not
   (`protocol-macos-arm64.app.tar.gz`), Linux `linux-x86_64-appimage`. `.deb`
   installs check `linux-x86_64-appimage` too but only show a link. The release
   pipeline (#15) writes the feed and validates the updater configuration.
+- The feed of a release starts with the Windows and Linux keys only: the tag
+  run drafts the release without waiting for the macOS leg, and its
+  `join-macos` job adds `darwin-aarch64-app` and `darwin-aarch64` (signed with
+  the same production key) to the same release's `latest.json` when that leg
+  finishes, also after the release is published (#164,
+  [WORKFLOWS_OVERVIEW.md](../.github/workflows/WORKFLOWS_OVERVIEW.md#macos-joins-later)).
+  Until then a macOS install finds no entry for its platform (`noPlatform`):
+  automatic checks stay silent, a manual check says the version isn't
+  available for macOS yet, and the next check after the join offers it.
 - `requireSignedVersion: true`: each minisign signature carries the version it
   was made for in its trusted comment, so a tampered feed cannot pair an old
   signed installer with a newer version number. `tauri build` adds the version;
