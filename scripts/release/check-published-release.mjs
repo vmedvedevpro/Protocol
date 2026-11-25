@@ -2,19 +2,36 @@
 // Checks a published release the way a user and the updater see it: without a
 // token, through the public download URLs. Run by release-published.yml.
 //
-//   node scripts/release/check-published-release.mjs --tag v0.3.0 --dir <empty dir> [--prerelease true|false]
+//   node scripts/release/check-published-release.mjs --tag v0.3.0 --dir <empty dir> [--prerelease true|false] [--skip-latest]
 //
-// Downloads every required asset, checks them against SHA256SUMS.txt, checks
-// latest.json (version, tag-specific URLs, signatures equal to the .sig files
-// and valid for the public key in tauri.conf.json, with the signed version),
-// and for a stable release that /releases/latest/download/latest.json is this
-// release's feed, so installed apps are offered this version.
+// Reads SHA256SUMS.txt for the platforms the release has: always Windows and
+// Linux, macOS once its build has joined (#164). Downloads every asset of those
+// platforms, checks them against SHA256SUMS.txt, checks latest.json (version,
+// exactly those platforms' keys, tag-specific URLs, signatures equal to the
+// .sig files and valid for the public key in tauri.conf.json, with the signed
+// version), and for a stable release that /releases/latest/download/latest.json
+// is this release's feed, so installed apps are offered this version.
+// --skip-latest leaves that last check out: the macOS job runs this after it
+// joins a release that is already published, which may no longer be Latest.
 import { createWriteStream, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { FEED_PLATFORMS, REPOSITORY, UPDATER_ENDPOINT, UPDATER_PAYLOADS, assetUrl, requiredAssets, versionFromTag } from './release-lib.mjs';
+import {
+  DRAFT_PLATFORMS,
+  FEED_PLATFORMS,
+  PLATFORMS,
+  PLATFORM_PAYLOADS,
+  REPOSITORY,
+  UPDATER_ENDPOINT,
+  assetUrl,
+  feedKeys,
+  parseSha256Sums,
+  platformsOf,
+  requiredAssets,
+  versionFromTag,
+} from './release-lib.mjs';
 import { verifyUpdaterSignature } from './verify-updater-signature.mjs';
 import { checkSums } from './write-sha256sums.mjs';
 
@@ -38,13 +55,27 @@ export function loneSurrogatePaths(value, path = 'latest.json') {
   ]);
 }
 
-// Problems with a downloaded feed, given the .sig contents by asset name.
-export function feedProblems(feed, version, signatures, repository = REPOSITORY) {
+// The platforms a published release's SHA256SUMS.txt covers, as
+// { platforms, problems }: Windows and Linux are required, macOS may still be
+// missing, and a platform is listed completely or not at all.
+export function publishedPlatforms(sumsText, version) {
+  const { platforms, problems } = platformsOf(parseSha256Sums(sumsText).map(({ name }) => name), version);
+  for (const platform of DRAFT_PLATFORMS) {
+    if (!platforms.includes(platform)) problems.push(`SHA256SUMS.txt lists no ${platform} assets`);
+  }
+  return { platforms, problems };
+}
+
+// Problems with a downloaded feed of a release with `platforms`, given the
+// .sig contents by asset name.
+export function feedProblems(feed, version, signatures, { platforms: releasePlatforms = PLATFORMS, repository = REPOSITORY } = {}) {
   const problems = loneSurrogatePaths(feed).map((path) => `${path}: lone UTF-16 surrogate, the updater cannot parse the feed`);
   if (feed.version !== version) problems.push(`latest.json says version ${feed.version}`);
+  const keys = feedKeys(releasePlatforms);
   const platforms = Object.keys(feed.platforms ?? {}).sort();
-  if (platforms.join() !== Object.keys(FEED_PLATFORMS).sort().join()) problems.push(`latest.json platforms: ${platforms.join(', ')}`);
-  for (const [platform, asset] of Object.entries(FEED_PLATFORMS)) {
+  if (platforms.join() !== [...keys].sort().join()) problems.push(`latest.json platforms: ${platforms.join(', ')}`);
+  for (const platform of keys) {
+    const asset = FEED_PLATFORMS[platform];
     const entry = feed.platforms?.[platform];
     if (!entry) continue;
     if (entry.url !== assetUrl(version, asset, repository)) problems.push(`${platform}: url ${entry.url}`);
@@ -63,21 +94,30 @@ async function main() {
   const dir = option('dir');
   const version = versionFromTag(tag ?? '');
   if (!version || !dir) {
-    console.error('usage: check-published-release.mjs --tag vX.Y.Z --dir <dir> [--prerelease true|false]');
+    console.error('usage: check-published-release.mjs --tag vX.Y.Z --dir <dir> [--prerelease true|false] [--skip-latest]');
     process.exit(2);
   }
-  for (const name of requiredAssets(version)) {
+  await download(assetUrl(version, 'SHA256SUMS.txt'), join(dir, 'SHA256SUMS.txt'));
+  const { platforms, problems } = publishedPlatforms(readFileSync(join(dir, 'SHA256SUMS.txt'), 'utf8'), version);
+  if (problems.length > 0) {
+    for (const problem of problems) console.error(problem);
+    process.exit(1);
+  }
+  console.log(`The release has ${platforms.join(', ')}.`);
+  const assets = requiredAssets(version, platforms);
+  for (const name of assets.filter((name) => name !== 'SHA256SUMS.txt')) {
     await download(assetUrl(version, name), join(dir, name));
     console.log(`downloaded ${name}`);
   }
-  const problems = await checkSums(dir);
+  problems.push(...await checkSums(dir));
 
+  const payloads = platforms.map((platform) => PLATFORM_PAYLOADS[platform]);
   const feed = JSON.parse(readFileSync(join(dir, 'latest.json'), 'utf8'));
-  const signatures = Object.fromEntries(UPDATER_PAYLOADS.map((name) => [name, readFileSync(join(dir, `${name}.sig`), 'utf8')]));
-  problems.push(...feedProblems(feed, version, signatures));
+  const signatures = Object.fromEntries(payloads.map((name) => [name, readFileSync(join(dir, `${name}.sig`), 'utf8')]));
+  problems.push(...feedProblems(feed, version, signatures, { platforms }));
   const pubkey = JSON.parse(readFileSync(join(root, 'frontend/src-tauri/tauri.conf.json'), 'utf8')).plugins?.updater?.pubkey;
   if (!pubkey) problems.push('tauri.conf.json at this tag has no updater public key');
-  for (const name of pubkey ? UPDATER_PAYLOADS : []) {
+  for (const name of pubkey ? payloads : []) {
     try {
       await verifyUpdaterSignature({ publicKeyBase64: pubkey, signatureBase64: signatures[name], path: join(dir, name), expectedVersion: version });
     } catch (error) {
@@ -85,7 +125,7 @@ async function main() {
     }
   }
 
-  if (option('prerelease') !== 'true') {
+  if (option('prerelease') !== 'true' && !args.includes('--skip-latest')) {
     // /releases/latest can lag the publish by a little.
     let served;
     for (let attempt = 1; attempt <= 5; attempt += 1) {
@@ -99,7 +139,7 @@ async function main() {
 
   for (const problem of problems) console.error(problem);
   if (problems.length > 0) process.exit(1);
-  console.log(`Published ${tag} verified: ${requiredAssets(version).length} assets, checksums, feed and signatures.`);
+  console.log(`Published ${tag} verified: ${assets.length} assets (${platforms.join(', ')}), checksums, feed and signatures.`);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {

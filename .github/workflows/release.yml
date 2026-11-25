@@ -1,11 +1,13 @@
 name: Release
 
 # A pushed tag vX.Y.Z or vX.Y.Z-rc.N on a commit of main builds every platform
-# and creates a draft release; the owner publishes it by hand. Pushes to main
-# and manual runs are always dry runs: they build and check everything, sign
-# with a throwaway key and create no release. Pull requests run only
-# pr-checks.yml; a tag goes only on a commit whose main run is green.
-# See WORKFLOWS_OVERVIEW.md for the procedure.
+# and creates a draft release from the Windows and Linux legs; the owner
+# publishes it by hand. macOS joins the same release when its leg finishes,
+# draft or published (#164): macOS runners are scarce and can take up to a day.
+# Pushes to main and manual runs are always dry runs: they build and check
+# everything, sign with a throwaway key and create no release. Pull requests
+# run only pr-checks.yml; a tag goes only on a commit whose main run is green
+# apart from its macOS jobs. See WORKFLOWS_OVERVIEW.md for the procedure.
 on:
   push:
     tags: ['v*']
@@ -80,12 +82,14 @@ jobs:
           node scripts/release/validate-release.mjs "${args[@]}"
       - name: Check released migration checksums
         run: node scripts/release/check-migration-checksums.mjs --source git
+      # Kept for GitHub's 30-day re-run window: a macOS leg re-run weeks after
+      # the tag still renders the release body from it.
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-notes-source
           path: ${{ runner.temp }}/notes-source.md
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 30
 
   frontend-checks:
     needs: validate
@@ -111,10 +115,11 @@ jobs:
       version: ${{ needs.validate.outputs.version }}
 
   # Dry runs: the same assembly as `draft`, signed with a throwaway key, kept
-  # as the release-dry-run artifact instead of a release.
+  # as the release-dry-run artifact instead of a release. Like `draft`, it does
+  # not wait for macOS; preview-macos adds it.
   preview:
     if: github.event_name != 'push' || github.ref_type != 'tag'
-    needs: [validate, build-windows, build-macos, build-linux]
+    needs: [validate, build-windows, build-linux]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
@@ -134,12 +139,15 @@ jobs:
       - name: Install the pinned Tauri CLI
         working-directory: frontend
         run: pnpm install --frozen-lockfile
-      # Only the legs' artifacts are named leg-*, so a release-dry-run left by
-      # an earlier attempt of this run is never taken for a leg.
+      # The two legs by name: leg-macos may already be there and joins later.
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          pattern: leg-*
-          path: ${{ runner.temp }}/legs
+          name: leg-windows
+          path: ${{ runner.temp }}/legs/leg-windows
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: leg-linux
+          path: ${{ runner.temp }}/legs/leg-linux
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: release-notes-source
@@ -162,7 +170,7 @@ jobs:
           {
             echo "## Dry run of v$VERSION"
             echo
-            echo "Signed with a throwaway key; no release was created. The installers are in the leg-windows, leg-macos and leg-linux artifacts."
+            echo "Signed with a throwaway key; no release was created. The installers are in the leg-windows and leg-linux artifacts; preview-macos adds macOS."
             echo
             echo '### SHA256SUMS.txt'
             echo '```'
@@ -180,11 +188,93 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  # Tag runs: signs with the production key and creates the draft. Only this
-  # job can read the release environment, which admits only tag runs (v*).
+  # Dry runs: macOS is added to the preview the way join-macos adds it to a
+  # release, with another throwaway key, so a broken macOS build or merge
+  # stays visible without holding back the preview of Windows and Linux.
+  preview-macos:
+    if: github.event_name != 'push' || github.ref_type != 'tag'
+    needs: [validate, preview, build-macos]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      PNPM_CONFIG_ENABLE_GLOBAL_VIRTUAL_STORE: 'false'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: 11.9.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - name: Install the pinned Tauri CLI
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: leg-macos
+          path: ${{ runner.temp }}/leg-macos
+      # The preview's latest.json, SHA256SUMS.txt and notes.md stand in for
+      # the drafted release.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-dry-run
+          path: ${{ runner.temp }}/release
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-notes-source
+          path: ${{ runner.temp }}
+      - name: Join macOS with a throwaway key
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+          SIGNED_VERSION: ${{ needs.validate.outputs.signed_version }}
+          FIRST_RELEASE: ${{ needs.validate.outputs.first_release }}
+        run: |
+          set -euo pipefail
+          key="$RUNNER_TEMP/preview-macos.key"
+          node frontend/node_modules/@tauri-apps/cli/tauri.js signer generate --ci -w "$key"
+          TAURI_SIGNING_PRIVATE_KEY="$(cat "$key")" bash scripts/release/join-macos.sh \
+            "$RUNNER_TEMP/leg-macos" "$RUNNER_TEMP/release" "$RUNNER_TEMP/dist" "$key.pub" \
+            "$RUNNER_TEMP/notes-source.md" "$RUNNER_TEMP/release/notes.md" "$RUNNER_TEMP/notes.md"
+          # The preview's notes are generated, so the body must be rendered
+          # again; a missing file means the merge did not recognise its own text.
+          if [[ ! -f "$RUNNER_TEMP/notes.md" ]]; then
+            echo "::error::The preview's notes were not rendered again with macOS"
+            exit 1
+          fi
+          mkdir -p "$RUNNER_TEMP/preview"
+          cp "$RUNNER_TEMP/dist"/{latest.json,SHA256SUMS.txt} "$RUNNER_TEMP/dist"/*.sig "$RUNNER_TEMP/preview/"
+          cp "$RUNNER_TEMP/notes.md" "$RUNNER_TEMP/preview/notes.md"
+          {
+            echo "## Dry run of v$VERSION with macOS"
+            echo
+            echo "macOS merged into the preview's feed and checksums, signed with a second throwaway key (so the feed mixes two keys); no release was created. The installers are in the leg-macos artifact."
+            echo
+            echo '### SHA256SUMS.txt'
+            echo '```'
+            cat "$RUNNER_TEMP/dist/SHA256SUMS.txt"
+            echo '```'
+            echo '### latest.json'
+            echo '```json'
+            cat "$RUNNER_TEMP/dist/latest.json"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-dry-run-macos
+          path: ${{ runner.temp }}/preview
+          if-no-files-found: error
+          retention-days: 14
+
+  # Tag runs: signs Windows and Linux with the production key and creates the
+  # draft; join-macos adds macOS to it. Only these two jobs can read the
+  # release environment, which admits only tag runs (v*).
   draft:
     if: github.event_name == 'push' && github.ref_type == 'tag'
-    needs: [validate, build-windows, build-macos, build-linux]
+    needs: [validate, build-windows, build-linux]
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     environment: release
@@ -212,10 +302,15 @@ jobs:
       - name: Install the pinned Tauri CLI
         working-directory: frontend
         run: pnpm install --frozen-lockfile
+      # The two legs by name: leg-macos may already be there and joins later.
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          pattern: leg-*
-          path: ${{ runner.temp }}/legs
+          name: leg-windows
+          path: ${{ runner.temp }}/legs/leg-windows
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: leg-linux
+          path: ${{ runner.temp }}/legs/leg-linux
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: release-notes-source
@@ -244,8 +339,6 @@ jobs:
         with:
           subject-path: |
             ${{ runner.temp }}/dist/protocol-windows-x64-setup.exe
-            ${{ runner.temp }}/dist/protocol-macos-arm64.dmg
-            ${{ runner.temp }}/dist/protocol-macos-arm64.app.tar.gz
             ${{ runner.temp }}/dist/protocol-linux-x86_64.AppImage
             ${{ runner.temp }}/dist/protocol_${{ needs.validate.outputs.version }}_amd64.deb
       - name: Create the draft release
@@ -277,12 +370,14 @@ jobs:
           done
           id=$(gh release view "$TAG" --json databaseId --jq .databaseId)
           gh api "repos/$GITHUB_REPOSITORY/releases/$id" > "$RUNNER_TEMP/release.json"
-          node scripts/release/check-release-assets.mjs --version "$VERSION" --dir "$RUNNER_TEMP/dist" --release "$RUNNER_TEMP/release.json"
+          node scripts/release/check-release-assets.mjs --version "$VERSION" --dir "$RUNNER_TEMP/dist" --platforms windows,linux --release "$RUNNER_TEMP/release.json"
           url=$(node -p "require(process.argv[1]).html_url" "$RUNNER_TEMP/release.json")
           {
             echo "## Draft $TAG"
             echo
             echo "[$url]($url)"
+            echo
+            echo "Windows and Linux only: join-macos adds macOS to this release when its leg finishes, also after it is published."
             echo
             echo "Before publishing: read the notes, install protocol-windows-x64-setup.exe from the draft, record a short meeting."
             echo "Publish with **Set as the latest release** checked (stable releases), or:"
@@ -296,3 +391,173 @@ jobs:
             cat "$RUNNER_TEMP/dist/SHA256SUMS.txt"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+
+  # Tag runs: macOS joins the release `draft` created, whenever its runner got
+  # to it, whether the owner has published the release by then or not. It
+  # reads and writes only the release of this run's tag. Re-running it (Re-run
+  # failed jobs after a red or cancelled macOS leg) is safe: merge-macos.mjs
+  # replaces the macOS entries and keeps everything else.
+  join-macos:
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    needs: [validate, build-macos, draft]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    environment: release
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    env:
+      PNPM_CONFIG_ENABLE_GLOBAL_VIRTUAL_STORE: 'false'
+      VERSION: ${{ needs.validate.outputs.version }}
+      TAG: ${{ needs.validate.outputs.tag }}
+    # The token (contents: write) goes only to the steps that call gh, as in
+    # draft: pnpm install and the step holding the signing key never see it.
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: 11.9.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - name: Install the pinned Tauri CLI
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: leg-macos
+          path: ${{ runner.temp }}/leg-macos
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-notes-source
+          path: ${{ runner.temp }}
+      - name: Read the release of this tag
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # The release is looked up by the tag validate checked, and every
+          # later call goes to its id or that tag: no other release is read
+          # or written. merge-macos.mjs refuses a feed of another version.
+          id=$(gh release view "$TAG" --json databaseId --jq .databaseId)
+          gh api "repos/$GITHUB_REPOSITORY/releases/$id" > "$RUNNER_TEMP/release.json"
+          mkdir -p "$RUNNER_TEMP/release"
+          for name in latest.json SHA256SUMS.txt; do
+            asset=$(jq -r --arg name "$name" '.assets[] | select(.name == $name) | .id' "$RUNNER_TEMP/release.json")
+            if [[ -z "$asset" ]]; then
+              echo "::error::$TAG has no $name"
+              exit 1
+            fi
+            # Through the API with the token: a draft's assets have no public URL.
+            gh api -H 'Accept: application/octet-stream' "repos/$GITHUB_REPOSITORY/releases/assets/$asset" > "$RUNNER_TEMP/release/$name"
+          done
+          jq -r '.body // ""' "$RUNNER_TEMP/release.json" > "$RUNNER_TEMP/body.md"
+          echo "id=$id" >> "$GITHUB_OUTPUT"
+          echo "$TAG is $(jq -r 'if .draft then "a draft" else "published" end' "$RUNNER_TEMP/release.json") with $(jq '.assets | length' "$RUNNER_TEMP/release.json") assets"
+      - name: Sign the macOS bundle and merge it into the release
+        env:
+          SIGNED_VERSION: ${{ needs.validate.outputs.signed_version }}
+          FIRST_RELEASE: ${{ needs.validate.outputs.first_release }}
+          ATTESTATIONS: 'true'
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$TAURI_SIGNING_PRIVATE_KEY" ]]; then
+            echo "::error::The release environment has no TAURI_SIGNING_PRIVATE_KEY secret"
+            exit 1
+          fi
+          # The key every installed copy trusts, as in draft.
+          node -p "require('./frontend/src-tauri/tauri.conf.json').plugins.updater.pubkey" > "$RUNNER_TEMP/pubkey"
+          bash scripts/release/join-macos.sh \
+            "$RUNNER_TEMP/leg-macos" "$RUNNER_TEMP/release" "$RUNNER_TEMP/dist" "$RUNNER_TEMP/pubkey" \
+            "$RUNNER_TEMP/notes-source.md" "$RUNNER_TEMP/body.md" "$RUNNER_TEMP/notes.md"
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            ${{ runner.temp }}/dist/protocol-macos-arm64.dmg
+            ${{ runner.temp }}/dist/protocol-macos-arm64.app.tar.gz
+      - name: Upload macOS to the release
+        id: upload
+        env:
+          RELEASE_ID: ${{ steps.release.outputs.id }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          dist="$RUNNER_TEMP/dist"
+          # The macOS files first and the feed last, so latest.json never
+          # points at a file that is not there yet. --clobber deletes an asset
+          # before it uploads the new one (the Releases API has no atomic
+          # replace), so on a published release latest.json and SHA256SUMS.txt
+          # are missing for a moment on every run of this job: installed apps
+          # then see no update (noRelease) until the next check. The .sig, the
+          # checksums and the feed are made again on every run (the signature
+          # carries a timestamp), so they are always uploaded. Only the DMG and
+          # the bundle are skipped when the release already holds the same
+          # bytes (a re-run of this job alone), so a published release does not
+          # lose its macOS bundle even briefly.
+          for name in protocol-macos-arm64.dmg protocol-macos-arm64.app.tar.gz protocol-macos-arm64.app.tar.gz.sig SHA256SUMS.txt latest.json; do
+            if [[ "$name" == *.dmg || "$name" == *.app.tar.gz ]]; then
+              digest=$(jq -r --arg name "$name" '.assets[] | select(.name == $name) | .digest // ""' "$RUNNER_TEMP/release.json")
+              if [[ "$digest" == "sha256:$(sha256sum "$dist/$name" | cut -d' ' -f1)" ]]; then
+                echo "$name is already in $TAG"
+                continue
+              fi
+            fi
+            for attempt in 1 2 3; do
+              if gh release upload "$TAG" "$dist/$name" --clobber; then break; fi
+              echo "::warning::Upload of $name, attempt $attempt failed"
+              if [[ $attempt == 3 ]]; then exit 1; fi
+              sleep 30
+            done
+          done
+          # The body is replaced only if nobody changed it since the first
+          # step read it: an edit the owner made while this job signed and
+          # uploaded is kept.
+          body_kept=false
+          if [[ -f "$RUNNER_TEMP/notes.md" ]]; then
+            gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" --jq '.body // ""' > "$RUNNER_TEMP/body-now.md"
+            if cmp -s "$RUNNER_TEMP/body.md" "$RUNNER_TEMP/body-now.md"; then
+              gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" -F "body=@$RUNNER_TEMP/notes.md" > /dev/null
+            else
+              body_kept=true
+            fi
+          else
+            body_kept=true
+          fi
+          gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" > "$RUNNER_TEMP/joined.json"
+          node scripts/release/check-release-assets.mjs --version "$VERSION" --dir "$dist" --platforms macos --stage joined --release "$RUNNER_TEMP/joined.json"
+          draft=$(jq -r .draft "$RUNNER_TEMP/joined.json")
+          echo "draft=$draft" >> "$GITHUB_OUTPUT"
+          url=$(jq -r .html_url "$RUNNER_TEMP/joined.json")
+          {
+            echo "## macOS joined $TAG"
+            echo
+            echo "[$url]($url) ($([[ "$draft" == true ]] && echo 'still a draft' || echo 'published'))"
+            echo
+            if [[ "$body_kept" == true ]]; then
+              echo "The release body was edited by hand and was left as it is: add the macOS download and the new SHA256SUMS.txt lines yourself."
+              echo
+            fi
+            echo '### SHA256SUMS.txt'
+            echo '```'
+            cat "$dist/SHA256SUMS.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      # release-published.yml checked the release when it was published,
+      # before macOS was in it: check it again the way users see it now.
+      - name: Check the published release
+        if: steps.upload.outputs.draft == 'false'
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/published"
+          node scripts/release/check-published-release.mjs --tag "$TAG" --dir "$RUNNER_TEMP/published" --skip-latest

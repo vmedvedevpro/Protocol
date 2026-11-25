@@ -1103,7 +1103,8 @@ Data flow:
    `tauri.conf.json`, `frontend/src-tauri/Cargo.toml`, `Cargo.lock` and
    `frontend/package.json`, and `## Protocol <version> — <date>` in `CHANGELOG.md`.
 2. Once the merged commit's `main` runs of `release.yml` and `updater-e2e.yml`
-   are green, the owner pushes the tag `v<version>` on that commit.
+   are green apart from their macOS jobs, which gate nothing (#164), the owner
+   pushes the tag `v<version>` on that commit.
    `validate-release.mjs` checks the tag format, that the commit is on
    `origin/main`, the version files, the CHANGELOG section (it becomes the notes),
    the published releases (no duplicate, above every non-draft release whatever
@@ -1112,22 +1113,35 @@ Data flow:
    `check-migration-checksums.mjs --source git` the migration table.
 3. `pr-checks.yml` runs as a reusable workflow, then the legs
    `release-build-{windows,macos,linux}.yml` build, test and smoke-test, and each
-   uploads a `leg-<platform>` artifact with its `SHA256SUMS.txt` (the assembly
-   downloads exactly `leg-*`). Legs have no secrets.
-4. `draft` (environment `release`, tag runs only) runs `assemble-release.sh`:
-   checks the artifacts, signs the three updater payloads with the production key
-   and `--app-version`, verifies the signatures against `plugins.updater.pubkey`
-   (`verify-updater-signature.mjs`), writes `latest.json` (`make-latest-json.mjs`),
-   `SHA256SUMS.txt` and the notes (`render-notes.mjs`), then attests the installers
-   and creates the draft; `check-release-assets.mjs` compares the uploaded assets
-   with the local files. Dry runs run the same script in `preview` with a
-   throwaway key.
-5. The owner publishes; `release-published.yml` (`check-published-release.mjs`)
-   checks the public assets, the feed and `/releases/latest`.
+   uploads a `leg-<platform>` artifact with its `SHA256SUMS.txt`. Legs have no
+   secrets.
+4. `draft` (environment `release`, tag runs only) needs only the Windows and
+   Linux legs and runs `assemble-release.sh` on `leg-windows` and `leg-linux`:
+   checks the artifacts, signs the two updater payloads with the production key
+   and `--app-version` (`sign-payloads.sh`), verifies the signatures against
+   `plugins.updater.pubkey` (`verify-updater-signature.mjs`), writes `latest.json`
+   (`make-latest-json.mjs --platforms windows,linux`), `SHA256SUMS.txt` and the
+   notes (`render-notes.mjs`, whose macOS row says the download follows), then
+   attests the installers and creates the draft; `check-release-assets.mjs`
+   compares the uploaded assets with the local files. Dry runs run the same
+   script in `preview` with a throwaway key.
+5. `join-macos` (environment `release`, tag runs only) follows `build-macos` and
+   `draft`, draft or published: `join-macos.sh` signs and verifies the macOS
+   bundle with `sign-payloads.sh`, `merge-macos.mjs` merges the darwin keys into
+   the release's `latest.json` and the macOS lines into its `SHA256SUMS.txt` and
+   renders the body again unless it was edited by hand; the job attests and
+   uploads the macOS files (feed last) and checks the release, publicly once it
+   is published. Re-runs replace only the macOS entries. Dry runs do the same in
+   `preview-macos` against the `release-dry-run` artifact.
+6. The owner publishes, with or without macOS; `release-published.yml`
+   (`check-published-release.mjs`) checks the public assets of the platforms the
+   release has (Windows and Linux required, macOS whole or not at all), the feed
+   and `/releases/latest`.
 
 The feed has `windows-x86_64-nsis` and `windows-x86_64` (both the setup),
-`darwin-aarch64-app` and `darwin-aarch64` (`protocol-macos-arm64.app.tar.gz`) and
-`linux-x86_64-appimage`, and deliberately no `linux-x86_64` or deb key: a deb
+`darwin-aarch64-app` and `darwin-aarch64` (`protocol-macos-arm64.app.tar.gz`,
+from the moment macOS has joined; before that macOS installs get `noPlatform`)
+and `linux-x86_64-appimage`, and deliberately no `linux-x86_64` or deb key: a deb
 install finds no entry and gets #31's download link instead of an AppImage.
 Signatures carry the version (`signer sign --app-version`, tauri-cli 2.12 from
 #33); `verify-updater-signature.mjs` checks it. Until #31's configuration is in
