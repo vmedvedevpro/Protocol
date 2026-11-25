@@ -2,13 +2,14 @@
  * Labs: experiments the user turns on in Settings › Advanced. Two of them
  * live only in the WebView, in localStorage `meetily-labs-v1` (PARITY.md,
  * Keep reading): Waveform scrubbing (the meeting's player) and Clean
- * transcript (the meeting's transcript and its summary). Three are native
+ * transcript (the meeting's transcript and its summary). Two are native
  * switches, each in a file of its own: the Whisper silence guard
- * (whisper_engine/labs.rs), Voice profiles (diarization/voice_profiles.rs)
- * and Parakeet on the GPU (parakeet_engine/labs.rs, Windows). Native is the
- * truth for those, read with Query; the old app mirrored them into the same
- * localStorage object, and a change here keeps that mirror, so the stored
- * object stays the shape the old app wrote.
+ * (whisper_engine/labs.rs) and Parakeet on the GPU (parakeet_engine/labs.rs,
+ * Windows). Native is the truth for those, read with Query; the old app
+ * mirrored them into the same localStorage object, and a change here keeps
+ * that mirror, so the stored object stays the shape the old app wrote. The
+ * third native switch, Voice profiles, belongs to the people domain
+ * (`src/api/people.ts`, #118), since the voices it learns are people's.
  */
 import {mutationOptions, queryOptions} from '@tanstack/react-query'
 import {create} from 'zustand'
@@ -73,7 +74,7 @@ const labsStorage: PersistStorage<Pick<LabsStore, 'labs'>> = {
 
 /**
  * The stored object. Turn Waveform scrubbing and Clean transcript on and off
- * with `setLab`; the native three change through `setNativeLabMutation`,
+ * with `setLab`; the native two change through `setNativeLabMutation`,
  * which mirrors them here once native has taken the change.
  */
 export const useLabsStore = create<LabsStore>()(
@@ -91,7 +92,7 @@ export const useLab = (name: 'transcriptScrubbing' | 'cleanTranscript') => useLa
 
 // --- The native switches -----------------------------------------------------
 
-export type NativeLab = 'whisperSilenceGuard' | 'voiceProfiles' | 'parakeetGpu'
+export type NativeLab = 'whisperSilenceGuard' | 'parakeetGpu'
 
 /**
  * Each switch's commands. Parakeet on the GPU reloads the current Parakeet
@@ -103,10 +104,6 @@ const NATIVE_LABS: Record<NativeLab, {get: string, set: (on: boolean) => Promise
     whisperSilenceGuard: {
         get: 'get_whisper_strict_silence',
         set: (enabled) => command<null>('set_whisper_strict_silence', {enabled}),
-    },
-    voiceProfiles: {
-        get: 'get_voice_profiles_enabled',
-        set: (value) => command<null>('set_voice_profiles_enabled', {value}),
     },
     parakeetGpu: {
         get: 'get_parakeet_gpu_enabled',

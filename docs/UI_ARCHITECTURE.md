@@ -671,9 +671,11 @@ levels) skip Query and React state; see Styling and the next section.
   `post-call-transcript-config-changed`). A recording's start, the
   post-call pass and Enhance transcript read it there.
   `src/api/labs.ts` is Labs: Waveform scrubbing and Clean transcript live
-  only in `meetily-labs-v1` (`useLab`); the three native switches are
-  queries, and a change native took is mirrored into that object, which
-  keeps the old app's shape. `lib/cleanTranscript.ts` is what Clean
+  only in `meetily-labs-v1` (`useLab`); the Whisper silence guard and
+  Parakeet on the GPU are native switches read as queries, and a change
+  native took is mirrored into that object, which keeps the old app's
+  shape. Voice profiles, the third native switch, is in
+  `src/api/people.ts` (#118). `lib/cleanTranscript.ts` is what Clean
   transcript shows.
 - `src/api/permissions.ts` asks for the microphone and, on macOS, Audio
   Capture, reads the Audio Capture record and opens the privacy panes (macOS
