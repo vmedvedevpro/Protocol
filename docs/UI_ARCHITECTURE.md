@@ -478,7 +478,9 @@ enter and exit, indicators and springs.
     over `base`; the one they replace goes at once.
   - Home's folder chips: the selected chip's outline is a thumb that
     slides to the chip chosen by transform on `springs.snappy`.
-  - Tabs and segmented controls: the thumb slides; the panel below swaps
+  - Tabs and segmented controls: the thumb slides, except that a change
+    made with the keyboard lands at once (so does the Switch's knob), as
+    the menus' highlight does; the panel below swaps
     through the veil over `base` (`Crossfade`: the new view, drawn over
     the old one on the colour behind both, covers it at once and is
     revealed, so the two never show together), without sliding. Other views that replace each other
@@ -547,7 +549,10 @@ enter and exit, indicators and springs.
   with `orca set media --reduced-motion reduce`.
 - Tests run with `MotionGlobalConfig.skipAnimations` (`src/test/setup.ts`), so
   every animation ends at once; motion writes styles on its next frame, so
-  assert them inside `waitFor`.
+  assert them inside `waitFor`. A test of how something moves calls
+  `playAnimations()` (`src/test/motion.ts`) and reads the path it took from
+  `watchStyles()`, every style written, not a sample at one moment, which a
+  busy machine takes late; setup.ts skips animations again after it.
 
 ## Native data
 

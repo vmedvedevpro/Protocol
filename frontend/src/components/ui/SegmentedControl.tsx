@@ -1,4 +1,4 @@
-import {createContext, type KeyboardEvent, type ReactNode, useContext, useId, useRef} from 'react'
+import {createContext, type KeyboardEvent, type ReactNode, useContext, useId, useRef, useState} from 'react'
 import {useMotionValue, useTransform} from 'motion/react'
 import * as m from 'motion/react-m'
 import styled, {css} from 'styled-components'
@@ -148,7 +148,15 @@ const ThumbLabels = styled.span<{ $count: number, $variant: Variant }>`
     }
 `
 
-function SlidingThumb({at, labels, variant}: { at: number, labels: readonly string[], variant: Variant }) {
+interface SlidingThumbProps {
+    at: number
+    labels: readonly string[]
+    variant: Variant
+    /** The last change came from the keyboard: land at once, as the menus' highlight does. */
+    instant: boolean
+}
+
+function SlidingThumb({at, labels, variant, instant}: SlidingThumbProps) {
     // The thumb's own offset drives its copy of the labels, so the two can
     // never drift apart, even when a new choice interrupts the spring.
     const thumbX = useMotionValue(`${at * 100}%`)
@@ -162,7 +170,7 @@ function SlidingThumb({at, labels, variant}: { at: number, labels: readonly stri
             style={{x: thumbX}}
             initial={false}
             animate={{x: `${at * 100}%`}}
-            transition={springs.snappy}
+            transition={instant ? {duration: 0} : springs.snappy}
         >
             <ThumbCopy style={{x: copyX}}>
                 <ThumbLabels $count={labels.length} $variant={variant}>
@@ -191,9 +199,17 @@ interface SegmentedControlProps<T extends string> {
  */
 export function SegmentedControl<T extends string>({label, options, value, onChange}: SegmentedControlProps<T>) {
     const name = useId()
+    const [byKey, setByKey] = useState(false)
 
     return (
-        <Track role="radiogroup" aria-label={label} $count={options.length} $variant="segments">
+        <Track
+            role="radiogroup"
+            aria-label={label}
+            $count={options.length}
+            $variant="segments"
+            onKeyDownCapture={() => setByKey(true)}
+            onPointerDownCapture={() => setByKey(false)}
+        >
             {options.map((option) => (
                 <Segment key={option.value} $selected={option.value === value} $variant="segments">
                     <input
@@ -210,6 +226,7 @@ export function SegmentedControl<T extends string>({label, options, value, onCha
                 at={indexOf(options, value)}
                 labels={options.map((option) => option.label)}
                 variant="segments"
+                instant={byKey}
             />
         </Track>
     )
@@ -262,6 +279,7 @@ export function TabList() {
     const {ids, label, options, value, onChange} = useTabs('TabList')
     const buttons = useRef<(HTMLButtonElement | null)[]>([])
     const at = indexOf(options, value)
+    const [byKey, setByKey] = useState(false)
 
     // Only the selected tab is in the Tab order; arrows move between them.
     const onKeyDown = (event: KeyboardEvent) => {
@@ -274,7 +292,15 @@ export function TabList() {
     }
 
     return (
-        <Track role="tablist" aria-label={label} $count={options.length} $variant="tabs" onKeyDown={onKeyDown}>
+        <Track
+            role="tablist"
+            aria-label={label}
+            $count={options.length}
+            $variant="tabs"
+            onKeyDown={onKeyDown}
+            onKeyDownCapture={() => setByKey(true)}
+            onPointerDownCapture={() => setByKey(false)}
+        >
             {options.map((option, i) => (
                 <Tab
                     key={option.value}
@@ -294,7 +320,7 @@ export function TabList() {
                     {option.label}
                 </Tab>
             ))}
-            <SlidingThumb at={at} labels={options.map((option) => option.label)} variant="tabs"/>
+            <SlidingThumb at={at} labels={options.map((option) => option.label)} variant="tabs" instant={byKey}/>
         </Track>
     )
 }

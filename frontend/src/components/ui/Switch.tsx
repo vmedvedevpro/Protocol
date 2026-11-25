@@ -1,3 +1,4 @@
+import {useState} from 'react'
 import * as RadixSwitch from '@radix-ui/react-switch'
 import * as m from 'motion/react-m'
 import styled from 'styled-components'
@@ -59,15 +60,24 @@ interface SwitchProps {
 /** An on/off setting that applies at once. Space toggles it from the keyboard. */
 export function Switch({checked, onCheckedChange, label, disabled}: SwitchProps) {
     const labelling = useControlLabelling(label)
+    // A key press lands the knob at once: a knob trailing the key reads as lag.
+    // The pointer, and a change from elsewhere, keep the spring.
+    const [byKey, setByKey] = useState(false)
     return (
         <Track
             checked={checked}
             onCheckedChange={onCheckedChange}
             disabled={disabled}
+            onKeyDown={() => setByKey(true)}
+            onPointerDown={() => setByKey(false)}
             {...labelling}
         >
             <RadixSwitch.Thumb asChild>
-                <Knob initial={false} animate={{x: checked ? '100%' : '0%'}} transition={springs.snappy}/>
+                <Knob
+                    initial={false}
+                    animate={{x: checked ? '100%' : '0%'}}
+                    transition={byKey ? {duration: 0} : springs.snappy}
+                />
             </RadixSwitch.Thumb>
         </Track>
     )
