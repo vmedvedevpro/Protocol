@@ -404,7 +404,11 @@ deleted custom default falls back by itself. The UI's
 `startSummary` (`frontend/src/api/meetings.ts`) leaves the template out unless
 a run picks one, so the automatic summary after a recording uses the default.
 The module also reads one template whole (`api_get_template`) for its sections
-and the editor; the frontend domain is `frontend/src/api/templates.ts`. Tests:
+and the editor; the frontend domain is `frontend/src/api/templates.ts`. Every
+list of templates (Settings, Summary options, the template sheet) reads
+`listTemplatesWithOrigin`, sorted by name, then id, whatever the default
+(#218): choosing a default moves nothing and reads only the default again;
+Settings marks it with its radio, Summary options with "(default)". Tests:
 native `summary::template_settings::tests`, frontend `src/api/templates.test.ts`.
 
 A cloud provider's models (Settings › Summary model and first launch) come

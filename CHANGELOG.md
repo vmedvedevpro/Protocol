@@ -84,6 +84,10 @@ is inherited from the project Protocol forked from; Protocol did not release it.
   the model wrapped in a code block it never closed, or in the tags of its
   own instructions, showed as one block of code; those wrappers now come
   off.
+- **Templates stay in place**
+  ([#218](https://github.com/vmedvedevpro/Protocol/issues/218)). Choosing a
+  default template no longer moves it to the top: templates are listed by
+  name everywhere, and the default is marked.
 
 ## Protocol 1.0.0-rc.1 — 2026-11-26
 

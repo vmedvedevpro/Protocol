@@ -17,9 +17,14 @@ describe('Summary templates page', () => {
         const sections = await screen.findByRole('region', {name: 'Sections'})
         expect(await within(sections).findByText('Summary')).toBeInTheDocument()
 
+        const order = () => within(templates).getAllByRole('radio').map((radio) => radio.getAttribute('aria-label') ?? radio.textContent)
+        const before = order()
         await userEvent.click(within(templates).getByRole('radio', {name: 'Daily Standup'}))
         await waitFor(() => expect(mockState.templates.defaultId).toBe('daily_standup'))
         expect(within(templates).getByRole('radio', {name: 'Daily Standup'})).toBeChecked()
+        // The row clicked stays under the pointer: the order is by name (#218).
+        await new Promise((resolve) => setTimeout(resolve, 50))
+        expect(order()).toEqual(before)
     })
 
     it('deletes the user’s own default template, and native falls back', async () => {

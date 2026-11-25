@@ -118,6 +118,7 @@ export function SummaryOptionsSheet() {
                     key={request.seq}
                     request={request}
                     templateId={templateId}
+                    defaultTemplateId={defaultTemplate.data}
                     onTemplate={(id) => setChoice({seq, templateId: id})}
                     onWriting={setWriting}
                     onChangeModel={() => {
@@ -134,12 +135,14 @@ interface SummaryFormProps {
     request: Extract<OpenedDialog, { kind: 'summary' }>
     /** Undefined until the default template is read. */
     templateId: string | undefined
+    /** Marked in the list: the list keeps one order whatever the default (#218). */
+    defaultTemplateId: string | undefined
     onTemplate: (templateId: string) => void
     onWriting: (writing: boolean) => void
     onChangeModel: () => void
 }
 
-function SummaryForm({request, templateId, onTemplate, onWriting, onChangeModel}: SummaryFormProps) {
+function SummaryForm({request, templateId, defaultTemplateId, onTemplate, onWriting, onChangeModel}: SummaryFormProps) {
     const {meetingId} = request
     const templates = useQuery(templatesQuery)
     const saved = useQuery(meetingLanguageQuery(meetingId))
@@ -198,7 +201,7 @@ function SummaryForm({request, templateId, onTemplate, onWriting, onChangeModel}
         ...recent.map((code) => ({value: code, label: summaryLanguageLabel(code)})),
         ...SUMMARY_LANGUAGES.filter(({code}) => !recent.includes(code)).map(({code, label}) => ({value: code, label})),
     ]
-    const templateOptions = (templates.data ?? []).map(({id, name}) => ({value: id, label: name}))
+    const templateOptions = (templates.data ?? []).map(({id, name}) => ({value: id, label: id === defaultTemplateId ? `${name} (default)` : name}))
     const model = modelLabel(config.data, builtIn.data)
 
     return (

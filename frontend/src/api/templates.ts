@@ -63,17 +63,19 @@ export const listTemplates = () => command<TemplateInfo[]>('api_list_templates')
 export const isCustomTemplate = (templateId: string) => command<boolean>('api_is_custom_template', {templateId})
 
 /**
- * The default first, then by name: native lists them by id, which reads as
- * no order at all. Every list of templates reads this one, so the order is
- * the same everywhere; a change of default refetches it. A template that
- * fails to load is left out natively.
+ * By name, then id: native lists them by id, which reads as no order at all.
+ * Every list of templates reads this one, so the order is the same
+ * everywhere, and it does not depend on the default (#218): choosing one
+ * moves nothing, and each list marks the default itself (Settings' radio,
+ * "(default)" in Summary options). A template that fails to load is left
+ * out natively.
  */
 export async function listTemplatesWithOrigin(): Promise<TemplateListItem[]> {
-    const [templates, defaultId] = await Promise.all([listTemplates(), getDefaultTemplate().catch(() => null)])
+    const templates = await listTemplates()
     const custom = await Promise.all(templates.map(({id}) => isCustomTemplate(id)))
     return templates
         .map((template, index) => ({...template, custom: custom[index]}))
-        .sort((a, b) => Number(b.id === defaultId) - Number(a.id === defaultId) || a.name.localeCompare(b.name) || a.id.localeCompare(b.id))
+        .sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id))
 }
 
 /** One template whole, from the same copy a summary would use. */
@@ -122,8 +124,8 @@ export const deleteCustomTemplateMutation = mutationOptions({
     onSuccess: (_reply, _templateId, _result, {client}) => invalidateTemplates(client),
 })
 
-/** The list puts the default first, so it is read again too. */
+/** Only the default is read again: the list's order does not depend on it. */
 export const setDefaultTemplateMutation = mutationOptions({
     mutationFn: setDefaultTemplate,
-    onSuccess: (_reply, _templateId, _result, {client}) => invalidateTemplates(client),
+    onSuccess: (_reply, _templateId, _result, {client}) => client.invalidateQueries({queryKey: templateKeys.default()}),
 })
