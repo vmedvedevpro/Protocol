@@ -12,44 +12,9 @@
  */
 import {queryOptions} from '@tanstack/react-query'
 import {useEffect} from 'react'
-import {create} from 'zustand'
-import {persist, type PersistStorage} from 'zustand/middleware'
 import {DETECT_LANGUAGE, normaliseSummaryLanguage} from '@/lib/languages'
-import {safely} from '@/lib/storage'
+import {safely, storedValue} from '@/lib/storage'
 import {command} from './core'
-
-interface StoredValue<T> {
-    value: T
-    set: (value: T) => void
-}
-
-/**
- * A value kept under `key` in the old app's format: `read` turns what is
- * stored (null when nothing is) into the value, `write` the value into what
- * to store (null removes the key). Never Zustand's `{state, version}` JSON,
- * which the old UI could not have written (UI_ARCHITECTURE.md, Native data).
- */
-function storedValue<T>(key: string, read: (stored: string | null) => T, write: (value: T) => string | null) {
-    const storage: PersistStorage<Pick<StoredValue<T>, 'value'>> = {
-        getItem: (name) => ({state: {value: read(safely(() => localStorage.getItem(name)))}, version: 0}),
-        setItem: (name, {state}) => {
-            const stored = write(state.value)
-            safely(() => (stored === null ? localStorage.removeItem(name) : localStorage.setItem(name, stored)))
-        },
-        removeItem: (name) => {
-            safely(() => localStorage.removeItem(name))
-        },
-    }
-    return create<StoredValue<T>>()(
-        persist(
-            (set) => ({
-                value: read(null),
-                set: (value) => set({value}),
-            }),
-            {name: key, storage, partialize: ({value}) => ({value})},
-        ),
-    )
-}
 
 // --- Your name -------------------------------------------------------------
 

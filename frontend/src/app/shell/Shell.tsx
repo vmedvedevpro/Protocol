@@ -2,6 +2,7 @@ import {Outlet, useMatches, useNavigate} from 'react-router-dom'
 import styled from 'styled-components'
 import {useNativeEvent} from '@/api/events'
 import {useModelDownloadSync} from '@/api/modelDownloadSync'
+import {useSpeechConfigSync} from '@/api/speech'
 import {TRAY_NAVIGATE_EVENT, TRAY_START_RECORDING_EVENT} from '@/api/tray'
 import {RecordBarContext} from '@/components/screen/recordBar'
 import {UpdateToasts} from '@/features/meetings/home/UpdateToasts'
@@ -68,8 +69,10 @@ export function Shell() {
     const onTop = useKeepOnTopStore((state) => state.onTop)
     const setOnTop = useKeepOnTopStore((state) => state.setOnTop)
     useKeepOnTopSync()
-    // In front of the startup gate: first launch starts the downloads.
+    // In front of the startup gate: first launch starts the downloads, and
+    // native activates Whisper after its download.
     useModelDownloadSync()
+    useSpeechConfigSync()
 
     // The tray's Settings and update items, heard from the start: the route
     // shows once startup settles. The router keeps the page alive; a reload

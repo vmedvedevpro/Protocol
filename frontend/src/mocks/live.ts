@@ -59,9 +59,6 @@ export function createMockLive() {
         runtimeError: null as string | null,
         /** The next start rejects with it, as native does for a device it cannot open. */
         startError: null as string | null,
-        /** The live model (`api_get_transcript_config`) and the post-call one. */
-        transcriptConfig: {provider: 'parakeet', model: 'parakeet-tdt-0.6b-v3-int8'},
-        postCallConfig: {provider: 'live', model: ''},
         loaded: {parakeet: false, whisper: false},
         /** What `get_transcription_status` answers after a Stop. */
         transcription: {chunks_in_queue: 0, is_processing: false, last_activity_ms: 60_000} as TranscriptionStatus,
@@ -274,8 +271,6 @@ export function liveHandlers(state: MockState): Record<string, MockHandler> {
             if (live().runtimeError) throw live().runtimeError
             return null
         },
-        api_get_transcript_config: () => ({...live().transcriptConfig, apiKey: null}),
-        api_get_post_call_transcript_config: () => ({...live().postCallConfig}),
         parakeet_has_available_models: () => state.models.parakeet === 'Available',
         parakeet_is_model_loaded: () => live().loaded.parakeet,
         parakeet_load_model: () => {

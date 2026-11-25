@@ -1,6 +1,7 @@
 import type {Platform} from '@/lib/platform'
 import {audioHandlers} from './audio'
 import {devicesHandlers} from './devices'
+import {labsHandlers} from './labs'
 import {liveHandlers} from './live'
 import {meetingsHandlers} from './meetings'
 import {modelCatalogHandlers} from './modelCatalog'
@@ -11,6 +12,7 @@ import {macosPermissionsHandlers, permissionsHandlers} from './permissions'
 import {postCallHandlers} from './postCall'
 import {preferencesHandlers} from './preferences'
 import {shellHandlers} from './shell'
+import {speechHandlers} from './speech'
 import {updaterHandlers} from './updater'
 import {mockState} from './state'
 
@@ -79,6 +81,12 @@ export const handlers: Record<string, MockHandler> = {
 
     // The recorder, its live transcript and the save hand-over (src/mocks/live.ts)
     ...liveHandlers(mockState),
+
+    // The transcript config and the vocabulary (src/mocks/speech.ts)
+    ...speechHandlers(mockState),
+
+    // The native Labs switches (src/mocks/labs.ts)
+    ...labsHandlers(mockState),
 }
 
 /**

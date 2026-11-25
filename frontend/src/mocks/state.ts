@@ -5,6 +5,7 @@ import type {Release} from '@/api/updater'
 import {platform} from '@/lib/platform'
 import packageJson from '../../package.json'
 import {createMockDevices} from './devices'
+import {createMockLabs} from './labs'
 import {createMockLive} from './live'
 import {createMockMeetings} from './meetings'
 import {createMockCatalog} from './modelCatalog'
@@ -13,6 +14,7 @@ import {createMockNotes} from './notes'
 import {completedOnboarding, createMockDatabase} from './onboarding'
 import {createMockPostCall} from './postCall'
 import {createMockPreferences} from './preferences'
+import {createMockSpeech} from './speech'
 import {createMockUpdater, createMockUpdateRelease} from './updater'
 
 /**
@@ -86,6 +88,10 @@ function createMockState() {
         meetings: createMockMeetings(),
         // The recorder and its live transcript (src/mocks/live.ts).
         live: createMockLive(),
+        // The live and after-meeting models and the vocabulary (src/mocks/speech.ts).
+        speech: createMockSpeech(),
+        // The native Labs switches (src/mocks/labs.ts).
+        labs: createMockLabs(),
     }
 }
 
