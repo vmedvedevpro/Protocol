@@ -195,6 +195,8 @@ const sizes = {
     control: {sm: '28px', base: '30px', md: '32px', lg: '36px'},
     /** A switch's track; its knob fills the height less the track's padding. */
     switch: {width: '32px', height: '18px'},
+    /** A radio button's ring, the stroke it is drawn with, and the dot it shows when chosen. */
+    radio: {size: '16px', ring: '1.5px', dot: '8px'},
     /** A progress bar's thickness. */
     progress: '3px',
     /** A menu or a select's list is at least `minWidth`; a select's button at most `triggerMaxWidth`. */

@@ -310,6 +310,22 @@ theme; the motion from the Motion section.
   shadow: the two snap to device pixels separately, and at a fractional
   display scale (175 %) one side comes out thinner. An
   external `SettingsNavRow` says "(opens in browser)" to screen readers.
+  `SettingsRadioGroup` with `SettingsRadioRow` is one choice among rows
+  (Radix RadioGroup: arrow keys move and choose, Tab enters at the chosen
+  row), titled like a group; a value no row has leaves every row unchosen.
+  The ring takes the text colour and the dot fades in, scaling up inside
+  `MOTION_OK`.
+- Settings search needs no list of settings: under a `SettingsSearchScope`
+  each `SettingsRow`, `SettingsNavRow` and `SettingsRadioRow` checks its own
+  label, description, badge and value against every word of the query
+  (`settingsSearch.ts`). In `show` a row that does not match renders
+  nothing, and a group hides while none of its rows matches, titled with
+  the scope before its own title ("AI · Summaries") and without its note;
+  in `index` no row renders and the scope only reports which match
+  (`onMatches`, in the order they mounted), so a page can be found by its
+  rows. A hidden row stays mounted and shows again when the query changes;
+  rows report before paint, so a group never flashes. Filtering does not
+  animate, as on Home.
 - `VisuallyHidden` holds text only assistive technology reads.
 - Menu and select rows keep the design's faint highlight; the keyboard's row
   also gets an inset `muted` ring on `:focus-visible` (`keyboardRowRing`),

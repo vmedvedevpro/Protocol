@@ -5,7 +5,7 @@ import {Button} from './Button'
 import {ProgressBar} from './ProgressBar'
 import {SegmentedControl} from './SegmentedControl'
 import {Select} from './Select'
-import {SettingsGroup, SettingsNavRow, SettingsRow} from './SettingsRow'
+import {SettingsGroup, SettingsNavRow, SettingsRadioGroup, SettingsRadioRow, SettingsRow, SettingsSearchScope} from './SettingsRow'
 import {Switch} from './Switch'
 import {TextArea, TextField} from './TextField'
 
@@ -28,9 +28,19 @@ const LANGUAGES = [
     {value: 'ru', label: 'Russian'},
 ] as const
 
+const Muted = styled.p`
+    padding: 0 ${({theme}) => theme.space[1]};
+    ${({theme}) => theme.text.small};
+    color: ${({theme}) => theme.colors.muted};
+`
+
 // Rows from AppSettings: a segmented theme, a text field, switches, a select,
-// a subpage, actions and a download in progress.
-function Settings() {
+// a subpage, a radio choice, actions and a download in progress, under the
+// search that filters them by their own text.
+function Settings({query: initialQuery = ''}: {query?: string}) {
+    const [query, setQuery] = useState(initialQuery)
+    const [matches, setMatches] = useState<string[]>([])
+    const [provider, setProvider] = useState('builtin-ai')
     const [theme, setTheme] = useState<(typeof THEMES)[number]['value']>('system')
     const [name, setName] = useState('Tyler')
     const [saveAudio, setSaveAudio] = useState(true)
@@ -40,6 +50,9 @@ function Settings() {
 
     return (
         <Page>
+            <TextField type="search" aria-label="Search all settings" placeholder="Search" value={query} onChange={(event) => setQuery(event.target.value)}/>
+            {query.trim() && matches.length === 0 && <Muted>Nothing matches “{query.trim()}”.</Muted>}
+            <SettingsSearchScope query={query} scope="Settings" onMatches={setMatches}>
             <SettingsGroup title="General">
                 <SettingsRow
                     label="Theme"
@@ -83,6 +96,13 @@ function Settings() {
                     <TextArea mono rows={4} value={words} onChange={(event) => setWords(event.target.value)}/>
                 </SettingsRow>
             </SettingsGroup>
+
+            <SettingsRadioGroup title="Provider" note="Meetings you summarize are sent to the provider you choose." value={provider} onValueChange={setProvider}>
+                <SettingsRadioRow value="builtin-ai" label="Built-in AI" description="No API key needed"/>
+                <SettingsRadioRow value="claude" label="Claude" description="Anthropic API key"/>
+                <SettingsRadioRow value="ollama" label="Ollama" description="Models on your own Ollama server" badge="Download"/>
+            </SettingsRadioGroup>
+            </SettingsSearchScope>
         </Page>
     )
 }
@@ -99,3 +119,8 @@ type Story = StoryObj<typeof meta>
 export const Light: Story = {globals: {theme: 'light'}}
 
 export const Dark: Story = {globals: {theme: 'dark'}}
+
+/** A query that keeps a few rows from several groups. */
+export const Searching: Story = {args: {query: 'model'}, globals: {theme: 'light'}}
+
+export const SearchingDark: Story = {args: {query: 'model'}, globals: {theme: 'dark'}}
