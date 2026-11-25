@@ -54,7 +54,8 @@
 - Live transcription is 2.5 times faster than in Actually Free.
 - Transcription after a call is 5 times faster than in Actually Free.
 - Transcription after a call makes up to 12 % fewer word errors.
-- On Intel GPUs under Windows, Whisper runs through OpenVINO and is another 4 times faster.
+- On Linux, one AppImage or deb runs Whisper on the graphics card through Vulkan (Intel, AMD or NVIDIA), 12 times faster than on the processor, and falls back to the processor on its own. Actually Free's Linux build is a preview with separate CPU and Vulkan packages.
+- On Intel GPUs under Windows and Linux, Whisper runs through OpenVINO and is another 3 to 4 times faster.
 - On Intel NPUs, Parakeet uses 3.5 times less energy than on the processor.
 - AI agents can read your meetings through MCP.
 - The analytics code is removed.
