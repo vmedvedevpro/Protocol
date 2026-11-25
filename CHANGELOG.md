@@ -9,95 +9,72 @@ is inherited from the project Protocol forked from; Protocol did not release it.
 
 ## Protocol 1.0.0 — 2026-11-25
 
-Protocol 1.0 has a new interface, written from scratch: one compact window
-for recording, your meetings and their transcripts and summaries, a floating
-recording bar, and settings that stay simple until you switch on Advanced. It
-also plays recordings on Linux, opens a library carried over from Windows,
-and follows your system's light or dark mode. Version 0.6.0 was never
-released; its changes are part of this release.
+Protocol 1.0 has a new interface. Version 0.6.0 was never released; its
+changes are included here.
 
 ### New
 
-- **A new interface**
-  ([#123](https://github.com/vmedvedevpro/Protocol/issues/123)). The window
-  is small enough to sit beside a call. Home is your meetings list, grouped
-  by date, with folders as chips above it (the old groups become folders).
-  A meeting opens on its notes, transcript and summary. While you record, a
-  ring shows what Protocol hears from the microphone and the computer, and
-  the window can shrink to a floating bar with the time and Stop. Every wait
-  shows its progress, and the motion is tuned not to blink.
-- **Search everything with Ctrl K**
-  ([#118](https://github.com/vmedvedevpro/Protocol/issues/118)). One search
-  finds meetings, lines of a transcript (the meeting opens at that line),
-  summaries, people and settings, and starts actions such as Record or Import
-  a recording.
+- **New interface**
+  ([#123](https://github.com/vmedvedevpro/Protocol/issues/123)). One compact
+  window: your meetings by date, with folders; each meeting's notes,
+  transcript and summary; a ring that shows what the microphone and the
+  computer hear; a floating bar while you record.
+- **Search**
+  ([#118](https://github.com/vmedvedevpro/Protocol/issues/118)). Ctrl K
+  finds meetings, transcript lines, summaries, people and settings. A
+  transcript hit opens the meeting at that line.
 - **People**
-  ([#118](https://github.com/vmedvedevpro/Protocol/issues/118)). A person has
-  a page with your meetings together, their open action items and your
-  private notes about them.
-- **Work on a meeting in place**
-  ([#119](https://github.com/vmedvedevpro/Protocol/issues/119)). Click a line
-  to play from there; ask who said a line, then rename or merge speakers;
-  improve the transcript with another model; write the summary again with
-  another template, language, model or an instruction; edit the summary
-  templates. Drop an audio file anywhere in the window to import it.
-- **Settings, simple first**
+  ([#118](https://github.com/vmedvedevpro/Protocol/issues/118)). Each person
+  has a page with your meetings together, their open action items and your
+  notes.
+- **Editing a meeting**
+  ([#119](https://github.com/vmedvedevpro/Protocol/issues/119)). Rename or
+  merge speakers from a line, identify speakers again, improve the
+  transcript with another model, and write the summary again with another
+  template, language or model. Drop an audio file on the window to import
+  it.
+- **Settings**
   ([#114](https://github.com/vmedvedevpro/Protocol/issues/114),
-  [#117](https://github.com/vmedvedevpro/Protocol/issues/117)). Settings
-  shows the few choices most people need; the Advanced switch adds
-  transcription, speakers, summary providers, templates, AI agents, disk and
-  Labs. Settings has its own search.
+  [#117](https://github.com/vmedvedevpro/Protocol/issues/117)). The common
+  settings come first; Advanced shows the rest. A model downloads only when
+  you click Install.
 - **Light, Dark or Match system**
   ([#96](https://github.com/vmedvedevpro/Protocol/issues/96)). Match system
-  follows the light or dark mode of Windows, macOS or Linux and switches
-  every window, the floating bar included, as soon as the system does.
-  Without a saved choice, Protocol follows the system. A saved Midnight or
-  Charcoal becomes Dark and Vanilla becomes Light.
+  follows the system's mode in every window. A saved Midnight or Charcoal
+  becomes Dark, and Vanilla becomes Light.
 
 ### Changed
 
-- **Quitting asks while Protocol is still working**
-  ([#121](https://github.com/vmedvedevpro/Protocol/issues/121)). Quit from
-  the tray or the menu now asks whenever something would be lost: a
-  recording, the pass that improves a transcript after a meeting, a summary,
-  an import or a model download. On Linux and macOS, logging out or shutting
-  down is a normal quit and no longer shows a crash report on the next start.
-- **A stopped download can resume**
-  ([#121](https://github.com/vmedvedevpro/Protocol/issues/121)). A model
-  download cut short by a restart shows how far it got and a Resume button,
-  instead of calling the copy damaged, and Home says when the summary model
-  is missing.
-- **Meeting detection is off for now**
-  ([#102](https://github.com/vmedvedevpro/Protocol/issues/102)). It kept
-  repeating "meeting detected" while a call app was open, and on macOS and
-  Linux an app idle in the tray was enough. Detection no longer runs, even if
-  you had turned it on. It comes back once it is fixed.
+- **Quit asks while work is running**
+  ([#121](https://github.com/vmedvedevpro/Protocol/issues/121)): a
+  recording, the transcript pass after a meeting, a summary, an import or a
+  download. On Linux and macOS, logging out or shutting down no longer shows
+  a crash report at the next start.
+- **An interrupted download shows Resume**
+  ([#121](https://github.com/vmedvedevpro/Protocol/issues/121)) instead of
+  calling the file damaged.
+- **Meeting detection is off**
+  ([#102](https://github.com/vmedvedevpro/Protocol/issues/102)) until it
+  stops repeating "meeting detected" while a call app is open.
 
 ### Removed
 
-- The AI chat, the Contacts and Groups pages (groups are folders now), the
-  library's bulk actions, date filter and sort order, the recording
-  disclosure notice and desktop notifications
-  ([#126](https://github.com/vmedvedevpro/Protocol/issues/126)). Your
-  meetings, people and groups stay in your library.
+- The AI chat, the Contacts and Groups pages (groups are now folders), bulk
+  actions and sorting in the meeting list, the recording notice and desktop
+  notifications ([#126](https://github.com/vmedvedevpro/Protocol/issues/126)).
+  Your meetings, people and groups are kept.
 
 ### Fixed
 
 - **Recordings play on Linux**
+  ([#121](https://github.com/vmedvedevpro/Protocol/issues/121)).
+- **A library from another computer opens**
   ([#121](https://github.com/vmedvedevpro/Protocol/issues/121)). The Linux
-  webview could not play the recording of a meeting, so the player stayed
-  empty.
-- **A library moved from another computer opens**
-  ([#121](https://github.com/vmedvedevpro/Protocol/issues/121)). A database
-  made by the Windows version of Protocol no longer stops the Linux version
-  at startup, and a database that cannot open shows the reason. Meetings
-  whose folder was saved under another path find their recording by the
-  folder's name in your recordings folder.
-- **The Linux deb installs next to the system's ffmpeg**
-  ([#100](https://github.com/vmedvedevpro/Protocol/issues/100)). The deb
-  brought its own `/usr/bin/ffmpeg` and failed to install where the
-  distribution's `ffmpeg` package already was. It now depends on that package
-  and uses it. The AppImage still brings its own ffmpeg.
+  version opens a database made on Windows, and a meeting whose folder
+  moved finds its recording by folder name in your recordings folder.
+- **The Linux deb uses the system's ffmpeg**
+  ([#100](https://github.com/vmedvedevpro/Protocol/issues/100)) and installs
+  next to it. The AppImage still brings its own.
 
 ## Protocol 0.5.1 — 2026-11-06
 
