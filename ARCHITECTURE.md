@@ -18,11 +18,11 @@ linked from that map.
 ## 1. Shape of the app
 
 A Tauri 2 desktop app. Rust owns audio, transcription, storage and AI
-orchestration; a Next.js 14 frontend renders the UI inside the webview. There is
-no server — everything runs on the user's machine.
+orchestration; a React frontend (Vite, under `frontend/src`) renders the UI inside
+the webview. There is no server — everything runs on the user's machine.
 
 ```
-Next.js UI  ──invoke()──▶  Tauri commands (Rust)
+React UI    ──invoke()──▶  Tauri commands (Rust)
      ▲                            │
      └──────── events ────────────┘      e.g. transcript-update,
                                           recording-audio-levels
