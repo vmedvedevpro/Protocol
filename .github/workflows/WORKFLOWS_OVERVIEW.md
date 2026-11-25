@@ -109,6 +109,11 @@ prereleases are invisible to them.
    request, and the tag run's own macOS leg is what has to pass (step 3). A
    documentation-only commit starts no dry run and is never the one to tag.
 
+   Never tag a commit whose message contains `[skip ci]`: GitHub skips the
+   push of a tag on it too, so no release run starts (v1.0.0's first tag on
+   #187's squash commit). Tag a later commit without it instead; a
+   documentation-only one is fine, since the tag run builds everything.
+
    Then tag it and push only this tag (never `git push --tags`):
 
    ```powershell
