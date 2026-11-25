@@ -160,16 +160,41 @@
         { "name": "openvino_c.dll", "path": "root/runtime/bin/openvino_c.dll", "size": 234256, "sha256": "170fd507b32660c9904f8d3976b97f2c2c1296b4bc83d5a0f3326b87e782f5e7" },
         { "name": "openvino_auto_batch_plugin.dll", "path": "root/runtime/bin/openvino_auto_batch_plugin.dll", "size": 208144, "sha256": "d6e27fbea07239e98978e3592c78094cffd65c518ecfd3e14d8fc685e0061211" }
       ]
+    },
+    "linux": {
+      "id": "openvino-genai",
+      "name": "OpenVINO GenAI",
+      "description": "Intel's OpenVINO libraries that run Whisper on an Intel GPU",
+      "version": "2026.4.1.0",
+      "platform": "linux-x86_64",
+      "api": 1,
+      "license": {"name": "Intel OpenVINO Distribution License", "url": "https://www.intel.com/content/dam/develop/external/us/en/documents/intel-openvino-license-agreements.pdf"},
+      "archive": { "url": "https://storage.openvinotoolkit.org/repositories/openvino_genai/packages/2026.4.1/linux/openvino_genai_ubuntu22_2026.4.1.0_x86_64.tar.gz", "size": 133487173, "sha256": "41b934976445c188301bf6f0631bb009989c16f9d288352dd477136157c0199b" },
+      "files": [
+        { "name": "libopenvino_genai_c.so", "path": "root/runtime/lib/intel64/libopenvino_genai_c.so.2026.4.1.0", "size": 211096, "sha256": "4c3da58321d8b027424d0c644aff4b4390293a2c3f77e77b534c1070b4da61bb" },
+        { "name": "libopenvino_genai.so", "path": "root/runtime/lib/intel64/libopenvino_genai.so.2026.4.1.0", "size": 8669400, "sha256": "282214b95babdde4dd2f931216c68db76977cef9e299a3e6297713581e3d037a" },
+        { "name": "libopenvino_c.so", "path": "root/runtime/lib/intel64/libopenvino_c.so.2026.4.1", "size": 317968, "sha256": "ecb79c323713c40a775ff5349dbff8f8dac24bba7c61226dd491738767b42a23" },
+        { "name": "libopenvino.so", "path": "root/runtime/lib/intel64/libopenvino.so.2026.4.1", "size": 18705280, "sha256": "321290fa47d4088f0506c0d9a4fe08821d44dcf7c0f6f280098dd61df11a0a9b" },
+        { "name": "libopenvino_auto_batch_plugin.so", "path": "root/runtime/lib/intel64/libopenvino_auto_batch_plugin.so", "size": 235752, "sha256": "1ac79b5da433781d6df31e3837f23c5d0c59ef2b7e194b0e5c77910bf19697c3" },
+        { "name": "libtbb.so", "path": "root/runtime/3rdparty/tbb/lib/libtbb.so.12.13", "size": 354760, "sha256": "25984f1c1ac802e2cea39e6dfa91920046c276cf9116f8bf6af87e620cd85522" }
+      ]
     }
   },
   "runtime_cases": [
+    { "name": "linux runtime base entry", "base": "linux", "valid": true },
+    { "name": "linux runtime from a zip", "base": "linux", "set": { "archive.url": "https://storage.openvinotoolkit.org/repositories/openvino_genai/packages/2026.4.1/linux/openvino_genai_ubuntu22_2026.4.1.0_x86_64.zip" }, "valid": false },
+    { "name": "windows runtime from a tar.gz", "base": "openvino", "set": { "archive.url": "https://storage.openvinotoolkit.org/a.tar.gz" }, "valid": false },
+    { "name": "linux runtime without the library the binding loads first", "base": "linux", "set": { "files": [{ "name": "libopenvino_genai_c.so", "path": "root/runtime/lib/intel64/libopenvino_genai_c.so.2026.4.1.0", "size": 211096, "sha256": "4c3da58321d8b027424d0c644aff4b4390293a2c3f77e77b534c1070b4da61bb" }, { "name": "libopenvino_genai.so", "path": "root/runtime/lib/intel64/libopenvino_genai.so.2026.4.1.0", "size": 8669400, "sha256": "282214b95babdde4dd2f931216c68db76977cef9e299a3e6297713581e3d037a" }, { "name": "libopenvino_c.so", "path": "root/runtime/lib/intel64/libopenvino_c.so.2026.4.1", "size": 317968, "sha256": "ecb79c323713c40a775ff5349dbff8f8dac24bba7c61226dd491738767b42a23" }, { "name": "libopenvino.so", "path": "root/runtime/lib/intel64/libopenvino.so.2026.4.1", "size": 18705280, "sha256": "321290fa47d4088f0506c0d9a4fe08821d44dcf7c0f6f280098dd61df11a0a9b" }, { "name": "libopenvino_auto_batch_plugin.so", "path": "root/runtime/lib/intel64/libopenvino_auto_batch_plugin.so", "size": 235752, "sha256": "1ac79b5da433781d6df31e3837f23c5d0c59ef2b7e194b0e5c77910bf19697c3" }] }, "valid": false },
+    { "name": "linux runtime with the windows files", "base": "linux", "set": { "files": [{ "name": "openvino_genai_c.dll", "path": "root/runtime/bin/openvino_genai_c.dll", "size": 178448, "sha256": "da1a4b545770cf93ae939882fcd70f9f0d436abc49d84b2301b7893cc99283b1" }, { "name": "openvino_c.dll", "path": "root/runtime/bin/openvino_c.dll", "size": 234256, "sha256": "170fd507b32660c9904f8d3976b97f2c2c1296b4bc83d5a0f3326b87e782f5e7" }, { "name": "openvino_auto_batch_plugin.dll", "path": "root/runtime/bin/openvino_auto_batch_plugin.dll", "size": 208144, "sha256": "d6e27fbea07239e98978e3592c78094cffd65c518ecfd3e14d8fc685e0061211" }] }, "valid": false },
+    { "name": "linux runtime from a tar.gz on another host", "base": "linux", "set": { "archive.url": "https://example.com/openvino_genai_ubuntu22_2026.4.1.0_x86_64.tar.gz" }, "valid": false },
+    { "name": "runtime file named like the tar archive", "base": "linux", "set": { "files": [{ "name": "libopenvino_genai_c.so", "path": "root/runtime/lib/intel64/libopenvino_genai_c.so.2026.4.1.0", "size": 211096, "sha256": "4c3da58321d8b027424d0c644aff4b4390293a2c3f77e77b534c1070b4da61bb" }, { "name": "libopenvino_genai.so", "path": "root/runtime/lib/intel64/libopenvino_genai.so.2026.4.1.0", "size": 8669400, "sha256": "282214b95babdde4dd2f931216c68db76977cef9e299a3e6297713581e3d037a" }, { "name": "libopenvino_c.so", "path": "root/runtime/lib/intel64/libopenvino_c.so.2026.4.1", "size": 317968, "sha256": "ecb79c323713c40a775ff5349dbff8f8dac24bba7c61226dd491738767b42a23" }, { "name": "libopenvino.so", "path": "root/runtime/lib/intel64/libopenvino.so.2026.4.1", "size": 18705280, "sha256": "321290fa47d4088f0506c0d9a4fe08821d44dcf7c0f6f280098dd61df11a0a9b" }, { "name": "libopenvino_auto_batch_plugin.so", "path": "root/runtime/lib/intel64/libopenvino_auto_batch_plugin.so", "size": 235752, "sha256": "1ac79b5da433781d6df31e3837f23c5d0c59ef2b7e194b0e5c77910bf19697c3" }, { "name": "libtbb.so", "path": "root/runtime/3rdparty/tbb/lib/libtbb.so.12.13", "size": 354760, "sha256": "25984f1c1ac802e2cea39e6dfa91920046c276cf9116f8bf6af87e620cd85522" }, { "name": "archive.tar.gz", "path": "root/extra", "size": 1, "sha256": "4c3da58321d8b027424d0c644aff4b4390293a2c3f77e77b534c1070b4da61bb" }] }, "valid": false },
     { "name": "runtime base entry", "base": "openvino", "valid": true },
     { "name": "runtime without a description", "base": "openvino", "remove": ["description"], "valid": true },
     { "name": "runtime with min_app_version", "base": "openvino", "set": { "min_app_version": "0.5.0" }, "valid": true },
     { "name": "runtime of a later API level", "base": "openvino", "set": { "api": 7 }, "valid": true },
     { "name": "runtime version of three parts", "base": "openvino", "set": { "version": "2026.5.0" }, "valid": true },
     { "name": "unknown runtime", "base": "openvino", "set": { "id": "onnxruntime" }, "valid": false },
-    { "name": "runtime for another platform", "base": "openvino", "set": { "platform": "linux-x86_64" }, "valid": false },
+    { "name": "runtime for another platform", "base": "openvino", "set": { "platform": "macos-aarch64" }, "valid": false },
     { "name": "runtime without a name", "base": "openvino", "set": { "name": "" }, "valid": false },
     { "name": "runtime version as a word", "base": "openvino", "set": { "version": "latest" }, "valid": false },
     { "name": "runtime version with a path", "base": "openvino", "set": { "version": "2026.4.1/.." }, "valid": false },
