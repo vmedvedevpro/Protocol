@@ -37,6 +37,22 @@
 - Searches all your meetings and transcripts.
 - Exports a meeting to PDF, Word, Markdown, text or JSON.
 
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/media/live-transcript-dark.gif">
+    <img src="docs/media/live-transcript-light.gif" alt="Record is pressed on Home; the recording opens, its Transcript tab fills in line by line with You, Speaker 2 and Speaker 3, while the timer runs and the ring at the bottom moves with the voices" width="400">
+  </picture>
+</p>
+
+## Changes from Meetily – Actually Free
+
+- A new compact interface, written from scratch for 1.0.
+- Faster transcription on the GPU and the processor, and Parakeet on Intel NPUs.
+- Models and speech runtimes download to each computer and update without a new release.
+- An in-app updater that installs only when you choose.
+- AI agents such as Claude can read your meetings through MCP.
+- Builds for Windows, macOS and Linux (deb and AppImage) from public GitHub Actions runs.
+
 ## Privacy
 
 Everything runs on your computer. Your meetings leave it only if you connect
