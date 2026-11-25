@@ -14,7 +14,7 @@
 
 <p align="center">
   <a href="https://github.com/vmedvedevpro/Protocol/releases/latest"><strong>Download</strong></a>
-  for Windows, macOS (Apple Silicon) or Linux (experimental).
+  for Windows, macOS (Apple Silicon) or Linux.
 </p>
 
 <p align="center">
