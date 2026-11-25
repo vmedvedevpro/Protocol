@@ -15,13 +15,13 @@ describe('ensureDatabase', () => {
 
     it('creates a fresh database on a new install, and first launch can then complete', async () => {
         newInstall()
-        await expect(completeOnboarding({model: 'qwen3.5:4b', parakeetReady: false, summaryReady: false}))
+        await expect(completeOnboarding({summary: {provider: null, model: null, ready: false}, parakeetReady: false}))
             .rejects.toThrow(/state not managed/)
 
         await ensureDatabase('linux')
 
         expect(mockState.database.setUps).toEqual(['fresh'])
-        await completeOnboarding({model: 'qwen3.5:4b', parakeetReady: false, summaryReady: false})
+        await completeOnboarding({summary: {provider: null, model: null, ready: false}, parakeetReady: false})
         expect(mockState.onboarding?.completed).toBe(true)
     })
 

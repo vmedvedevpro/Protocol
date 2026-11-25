@@ -1,4 +1,5 @@
 import type {OnboardingStatus} from '@/api/onboarding'
+import type {SummaryModelConfig} from '@/api/preferences'
 import type {MockHandler} from './handlers'
 
 /**
@@ -14,7 +15,7 @@ export function completedOnboarding(): OnboardingStatus {
         version: '1.0',
         completed: true,
         current_step: 5,
-        model_status: {parakeet: 'downloaded', summary: 'downloaded', selected_summary_model: 'qwen3.5:4b'},
+        model_status: {parakeet: 'downloaded', summary: 'downloaded', selected_summary_model: 'qwen3.5:4b', selected_summary_provider: 'builtin-ai'},
         last_updated: '2026-11-20T09:00:00Z',
     }
 }
@@ -41,7 +42,11 @@ const noDatabase = (command: string) =>
 
 const now = () => new Date().toISOString()
 
-export function onboardingHandlers(state: {onboarding: OnboardingStatus | null, database: MockDatabase}): Record<string, MockHandler> {
+export function onboardingHandlers(state: {
+    onboarding: OnboardingStatus | null
+    database: MockDatabase
+    preferences: {summaryModel: SummaryModelConfig | null}
+}): Record<string, MockHandler> {
     const setUp = (how: string) => {
         state.database.exists = true
         state.database.setUps.push(how)
@@ -54,15 +59,30 @@ export function onboardingHandlers(state: {onboarding: OnboardingStatus | null, 
         check_homebrew_database: ({path}) =>
             state.database.homebrewPaths.includes(String(path)) ? {exists: true, size: 4_194_304} : null,
         import_and_initialize_database: ({legacyDbPath}) => setUp(`import:${String(legacyDbPath)}`),
-        initialize_fresh_database: () => setUp('fresh'),
+        // A fresh database has no summary model until first launch records one.
+        initialize_fresh_database: () => {
+            state.preferences.summaryModel = null
+            return setUp('fresh')
+        },
 
         // src-tauri/src/onboarding.rs
         save_onboarding_status_cmd: ({status}) => {
             state.onboarding = {...(status as OnboardingStatus), last_updated: now()}
             return null
         },
-        complete_onboarding: ({model, parakeetReady, summaryReady}) => {
+        // Writes the summary model only for built-in AI, as native does.
+        complete_onboarding: ({provider, model, parakeetReady, summaryReady}) => {
             if (!state.database.exists) throw noDatabase('complete_onboarding')
+            if (provider === 'builtin-ai' && typeof model === 'string') {
+                state.preferences.summaryModel = {
+                    provider: 'builtin-ai',
+                    model,
+                    whisperModel: 'large-v3',
+                    apiKey: null,
+                    ollamaEndpoint: null,
+                    summaryMaxTokens: null,
+                }
+            }
             state.onboarding = {
                 version: '1.0',
                 completed: true,
@@ -70,7 +90,8 @@ export function onboardingHandlers(state: {onboarding: OnboardingStatus | null, 
                 model_status: {
                     parakeet: parakeetReady ? 'downloaded' : 'not_downloaded',
                     summary: summaryReady ? 'downloaded' : 'not_downloaded',
-                    selected_summary_model: String(model),
+                    ...(typeof model === 'string' ? {selected_summary_model: model} : {}),
+                    ...(typeof provider === 'string' ? {selected_summary_provider: provider} : {}),
                 },
                 last_updated: now(),
             }

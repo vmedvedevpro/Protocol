@@ -7,6 +7,7 @@
 import {queryOptions} from '@tanstack/react-query'
 import {platform as appPlatform, type Platform} from '@/lib/platform'
 import {command} from './core'
+import type {SummaryProvider} from './preferences'
 
 /**
  * Native `OnboardingStatus`, kept in the `onboarding-status.json` store.
@@ -24,6 +25,8 @@ export interface OnboardingStatus {
         parakeet: string
         summary: string
         selected_summary_model?: string
+        /** The summary provider first launch chose; absent when it was left for later. */
+        selected_summary_provider?: string
     }
     last_updated: string
 }
@@ -60,12 +63,31 @@ export const saveOnboardingStep = (step: number) => command<null>('save_onboardi
 })
 
 /**
- * Ends first launch: native saves the built-in `model` as the summary model
- * and Parakeet as the live model, then marks the status completed with what
- * was downloaded by then. Needs the database.
+ * What first launch chose for summaries: built-in AI with its model, a
+ * provider whose choice was saved already (`saveSummaryModelMutation`), or
+ * nothing yet (`provider` null), which leaves summaries off.
  */
-export const completeOnboarding = (args: {model: string, parakeetReady: boolean, summaryReady: boolean}) =>
-    command<null>('complete_onboarding', args)
+export interface SummaryChoice {
+    provider: SummaryProvider | null
+    model: string | null
+    /** The built-in model is downloaded, or the provider's choice was saved. */
+    ready: boolean
+}
+
+/**
+ * Ends first launch: native saves Parakeet as the live model, and the
+ * built-in model as the summary model when built-in AI was chosen; it
+ * writes no other summary model, so a provider saved before this call stays
+ * and a choice left for later stays unset. Then it marks the status
+ * completed with what was chosen and ready by then. Needs the database.
+ */
+export const completeOnboarding = ({summary, parakeetReady}: {summary: SummaryChoice, parakeetReady: boolean}) =>
+    command<null>('complete_onboarding', {
+        provider: summary.provider,
+        model: summary.model,
+        parakeetReady,
+        summaryReady: summary.ready,
+    })
 
 // --- The database --------------------------------------------------------------
 
@@ -85,8 +107,8 @@ export const importAndInitializeDatabase = (legacyDbPath: string) =>
     command<null>('import_and_initialize_database', {legacyDbPath})
 
 /**
- * Opens the database, with Parakeet live and the recommended built-in
- * summary model. A Meetily database (`meeting_minutes.db`) already in the
+ * Opens the database, with Parakeet live and no summary model: first
+ * launch records the one the user chooses. A Meetily database (`meeting_minutes.db`) already in the
  * data folder is migrated into it (`DatabaseManager::new`); otherwise it
  * starts empty.
  */

@@ -2,8 +2,10 @@ import {useEffect, useRef} from 'react'
 import styled from 'styled-components'
 import type {Platform} from '@/lib/platform'
 import type {DownloadRow} from '../hooks/useFirstLaunchDownloads'
+import type {SummaryChoiceState} from '../hooks/useSummaryChoice'
 import {DownloadList} from './DownloadList'
 import {MicCheck} from './MicCheck'
+import {SummaryChoice} from './SummaryChoice'
 
 const Body = styled.div`
     flex: 1;
@@ -28,13 +30,17 @@ const Lead = styled.p`
 
 interface ModelsStepProps {
     rows: DownloadRow[]
+    summary: SummaryChoiceState
     platform: Platform
     /** Coming from the name: Continue leaves with the name step, so focus goes to this heading. */
     focusOnMount: boolean
 }
 
-/** Step 2: the downloads, running since first launch opened, and the microphone check. */
-export function ModelsStep({rows, platform, focusOnMount}: ModelsStepProps) {
+/**
+ * Step 2: the speech downloads, running since first launch opened, how
+ * summaries are written, and the microphone check.
+ */
+export function ModelsStep({rows, summary, platform, focusOnMount}: ModelsStepProps) {
     const title = useRef<HTMLHeadingElement>(null)
 
     useEffect(() => {
@@ -44,8 +50,9 @@ export function ModelsStep({rows, platform, focusOnMount}: ModelsStepProps) {
     return (
         <Body>
             <Title ref={title} tabIndex={-1}>Get ready for the first meeting</Title>
-            <Lead>Protocol needs two speech models and one for summaries. They download once.</Lead>
+            <Lead>Protocol needs two speech models. They download once.</Lead>
             <DownloadList rows={rows}/>
+            <SummaryChoice choice={summary}/>
             <MicCheck platform={platform}/>
         </Body>
     )

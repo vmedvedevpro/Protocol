@@ -27,8 +27,9 @@ import {
 } from '@/api/models'
 import {errorMessage} from '@/api/core'
 import {isFirstLaunchDone, onboardingStatusQuery} from '@/api/onboarding'
+import {shortModelName} from '@/api/summaryProviders'
 import {toast} from '@/components/ui/toastStore'
-import {type FirstLaunchDownload, firstLaunchDownloads} from '../api/downloads'
+import {type FirstLaunchDownload, firstLaunchDownloads, summaryDownload} from '../api/downloads'
 
 /** A row's state: a model's, or `queued` while a download before it runs. */
 export type RowState = ModelState | {kind: 'queued'}
@@ -40,7 +41,7 @@ export interface DownloadRow {
 
 type Lists = Partial<Record<ModelEngine, {name: string, status: SpeechModelStatus | BuiltInModelStatus}[]>>
 
-const LISTS = {parakeet: parakeetModelsQuery, whisper: whisperModelsQuery, builtIn: builtInModelsQuery}
+const LISTS = {parakeet: parakeetModelsQuery, whisper: whisperModelsQuery}
 
 /**
  * The Intel downloads as lists: the Intel GPU version is installed with
@@ -95,47 +96,43 @@ function startDownloads(queryClient: QueryClient, downloads: FirstLaunchDownload
 }
 
 /**
- * The first launch downloads with their states, and the run that starts
- * them once the lists, this computer's Intel hardware and the recommended
- * summary model are known. `rows` is empty until then. The hardware path
- * rests on facts that hold for the run (an Intel GPU is offered its
- * version, an NPU is present), so the list keeps its rows as they finish.
+ * The speech downloads with their states, and the run that starts them once
+ * the lists and this computer's Intel hardware are known. `rows` is empty
+ * until then. The hardware path rests on facts that hold for the run (an
+ * Intel GPU is offered its version, an NPU is present), so the list keeps
+ * its rows as they finish.
  */
 export function useFirstLaunchDownloads(): DownloadRow[] {
     const queryClient = useQueryClient()
-    const recommended = useQuery(recommendedSummaryModelQuery)
     const parakeet = useQuery(parakeetModelsQuery)
     const whisper = useQuery(whisperModelsQuery)
-    const builtIn = useQuery(builtInModelsQuery)
     const availability = useQuery(openVinoAvailabilityQuery)
     const companion = useQuery(companionQuery)
     const npu = useQuery(npuQuery)
     const downloads = useQuery(downloadsQuery).data
 
-    const summary = recommended.data
-    const displayName = builtIn.data?.find(({name}) => name === summary)?.display_name
     // The Intel queries answer null (or no NPU) where there is nothing, so pending is the only wait.
     const hardwareRead = !availability.isPending && !companion.isPending && !npu.isPending
     const gpuVersion = gpuOffered(availability.data, companion.data) ? companion.data.id : null
     const npuLibraries = !!npu.data?.present
     const list = useMemo(
-        () => (summary && hardwareRead
-            ? firstLaunchDownloads({name: summary, displayName: displayName ?? summary}, {
+        () => (hardwareRead
+            ? firstLaunchDownloads({
                 gpuVersion,
                 npuLibraries,
                 track: (engine, id, run) => trackIntelDownload(queryClient, engine, id, run),
             })
             : []),
-        [summary, displayName, hardwareRead, gpuVersion, npuLibraries, queryClient],
+        [hardwareRead, gpuVersion, npuLibraries, queryClient],
     )
     // A list that failed to load counts as read: the download reports its own failure.
-    const listsRead = !parakeet.isPending && !whisper.isPending && !builtIn.isPending
+    const listsRead = !parakeet.isPending && !whisper.isPending
 
     useEffect(() => {
         if (listsRead && list.length > 0) startDownloads(queryClient, list)
     }, [listsRead, list, queryClient])
 
-    const lists: Lists = {parakeet: parakeet.data, whisper: whisper.data, builtIn: builtIn.data, ...intelLists(companion.data, npu.data)}
+    const lists: Lists = {parakeet: parakeet.data, whisper: whisper.data, ...intelLists(companion.data, npu.data)}
     const states = list.map((download) => stateOf(download, lists, downloads))
     return list.map((download, index) => {
         const state = states[index]
@@ -143,4 +140,24 @@ export function useFirstLaunchDownloads(): DownloadRow[] {
         const behind = states.slice(0, index).some(({kind}) => kind === 'downloading' || kind === 'activating')
         return {download, state: state.kind === 'missing' && behind ? {kind: 'queued'} : state}
     })
+}
+
+/**
+ * The recommended built-in summary model as a row, downloaded only when the
+ * user installs it; null until the recommendation and the list are known.
+ * Its progress and failure come through `downloadsQuery`, which outlives the
+ * screen, as in Settings.
+ */
+export function useSummaryDownload(): DownloadRow | null {
+    const recommended = useQuery(recommendedSummaryModelQuery).data
+    const builtIn = useQuery(builtInModelsQuery).data
+    const downloads = useQuery(downloadsQuery).data
+    const entry = builtIn?.find(({name}) => name === recommended)
+    const [name, displayName, sizeBytes] = [entry?.name, entry?.display_name, entry?.size_bytes ?? null]
+    const download = useMemo(
+        () => (name && displayName ? summaryDownload({name, displayName: shortModelName(displayName), sizeBytes}) : null),
+        [name, displayName, sizeBytes],
+    )
+    if (!download) return null
+    return {download, state: stateOf(download, {builtIn}, downloads ?? {})}
 }
