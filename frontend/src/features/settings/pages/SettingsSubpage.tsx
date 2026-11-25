@@ -65,7 +65,7 @@ export function SettingsSubpage() {
                 </Button>
                 <Title>{title}</Title>
             </Head>
-            <Body>This page arrives with #117.</Body>
+            <Body>Coming soon.</Body>
         </Screen>
     )
 }

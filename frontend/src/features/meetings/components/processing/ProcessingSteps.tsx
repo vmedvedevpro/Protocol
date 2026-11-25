@@ -5,11 +5,13 @@ import * as m from 'motion/react-m'
 import styled from 'styled-components'
 import {type PostCallJob, type PostCallStep, usePostCallJob} from '@/api/postCall'
 import {Spinner} from '@/components/ui/Spinner'
+import {Veil} from '@/components/ui/Veil'
 import {VisuallyHidden} from '@/components/ui/VisuallyHidden'
 import {tween} from '@/styles/motion'
 import {postCallStatusText, postCallStepLabel, useRemainingText} from './progress'
 
 const Card = styled(m.div)`
+    position: relative;
     display: flex;
     flex-direction: column;
     gap: ${({theme}) => theme.space[2.5]};
@@ -129,8 +131,8 @@ export function ProcessingSteps({meetingId, className}: ProcessingStepsProps) {
     return (
         <Card
             className={className}
-            initial={{opacity: 0, y: 4}}
-            animate={{opacity: 1, y: 0}}
+            initial={{y: 4}}
+            animate={{y: 0}}
             transition={tween('base', 'enter')}
         >
             <List aria-label="Processing steps">
@@ -148,6 +150,7 @@ export function ProcessingSteps({meetingId, className}: ProcessingStepsProps) {
                 })}
             </List>
             <Note>You can close the window; Protocol finishes in the background.</Note>
+            <Veil/>
         </Card>
     )
 }

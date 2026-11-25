@@ -1,4 +1,4 @@
-import {useEffect, useState} from 'react'
+import {useEffect, useRef, useState} from 'react'
 import {useMutation, useQuery, useQueryClient} from '@tanstack/react-query'
 import styled from 'styled-components'
 import {actionItemKeys} from '@/api/actionItems'
@@ -11,7 +11,7 @@ import {
     summaryQuery,
 } from '@/api/meetings'
 import {usePostCallJob} from '@/api/postCall'
-import {NotesEditor} from '@/components/editor/NotesEditor'
+import {type NotesContent, NotesEditor} from '@/components/editor/NotesEditor'
 import {Button} from '@/components/ui/Button'
 import {Spinner} from '@/components/ui/Spinner'
 import {StatusLine} from '@/components/ui/StatusLine'
@@ -19,7 +19,7 @@ import {toast} from '@/components/ui/toastStore'
 import {ProcessingSteps} from '../components/processing/ProcessingSteps'
 import {hasActionSection, syncFinishedSummary} from '../lib/actionItemSync'
 import {useAutosave, useSaving} from '../lib/autosave'
-import {completeSummaryMarkdown, parseSummaryData, summaryBlocks} from '../lib/summaryMarkdown'
+import {completeSummaryMarkdown, parseSummaryData, splitSummaryAtActionItems, type SummaryPart} from '../lib/summaryMarkdown'
 import {ActionItems} from './ActionItems'
 
 const Panel = styled.div`
@@ -61,11 +61,18 @@ const Running = styled.div`
     }
 `
 
+// Open questions, after the action items, as far from them as they are from Decisions.
+const Tail = styled.div`
+    margin-top: ${({theme}) => theme.space[5]};
+`
+
 const Footnote = styled.p`
     margin: ${({theme}) => theme.space[5]} 0 0;
     ${({theme}) => theme.text.small};
     color: ${({theme}) => theme.colors.muted};
 `
+
+const hasTail = (part: SummaryPart) => !!part.blocks?.length || !!part.markdown.trim()
 
 const hasText = (summary: SummaryResponse | undefined) => !!completeSummaryMarkdown(parseSummaryData(summary?.data)).trim()
 
@@ -155,11 +162,18 @@ export function SummaryPanel({meetingId, canWrite, onWrite, starting, onPlayFrom
     return <WrittenSummary meetingId={meetingId} summary={summary.data} onPlayFrom={onPlayFrom}/>
 }
 
+type Part = 'head' | 'tail'
+
+/** A part as the editor reports it; a part never edited has blocks only if the summary had them. */
+const contentOf = (part: SummaryPart) => ({markdown: part.markdown, json: part.blocks})
+
 /**
- * A written summary in the editor, with its action items. The editor reads
- * its content once, so it mounts only when the cached summary is the latest:
- * after the action section left it, and with no edit of it still saving.
- * It mounts again when a new run's summary arrives (keyed by the run's end).
+ * A written summary in the editor, with its action items between Decisions
+ * and Open questions (the design's order): the summary is split there into
+ * two editors, saved as one summary. An editor reads its content once, so
+ * they mount only when the cached summary is the latest: after the action
+ * section left it, and with no edit of it still saving. They mount again
+ * when a new run's summary arrives (keyed by the run's end).
  */
 function WrittenSummary({meetingId, summary, onPlayFrom}: {
     meetingId: string
@@ -173,7 +187,7 @@ function WrittenSummary({meetingId, summary, onPlayFrom}: {
         ...saveSummaryMutation(meetingId),
         onError: (error) => toast.error('Couldn’t save the summary', {description: error.message}),
     })
-    const autosave = useAutosave((content: { markdown: string, json: unknown[] }) => {
+    const autosave = useAutosave((content: { markdown: string, json: unknown[] | null }) => {
         save.mutate({markdown: content.markdown, summary_json: content.json})
     })
 
@@ -194,24 +208,59 @@ function WrittenSummary({meetingId, summary, onPlayFrom}: {
     }, [pendingSync, meetingId, client])
 
     const editorKey = summary.end ?? summary.start ?? 'summary'
-    const [mountedKey, setMountedKey] = useState<string | null>(null)
-    if (!saving && (!pendingSync || syncFailed) && mountedKey !== editorKey) setMountedKey(editorKey)
+    // The parts the editors mounted with, split once per run.
+    const [mounted, setMounted] = useState<{ key: string, parts: [SummaryPart, SummaryPart] } | null>(null)
+    if (!saving && (!pendingSync || syncFailed) && mounted?.key !== editorKey) {
+        setMounted({key: editorKey, parts: splitSummaryAtActionItems(parseSummaryData(summary.data))})
+    }
+    // What each editor last reported in this run; the other part is saved as it mounted.
+    const edits = useRef<{ key: string | null } & Partial<Record<Part, NotesContent>>>({key: null})
 
-    const data = parseSummaryData(summary.data)
+    const onEdit = (part: Part, content: NotesContent) => {
+        if (!mounted) return
+        if (edits.current.key !== mounted.key) edits.current = {key: mounted.key}
+        edits.current[part] = content
+        const head = edits.current.head ?? contentOf(mounted.parts[0])
+        const tail = edits.current.tail ?? contentOf(mounted.parts[1])
+        if (!hasTail(mounted.parts[1])) {
+            autosave.schedule(head)
+            return
+        }
+        // Blocks only when both parts have them; else the Markdown alone, which the editors read too.
+        autosave.schedule({
+            markdown: [head.markdown, tail.markdown].filter((text) => text.trim()).join('\n\n'),
+            json: head.json && tail.json ? [...head.json, ...tail.json] : null,
+        })
+    }
+
+    const shown = mounted?.key === editorKey ? mounted.parts : null
     return (
         <Panel>
-            {mountedKey === editorKey
+            {shown
                 ? (
                     <NotesEditor
-                        key={editorKey}
+                        key={`${editorKey}:head`}
+                        variant="summary"
                         label="Summary"
-                        initialBlocks={summaryBlocks(data)}
-                        initialMarkdown={completeSummaryMarkdown(data)}
-                        onChange={autosave.schedule}
+                        initialBlocks={shown[0].blocks}
+                        initialMarkdown={shown[0].markdown}
+                        onChange={(content) => onEdit('head', content)}
                     />
                 )
                 : <Centered aria-busy="true"><Spinner delayed/></Centered>}
             <ActionItems meetingId={meetingId} onPlayFrom={onPlayFrom}/>
+            {shown && hasTail(shown[1]) && (
+                <Tail>
+                    <NotesEditor
+                        key={`${editorKey}:tail`}
+                        variant="summary"
+                        label="Open questions"
+                        initialBlocks={shown[1].blocks}
+                        initialMarkdown={shown[1].markdown}
+                        onChange={(content) => onEdit('tail', content)}
+                    />
+                </Tail>
+            )}
             <Footnote>Written from the transcript.</Footnote>
         </Panel>
     )

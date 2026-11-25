@@ -11,11 +11,12 @@ import {SourceMeter} from '@/components/ring/SourceMeter'
 import {Button, IconButton} from '@/components/ui/Button'
 import {Kbd} from '@/components/ui/Kbd'
 import {StatusLine} from '@/components/ui/StatusLine'
+import {statusSwap} from '@/styles/motion'
+import {Veil} from '@/components/ui/Veil'
 import {focusRing} from '@/components/ui/styles'
 import {Tooltip} from '@/components/ui/Tooltip'
 import {paths} from '@/lib/paths'
 import {formatShortcut} from '@/lib/platform'
-import {tween} from '@/styles/motion'
 import {inputsSummary} from '../lib/inputs'
 import {setSourceMuted, togglePause} from '../store/runtime'
 import {useSessionStore} from '../store/session'
@@ -39,6 +40,7 @@ const Top = styled.span`
 `
 
 const Paused = styled(m.span)`
+    position: relative;
     ${({theme}) => theme.text.small};
     color: ${({theme}) => theme.colors.muted};
 `
@@ -204,8 +206,9 @@ export function RecordingBar({idle = false}: RecordingBarProps) {
                 <Timer/>
                 <AnimatePresence initial={false}>
                     {paused && (
-                        <Paused key="paused" initial={{opacity: 0, y: 4}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -4}} transition={tween('fast')}>
+                        <Paused key="paused" {...statusSwap}>
                             Paused
+                            <Veil duration="fast"/>
                         </Paused>
                     )}
                 </AnimatePresence>

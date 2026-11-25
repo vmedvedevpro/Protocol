@@ -16,6 +16,7 @@ import {deviceLabel, MAX_GAIN, MIN_GAIN, type PerAppTarget, type RecordingPrefer
 import {type RecordingPhase, useRecordingPhase} from '@/api/recordingPhase'
 import {LevelMeter} from '@/components/ring/LevelMeter'
 import {Button} from '@/components/ui/Button'
+import {Veil} from '@/components/ui/Veil'
 import {Collapse} from '@/components/ui/Collapse'
 import {SegmentedControl, type SegmentedOption} from '@/components/ui/SegmentedControl'
 import {SettingsGroup, SettingsRow} from '@/components/ui/SettingsRow'
@@ -198,6 +199,7 @@ const Chips = styled.div`
 `
 
 const Chip = styled(m.span)`
+    position: relative;
     display: inline-flex;
     align-items: center;
     gap: ${({theme}) => theme.space[1]};
@@ -231,10 +233,11 @@ const Remove = styled.button`
     }
 `
 
+// The chip's Veil does the fade.
 const chipMotion = {
-    initial: {opacity: 0, scale: 0.9},
-    animate: {opacity: 1, scale: 1},
-    exit: {opacity: 0, scale: 0.9},
+    initial: {scale: 0.9},
+    animate: {scale: 1},
+    exit: {scale: 0.9},
     transition: tween('fast'),
 }
 
@@ -259,6 +262,7 @@ function ChosenAppsRow({targets}: {targets: PerAppTarget[]}) {
                             >
                                 <XIcon size={11} aria-hidden/>
                             </Remove>
+                            <Veil duration="fast" outset={1}/>
                         </Chip>
                     ))}
                 </AnimatePresence>

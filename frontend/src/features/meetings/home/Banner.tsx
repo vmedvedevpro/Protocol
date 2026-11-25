@@ -1,9 +1,11 @@
 import type {ReactNode} from 'react'
 import * as m from 'motion/react-m'
 import styled from 'styled-components'
+import {Veil} from '@/components/ui/Veil'
 import {tween} from '@/styles/motion'
 
 const Card = styled(m.div)`
+    position: relative;
     display: flex;
     flex: none;
     align-items: flex-start;
@@ -55,7 +57,7 @@ interface BannerProps {
 
 /**
  * Something on Home that needs the user: an update waiting for a restart,
- * an audio permission missing. It arrives with a fade and a 4 px rise and
+ * an audio permission missing. It arrives with a 4 px rise under a veil and
  * leaves the same way (wrap it in AnimatePresence); its title and
  * description are a status, read once when it appears.
  */
@@ -63,9 +65,9 @@ export function Banner({icon, title, description, actions}: BannerProps) {
     return (
         <Card
             role="status"
-            initial={{opacity: 0, y: -4}}
-            animate={{opacity: 1, y: 0}}
-            exit={{opacity: 0, y: -4, transition: tween('base', 'exit')}}
+            initial={{y: -4}}
+            animate={{y: 0}}
+            exit={{y: -4, transition: tween('base', 'exit')}}
             transition={tween('base', 'enter')}
         >
             {icon}
@@ -74,6 +76,8 @@ export function Banner({icon, title, description, actions}: BannerProps) {
                 <Description>{description}</Description>
                 <Actions>{actions}</Actions>
             </Body>
+            {/* Over the border too: the whole card arrives. */}
+            <Veil outset={1}/>
         </Card>
     )
 }

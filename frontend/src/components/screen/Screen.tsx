@@ -2,12 +2,14 @@ import {type ReactNode, use, useEffect, useRef, useState} from 'react'
 import * as m from 'motion/react-m'
 import {useLocation} from 'react-router-dom'
 import styled from 'styled-components'
+import {Veil} from '@/components/ui/Veil'
 import {tween} from '@/styles/motion'
 import {RecordBarContext} from './recordBar'
 
-// A screen arrives with a fade and a 4 px rise; the screen it replaces goes
-// at once, so a click never waits for an exit.
+// A screen arrives with a 4 px rise under a veil (Veil); the screen it
+// replaces goes at once, so a click never waits for an exit.
 const Main = styled(m.main)`
+    position: relative;
     display: flex;
     flex: 1;
     flex-direction: column;
@@ -75,11 +77,12 @@ export function Screen({bar, recordBar = false, children}: ScreenProps) {
             <Main
                 ref={main}
                 tabIndex={-1}
-                initial={{opacity: 0, y: 4}}
-                animate={{opacity: 1, y: 0}}
+                initial={{y: 4}}
+                animate={{y: 0}}
                 transition={tween('base', 'enter')}
             >
                 {children}
+                <Veil/>
             </Main>
             <Footer>
                 {renderRecordBar?.(recordBar)}

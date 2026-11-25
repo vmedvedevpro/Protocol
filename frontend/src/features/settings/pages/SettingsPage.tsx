@@ -77,9 +77,9 @@ function SectionView({section}: {section: SettingsSection}) {
         case 'recording':
             return <RecordingSection/>
         case 'ai':
-            return <Note>Transcription, speakers, summaries and speech models arrive here with #117.</Note>
+            return <Note>Transcription, speakers, summaries and speech models are coming soon.</Note>
         case 'advanced':
-            return <Note>Local AI, AI agents and Labs arrive here with #117.</Note>
+            return <Note>Local AI, AI agents and Labs are coming soon.</Note>
     }
 }
 

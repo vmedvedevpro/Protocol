@@ -1,8 +1,9 @@
 import {AnimatePresence} from 'motion/react'
 import * as m from 'motion/react-m'
 import styled from 'styled-components'
-import {tween} from '@/styles/motion'
 import {Spinner} from './Spinner'
+import {statusSwap as swap} from '@/styles/motion'
+import {Veil} from './Veil'
 
 /**
  * What a status line says. `key` names the meaning (`downloading`, `ready`);
@@ -29,6 +30,7 @@ const Line = styled.span`
 
 // A transform needs a box; a plain inline span would ignore it.
 const Swap = styled(m.span)`
+    position: relative;
     display: inline-block;
 `
 
@@ -41,16 +43,10 @@ const Value = styled(Swap)`
     font-variant-numeric: tabular-nums;
 `
 
-const swap = {
-    initial: {opacity: 0, y: 4},
-    animate: {opacity: 1, y: 0},
-    exit: {opacity: 0, y: -4},
-    transition: tween('fast'),
-}
-
 /**
  * A one-line status. When its meaning changes the old line leaves upwards
- * and the new one arrives from below (only the fade under reduced motion),
+ * and the new one arrives from below, each under a veil (only the veil
+ * under reduced motion),
  * the spinner of a busy status with it; within one meaning the value
  * updates where it stands.
  *
@@ -65,12 +61,13 @@ export function StatusLine({status}: { status: Status }) {
                     <Swap key={status.key} {...swap}>
                         {status.busy && <Busy><Spinner/></Busy>}
                         {status.text}
+                        <Veil duration="fast"/>
                     </Swap>
                 </AnimatePresence>
             </span>
             {/* Keyed like the text, so the two leave and arrive together. */}
             <AnimatePresence mode="wait" initial={false}>
-                {status.value !== undefined && <Value key={status.key} {...swap}>{status.value}</Value>}
+                {status.value !== undefined && <Value key={status.key} {...swap}>{status.value}<Veil duration="fast"/></Value>}
             </AnimatePresence>
         </Line>
     )

@@ -32,6 +32,14 @@ Element.prototype.releasePointerCapture ??= () => {}
 // scrollIntoView.
 Element.prototype.scrollIntoView ??= () => {}
 
+// jsdom lays nothing out, so there is no size to observe: the meeting's
+// title, which shows whole in a tooltip once it is cut off, never is.
+globalThis.ResizeObserver ??= class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+}
+
 // Every test runs on the same mock IPC as the browser, from a fresh state.
 beforeEach(() => {
     installMatchMedia()

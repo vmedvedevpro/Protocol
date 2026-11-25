@@ -12,15 +12,20 @@ import {
     recordingPreferencesQuery,
     updateRecordingPreferencesMutation,
 } from '@/api/devices'
+import {errorMessage} from '@/api/core'
 import {microphoneAccessQuery, openPrivacySettings, type PrivacyPane} from '@/api/permissions'
 import {Ring} from '@/components/ring/Ring'
 import {Button} from '@/components/ui/Button'
 import {Menu, MenuRadioGroup, MenuRadioItem} from '@/components/ui/Menu'
+import {toast} from '@/components/ui/toastStore'
+import {statusSwap as swap} from '@/styles/motion'
+import {Veil} from '@/components/ui/Veil'
 import type {Platform} from '@/lib/platform'
-import {tween} from '@/styles/motion'
 import {useComputerAudioTest} from '../hooks/useComputerAudioTest'
 
+// Its colour is behind the veils of the prompt and the note (Veil).
 const Card = styled.section`
+    --surface: ${({theme}) => theme.colors.surface};
     display: flex;
     align-items: center;
     gap: ${({theme}) => theme.space[2]};
@@ -44,6 +49,7 @@ const Body = styled.div`
 `
 
 const Prompt = styled(m.div)`
+    position: relative;
     display: flex;
     flex-direction: column;
     gap: ${({theme}) => theme.space[0.5]};
@@ -75,6 +81,7 @@ const ChipText = styled.span`
 `
 
 const Note = styled(m.div)`
+    position: relative;
     ${({theme}) => theme.text.small};
     display: flex;
     flex-wrap: wrap;
@@ -87,13 +94,6 @@ const Note = styled(m.div)`
         flex: none;
     }
 `
-
-const swap = {
-    initial: {opacity: 0, y: 4},
-    animate: {opacity: 1, y: 0},
-    exit: {opacity: 0, y: -4},
-    transition: tween('fast'),
-}
 
 const SYSTEM_DEFAULT = 'default'
 
@@ -113,7 +113,12 @@ function previewNames(platform: Platform, mic: string | null, output: string | n
 
 function SettingsButton({pane}: { pane: PrivacyPane }) {
     return (
-        <Button size="sm" variant="ghost" onClick={() => void openPrivacySettings(pane)}>
+        <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => void openPrivacySettings(pane).catch((error: unknown) =>
+                toast.error('Couldn’t open System Settings', {description: errorMessage(error)}))}
+        >
             Open System Settings
         </Button>
     )
@@ -156,6 +161,7 @@ export function MicCheck({platform}: { platform: Platform }) {
                 <span>Protocol can’t open the microphone.</span>
                 {platform === 'macos' && <SettingsButton pane="Privacy_Microphone"/>}
                 <Button size="sm" variant="ghost" pending={access.isFetching} onClick={() => void access.refetch()}>Try again</Button>
+                <Veil duration="fast"/>
             </Note>
         )
     } else if (test.state === 'heard') {
@@ -163,6 +169,7 @@ export function MicCheck({platform}: { platform: Platform }) {
             <Note key="heard" {...swap}>
                 <CheckCircleIcon size={14}/>
                 <span>Protocol hears your computer audio.</span>
+                <Veil duration="fast"/>
             </Note>
         )
     } else if (test.state === 'silent') {
@@ -171,11 +178,13 @@ export function MicCheck({platform}: { platform: Platform }) {
                 <WarningIcon size={14}/>
                 <span>macOS doesn’t let Protocol record the computer audio.</span>
                 <SettingsButton pane="Privacy_AudioCapture"/>
+                <Veil duration="fast"/>
             </Note>
         ) : (
             <Note key="silent" {...swap}>
                 <WarningIcon size={14}/>
                 <span>Protocol heard no computer audio. Play something and test again.</span>
+                <Veil duration="fast"/>
             </Note>
         )
     }
@@ -195,11 +204,13 @@ export function MicCheck({platform}: { platform: Platform }) {
                                     ? 'Protocol listens to the computer for a few seconds.'
                                     : 'The ring moves when Protocol hears the computer.'}
                             </Hint>
+                            <Veil duration="fast"/>
                         </Prompt>
                     ) : (
                         <Prompt key="mic" {...swap}>
                             <Heading id="first-launch-mic">Say something</Heading>
                             <Hint>The ring moves when Protocol hears you.</Hint>
+                            <Veil duration="fast"/>
                         </Prompt>
                     )}
                 </AnimatePresence>

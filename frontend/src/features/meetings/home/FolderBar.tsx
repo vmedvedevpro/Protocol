@@ -4,6 +4,7 @@ import type {Folder} from '@/api/meetings'
 import {IconButton} from '@/components/ui/Button'
 import {Menu, MenuItem} from '@/components/ui/Menu'
 import {colorTransition, focusRing} from '@/components/ui/styles'
+import {Tooltip} from '@/components/ui/Tooltip'
 
 const Bar = styled.div`
     display: flex;
@@ -79,20 +80,22 @@ export function FolderBar({folders, selected, onSelect, onNew, onRename, onDelet
         <Bar role="group" aria-label="Folders">
             <Chip type="button" aria-pressed={!current} $selected={!current} onClick={() => onSelect(null)}>All</Chip>
             {folders.map((folder) => (
-                <Chip
-                    key={folder.id}
-                    type="button"
-                    aria-pressed={folder.id === selected}
-                    $selected={folder.id === selected}
-                    title={`${folder.name}: ${folder.meetingCount} ${folder.meetingCount === 1 ? 'meeting' : 'meetings'}`}
-                    onClick={() => onSelect(folder.id)}
-                >
-                    {folder.name}
-                </Chip>
+                <Tooltip key={folder.id} content={`${folder.name}: ${folder.meetingCount} ${folder.meetingCount === 1 ? 'meeting' : 'meetings'}`}>
+                    <Chip
+                        type="button"
+                        aria-pressed={folder.id === selected}
+                        $selected={folder.id === selected}
+                        onClick={() => onSelect(folder.id)}
+                    >
+                        {folder.name}
+                    </Chip>
+                </Tooltip>
             ))}
-            <NewChip type="button" aria-label="New folder" title="New folder" onClick={onNew}>
-                <PlusIcon size={12} aria-hidden/>
-            </NewChip>
+            <Tooltip content="New folder">
+                <NewChip type="button" aria-label="New folder" onClick={onNew}>
+                    <PlusIcon size={12} aria-hidden/>
+                </NewChip>
+            </Tooltip>
             {current && (
                 <Menu
                     trigger={(

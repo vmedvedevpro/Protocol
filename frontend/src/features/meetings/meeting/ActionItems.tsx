@@ -148,6 +148,14 @@ export function ActionItems({meetingId, onPlayFrom}: ActionItemsProps) {
     )
 }
 
+interface Draft {
+    text: string
+    owner: string
+    due: string
+}
+
+const draftOf = (item: ActionItem | null): Draft => ({text: item?.text ?? '', owner: item?.ownerLabel ?? '', due: item?.dueText ?? ''})
+
 function ActionItemSheet({meetingId, open, item, onOpenChange}: {
     meetingId: string
     open: boolean
@@ -156,6 +164,31 @@ function ActionItemSheet({meetingId, open, item, onOpenChange}: {
     onOpenChange: (open: boolean) => void
 }) {
     const remove = useMutation(deleteActionItemMutation)
+    const create = useMutation(createActionItemMutation(meetingId))
+    const update = useMutation(updateActionItemMutation)
+    const saving = create.isPending || update.isPending
+    // The footer's Save needs the text, so the draft lives here. Each opening
+    // starts from the item it opens (by id: a refetch while open keeps the typing).
+    const [draft, setDraft] = useState(() => draftOf(item))
+    const opening = open ? item?.id ?? 'new' : null
+    const [openedFor, setOpenedFor] = useState(opening)
+    if (opening !== openedFor) {
+        setOpenedFor(opening)
+        if (opening !== null) setDraft(draftOf(item))
+    }
+
+    const submit = (event: FormEvent) => {
+        event.preventDefault()
+        if (saving) return
+        const fields = {text: draft.text.trim(), ownerLabel: draft.owner.trim() || undefined, dueText: draft.due.trim() || undefined}
+        if (!fields.text) return
+        const onSuccess = () => onOpenChange(false)
+        const onError = (error: Error) => toast.error('Couldn’t save the action item', {description: error.message})
+        // A new owner name is matched to a contact again by native.
+        if (item) update.mutate({...item, ...fields, personId: fields.ownerLabel === item.ownerLabel ? item.personId : undefined}, {onSuccess, onError})
+        else create.mutate(fields, {onSuccess, onError})
+    }
+
     return (
         <Sheet
             open={open}
@@ -176,38 +209,17 @@ function ActionItemSheet({meetingId, open, item, onOpenChange}: {
                         </Button>
                     )}
                     <SheetClose asChild><Button variant="ghost">Cancel</Button></SheetClose>
-                    <Button variant="filled" type="submit" form={FORM_ID}>{item ? 'Save' : 'Add'}</Button>
+                    <Button variant="filled" type="submit" form={FORM_ID} pending={saving} disabled={!draft.text.trim()}>
+                        {item ? 'Save' : 'Add'}
+                    </Button>
                 </>
             )}
         >
-            <ItemForm key={item?.id ?? 'new'} meetingId={meetingId} item={item} onDone={() => onOpenChange(false)}/>
+            <Fields id={FORM_ID} onSubmit={submit}>
+                <TextField label="What needs doing" autoFocus value={draft.text} onChange={(event) => setDraft({...draft, text: event.target.value})}/>
+                <TextField label="Owner" hint="Optional" placeholder="Priya" value={draft.owner} onChange={(event) => setDraft({...draft, owner: event.target.value})}/>
+                <TextField label="Due" hint="Optional, as you would say it" placeholder="Friday" value={draft.due} onChange={(event) => setDraft({...draft, due: event.target.value})}/>
+            </Fields>
         </Sheet>
-    )
-}
-
-function ItemForm({meetingId, item, onDone}: { meetingId: string, item: ActionItem | null, onDone: () => void }) {
-    const [text, setText] = useState(item?.text ?? '')
-    const [owner, setOwner] = useState(item?.ownerLabel ?? '')
-    const [due, setDue] = useState(item?.dueText ?? '')
-    const create = useMutation(createActionItemMutation(meetingId))
-    const update = useMutation(updateActionItemMutation)
-
-    const submit = (event: FormEvent) => {
-        event.preventDefault()
-        if (create.isPending || update.isPending) return
-        const fields = {text: text.trim(), ownerLabel: owner.trim() || undefined, dueText: due.trim() || undefined}
-        if (!fields.text) return
-        const onError = (error: Error) => toast.error('Couldn’t save the action item', {description: error.message})
-        // A new owner name is matched to a contact again by native.
-        if (item) update.mutate({...item, ...fields, personId: fields.ownerLabel === item.ownerLabel ? item.personId : undefined}, {onSuccess: onDone, onError})
-        else create.mutate(fields, {onSuccess: onDone, onError})
-    }
-
-    return (
-        <Fields id={FORM_ID} onSubmit={submit}>
-            <TextField label="What needs doing" autoFocus value={text} onChange={(event) => setText(event.target.value)}/>
-            <TextField label="Owner" hint="Optional" placeholder="Priya" value={owner} onChange={(event) => setOwner(event.target.value)}/>
-            <TextField label="Due" hint="Optional, as you would say it" placeholder="Friday" value={due} onChange={(event) => setDue(event.target.value)}/>
-        </Fields>
     )
 }

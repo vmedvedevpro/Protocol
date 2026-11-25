@@ -4,19 +4,12 @@ import styled from 'styled-components'
 import {errorMessage} from '@/api/core'
 import {openLink} from '@/api/links'
 import {installRefusal, installUpdate, type Offer, type UpdaterSnapshot} from '@/api/updater'
+import {ReleaseNotes} from '@/components/releaseNotes/ReleaseNotes'
 import {Button} from '@/components/ui/Button'
 import {Sheet} from '@/components/ui/Sheet'
 import {toast} from '@/components/ui/toastStore'
 import {busySentence, errorSentence, MAC_PERMISSIONS_NOTE, releaseUrl, RESTART_NOTE} from '@/lib/updateText'
 import {Banner} from './Banner'
-
-const Notes = styled.p`
-    margin: 0;
-    ${({theme}) => theme.text.body};
-    color: ${({theme}) => theme.colors.soft};
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
-`
 
 const Fine = styled.p`
     margin: ${({theme}) => theme.space[3]} 0 0;
@@ -84,7 +77,7 @@ export function UpdateBanner({snapshot, offer}: { snapshot: UpdaterSnapshot, off
                     </>
                 )}
             >
-                <Notes>{offer.release.notes?.trim() || 'No release notes were published with this version.'}</Notes>
+                <ReleaseNotes notes={offer.release.notes?.trim() || 'No release notes were published with this version.'}/>
                 <Fine>{RESTART_NOTE}{snapshot.platform === 'macos' ? ` ${MAC_PERMISSIONS_NOTE}` : ''}</Fine>
             </Sheet>
         </>

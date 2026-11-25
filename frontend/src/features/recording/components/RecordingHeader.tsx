@@ -91,8 +91,12 @@ const FolderButton = styled.button`
     font: inherit;
     cursor: pointer;
 
-    &:hover {
+    &:hover:not(:disabled) {
         color: ${({theme}) => theme.colors.text};
+    }
+
+    &:disabled {
+        cursor: default;
     }
 
     ${focusRing};
@@ -110,8 +114,8 @@ async function copyTranscript() {
     }
 }
 
-/** Files the meeting in a folder when it is saved; picked while recording. */
-function FolderPicker() {
+/** Files the meeting in a folder when it is saved; picked while recording, shown but fixed while saving. */
+function FolderPicker({disabled}: { disabled: boolean }) {
     const folder = useSessionStore((state) => state.folder)
     const folders = useQuery(foldersQuery)
     const name = folder?.name ?? 'No folder'
@@ -120,7 +124,7 @@ function FolderPicker() {
         <Menu
             align="start"
             trigger={(
-                <FolderButton type="button" aria-label={`Folder: ${name}. Change`}>
+                <FolderButton type="button" disabled={disabled} aria-label={`Folder: ${name}. Change`}>
                     {name}
                     <CaretDownIcon size={10} aria-hidden="true"/>
                 </FolderButton>
@@ -191,12 +195,13 @@ export function RecordingHeader() {
                         </h1>
                     </form>
                 )}
-                {live && startedAt && (
+                {/* Kept while the save runs, so the header does not jump at Stop. */}
+                {(live || phase === 'finishing') && startedAt && (
                     <Sub>
                         <span>{startedLabel(new Date(startedAt))}</span>
                         <span aria-hidden="true">·</span>
                         <FolderIcon size={12} aria-hidden="true"/>
-                        <FolderPicker/>
+                        <FolderPicker disabled={!live}/>
                     </Sub>
                 )}
             </Titles>

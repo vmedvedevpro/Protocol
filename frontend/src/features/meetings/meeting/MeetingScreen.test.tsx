@@ -56,6 +56,8 @@ describe('MeetingScreen', () => {
         await waitFor(() => expect(box).toBeChecked())
 
         await userEvent.click(within(items).getByRole('button', {name: 'Add an action item'}))
+        // Nothing to add yet: Add waits for the text.
+        expect(screen.getByRole('button', {name: 'Add'})).toBeDisabled()
         await userEvent.type(screen.getByRole('textbox', {name: 'What needs doing'}), 'Book the pilot kickoff')
         await userEvent.click(screen.getByRole('button', {name: 'Add'}))
         const added = await within(items).findByRole('button', {name: 'Book the pilot kickoff · no owner yet'})

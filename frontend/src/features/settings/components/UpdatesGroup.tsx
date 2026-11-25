@@ -34,6 +34,7 @@ import {Collapse} from '@/components/ui/Collapse'
 import {ProgressBar} from '@/components/ui/ProgressBar'
 import {SettingsGroup, SettingsRow} from '@/components/ui/SettingsRow'
 import {StatusLine} from '@/components/ui/StatusLine'
+import {Veil} from '@/components/ui/Veil'
 import {focusRing} from '@/components/ui/styles'
 import {Switch} from '@/components/ui/Switch'
 import {
@@ -46,8 +47,7 @@ import {
     relativeTime,
     RESTART_NOTE,
 } from '@/lib/updateText'
-import {tween} from '@/styles/motion'
-import {ReleaseNotes} from './ReleaseNotes'
+import {ReleaseNotes} from '@/components/releaseNotes/ReleaseNotes'
 import {Warning} from './styles'
 import {appUpdateStatus, catalogStatus} from './updateStatus'
 
@@ -65,17 +65,11 @@ function useNow() {
 }
 
 const Actions = styled(m.div)`
+    position: relative;
     display: flex;
     flex: none;
     gap: ${({theme}) => theme.space[1.5]};
 `
-
-const fade = {
-    initial: {opacity: 0},
-    animate: {opacity: 1},
-    exit: {opacity: 0},
-    transition: tween('fast'),
-}
 
 const Notes = styled.div`
     display: flex;
@@ -238,7 +232,7 @@ function AppUpdateRow({snapshot}: {snapshot: UpdaterSnapshot}) {
             description={<StatusLine status={appUpdateStatus(snapshot, now)}/>}
             control={(
                 <AnimatePresence mode="wait" initial={false}>
-                    <Actions key={actions.key} {...fade}>{actions.buttons}</Actions>
+                    <Actions key={actions.key}>{actions.buttons}<Veil duration="fast"/></Actions>
                 </AnimatePresence>
             )}
         >

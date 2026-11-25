@@ -476,3 +476,30 @@ export const editorStyles = css`
         cursor: grabbing;
     }
 `
+
+/**
+ * The summary's editor (NotesEditor `variant="summary"`): every heading is
+ * a section label like Action items under it, and the empty line BlockNote
+ * keeps at the end takes no room until the editor has focus, so the gap
+ * before the action items is the sections' own. One more `&` than
+ * editorStyles, which it follows.
+ */
+export const summaryEditorStyles = css`
+    &&&& .bn-block-content[data-content-type='heading'] .bn-inline-content {
+        ${({theme}) => theme.text.small};
+        font-weight: ${({theme}) => theme.fontWeights.semibold};
+        color: ${({theme}) => theme.colors.muted};
+    }
+
+    &&&& .bn-block-content[data-content-type='heading'] {
+        padding-top: ${({theme}) => theme.space[5]};
+    }
+
+    &&&& .bn-block-group > .bn-block-outer:first-child .bn-block-content[data-content-type='heading'] {
+        padding-top: 0;
+    }
+
+    &&&&:not(:focus-within) .bn-editor > .bn-block-group > .bn-block-outer:last-child:not(:first-child):has(.ProseMirror-trailingBreak:only-child) {
+        display: none;
+    }
+`

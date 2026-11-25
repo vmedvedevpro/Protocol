@@ -71,3 +71,16 @@ export const cubicBezier = ([x1, y1, x2, y2]: Bezier) => `cubic-bezier(${x1}, ${
  * so reduced motion keeps only the colour and opacity changes outside it.
  */
 export const MOTION_OK = '@media (prefers-reduced-motion: no-preference)'
+
+/**
+ * The motion of a status change under AnimatePresence `mode="wait"`: the
+ * old element leaves upwards and the new one arrives from below, 4 px over
+ * `fast`; a `<Veil duration="fast"/>` (components/ui/Veil.tsx) inside each
+ * does the fade.
+ */
+export const statusSwap = {
+    initial: {y: 4},
+    animate: {y: 0},
+    exit: {y: -4},
+    transition: tween('fast'),
+}
