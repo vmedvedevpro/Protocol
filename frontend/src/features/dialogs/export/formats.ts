@@ -4,7 +4,8 @@
  * the WebView makes the bytes, the system's save dialog picks the place and
  * grants the fs plugin that one path, and `plugin:fs|write_file` writes it.
  * A browser-style download could not honour the folder in a Tauri WebView.
- * jsPDF and docx load only when a PDF or a Word file is made.
+ * jsPDF and docx load only when a PDF or a Word file is made, and so does
+ * the PDF's font (pdfFont.ts).
  */
 import {writeFile} from '@tauri-apps/plugin-fs'
 import {command} from '@/api/core'
@@ -69,8 +70,13 @@ async function docxBytes(markdown: string): Promise<Uint8Array> {
 }
 
 async function pdfBytes(markdown: string): Promise<Uint8Array> {
-    const {jsPDF} = await import('jspdf')
+    const [{jsPDF}, {PDF_FONT, PDF_FONT_FILES}] = await Promise.all([import('jspdf'), import('./pdfFont')])
     const doc = new jsPDF({unit: 'pt', format: 'a4'})
+    // Helvetica, jsPDF's own, has no Cyrillic; meetings are often in Russian.
+    for (const {file, style, data} of PDF_FONT_FILES) {
+        doc.addFileToVFS(file, data)
+        doc.addFont(file, PDF_FONT, style)
+    }
     // The old export's A4 page, in points.
     const marginX = 48
     const marginY = 56
@@ -84,7 +90,7 @@ async function pdfBytes(markdown: string): Promise<Uint8Array> {
         y = marginY
     }
     const write = (text: string, size: number, bold: boolean, gapAfter: number, indent = 0) => {
-        doc.setFont('helvetica', bold ? 'bold' : 'normal')
+        doc.setFont(PDF_FONT, bold ? 'bold' : 'normal')
         doc.setFontSize(size)
         const lineHeight = size * 1.25
         for (const wrapped of doc.splitTextToSize(text, width - marginX * 2 - indent) as string[]) {

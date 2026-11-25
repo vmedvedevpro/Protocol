@@ -62,6 +62,15 @@ describe('formats', () => {
         })
     })
 
+    it('keeps Cyrillic in a PDF: Geist is embedded and maps the glyphs back to the letters', async () => {
+        const bytes = await renderFile('pdf', '# Встреча\n\nПривет, мир', 'Встреча')
+        const pdf = new TextDecoder('latin1').decode(bytes)
+        expect(pdf).toContain('/BaseFont /Geist')
+        expect(pdf).toContain('/FontFile2')
+        // The ToUnicode map gives each glyph its letter: П, и, р, м.
+        for (const letter of ['041f', '0438', '0440', '043c']) expect(pdf.toLowerCase()).toContain(`<${letter}>`)
+    })
+
     it('renders a PDF and a Word file', async () => {
         const header = (bytes: Uint8Array, length: number) => new TextDecoder().decode(bytes.slice(0, length))
         expect(header(await renderFile('pdf', '# Title\n\n- **Bold** item\n\n---\n\nText', 'Title'), 5)).toBe('%PDF-')
