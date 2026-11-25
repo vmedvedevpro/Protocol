@@ -1,5 +1,6 @@
 /**
- * What Settings › Summary model asks the providers: the models each offers,
+ * What Settings › Summary model and first launch ask the providers: their
+ * names, the models each offers,
  * the models on an Ollama server and getting or removing one there, and a
  * test of a custom server. The choice itself is in `src/api/preferences.ts`.
  * Native code talks to the providers (anthropic/, openai/, groq/,
@@ -11,6 +12,23 @@ import type {NativeEvent} from '@/api/events'
 import type {SummaryProvider} from '@/api/preferences'
 import claudeLimits from '@/lib/claude-output-limits.json'
 import {safely} from '@/lib/storage'
+
+/**
+ * The providers in the order the summary model page offers them, as the
+ * row names them, and which need a key.
+ */
+export const SUMMARY_PROVIDERS: Record<SummaryProvider, {label: string; description: string; needsApiKey: boolean}> = {
+    'builtin-ai': {label: 'Built-in AI', description: 'No API key needed', needsApiKey: false},
+    claude: {label: 'Claude', description: 'Anthropic API key', needsApiKey: true},
+    openai: {label: 'OpenAI', description: 'OpenAI API key', needsApiKey: true},
+    groq: {label: 'Groq', description: 'Groq API key', needsApiKey: true},
+    openrouter: {label: 'OpenRouter', description: 'OpenRouter API key', needsApiKey: true},
+    ollama: {label: 'Ollama', description: 'Models on your own Ollama server', needsApiKey: false},
+    'custom-openai': {label: 'Custom server', description: 'Any OpenAI-compatible endpoint', needsApiKey: false},
+}
+
+/** A built-in model's name without its tag: "Qwen 3.5 4B (High Quality)" is "Qwen 3.5 4B". */
+export const shortModelName = (displayName: string) => displayName.replace(/\s*\([^)]*\)\s*$/, '')
 
 /** The providers that need the user's own key. */
 export type CloudProvider = Extract<SummaryProvider, 'claude' | 'openai' | 'groq' | 'openrouter'>

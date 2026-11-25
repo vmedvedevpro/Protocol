@@ -17,10 +17,10 @@ import {
     ollamaModelsQuery,
     pullOllamaModel,
     summaryProviderKeys,
-} from '../../api/summaryProviders'
-import {useDebouncedSave} from '../../hooks/useDebouncedSave'
+} from '@/api/summaryProviders'
+import {useDebouncedSave} from '@/lib/useDebouncedSave'
 import {ModelRow} from '../ModelRow'
-import {TYPING_SETTLE_MS} from './draft'
+import {TYPING_SETTLE_MS} from '@/components/summaryModel/draft'
 import {Actions} from './styles'
 
 interface OllamaGroupProps {

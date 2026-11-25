@@ -1,5 +1,6 @@
 import {downloadGpuVersion, downloadIntelLibraries, INTEL_LIBRARIES_ID} from '@/api/intel'
 import {
+    cancelBuiltInDownload,
     downloadBuiltInModel,
     downloadParakeetModel,
     downloadWhisperModel,
@@ -32,12 +33,19 @@ export interface FirstLaunchDownload {
     start: () => Promise<unknown>
     /** Starts it again after a failure. */
     retry: () => Promise<unknown>
+    /**
+     * A download only the user starts (Install), never the run: its size for
+     * the button, and Cancel while it runs. The built-in summary model.
+     */
+    optional?: {sizeBytes: number | null, cancel: () => Promise<unknown>}
 }
 
-/** The built-in summary model `builtin_ai_get_recommended_model` picked, with the name the catalog shows. */
+/** The built-in summary model `builtin_ai_get_recommended_model` picked, with the name and size the catalog shows. */
 export interface SummaryModel {
     name: string
+    /** Without its tag: "Qwen 3.5 4B" (`shortModelName`). */
     displayName: string
+    sizeBytes: number | null
 }
 
 /**
@@ -58,21 +66,21 @@ export interface Hardware {
 const NO_INTEL: Hardware = {gpuVersion: null, npuLibraries: false, track: (_engine, _id, run) => run()}
 
 /**
- * What first launch downloads, in order: Parakeet first, since recording
- * needs a live model; Intel's libraries for the NPU next, which keep only
- * while Parakeet v3 is there; then Whisper Large V3 Turbo, or on an Intel
- * GPU its Intel GPU version, which native code makes the after-meeting model
- * once its download is verified (`enablePostCall`, `choose`); then the
- * summary model. A model is in use only after its download completed: native
- * code activates Whisper, and `complete_onboarding` selects Parakeet and the
- * summary model, which a meeting reads only when it runs.
+ * What first launch downloads on its own, in order: Parakeet first, since
+ * recording needs a live model; Intel's libraries for the NPU next, which
+ * keep only while Parakeet v3 is there; then Whisper Large V3 Turbo, or on an
+ * Intel GPU its Intel GPU version, which native code makes the after-meeting
+ * model once its download is verified (`enablePostCall`, `choose`). A model
+ * is in use only after its download completed: native code activates
+ * Whisper, and `complete_onboarding` selects Parakeet, which a meeting reads
+ * only when it runs. The summary model is the user's choice
+ * (`summaryDownload`).
  */
-export function firstLaunchDownloads(summary: SummaryModel, hardware: Hardware = NO_INTEL): FirstLaunchDownload[] {
+export function firstLaunchDownloads(hardware: Hardware = NO_INTEL): FirstLaunchDownload[] {
     const {gpuVersion, track} = hardware
     const whisper = () => downloadWhisperModel(POST_CALL_WHISPER_MODEL, {enablePostCall: true})
     const gpu = () => track('intelGpu', gpuVersion ?? '', () => downloadGpuVersion(gpuVersion ?? '', {choose: true}))
     const libraries = () => track('intelLibraries', INTEL_LIBRARIES_ID, downloadIntelLibraries)
-    const builtIn = () => downloadBuiltInModel(summary.name)
     const npu: FirstLaunchDownload[] = hardware.npuLibraries && !gpuVersion ? [{
         id: 'npu',
         title: 'Live text on the Intel NPU',
@@ -110,14 +118,24 @@ export function firstLaunchDownloads(summary: SummaryModel, hardware: Hardware =
             start: whisper,
             retry: whisper,
         },
-        {
-            id: 'summaries',
-            title: 'Summaries',
-            detail: summary.displayName,
-            engine: 'builtIn',
-            model: summary.name,
-            start: builtIn,
-            retry: builtIn,
-        },
     ]
+}
+
+/**
+ * The recommended built-in summary model, downloaded only on Install. Done
+ * selects it once its download runs or completed (`complete_onboarding`), and
+ * a meeting uses it only when it is there, as with Parakeet.
+ */
+export function summaryDownload(summary: SummaryModel): FirstLaunchDownload {
+    const start = () => downloadBuiltInModel(summary.name)
+    return {
+        id: 'summaries',
+        title: summary.displayName,
+        detail: 'Recommended for this computer',
+        engine: 'builtIn',
+        model: summary.name,
+        start,
+        retry: start,
+        optional: {sizeBytes: summary.sizeBytes, cancel: () => cancelBuiltInDownload(summary.name)},
+    }
 }

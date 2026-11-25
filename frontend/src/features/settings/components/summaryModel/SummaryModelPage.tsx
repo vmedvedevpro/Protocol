@@ -1,5 +1,5 @@
 import {useState} from 'react'
-import {useMutation, useQuery, useQueryClient} from '@tanstack/react-query'
+import {useMutation, useQuery} from '@tanstack/react-query'
 import {errorMessage} from '@/api/core'
 import {builtInModelsQuery, modelState, recommendedSummaryModelQuery} from '@/api/models'
 import {
@@ -15,18 +15,16 @@ import {Button} from '@/components/ui/Button'
 import {SettingsRadioGroup, SettingsRadioRow} from '@/components/ui/SettingsRow'
 import {Spinner} from '@/components/ui/Spinner'
 import {toast} from '@/components/ui/toastStore'
-import {isCloudProvider, readLegacyModelMap, summaryProviderKeys} from '../../api/summaryProviders'
+import {isCloudProvider, readLegacyModelMap} from '@/api/summaryProviders'
 import {SubpageFooter, type SubpageProps, SubpageGroups, SubpageScroll} from '../subpage'
 import {Warning} from '../styles'
-import {SUMMARY_PROVIDERS} from '../summaryModel'
+import {SUMMARY_PROVIDERS} from '@/api/summaryProviders'
 import {BuiltInModelsGroup} from './BuiltInModelsGroup'
-import {CloudGroup} from './CloudGroup'
+import {ClaudeLengthRow} from './ClaudeLengthRow'
+import {CloudGroup} from '@/components/summaryModel/CloudGroup'
 import {CustomServerGroup} from './CustomServerGroup'
-import {choiceOf, initialDraft, type SummaryModelDraft} from './draft'
+import {choiceOf, initialDraft, type SummaryModelDraft, WHISPER_MODEL_DEFAULT} from '@/components/summaryModel/draft'
 import {OllamaGroup} from './OllamaGroup'
-
-/** What the old settings stored beside the summary model when nothing was saved yet. */
-const WHISPER_MODEL_DEFAULT = 'large-v3'
 
 const PROVIDER_ORDER = Object.keys(SUMMARY_PROVIDERS) as SummaryProvider[]
 
@@ -36,7 +34,6 @@ interface FormProps extends SubpageProps {
 }
 
 function SummaryModelForm({config, customServer, back}: FormProps) {
-    const client = useQueryClient()
     const [draft, setDraft] = useState(() => initialDraft(config, customServer, readLegacyModelMap()))
     const change = (patch: Partial<SummaryModelDraft>) => setDraft((current) => ({...current, ...patch}))
     const {provider} = draft
@@ -62,11 +59,7 @@ function SummaryModelForm({config, customServer, back}: FormProps) {
 
     const save = useMutation({
         ...saveSummaryModelMutation,
-        onSuccess: () => {
-            // A list asked with a key typed here is asked again with the saved one.
-            void client.invalidateQueries({queryKey: summaryProviderKeys.all})
-            back()
-        },
+        onSuccess: () => back(),
         onError: (error) => toast.error('Couldn’t save the summary model', {description: errorMessage(error)}),
     })
 
@@ -93,9 +86,11 @@ function SummaryModelForm({config, customServer, back}: FormProps) {
                             onApiKey={(key) => change({apiKeys: {...draft.apiKeys, [cloud]: key}})}
                             model={model}
                             onModel={chooseModel}
-                            maxLength={draft.maxLength}
-                            onMaxLength={(maxLength) => change({maxLength})}
-                        />
+                        >
+                            {cloud === 'claude' && (
+                                <ClaudeLengthRow model={model} value={draft.maxLength} onChange={(maxLength) => change({maxLength})}/>
+                            )}
+                        </CloudGroup>
                     )}
                     {provider === 'ollama' && (
                         <OllamaGroup

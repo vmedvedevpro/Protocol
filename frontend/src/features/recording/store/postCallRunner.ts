@@ -37,7 +37,7 @@ import {
     startRetranscription,
 } from '@/api/postCall'
 import {recordingPreferencesQuery} from '@/api/devices'
-import {getSummaryModelConfig, useAutoSummaryStore, useMeetingLanguageStore} from '@/api/preferences'
+import {getSummaryModelConfig, type SummaryModelConfig, type SummaryProvider, useAutoSummaryStore, useMeetingLanguageStore} from '@/api/preferences'
 import {queries} from './queries'
 import {resolvePostCallModel} from '../api/speech'
 
@@ -179,15 +179,28 @@ async function retranscribe(pass: Pass) {
     if (!free) throw new Error('The speech model is still busy with this meeting. Retry in a minute.')
 }
 
+/**
+ * Whether the saved summary model can write now, as native state says: a
+ * provider and a model are set, and a built-in model is downloaded (a check
+ * that fails counts as not). The pass's plan and the summary step both ask
+ * it, so a model chosen but missing (a download cut by a quit, or cancelled
+ * in Settings) neither runs nor fails on every meeting.
+ */
+async function usableSummaryModel(config: SummaryModelConfig | null):
+    Promise<{ok: true, provider: SummaryProvider, model: string} | {ok: false, reason: string}> {
+    if (!config?.provider || !config.model) return {ok: false, reason: 'No summary model is chosen. Pick one in Settings › AI.'}
+    if (config.provider === 'builtin-ai' && !(await isBuiltInModelReady(config.model).catch(() => false))) {
+        return {ok: false, reason: 'The built-in summary model is not downloaded yet.'}
+    }
+    return {ok: true, provider: config.provider, model: config.model}
+}
+
 /** Starts the automatic summary and waits for native to finish writing it. */
 async function summarize(pass: Pass) {
-    const config = await getSummaryModelConfig()
-    if (!config?.provider || !config.model) throw new Error('No summary model is chosen. Pick one in Settings › AI.')
-    if (config.provider === 'builtin-ai' && !(await isBuiltInModelReady(config.model).catch(() => false))) {
-        throw new Error('The built-in summary model is not downloaded yet.')
-    }
+    const usable = await usableSummaryModel(await getSummaryModelConfig())
+    if (!usable.ok) throw new Error(usable.reason)
     if (pass.cancel.signal.aborted) throw new Cancelled()
-    await startSummary({meetingId: pass.meetingId, provider: config.provider, model: config.model, clean: summaryCleaner()})
+    await startSummary({meetingId: pass.meetingId, provider: usable.provider, model: usable.model, clean: summaryCleaner()})
     const abort = () => void cancelSummary(pass.meetingId).catch(() => undefined)
     pass.cancel.signal.addEventListener('abort', abort, {once: true})
     // A Cancel while the start was on its way aborted before the listener existed.
@@ -283,18 +296,24 @@ function resume(pass: Pass, step: PostCallStep) {
 
 /**
  * Queues the pass of a saved meeting: retranscription and speakers when its
- * audio was saved, the summary when the automatic summary is on. A meeting
- * without audio keeps its live transcript.
+ * audio was saved, the summary when the automatic summary is on and the
+ * summary model can write (`usableSummaryModel`: first launch can leave it
+ * for later, or a built-in model can be missing, and then summaries stay off
+ * rather than fail on every meeting). A meeting without audio keeps its
+ * live transcript.
  */
 export async function startPostCall({meetingId, folderPath, audioSaved}: PostCallStart) {
     if (passes.has(meetingId)) return
     const preferences = await queries().fetchQuery(recordingPreferencesQuery).catch(() => null)
     const audio = audioSaved && !!folderPath && preferences?.auto_save !== false
     const speakers = audio && (await diarizationAvailable().catch(() => false))
+    // A config that cannot be read keeps the step, which then reports why.
+    const summary = useAutoSummaryStore.getState().value
+        && (await getSummaryModelConfig().then(async (config) => (await usableSummaryModel(config)).ok, () => true))
     const steps: PostCallStep[] = [
         ...(audio ? ['transcript' as const] : []),
         ...(speakers ? ['speakers' as const] : []),
-        ...(useAutoSummaryStore.getState().value ? ['summary' as const] : []),
+        ...(summary ? ['summary' as const] : []),
     ]
     if (steps.length === 0) return
     let end!: () => void

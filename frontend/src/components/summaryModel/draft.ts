@@ -1,9 +1,10 @@
 import type {CustomServerConfig, SummaryModelChoice, SummaryModelConfig, SummaryProvider} from '@/api/preferences'
-import {claudeOutputMaximum, isCloudProvider} from '../../api/summaryProviders'
+import {claudeOutputMaximum, isCloudProvider} from '@/api/summaryProviders'
 
 /**
- * What the summary model page holds until Save: the fields as typed. A
- * provider switched to and back keeps what was typed for it.
+ * What the summary model page holds until Save, and first launch until
+ * Done: the fields as typed. A provider switched to and back keeps what was
+ * typed for it.
  */
 export interface SummaryModelDraft {
     /** '' while nothing is chosen (a removed provider): Save stays off. */
@@ -17,6 +18,9 @@ export interface SummaryModelDraft {
     ollamaEndpoint: string
     custom: Record<'endpoint' | 'model' | 'apiKey' | 'maxTokens' | 'temperature' | 'topP', string>
 }
+
+/** What the old settings stored beside the summary model when nothing was saved yet; written back on Save. */
+export const WHISPER_MODEL_DEFAULT = 'large-v3'
 
 /** A key or an endpoint typed is asked about once typing has rested this long. */
 export const TYPING_SETTLE_MS = 500

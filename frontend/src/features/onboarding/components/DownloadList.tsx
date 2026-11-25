@@ -4,12 +4,13 @@ import {AnimatePresence} from 'motion/react'
 import * as m from 'motion/react-m'
 import styled from 'styled-components'
 import {errorMessage} from '@/api/core'
-import {isAlreadyDownloading} from '@/api/models'
+import {isAlreadyDownloading, isCancelledDownload} from '@/api/models'
 import {Button} from '@/components/ui/Button'
 import {ProgressBar} from '@/components/ui/ProgressBar'
 import {Spinner} from '@/components/ui/Spinner'
 import {toast} from '@/components/ui/toastStore'
 import {Veil} from '@/components/ui/Veil'
+import {withSize} from '@/lib/sizes'
 import {statusSwap as swap, tween} from '@/styles/motion'
 import type {DownloadRow, RowState} from '../hooks/useFirstLaunchDownloads'
 
@@ -102,19 +103,33 @@ function label(state: RowState) {
 
 function DownloadItem({row: {download, state}}: { row: DownloadRow }) {
     const [retrying, setRetrying] = useState(false)
+    const [starting, setStarting] = useState(false)
+    const {optional} = download
 
     const retry = () => {
         setRetrying(true)
         download.retry()
             .catch((error: unknown) => {
-                if (isAlreadyDownloading(error)) return
+                if (isAlreadyDownloading(error) || isCancelledDownload(error)) return
                 toast.error('Download retry failed', {description: errorMessage(error)})
             })
             .finally(() => setRetrying(false))
     }
 
+    // Its progress and a failure come through downloadsQuery; the call itself
+    // resolves only when the download ends, and a Cancel rejects it.
+    const install = () => {
+        setStarting(true)
+        download.start().catch(() => undefined).finally(() => setStarting(false))
+    }
+    const cancel = () => {
+        optional?.cancel().catch((error: unknown) => toast.error('Couldn’t cancel the download', {description: errorMessage(error)}))
+    }
+
     // A percent ticks in place; the label swaps only when its meaning does.
     const meaning = state.kind === 'missing' ? 'downloading' : state.kind
+    // Not started yet: Install stands where the progress will be.
+    const offered = optional && state.kind === 'missing'
     return (
         <Row initial={{y: 4}} animate={{y: 0}} transition={tween('base', 'enter')}>
             {ICONS[download.id]}
@@ -127,6 +142,11 @@ function DownloadItem({row: {download, state}}: { row: DownloadRow }) {
                     )}
                 </AnimatePresence>
             </Text>
+            {offered ? (
+                <Button size="sm" pending={starting} onClick={install} aria-label={`Install ${download.title}`}>
+                    {withSize('Install', optional.sizeBytes)}
+                </Button>
+            ) : (
             <Progress>
                 <AnimatePresence mode="wait" initial={false}>
                     <Label key={meaning} {...swap}>
@@ -150,15 +170,23 @@ function DownloadItem({row: {download, state}}: { row: DownloadRow }) {
                     </Bar>
                 )}
             </Progress>
+            )}
+            {optional && state.kind === 'downloading' && (
+                <Button size="sm" variant="ghost" onClick={cancel} aria-label={`Cancel downloading ${download.title}`}>Cancel</Button>
+            )}
             <Veil/>
         </Row>
     )
 }
 
-/** The models first launch downloads, each with how far it has got, and Retry once it failed. */
-export function DownloadList({rows}: { rows: DownloadRow[] }) {
+/**
+ * The models first launch downloads, each with how far it has got, and
+ * Retry once it failed; an optional one offers Install with its size first,
+ * and Cancel while it downloads.
+ */
+export function DownloadList({rows, label = 'Downloads'}: { rows: DownloadRow[], label?: string }) {
     return (
-        <List aria-label="Downloads">
+        <List aria-label={label}>
             {rows.map((row) => <DownloadItem key={row.download.id} row={row}/>)}
         </List>
     )

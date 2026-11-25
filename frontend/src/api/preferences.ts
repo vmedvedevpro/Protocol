@@ -15,6 +15,7 @@ import {useEffect} from 'react'
 import {DETECT_LANGUAGE, normaliseSummaryLanguage} from '@/lib/languages'
 import {safely, storedValue} from '@/lib/storage'
 import {command} from './core'
+import {summaryProviderKeys} from './summaryProviders'
 
 // --- Your name -------------------------------------------------------------
 
@@ -219,7 +220,7 @@ export const preferenceKeys = {
     customServer: () => [...preferenceKeys.all, 'customServer'] as const,
 }
 
-/** Null until anything was saved: first launch saves built-in AI. */
+/** Null until anything was saved: first launch saves one only when the user chose it, and a fresh database has none. */
 export const getSummaryModelConfig = () => command<SummaryModelConfig | null>('api_get_model_config')
 
 /** The summary model; Settings › Summary model saves it (`saveSummaryModelMutation`). */
@@ -281,12 +282,17 @@ export const saveCustomServer = ({endpoint, apiKey, model, maxTokens, temperatur
 /**
  * Saves the summary model, and first the custom server when that is the
  * provider: the custom server is stored apart, and the model choice names
- * it by its model. Everything else that reads the choice reads it again.
+ * it by its model. Everything else that reads the choice reads it again,
+ * and a provider's model list asked with a key typed before the save is
+ * asked again with the saved one.
  */
 export const saveSummaryModelMutation = mutationOptions({
     mutationFn: async ({choice, customServer}: {choice: SummaryModelChoice, customServer?: CustomServerConfig}) => {
         if (customServer) await saveCustomServer(customServer)
         await saveSummaryModel(choice)
     },
-    onSettled: (_reply, _error, _variables, _result, {client}) => client.invalidateQueries({queryKey: preferenceKeys.all}),
+    onSettled: (_reply, _error, _variables, _result, {client}) => Promise.all([
+        client.invalidateQueries({queryKey: preferenceKeys.all}),
+        client.invalidateQueries({queryKey: summaryProviderKeys.all}),
+    ]),
 })

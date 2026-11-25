@@ -10,7 +10,7 @@ import {
 import {errorMessage} from '@/api/core'
 import {SettingsGroup, SettingsRow} from '@/components/ui/SettingsRow'
 import {ModelRow} from '../ModelRow'
-import {shortModelName} from '../summaryModel'
+import {shortModelName} from '@/api/summaryProviders'
 
 interface BuiltInModelsGroupProps {
     model: string | undefined

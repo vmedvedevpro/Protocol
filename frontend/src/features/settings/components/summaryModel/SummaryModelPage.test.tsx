@@ -4,11 +4,11 @@ import userEvent from '@testing-library/user-event'
 import {describe, expect, it} from 'vitest'
 import {listBuiltInModels} from '@/api/models'
 import {mockState} from '@/mocks/state'
-import {PROVIDER_MODEL_MAP_KEY} from '../../api/summaryProviders'
+import {PROVIDER_MODEL_MAP_KEY} from '@/api/summaryProviders'
 import {SettingsPage} from '../../pages/SettingsPage'
 import {indexedLabels} from '../../pages/settingsPages'
 import {renderedRowLabels, renderSettings} from '../../testing'
-import {shortModelName, SUMMARY_PROVIDERS} from '../summaryModel'
+import {shortModelName, SUMMARY_PROVIDERS} from '@/api/summaryProviders'
 
 const open = () => renderSettings(createElement(SettingsPage), '/settings/summary-model')
 const group = (name: string) => screen.getByRole('region', {name})
