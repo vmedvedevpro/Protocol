@@ -3,6 +3,7 @@ import {useQueryClient} from '@tanstack/react-query'
 import {useNavigate} from 'react-router-dom'
 import {errorMessage} from '@/api/core'
 import {useNativeEvent} from '@/api/events'
+import {summaryCleaner} from '@/api/labs'
 import {meetingKeys, startSummary, SUMMARY_PROGRESS_EVENT} from '@/api/meetings'
 import {type BuiltInModelStatus, isBuiltInModelReady, listBuiltInModels} from '@/api/models'
 import {summaryModelQuery} from '@/api/preferences'
@@ -81,7 +82,7 @@ export function useWriteSummary(meetingId: string) {
                 toast.error(problem.title, {description: problem.description, action: toSettings})
                 return false
             }
-            const start = await startSummary({meetingId, provider: config.provider, model: config.model, templateId, customPrompt})
+            const start = await startSummary({meetingId, provider: config.provider, model: config.model, templateId, customPrompt, clean: summaryCleaner()})
             if (start.languageTie) {
                 toast.warning('Bilingual transcript detected', {
                     description: 'Two languages were spoken about equally; the summary uses one of them.',

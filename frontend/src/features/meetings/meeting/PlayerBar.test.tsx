@@ -2,7 +2,7 @@ import {act, fireEvent, screen} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import {describe, expect, it, vi} from 'vitest'
 import {renderUi} from '@/test/renderUi'
-import {MeetingPlayer} from './player'
+import {MeetingPlayer, SLOW_PLAYBACK_RATES} from './player'
 import {PlayerBar} from './PlayerBar'
 
 /** A player whose recording has loaded: 10 minutes long. jsdom plays no audio, so play and pause are stubbed. */
@@ -63,6 +63,18 @@ describe('PlayerBar', () => {
         await userEvent.click(screen.getByRole('button', {name: 'Playback speed 1×'}))
         act(() => rerender())
         expect(screen.getByRole('button', {name: 'Playback speed 1.25×'})).toBeInTheDocument()
+    })
+
+    it('adds 0.5× and 0.75× with Labs › Waveform scrubbing', async () => {
+        const player = loadedPlayer()
+        player.audio.playbackRate = 2
+        player.audio.dispatchEvent(new Event('ratechange'))
+        const Bar = () => <PlayerBar player={player} {...player.getState()} rates={SLOW_PLAYBACK_RATES} peaks={[0.2, 0.8, 0.4]}/>
+        const view = renderUi(<Bar/>)
+        await userEvent.click(screen.getByRole('button', {name: 'Playback speed 2×'}))
+        act(() => view.rerender(<Bar/>))
+        expect(screen.getByRole('button', {name: 'Playback speed 0.5×'})).toBeInTheDocument()
+        expect(screen.getByRole('slider', {name: 'Playback position'})).toBeEnabled()
     })
 
     it('says so when the meeting has no recording', () => {

@@ -31,5 +31,14 @@ export function labsHandlers(state: {labs: MockLabs, platform: string}): Record<
             state.labs.voiceProfiles = Boolean(value)
             return null
         },
+        // Five minutes of talk and pauses, the same for every recording: the mock audio names no file.
+        get_waveform_peaks: () => mockPeaks(),
     }
+}
+
+function mockPeaks(): number[] {
+    return Array.from({length: 300}, (_, second) => {
+        const talk = Math.sin(second / 7) > -0.3 ? 1 : 0.08
+        return Math.min(1, talk * (0.35 + 0.4 * Math.abs(Math.sin(second * 1.7)) + 0.2 * Math.abs(Math.sin(second / 3))))
+    })
 }

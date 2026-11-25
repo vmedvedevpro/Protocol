@@ -13,6 +13,7 @@
  * holds them, and only the two WebView switches change in it.
  */
 import {mutationOptions, queryOptions} from '@tanstack/react-query'
+import {cleanTranscriptText} from '@/lib/cleanTranscript'
 import {safely, storedValue} from '@/lib/storage'
 import {command} from './core'
 
@@ -73,6 +74,9 @@ export function setLab(name: WebViewLab, on: boolean) {
 
 // --- The native switches -----------------------------------------------------
 
+/** What a new summary is written from: the clean text while Labs › Clean transcript is on. */
+export const summaryCleaner = () => (useLabsStore.getState().value.cleanTranscript ? cleanTranscriptText : undefined)
+
 export type NativeLab = 'whisperSilenceGuard' | 'parakeetGpu' | 'voiceProfiles'
 
 /**
@@ -103,7 +107,26 @@ export const setNativeLab = (lab: NativeLab, on: boolean) => NATIVE_LABS[lab].se
 export const labsKeys = {
     all: ['labs'] as const,
     native: (lab: NativeLab) => [...labsKeys.all, 'native', lab] as const,
+    waveform: (path: string) => [...labsKeys.all, 'waveform', path] as const,
 }
+
+/** A recording's loudness, one peak (0 to 1) per second, read by FFmpeg natively (audio/waveform.rs). */
+export const getWaveformPeaks = (filePath: string) => command<number[]>('get_waveform_peaks', {filePath})
+
+/** Native reads one file at a time and refuses a second; the previous meeting's may still run. */
+export const WAVEFORM_BUSY = 'Waveform extraction is already running'
+
+/**
+ * Labs › Waveform scrubbing's peaks. A recording does not change, so they
+ * stay; a refusal while another file is read is tried again a few times.
+ */
+export const waveformQuery = (path: string) => queryOptions({
+    queryKey: labsKeys.waveform(path),
+    queryFn: () => getWaveformPeaks(path),
+    staleTime: Number.POSITIVE_INFINITY,
+    retry: (count, error) => count < 4 && String(error).includes(WAVEFORM_BUSY),
+    retryDelay: 1500,
+})
 
 export const nativeLabQuery = (lab: NativeLab) => queryOptions({
     queryKey: labsKeys.native(lab),

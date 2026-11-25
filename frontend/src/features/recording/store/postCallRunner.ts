@@ -14,6 +14,7 @@
  */
 import {errorMessage} from '@/api/core'
 import {listenNative} from '@/api/events'
+import {summaryCleaner} from '@/api/labs'
 import {
     cancelSummary,
     diarizationAvailable,
@@ -183,7 +184,7 @@ async function summarize(pass: Pass) {
         throw new Error('The built-in summary model is not downloaded yet.')
     }
     if (pass.cancel.signal.aborted) throw new Cancelled()
-    await startSummary({meetingId: pass.meetingId, provider: config.provider, model: config.model})
+    await startSummary({meetingId: pass.meetingId, provider: config.provider, model: config.model, clean: summaryCleaner()})
     const abort = () => void cancelSummary(pass.meetingId).catch(() => undefined)
     pass.cancel.signal.addEventListener('abort', abort, {once: true})
     // A Cancel while the start was on its way aborted before the listener existed.

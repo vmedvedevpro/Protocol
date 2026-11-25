@@ -53,6 +53,8 @@ interface TranscriptPanelProps {
     onSeek?: (seconds: number) => void
     /** A line to scroll into view once (a search result's). */
     revealLine?: string
+    /** Labs › Clean transcript: how each turn is shown (`cleanTranscriptText`). */
+    clean?: (text: string) => string
 }
 
 /**
@@ -61,7 +63,7 @@ interface TranscriptPanelProps {
  * label opens its contact (#118) and names it, on every line of the meeting. While the post-call
  * pass runs, the text is the live one, and a note says a better one comes.
  */
-export function TranscriptPanel({meetingId, playback, playing, onSeek, revealLine}: TranscriptPanelProps) {
+export function TranscriptPanel({meetingId, playback, playing, onSeek, revealLine, clean}: TranscriptPanelProps) {
     const transcript = useQuery(meetingTranscriptsQuery(meetingId))
     const rename = useMutation(renameSpeakerMutation(meetingId))
     const job = usePostCallJob(meetingId)
@@ -96,6 +98,7 @@ export function TranscriptPanel({meetingId, playback, playing, onSeek, revealLin
         <Column>
             <TranscriptList
                 lines={lines}
+                clean={clean}
                 label="Transcript"
                 userName={userName || undefined}
                 playback={playback}
