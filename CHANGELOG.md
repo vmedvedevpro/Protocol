@@ -21,6 +21,11 @@ is inherited from the project Protocol forked from; Protocol did not release it.
   ([#220](https://github.com/vmedvedevpro/Protocol/issues/220)): words appear
   sooner, live text can split sentences, and the transcript after the meeting
   is unaffected.
+- **Contacts in Ctrl K**
+  ([#220](https://github.com/vmedvedevpro/Protocol/issues/220)). With nothing
+  typed, search lists a few people after the recent meetings, newest meeting
+  first. "Show all people" or the People command lists everyone, and typing
+  filters them by name, role, company or email.
 
 ## Protocol 1.0.0-rc.1 — 2026-11-26
 

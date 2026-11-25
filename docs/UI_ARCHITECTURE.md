@@ -1427,8 +1427,14 @@ another meeting starts from fresh state).
   and opens from anywhere through `src/lib/searchLauncher.ts`
   (`openSearch(query)`, which Home's field uses). cmdk gives the list its
   keys and selection with its own filtering off: with no query it shows
-  the commands (the caller's `actions`, then Go to and Theme) and five
-  recent meetings, filtered by their words as the user types; from two
+  the commands (the caller's `actions`, then Go to and Theme), five
+  recent meetings and, after them, four contacts by their latest meeting
+  (then by name) with their role and company or their meeting count,
+  filtered by their words as the user types. Contacts have no page or tab
+  (#220, was #209): "Show all people" and Go to › People ("people",
+  "contacts") switch the dialog to every contact, the field then filtering
+  them by name, role, company and email and Backspace in the empty field
+  going back; a new opening searches again. From two
   characters `api_global_search` answers 220 ms after typing pauses, its
   rows kept in native's order and grouped by kind in that order. The
   composition root passes the commands that belong to other features
