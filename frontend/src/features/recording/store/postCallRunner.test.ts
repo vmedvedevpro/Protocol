@@ -184,6 +184,13 @@ describe('the post-call pass', () => {
         useAutoSummaryStore.getState().set(false)
         mockState.postCall.stepMs = 20
         const invoke = spyOnIpc()
+        // What native still retranscribes when each delete arrives.
+        const heldAtDelete: (string | null)[] = []
+        const deleteMeeting = handlers.api_delete_meeting
+        vi.spyOn(handlers, 'api_delete_meeting').mockImplementation((args) => {
+            heldAtDelete.push(mockState.postCall.retranscribing)
+            return deleteMeeting(args)
+        })
         await start()
         await startPostCall({meetingId: 'meeting-1on1', folderPath: '/preview/1on1', audioSaved: true})
         await waitFor(() => expect(mockState.postCall.retranscribing).toBe(MEETING))
@@ -197,8 +204,9 @@ describe('the post-call pass', () => {
         const commands = invoke.mock.calls.map(([command]) => command)
         expect(commands.indexOf('cancel_retranscription_command')).toBeGreaterThan(-1)
         expect(commands.indexOf('cancel_retranscription_command')).toBeLessThan(commands.lastIndexOf('api_delete_meeting'))
-        await waitFor(() => expect(postCallJobs.get(MEETING)).toBeNull())
-        await waitFor(() => expect(mockState.postCall.retranscribing).toBeNull())
+        // The delete waited for native to finish its piece and let go.
+        expect(heldAtDelete).toEqual([MEETING, null])
+        expect(postCallJobs.get(MEETING)).toBeNull()
         expect(invoke.mock.calls.filter(([command, args]) => command === 'start_retranscription_command'
             && (args as { meetingId?: string }).meetingId === 'meeting-1on1')).toEqual([])
     })

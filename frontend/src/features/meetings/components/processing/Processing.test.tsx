@@ -8,7 +8,7 @@ import {ProcessingStatus} from './ProcessingStatus'
 import {ProcessingSteps} from './ProcessingSteps'
 
 function runner() {
-    const controls = {cancel: vi.fn(), retry: vi.fn(), skip: vi.fn()}
+    const controls = {cancel: vi.fn(), retry: vi.fn(), skip: vi.fn(), settled: vi.fn(() => Promise.resolve())}
     registerPostCallControls(controls)
     return controls
 }

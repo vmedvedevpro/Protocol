@@ -57,6 +57,9 @@ interface Pass {
     resumeFrom: PostCallStep
     /** Aborted by Cancel; a step checks it between native calls. */
     cancel: AbortController
+    /** Resolved when the pass finishes; `runnerControls.settled` hands it out. */
+    finished: Promise<void>
+    finish: () => void
 }
 
 const passes = new Map<string, Pass>()
@@ -230,6 +233,7 @@ async function runStep(pass: Pass, step: PostCallStep) {
 }
 
 function finish(meetingId: string) {
+    passes.get(meetingId)?.finish()
     passes.delete(meetingId)
     queue = queue.filter((id) => id !== meetingId)
     postCallJobs.end(meetingId)
@@ -293,7 +297,11 @@ export async function startPostCall({meetingId, folderPath, audioSaved}: PostCal
         ...(useAutoSummaryStore.getState().value ? ['summary' as const] : []),
     ]
     if (steps.length === 0) return
-    passes.set(meetingId, {meetingId, folderPath, steps, resumeFrom: steps[0], cancel: new AbortController()})
+    let end!: () => void
+    const finished = new Promise<void>((resolve) => {
+        end = resolve
+    })
+    passes.set(meetingId, {meetingId, folderPath, steps, resumeFrom: steps[0], cancel: new AbortController(), finished, finish: end})
     postCallJobs.queue(meetingId, steps)
     queue.push(meetingId)
     next()
@@ -336,11 +344,20 @@ export const runnerControls = {
         postCallJobs.queue(meetingId, pass.steps)
         resume(pass, after[0])
     },
+    settled(meetingId: string): Promise<void> {
+        const pass = passes.get(meetingId)
+        // A failed pass waits for Retry or Skip and holds no native work.
+        if (!pass || postCallJobs.get(meetingId)?.state === 'failed') return Promise.resolve()
+        return pass.finished
+    },
 }
 
 /** Drops every pass without touching native: tests, between cases. */
 export function resetPostCallRunner() {
-    for (const pass of passes.values()) pass.cancel.abort()
+    for (const pass of passes.values()) {
+        pass.cancel.abort()
+        pass.finish()
+    }
     passes.clear()
     queue = []
     running = null

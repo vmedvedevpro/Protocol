@@ -202,13 +202,16 @@ export const renameMeetingMutation = (meetingId: string) =>
 /**
  * Deleting drops the meeting's own queries rather than refetching them: a
  * screen still showing it would read "Meeting not found". Its post-call
- * pass is cancelled first, so no step starts on, or writes into, a meeting
- * that is gone.
+ * pass is cancelled first and the delete waits for it to settle: native's
+ * cancel only sets a flag, and a retranscription finishes the piece it is
+ * on (up to 25 s of audio) before it stops, so deleting at once would let
+ * that piece write into a meeting that is gone.
  */
 export const deleteMeetingMutation = (meetingId: string) =>
     mutationOptions({
-        mutationFn: () => {
+        mutationFn: async () => {
             postCallControls.cancel(meetingId)
+            await postCallControls.settled(meetingId)
             return deleteMeeting(meetingId)
         },
         onSuccess: async (_reply, _variables, _result, {client}) => {

@@ -280,6 +280,13 @@ export interface PostCallControls {
      * `transcript` the live transcript stays, and speakers are found in it.
      */
     skip: (meetingId: string) => void
+    /**
+     * Resolves once the meeting's pass holds no native work: at once without
+     * a pass or after a failure, else when a cancelled step has ended and
+     * native has let go of the model (a retranscription finishes the piece it
+     * is on). Deleting waits for it, so nothing writes into a meeting that is gone.
+     */
+    settled: (meetingId: string) => Promise<void>
 }
 
 let controls: PostCallControls | null = null
@@ -297,4 +304,5 @@ export const postCallControls: PostCallControls = {
     cancel: (meetingId) => controls?.cancel(meetingId),
     retry: (meetingId) => controls?.retry(meetingId),
     skip: (meetingId) => controls?.skip(meetingId),
+    settled: (meetingId) => controls?.settled(meetingId) ?? Promise.resolve(),
 }

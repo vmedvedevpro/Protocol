@@ -20,7 +20,7 @@ describe('FolderBar', () => {
     it('slides the selected chip’s thumb to the folder chosen', async () => {
         // jsdom lays nothing out: each chip stands CHIP_WIDTH further along, in order.
         vi.spyOn(HTMLElement.prototype, 'offsetLeft', 'get').mockImplementation(function (this: HTMLElement) {
-            const chips = Array.from(this.parentElement?.querySelectorAll('[data-folder-chip]') ?? [])
+            const chips = Array.from(this.parentElement?.querySelectorAll('[aria-pressed]') ?? [])
             return Math.max(0, chips.indexOf(this)) * CHIP_WIDTH
         })
         vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(CHIP_WIDTH)

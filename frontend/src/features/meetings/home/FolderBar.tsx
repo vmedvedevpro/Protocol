@@ -71,7 +71,7 @@ function useThumb(selected: string | null, folders: readonly Folder[]) {
         const element = bar.current
         if (!element) return
         const measure = () => {
-            const chip = element.querySelector<HTMLElement>('[data-folder-chip][aria-pressed="true"]')
+            const chip = element.querySelector<HTMLElement>('[aria-pressed="true"]')
             setBox(chip && {x: chip.offsetLeft, y: chip.offsetTop, width: chip.offsetWidth, height: chip.offsetHeight})
         }
         const observer = new ResizeObserver(measure)
@@ -134,12 +134,11 @@ export function FolderBar({folders, selected, onSelect, onNew, onRename, onDelet
                     transition={springs.snappy}
                 />
             )}
-            <Chip type="button" data-folder-chip aria-pressed={!current} $selected={!current} onClick={() => onSelect(null)}>All</Chip>
+            <Chip type="button" aria-pressed={!current} $selected={!current} onClick={() => onSelect(null)}>All</Chip>
             {folders.map((folder) => (
                 <Tooltip key={folder.id} content={`${folder.name}: ${folder.meetingCount} ${folder.meetingCount === 1 ? 'meeting' : 'meetings'}`}>
                     <Chip
                         type="button"
-                        data-folder-chip
                         aria-pressed={folder.id === selected}
                         $selected={folder.id === selected}
                         onClick={() => onSelect(folder.id)}
