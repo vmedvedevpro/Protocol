@@ -1045,44 +1045,45 @@ an exact-size file with valid GGUF magic becomes `Available`. Progress reaching
 
 ### Branding assets
 
-The Protocol mark is a recording dot that turns into lines of a transcript:
-ink `#15171C` rounded square, recording accent `#FF5A36`, lines `#F3F2EE`.
-`frontend/src-tauri/icon-source.svg` is the canonical vector;
-`icon-source.png` (and its copy `icon-1024.png`) is its 1024×1024 render.
-`icon-source-small.svg` is a simplified two-line variant drawn for 16–32 px,
-where three thin lines blur together in the tray and title bar.
+The Protocol mark is the recording ring (#120): one frame of the ring's
+shader (`frontend/src/components/ring/ringGl.ts`) on a black plate, the
+highlight at the top left. Plates of 32 px and less get the flat ring of
+`StaticRing.tsx` instead, since the glow blurs there. The tray and menu bar
+show the same ring in one colour, with a dot while a recording is on.
 
-Regenerate the set after changing either SVG:
+`frontend/scripts/build-icons.mjs` is the source: it draws every image from
+the design's numbers (the shader at its frozen frame, the ring's proportions,
+the plates) and encodes PNG, ICO and ICNS itself, with nothing but Node. SVG
+cannot hold the mark, which has no conic gradient and no light along the
+ring. After changing a number there, run `node scripts/build-icons.mjs` from
+`frontend/`; the output is deterministic.
 
-1. Render `icon-source.svg` to a 1024×1024 PNG (`icon-source.png`) and
-   `icon-source-small.svg` to 16, 20, 24 and 32 px PNGs (any SVG renderer;
-   headless Chromium matches the browser exactly).
-2. From `frontend/`, run `pnpm tauri icon src-tauri/icon-source.png`. It writes
-   the desktop family plus `android/` and `ios/`; delete those two folders —
-   Protocol ships no mobile build.
-3. Replace `icons/32x32.png` with the 32 px small render, and rebuild
-   `icons/icon.ico` with frames 16/20/24/32 from the small renders and
-   48/64/128/256 from the master, so the tray and taskbar get the legible
-   variant.
-4. Downscale the master into `public/logo.png` (512), `logo-collapsed.png`
-   (256), `icon_128x128.png` and `icon_32x32@2x.png` (64), and build
-   `src/app/favicon.ico` (16/32 small, 48 master).
+| File in `frontend/src-tauri/icons/` | Drawing | Used by |
+| --- | --- | --- |
+| `icon.ico` (16–256 px) | full plate, rounded | Windows executable and taskbar, the NSIS installer (`installerIcon`) |
+| `icon.icns` (16–1024 px) | Apple's grid: plate 824 of 1024, drop shadow | macOS bundle (`release-build-macos.yml` checks it) |
+| `icon.png` (512) | full plate | default window icon on Linux and macOS (the first PNG of `bundle.icon`), Linux packages |
+| `32x32.png`, `64x64.png`, `128x128.png`, `128x128@2x.png` | full plate | Linux packages' hicolor sizes; `128x128@2x.png` is also the Claude Desktop extension's icon (`claude_desktop_extension.rs`) |
+| `tray/macos-template*.png` (36 px) | black ring, template | macOS menu bar, tinted by the system |
+| `tray/windows-{white,black}*.png` (32 px) | white or black ring | Windows tray, by the taskbar's colour (`SystemUsesLightTheme`) |
+| `tray/linux-{white,black}*.png` (64 px) | white or black ring | Linux tray: black only on a light Plasma panel (`kdeglobals`), white on GNOME's and other dark panels |
 
-The generated files feed every native surface through these connections:
+Each tray image has a `-recording` twin with the dot. `src-tauri/src/tray/icon.rs`
+embeds them with `tauri::include_image!` and switches them when the tray's
+menu changes state (Stopped and Starting show no dot; Recording, Paused and the
+steps between show it), with the tooltip "Protocol — Recording". The panel's
+colour is read again on every tray menu update (a recording state change, a
+transcription model or an update becoming ready) and when the main window's theme changes; nothing
+polls. Limits: a change the window's theme does not report (a Plasma colour
+scheme, or Windows' taskbar mode set apart from the apps' mode) shows at the
+next menu update; on Linux a Plasma style with its own panel colours is taken
+for the colour scheme's. No Store or MSIX build is made, so the
+`Square*Logo.png` set `tauri icon` writes for one is not drawn.
 
-```text
-icon-source.svg -> icon-source.png (+ icon-source-small.svg for 16-32 px)
-  -> icons/icon.ico  -> Windows app/taskbar + NSIS installer
-  -> default app icon -> system tray (tray.rs)
-  -> icons/icon.icns -> macOS bundle
-  -> public/logo-collapsed.png + public/icon_*.png -> in-app/web assets
-  -> src/app/favicon.ico -> Next.js favicon
-```
-
-`tauri.conf.json` (app and `bundle.windows.nsis.installerIcon`) references the
-generated `icon.*` family. Do not introduce a second `app_icon.*` family: that
-previous duplication allowed the tray/app and installer to silently use
-different brands.
+`tauri.conf.json` (`bundle.icon` and `bundle.windows.nsis.installerIcon`)
+references the generated `icon.*` family. Do not introduce a second
+`app_icon.*` family: that previous duplication allowed the tray/app and
+installer to silently use different brands.
 
 On Windows, `io.github.vmedvedevpro.protocol` is also the single shell identity:
 it is Tauri's bundle identifier, the installer shortcut AUMID, and the explicit

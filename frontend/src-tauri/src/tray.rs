@@ -4,6 +4,10 @@ use tauri::{
     AppHandle, Emitter, Manager, Runtime,
 };
 
+mod icon;
+
+const TRAY_ID: &str = "main-tray";
+
 /// Asks the main window's layout to open a page with the router.
 const NAVIGATE_EVENT: &str = "tray-navigate";
 /// Asks the main window to start a recording (frontend `src/api/tray.ts`).
@@ -24,8 +28,9 @@ pub fn create_tray<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     // Start with default menu, will update with actual state after initialization
     // Pass can_record=true initially, will be updated by update_tray_menu immediately
     let menu = build_menu(app, RecordingState::Stopped, true)?;
+    let (image, template) = icon::initial();
 
-    TrayIconBuilder::with_id("main-tray")
+    TrayIconBuilder::with_id(TRAY_ID)
         .menu(&menu)
         // Tauri shows the tray menu on left-click by default, which swallows the
         // click before any handler runs — so clicking the icon only ever opened
@@ -33,7 +38,8 @@ pub fn create_tray<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
         // and leave the menu on right-click, which is what people expect.
         .show_menu_on_left_click(false)
         .tooltip("Protocol")
-        .icon(app.default_window_icon().unwrap().clone())
+        .icon(image)
+        .icon_as_template(template)
         .on_menu_event(|app, event| handle_menu_event(app, event.id.as_ref()))
         .on_tray_icon_event(|tray, event| {
             use tauri::tray::{MouseButton, MouseButtonState, TrayIconEvent};
@@ -49,6 +55,16 @@ pub fn create_tray<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
             }
         })
         .build(app)?;
+
+    // The tray's colour follows the panel's; a theme change may have turned it.
+    if let Some(window) = app.get_webview_window("main") {
+        let app = app.clone();
+        window.on_window_event(move |event| {
+            if let tauri::WindowEvent::ThemeChanged(_) = event {
+                icon::refresh(&app);
+            }
+        });
+    }
 
     // Update tray menu with actual recording state after creation
     update_tray_menu(app);
@@ -282,11 +298,13 @@ pub fn update_tray_menu<R: Runtime>(app: &AppHandle<R>) {
 
 pub fn set_tray_state<R: Runtime>(app: &AppHandle<R>, state: RecordingState) {
     log::info!("Tray: Setting intermediate state: {:?}", state);
+    let recording = icon::shows_dot(&state);
     // During recording state transitions, we assume recording is allowed (we're already recording)
     if let Ok(menu) = build_menu(app, state, true) {
-        if let Some(tray) = app.tray_by_id("main-tray") {
+        if let Some(tray) = app.tray_by_id(TRAY_ID) {
             let result = tray.set_menu(Some(menu));
             log::info!("Tray: Intermediate state menu update result: {:?}", result);
+            icon::show(app, recording);
         } else {
             log::warn!("Tray: Could not find tray with id 'main-tray'");
         }
@@ -361,11 +379,13 @@ pub async fn update_tray_menu_async<R: Runtime>(app: &AppHandle<R>) {
     // Only block recording during incomplete onboarding when no transcription model is ready
     let can_record = check_can_record(app).await;
     log::info!("Tray: can_record: {}", can_record);
+    let recording = icon::shows_dot(&recording_state);
 
     if let Ok(menu) = build_menu(app, recording_state, can_record) {
-        if let Some(tray) = app.tray_by_id("main-tray") {
+        if let Some(tray) = app.tray_by_id(TRAY_ID) {
             let result = tray.set_menu(Some(menu));
             log::info!("Tray: Menu update result: {:?}", result);
+            icon::show(app, recording);
         } else {
             log::warn!("Tray: Could not find tray with id 'main-tray'");
         }
