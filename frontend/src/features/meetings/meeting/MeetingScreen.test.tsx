@@ -100,7 +100,7 @@ describe('MeetingScreen', () => {
 
     it('opens Summary options to write the summary again', async () => {
         renderMeeting('meeting-roadmap')
-        const options = renderHook(() => useDialog('summary'))
+        const options = renderHook(() => useDialog())
         await userEvent.click(await screen.findByRole('button', {name: 'Write the summary again'}))
         expect(options.result.current).toMatchObject({open: true, request: {meetingId: 'meeting-roadmap'}})
     })
@@ -125,8 +125,8 @@ describe('MeetingScreen', () => {
 
     it('opens Export and Improve the transcript from the menu', async () => {
         renderMeeting('meeting-acme-review')
-        const exportDialog = renderHook(() => useDialog('export'))
-        const enhanceDialog = renderHook(() => useDialog('enhance'))
+        const exportDialog = renderHook(() => useDialog())
+        const enhanceDialog = renderHook(() => useDialog())
         await userEvent.click(await screen.findByRole('button', {name: /More actions/}))
         await userEvent.click(screen.getByRole('menuitem', {name: 'Export…'}))
         expect(exportDialog.result.current.request).toMatchObject({meetingId: 'meeting-acme-review'})
@@ -138,7 +138,7 @@ describe('MeetingScreen', () => {
 
     it('opens Who said this from a speaker’s menu', async () => {
         renderMeeting('meeting-untitled', '?tab=transcript')
-        const speaker = renderHook(() => useDialog('speaker'))
+        const speaker = renderHook(() => useDialog())
         await userEvent.click((await screen.findAllByRole('button', {name: 'Speaker 1'}))[0])
         await userEvent.click(await screen.findByRole('menuitem', {name: 'Who said this…'}))
         expect(speaker.result.current.request).toMatchObject({meetingId: 'meeting-untitled', speaker: 'Speaker 1', lineIds: [expect.any(String)]})

@@ -1,18 +1,14 @@
 /**
- * The speech model an import or Enhance transcript runs with: one of the
- * downloaded models, the after-meeting model by default. The old pickers'
+ * The speech models a picker offers, and the one it starts from: the
+ * downloaded models, the after-meeting model by default. Import and
+ * Improve the transcript (features/dialogs) and Settings' speech pickers
+ * share these rules, pure over the src/api types. The old pickers'
  * rules (`162e8be`: `lib/speech-models.ts`, `hooks/useTranscriptionModels.ts`):
  * Parakeet first, Parakeet v2 no longer offered while it stays on disk, and
  * Whisper's Intel GPU version named after the model it serves.
  */
-import {useQuery} from '@tanstack/react-query'
-import {
-    type ParakeetModelInfo,
-    parakeetModelsQuery,
-    type WhisperModelInfo,
-    whisperModelsQuery,
-} from '@/api/models'
-import {isWhisperProvider, postCallConfigQuery, type PostCallTranscriptConfig, type TranscriptConfig, transcriptConfigQuery} from '@/api/speech'
+import type {ParakeetModelInfo, WhisperModelInfo} from '@/api/models'
+import {isWhisperProvider, type PostCallTranscriptConfig, type TranscriptConfig} from '@/api/speech'
 
 export type SpeechEngine = 'parakeet' | 'whisper'
 
@@ -74,22 +70,6 @@ export function defaultSpeechModel(
         : undefined
     if (servedBy) return `whisper:${servedBy.name}`
     return (choices.find((choice) => choice.engine === engine) ?? choices[0])?.value
-}
-
-/** The choices and the default, once the lists and the configs have answered. */
-export function useSpeechModels() {
-    const parakeet = useQuery(parakeetModelsQuery)
-    const whisper = useQuery(whisperModelsQuery)
-    const postCall = useQuery(postCallConfigQuery)
-    const live = useQuery(transcriptConfigQuery)
-    // A config that failed to read leaves the default to the lists.
-    const pending = parakeet.isPending || whisper.isPending || postCall.isPending || live.isPending
-    const choices = speechModelChoices(parakeet.data ?? [], whisper.data ?? [])
-    return {
-        pending,
-        choices,
-        initial: pending ? undefined : defaultSpeechModel(choices, whisper.data ?? [], postCall.data, live.data),
-    }
 }
 
 /** The engine and model a choice's value names. */

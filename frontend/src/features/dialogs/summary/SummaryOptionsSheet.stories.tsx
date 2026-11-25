@@ -1,6 +1,6 @@
 import type {Meta, StoryObj} from '@storybook/react-vite'
 import {mockState} from '@/mocks/state'
-import {DialogStory} from '../DialogStory'
+import {DialogStory} from '../testing/DialogStory'
 
 const meta = {
     title: 'Dialogs/Summary options',

@@ -1,10 +1,11 @@
+// Tests only (*.test.tsx import it); the app never does, so no build carries it.
 import {act} from '@testing-library/react'
 import {QueryClientProvider} from '@tanstack/react-query'
 import {createMemoryRouter, RouterProvider} from 'react-router-dom'
 import {type DialogRequest, openDialog} from '@/lib/dialogs'
 import {createTestQueryClient} from '@/test/queryClient'
 import {renderUi} from '@/test/renderUi'
-import {DialogHost} from './DialogHost'
+import {DialogHost} from '../DialogHost'
 
 /**
  * Renders the dialogs as the shell mounts them, under a memory router (a

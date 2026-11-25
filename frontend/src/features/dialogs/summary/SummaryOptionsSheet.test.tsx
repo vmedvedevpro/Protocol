@@ -4,7 +4,7 @@ import {describe, expect, it, vi} from 'vitest'
 import {useDialog} from '@/lib/dialogs'
 import {handlers} from '@/mocks/handlers'
 import {mockState} from '@/mocks/state'
-import {renderDialogs} from '../testing'
+import {renderDialogs} from '../testing/renderDialogs'
 
 const MEETING = 'meeting-roadmap'
 
@@ -65,7 +65,7 @@ describe('SummaryOptionsSheet', () => {
 
     it('edits the chosen template and comes back to it', async () => {
         const {dialog} = await open()
-        const template = renderHook(() => useDialog('template'))
+        const template = renderHook(() => useDialog())
         await pick(dialog, 'Template', 'Daily Standup')
         await userEvent.click(within(dialog).getByRole('button', {name: 'Edit templates…'}))
         expect(template.result.current.request).toMatchObject({templateId: 'daily_standup', returnTo: {kind: 'summary', meetingId: MEETING}})

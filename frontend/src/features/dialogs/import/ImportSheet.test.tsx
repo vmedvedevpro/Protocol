@@ -6,7 +6,7 @@ import {useSummaryLanguageStore} from '@/api/preferences'
 import {emitMockEvent} from '@/mocks/ipc'
 import {mockState} from '@/mocks/state'
 import type {NativeEvent} from '@/api/events'
-import {renderDialogs} from '../testing'
+import {renderDialogs} from '../testing/renderDialogs'
 
 const sheet = () => screen.findByRole('dialog', {name: 'Import a recording'})
 const listened = () => act(() => new Promise((resolve) => setTimeout(resolve, 0)))

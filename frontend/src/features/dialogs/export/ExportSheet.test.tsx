@@ -2,7 +2,7 @@ import {screen, waitFor, within} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import {describe, expect, it} from 'vitest'
 import {mockState} from '@/mocks/state'
-import {renderDialogs} from '../testing'
+import {renderDialogs} from '../testing/renderDialogs'
 import {LINK_STYLE_KEY} from './exportDocument'
 
 const exportMeeting = (meetingId = 'meeting-acme-review') => renderDialogs({kind: 'export', meetingId})
@@ -42,7 +42,7 @@ describe('ExportSheet', () => {
         mockState.saveDialogPath = '/home/user/acme.txt'
         exportMeeting()
         const sheet = await screen.findByRole('dialog', {name: 'Export'})
-        await userEvent.click(await within(sheet).findByRole('radio', {name: /^Transcript Everything said/}))
+        await userEvent.click(await within(sheet).findByRole('radio', {name: 'Transcript'}))
         await userEvent.click(within(sheet).getByRole('radio', {name: /Text/}))
         expect(within(sheet).queryByRole('radiogroup', {name: 'Link style'})).not.toBeInTheDocument()
         await userEvent.click(within(sheet).getByRole('button', {name: 'Export'}))
@@ -87,7 +87,7 @@ describe('ExportSheet', () => {
     it('offers only the transcript of a meeting without a summary', async () => {
         exportMeeting('meeting-untitled')
         const sheet = await screen.findByRole('dialog', {name: 'Export'})
-        expect(await within(sheet).findByRole('radio', {name: /^Transcript Everything said/})).toBeChecked()
+        expect(await within(sheet).findByRole('radio', {name: 'Transcript'})).toBeChecked()
         expect(within(sheet).getByRole('radio', {name: /^Summary/})).toBeDisabled()
         expect(within(sheet).getByRole('radio', {name: /Transcript \+ Summary/})).toBeDisabled()
     })

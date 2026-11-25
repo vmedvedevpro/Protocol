@@ -7,12 +7,12 @@ import {isPersonLabel, normalizePersonName, peopleKeys, peopleQuery} from '@/api
 import {useUserName} from '@/api/preferences'
 import {displaySpeaker, formatClock, isUserSpeaker, lineFromSegment, speakerParts} from '@/components/transcript/turns'
 import {Button} from '@/components/ui/Button'
+import {SettingsRadioGroup, SettingsRadioRow} from '@/components/ui/SettingsRow'
 import {Sheet, SheetClose} from '@/components/ui/Sheet'
 import {TextField} from '@/components/ui/TextField'
 import {toast} from '@/components/ui/toastStore'
 import {closeDialog, type OpenedDialog, useDialog} from '@/lib/dialogs'
 import {reassignTranscriptSpeaker} from '../api/speakers'
-import {type Choice, Choices} from '../components/Choices'
 
 const FORM_ID = 'who-said-this'
 
@@ -58,7 +58,9 @@ const Quote = styled.blockquote`
  * contact link wait for the saved meeting there.
  */
 export function SpeakerSheet() {
-    const {open, request} = useDialog('speaker')
+    const slot = useDialog()
+    const request = slot.request?.kind === 'speaker' ? slot.request : null
+    const open = slot.open && request !== null
     const [saving, setSaving] = useState(false)
     return (
         <Sheet
@@ -78,7 +80,7 @@ export function SpeakerSheet() {
     )
 }
 
-function SpeakerForm({request, onSaving}: { request: OpenedDialog<'speaker'>, onSaving: (saving: boolean) => void }) {
+function SpeakerForm({request, onSaving}: { request: Extract<OpenedDialog, { kind: 'speaker' }>, onSaving: (saving: boolean) => void }) {
     const {meetingId, live} = request
     const client = useQueryClient()
     const userName = useUserName() || undefined
@@ -105,7 +107,7 @@ function SpeakerForm({request, onSaving}: { request: OpenedDialog<'speaker'>, on
         .slice(0, SHOWN_CONTACTS)
     const exact = (people.data ?? []).some((person) => normalizePersonName(person.displayName) === normalizePersonName(typed)) ||
         voices.some((voice) => normalizePersonName(voice) === normalizePersonName(typed))
-    const named: Choice<string>[] = [
+    const named: { value: string, label: string, description?: string }[] = [
         ...contacts.map((person) => ({
             value: `name:${person.displayName}`,
             label: person.displayName,
@@ -158,13 +160,9 @@ function SpeakerForm({request, onSaving}: { request: OpenedDialog<'speaker'>, on
                 </Quote>
             )}
             {parts.length > 1 && (
-                <Choices<string>
-                    legend="Which voice"
-                    layout="grid"
-                    choices={parts.map((part) => ({value: part, label: shown(part)}))}
-                    value={from}
-                    onChange={setFrom}
-                />
+                <SettingsRadioGroup title="Which voice" layout="grid" value={from} onValueChange={setFrom}>
+                    {parts.map((part) => <SettingsRadioRow key={part} value={part} label={shown(part)}/>)}
+                </SettingsRadioGroup>
             )}
             <TextField
                 type="search"
@@ -173,30 +171,23 @@ function SpeakerForm({request, onSaving}: { request: OpenedDialog<'speaker'>, on
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
             />
-            <Choices<string> legend="People" choices={named} value={chosen} onChange={setPick}/>
+            <SettingsRadioGroup title="People" value={chosen} onValueChange={setPick}>
+                {named.map((option) => <SettingsRadioRow key={option.value} {...option}/>)}
+            </SettingsRadioGroup>
             {scope === 'all' && voices.length > 0 && (
-                <Choices<string>
-                    legend="Merge with another voice"
-                    layout="grid"
-                    choices={voices.map((voice) => ({value: `voice:${voice}`, label: voice}))}
-                    value={chosen}
-                    onChange={setPick}
-                />
+                <SettingsRadioGroup title="Merge with another voice" layout="grid" value={chosen} onValueChange={setPick}>
+                    {voices.map((voice) => <SettingsRadioRow key={voice} value={`voice:${voice}`} label={voice}/>)}
+                </SettingsRadioGroup>
             )}
             {!live && (
-                <Choices<Scope>
-                    legend="Change"
-                    choices={[
-                        {value: 'all', label: `Every line from ${shown(from)}`},
-                        {
-                            value: 'line',
-                            label: request.lineIds.length === 1 ? 'Just this line' : `Just these ${request.lineIds.length} lines`,
-                            description: parts.length > 1 ? 'The other speakers on this line are kept' : undefined,
-                        },
-                    ]}
-                    value={scope}
-                    onChange={setScope}
-                />
+                <SettingsRadioGroup<Scope> title="Change" value={scope} onValueChange={setScope}>
+                    <SettingsRadioRow value="all" label={`Every line from ${shown(from)}`}/>
+                    <SettingsRadioRow
+                        value="line"
+                        label={request.lineIds.length === 1 ? 'Just this line' : `Just these ${request.lineIds.length} lines`}
+                        description={parts.length > 1 ? 'The other speakers on this line are kept' : undefined}
+                    />
+                </SettingsRadioGroup>
             )}
         </Form>
     )

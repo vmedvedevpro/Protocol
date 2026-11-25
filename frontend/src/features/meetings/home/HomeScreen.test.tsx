@@ -66,7 +66,8 @@ describe('HomeScreen', () => {
         await userEvent.type(screen.getByRole('textbox', {name: 'Name'}), 'Hiring{Enter}')
 
         const chip = await screen.findByRole('button', {name: 'Hiring'})
-        expect(chip).toHaveAttribute('aria-pressed', 'true')
+        // The chip shows before the new folder is selected; under load the two renders are apart.
+        await waitFor(() => expect(chip).toHaveAttribute('aria-pressed', 'true'))
         expect(router.state.location.search).toMatch(/^\?folder=/)
         expect(screen.getByText('No meetings in this folder yet.')).toBeInTheDocument()
     })
@@ -113,7 +114,7 @@ describe('HomeScreen', () => {
     it('shows an empty state that offers Import when there are no meetings', async () => {
         mockState.meetings.meetings = []
         renderHome()
-        const importDialog = renderHook(() => useDialog('import'))
+        const importDialog = renderHook(() => useDialog())
         expect(await screen.findByText('No meetings yet')).toBeInTheDocument()
         expect(screen.queryByRole('searchbox')).not.toBeInTheDocument()
         await userEvent.click(screen.getByRole('button', {name: 'Import a recording'}))

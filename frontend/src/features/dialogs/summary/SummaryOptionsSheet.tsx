@@ -80,7 +80,9 @@ function modelLabel(config: SummaryModelConfig | null | undefined, builtIn: { na
  * said to be replaced, where the old UI asked in a sheet of its own.
  */
 export function SummaryOptionsSheet() {
-    const {open, request} = useDialog('summary')
+    const slot = useDialog()
+    const request = slot.request?.kind === 'summary' ? slot.request : null
+    const open = slot.open && request !== null
     const navigate = useNavigate()
     const [writing, setWriting] = useState(false)
     const defaultTemplate = useQuery({...defaultTemplateQuery, enabled: open})
@@ -129,7 +131,7 @@ export function SummaryOptionsSheet() {
 }
 
 interface SummaryFormProps {
-    request: OpenedDialog<'summary'>
+    request: Extract<OpenedDialog, { kind: 'summary' }>
     /** Undefined until the default template is read. */
     templateId: string | undefined
     onTemplate: (templateId: string) => void

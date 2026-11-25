@@ -7,11 +7,11 @@ import {meetingQuery, meetingTranscriptsQuery, summaryQuery} from '@/api/meeting
 import {useUserName} from '@/api/preferences'
 import {Button} from '@/components/ui/Button'
 import {SegmentedControl} from '@/components/ui/SegmentedControl'
+import {SettingsRadioGroup, SettingsRadioRow} from '@/components/ui/SettingsRow'
 import {Sheet, SheetClose} from '@/components/ui/Sheet'
 import {Spinner} from '@/components/ui/Spinner'
 import {toast} from '@/components/ui/toastStore'
 import {closeDialog, type OpenedDialog, useDialog} from '@/lib/dialogs'
-import {Choices, type Choice} from '../components/Choices'
 import {
     type ExportContent,
     exportableSummary,
@@ -25,7 +25,13 @@ import {
 } from './exportDocument'
 import {saveExport} from './formats'
 
-const FORMATS: readonly (Choice<ExportFormat> & { done: string })[] = [
+interface Option<T extends string> {
+    value: T
+    label: string
+    description: string
+}
+
+const FORMATS: readonly (Option<ExportFormat> & { done: string })[] = [
     {value: 'pdf', label: 'PDF', description: 'To share or print', done: 'Exported as PDF'},
     {value: 'docx', label: 'Word', description: 'Editable .docx', done: 'Exported as Word'},
     {value: 'txt', label: 'Text', description: 'Plain .txt', done: 'Exported as text'},
@@ -38,6 +44,12 @@ const LINKS = [
     {value: 'generic', label: 'Generic'},
     {value: 'obsidian', label: 'Obsidian'},
 ] as const
+
+const CONTENTS: readonly Option<ExportContent>[] = [
+    {value: 'transcript', label: 'Transcript', description: 'Everything said, with timestamps'},
+    {value: 'summary', label: 'Summary', description: 'The current summary'},
+    {value: 'both', label: 'Transcript + Summary', description: 'A complete meeting record'},
+]
 
 const COPIED: Record<ExportContent, string> = {
     transcript: 'Transcript copied',
@@ -90,7 +102,9 @@ const Waiting = styled.div`
  * save dialog is cancelled.
  */
 export function ExportSheet() {
-    const {open, request} = useDialog('export')
+    const slot = useDialog()
+    const request = slot.request?.kind === 'export' ? slot.request : null
+    const open = slot.open && request !== null
     const [busy, setBusy] = useState(false)
     // Kept between openings while the app runs; the content is chosen afresh.
     const [format, setFormat] = useState<ExportFormat>('markdown')
@@ -117,7 +131,7 @@ export function ExportSheet() {
 }
 
 interface ExportFormProps {
-    request: OpenedDialog<'export'>
+    request: Extract<OpenedDialog, { kind: 'export' }>
     format: ExportFormat
     onFormat: (format: ExportFormat) => void
     onBusy: (busy: boolean) => void
@@ -155,12 +169,6 @@ function ExportForm({request, format, onFormat, onBusy}: ExportFormProps) {
         value === 'transcript' ? hasTranscript : value === 'summary' ? hasSummary : hasTranscript && hasSummary
     // The whole record when there is one, as the old UI chose.
     const content = chosen ?? (available('both') ? 'both' : hasTranscript ? 'transcript' : 'summary')
-    const unavailable = 'Not available for this meeting'
-    const contents: Choice<ExportContent>[] = [
-        {value: 'transcript', label: 'Transcript', description: 'Everything said, with timestamps'},
-        {value: 'summary', label: 'Summary', description: 'The current summary'},
-        {value: 'both', label: 'Transcript + Summary', description: 'A complete meeting record'},
-    ].map((choice) => (available(choice.value as ExportContent) ? choice : {...choice, description: unavailable, disabled: true})) as Choice<ExportContent>[]
 
     const run = async () => {
         if (!available(content)) return
@@ -191,8 +199,20 @@ function ExportForm({request, format, onFormat, onBusy}: ExportFormProps) {
                 void run()
             }}
         >
-            <Choices legend="Content" choices={contents} value={content} onChange={setContent}/>
-            <Choices legend="Format" layout="grid" choices={FORMATS} value={format} onChange={onFormat}/>
+            <SettingsRadioGroup<ExportContent> title="Content" value={content} onValueChange={setContent}>
+                {CONTENTS.map(({value, label, description}) => (
+                    <SettingsRadioRow
+                        key={value}
+                        value={value}
+                        label={label}
+                        description={available(value) ? description : 'Not available for this meeting'}
+                        disabled={!available(value)}
+                    />
+                ))}
+            </SettingsRadioGroup>
+            <SettingsRadioGroup<ExportFormat> title="Format" layout="grid" value={format} onValueChange={onFormat}>
+                {FORMATS.map((item) => <SettingsRadioRow key={item.value} value={item.value} label={item.label} description={item.description}/>)}
+            </SettingsRadioGroup>
             {format === 'markdown' && (
                 <LinksRow>
                     <LinksText>

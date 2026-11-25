@@ -1,5 +1,5 @@
 import type {Meta, StoryObj} from '@storybook/react-vite'
-import {DialogStory} from '../DialogStory'
+import {DialogStory} from '../testing/DialogStory'
 
 const meta = {
     title: 'Dialogs/Who said this',

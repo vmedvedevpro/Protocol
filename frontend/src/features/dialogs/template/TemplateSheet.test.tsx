@@ -2,7 +2,7 @@ import {screen, waitFor, within} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import {describe, expect, it} from 'vitest'
 import {mockState} from '@/mocks/state'
-import {renderDialogs} from '../testing'
+import {renderDialogs} from '../testing/renderDialogs'
 
 describe('TemplateSheet', () => {
     it('saves a built-in template as the user’s own copy, sections in order', async () => {

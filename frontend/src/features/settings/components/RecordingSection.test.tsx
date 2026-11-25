@@ -188,7 +188,7 @@ describe('Recording › devices', () => {
 describe('Recording › Import', () => {
     it('opens Import a recording', async () => {
         renderRecording()
-        const importDialog = renderHook(() => useDialog('import'))
+        const importDialog = renderHook(() => useDialog())
         const card = await group('Import')
         await userEvent.click(within(card).getByRole('button', {name: 'Choose a file'}))
         expect(importDialog.result.current.open).toBe(true)

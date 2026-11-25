@@ -31,13 +31,5 @@ export const useImportState = create<ImportState>(() => ({phase: {step: 'pick'},
 
 export const isRunning = (phase: ImportPhase) => phase.step === 'importing' || phase.step === 'cancelling'
 
-export const importState = {
-    set: (phase: ImportPhase) => useImportState.setState({phase}),
-    take: (file: AudioFileInfo) => useImportState.setState({file, title: file.filename, phase: {step: 'ready'}}),
-    /** Back to an empty form, unless an import runs. */
-    reset() {
-        if (!isRunning(useImportState.getState().phase)) useImportState.setState({phase: {step: 'pick'}, file: null, title: ''})
-    },
-    /** Tests, between cases. */
-    clear: () => useImportState.setState({phase: {step: 'pick'}, file: null, title: ''}),
-}
+/** Back to an empty form; the sheet leaves a running import alone. */
+export const resetImport = () => useImportState.setState({phase: {step: 'pick'}, file: null, title: ''})

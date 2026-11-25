@@ -1196,11 +1196,12 @@ another meeting starts from fresh state).
   template editor and Who said this line. No feature imports it. A screen
   opens one with `openDialog(request)` from `src/lib/dialogs.ts` (a
   Zustand store, as `paths` is for routes), and `DialogHost`, which the
-  shell mounts under the router, shows the one open: one at a time, each
-  request kept after it closes so the exit animates. A request's `seq`
-  keys its form, so every opening starts afresh; asked again while open
-  (a second file dropped on Import), it keeps its `seq` and takes the new
-  request. A request can carry what its caller owns: Who said this during
+  shell mounts under the router, shows the one open. One dialog is open at
+  a time, so the store is one slot, `{request, open}`; closing keeps the
+  request so the exit animates, and each sheet narrows it to its own kind.
+  A request's `seq` keys its form, so every opening starts afresh; asked
+  again while the same kind is open (a second file dropped on Import), it
+  keeps its `seq` and takes the new request. A request can carry what its caller owns: Who said this during
   a recording gets the session's lines and its rename function, so the
   dialog never imports features/recording.
 - Long work stays native and holds its own busy reason: the import
@@ -1216,11 +1217,16 @@ another meeting starts from fresh state).
   `lib/summaryMarkdown.ts`, moved down from features/meetings): Markdown,
   with Obsidian wikilinks to named voices on request (the choice is
   `meetily_export_link_style`), text, JSON, Word (`docx`) and PDF
-  (`jspdf`, Helvetica: no Cyrillic yet), written with the fs plugin after
+  (`jspdf` with Geist, the UI font, embedded for Cyrillic; the font loads
+  only with a PDF, `export/fonts/`), written with the fs plugin after
   the save dialog. Summary options writes again through
   `components/summary/writeSummary.ts`, which the meeting screen shares,
   with a template and instructions for the one run; the language it picks
   is kept for the meeting.
+- Their radio choices are `SettingsRadioGroup` rows, or its `grid` layout
+  for tiles (Export's format, a transcript's voices). The speech model an
+  import or a retranscription starts from follows `src/lib/speechModels.ts`,
+  the picker rules Settings shares.
 - Mock: `src/mocks/dialogs.ts` answers the fs write, the import (a fake run
   with native's stages), the meeting's vocabulary and one line's
   reassignment.

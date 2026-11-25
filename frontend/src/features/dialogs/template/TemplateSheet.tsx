@@ -120,7 +120,9 @@ function problemOf(name: string, description: string, sections: Draft[], taken: 
  * template it saved.
  */
 export function TemplateSheet() {
-    const {open, request} = useDialog('template')
+    const slot = useDialog()
+    const request = slot.request?.kind === 'template' ? slot.request : null
+    const open = slot.open && request !== null
     const save = useMutation(saveCustomTemplateMutation)
 
     const leave = (templateId?: string) => {
@@ -159,7 +161,7 @@ export function TemplateSheet() {
 }
 
 interface TemplateFormProps {
-    request: OpenedDialog<'template'>
+    request: Extract<OpenedDialog, { kind: 'template' }>
     onSave: (templateId: string, template: Template) => void
 }
 

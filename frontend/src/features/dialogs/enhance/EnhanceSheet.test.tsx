@@ -4,7 +4,7 @@ import {beforeEach, describe, expect, it, vi} from 'vitest'
 import {PARAKEET_MODEL, POST_CALL_WHISPER_MODEL} from '@/api/models'
 import {handlers} from '@/mocks/handlers'
 import {mockState} from '@/mocks/state'
-import {renderDialogs} from '../testing'
+import {renderDialogs} from '../testing/renderDialogs'
 
 const sheet = () => screen.findByRole('dialog', {name: 'Improve the transcript'})
 const listened = () => act(() => new Promise((resolve) => setTimeout(resolve, 0)))

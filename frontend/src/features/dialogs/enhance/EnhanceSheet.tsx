@@ -18,7 +18,7 @@ import {MAX_VOCABULARY_CHARS, vocabularyQuery} from '@/api/speech'
 import {Button} from '@/components/ui/Button'
 import {ProgressBar} from '@/components/ui/ProgressBar'
 import {Select} from '@/components/ui/Select'
-import {SettingsGroup, SettingsRow} from '@/components/ui/SettingsRow'
+import {SettingsGroup, SettingsRadioGroup, SettingsRadioRow, SettingsRow} from '@/components/ui/SettingsRow'
 import {Sheet, SheetClose} from '@/components/ui/Sheet'
 import {Spinner} from '@/components/ui/Spinner'
 import {TextArea} from '@/components/ui/TextField'
@@ -27,8 +27,8 @@ import {closeDialog, type OpenedDialog, useDialog} from '@/lib/dialogs'
 import {DETECT_LANGUAGE, MEETING_LANGUAGES} from '@/lib/languages'
 import {paths} from '@/lib/paths'
 import {clearMeetingVocabularyMutation} from '../api/vocabulary'
-import {Choices} from '../components/Choices'
-import {parseSpeechModel, useSpeechModels} from '../lib/speechModels'
+import {parseSpeechModel} from '@/lib/speechModels'
+import {useSpeechModels} from '../lib/useSpeechModels'
 
 const FORM_ID = 'enhance-transcript'
 
@@ -135,7 +135,9 @@ const FootLink = styled(Button)`
  * dismissed meanwhile, and Stop asks native to cancel between chunks.
  */
 export function EnhanceSheet() {
-    const {open, request} = useDialog('enhance')
+    const slot = useDialog()
+    const request = slot.request?.kind === 'enhance' ? slot.request : null
+    const open = slot.open && request !== null
     const navigate = useNavigate()
     const [state, setPhase] = useState<Phase>({seq: 0, step: 'ready'})
     const models = useSpeechModels()
@@ -189,7 +191,7 @@ export function EnhanceSheet() {
 }
 
 interface EnhanceFormProps {
-    request: OpenedDialog<'enhance'>
+    request: Extract<OpenedDialog, { kind: 'enhance' }>
     phase: Phase
     onPhase: (phase: Phase) => void
 }
@@ -329,7 +331,9 @@ function EnhanceForm({request, phase, onPhase}: EnhanceFormProps) {
                 value={terms}
                 onChange={(event) => setTerms(event.target.value)}
             />
-            <Choices<Scope> legend="Use these words for" layout="plain" choices={SCOPES} value={scope} onChange={setScope}/>
+            <SettingsRadioGroup<Scope> title="Use these words for" value={scope} onValueChange={setScope}>
+                {SCOPES.map((option) => <SettingsRadioRow key={option.value} {...option}/>)}
+            </SettingsRadioGroup>
             {saved && (
                 <Saved>
                     <SavedText>

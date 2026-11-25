@@ -1,7 +1,8 @@
+// Stories only (*.stories.tsx import it); the app never does, so no build carries it.
 import {createElement, useEffect} from 'react'
 import {StoryWindow} from '@/components/screen/StoryWindow'
 import {type DialogRequest, openDialog, resetDialogs} from '@/lib/dialogs'
-import {DialogHost} from './DialogHost'
+import {DialogHost} from '../DialogHost'
 
 /**
  * A dialog's story: the dialogs as the shell mounts them, in a window of the

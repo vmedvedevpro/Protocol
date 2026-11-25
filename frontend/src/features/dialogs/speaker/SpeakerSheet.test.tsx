@@ -2,7 +2,7 @@ import {screen, waitFor, within} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import {describe, expect, it, vi} from 'vitest'
 import {mockState} from '@/mocks/state'
-import {renderDialogs} from '../testing'
+import {renderDialogs} from '../testing/renderDialogs'
 
 const MEETING = 'meeting-untitled'
 const lines = () => mockState.meetings.transcripts[MEETING]
@@ -30,7 +30,7 @@ describe('SpeakerSheet', () => {
         const dialog = await open('Speaker 1')
         await userEvent.type(within(dialog).getByRole('searchbox', {name: 'Search contacts or type a name'}), 'Dana Wu')
         await userEvent.click(within(dialog).getByRole('radio', {name: 'New contact “Dana Wu”'}))
-        await userEvent.click(within(dialog).getByRole('radio', {name: 'Just this line'}).closest('label')!)
+        await userEvent.click(within(dialog).getByRole('radio', {name: 'Just this line'}))
         await userEvent.click(within(dialog).getByRole('button', {name: 'Save'}))
         expect(await screen.findByText('This line is now Dana Wu’s')).toBeInTheDocument()
         expect(speakers().filter((speaker) => speaker === 'Speaker 1')).toHaveLength(1)
@@ -69,7 +69,7 @@ describe('SpeakerSheet', () => {
         })
         const dialog = await screen.findByRole('dialog', {name: 'Who said this line?'})
         expect(within(dialog).getByText('Hi, good to see you.')).toBeInTheDocument()
-        expect(within(dialog).queryByRole('group', {name: 'Change'})).not.toBeInTheDocument()
+        expect(within(dialog).queryByRole('radiogroup', {name: 'Change'})).not.toBeInTheDocument()
         await userEvent.click(within(dialog).getByRole('radio', {name: /This is me/}))
         await userEvent.click(within(dialog).getByRole('button', {name: 'Save'}))
         await waitFor(() => expect(rename).toHaveBeenCalledWith('Speaker 2', 'You'))

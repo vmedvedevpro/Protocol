@@ -32,8 +32,9 @@ import {closeDialog, type OpenedDialog, useDialog} from '@/lib/dialogs'
 import {DETECT_LANGUAGE, MEETING_LANGUAGES} from '@/lib/languages'
 import {paths} from '@/lib/paths'
 import {MOTION_OK} from '@/styles/motion'
-import {parseSpeechModel, useSpeechModels} from '../lib/speechModels'
-import {importState, isRunning, useImportState} from './importState'
+import {parseSpeechModel} from '@/lib/speechModels'
+import {useSpeechModels} from '../lib/useSpeechModels'
+import {isRunning, resetImport, useImportState} from './importState'
 
 const FORM_ID = 'import-recording'
 
@@ -185,7 +186,9 @@ function fileLength(seconds: number): string {
  * meeting is filed and given the pinned summary language, and opens.
  */
 export function ImportSheet() {
-    const {open, request} = useDialog('import')
+    const slot = useDialog()
+    const request = slot.request?.kind === 'import' ? slot.request : null
+    const open = slot.open && request !== null
     const client = useQueryClient()
     const phase = useImportState((state) => state.phase)
     const running = isRunning(phase)
@@ -229,23 +232,23 @@ async function checkFile(read: () => Promise<AudioFileInfo | null>) {
         toast.info('One recording imports at a time', {description: 'Drop it again when this import ends.'})
         return
     }
-    importState.set({step: 'checking'})
+    useImportState.setState({phase: {step: 'checking'}})
     try {
         const info = await read()
-        if (info) importState.take(info)
-        else importState.set({step: file ? 'ready' : 'pick'})
+        if (info) useImportState.setState({file: info, title: info.filename, phase: {step: 'ready'}})
+        else useImportState.setState({phase: {step: file ? 'ready' : 'pick'}})
     } catch (error) {
-        importState.set({step: 'failed', error: errorMessage(error)})
+        useImportState.setState({phase: {step: 'failed', error: errorMessage(error)}})
     }
 }
 
 async function stopImport() {
-    importState.set({step: 'cancelling'})
+    useImportState.setState({phase: {step: 'cancelling'}})
     // Rejects when native already finished; its event then settles the sheet.
     await cancelImport().catch(() => undefined)
 }
 
-function ImportForm({request}: { request: OpenedDialog<'import'> }) {
+function ImportForm({request}: { request: Extract<OpenedDialog, { kind: 'import' }> }) {
     const navigate = useNavigate()
     const client = useQueryClient()
     const folders = useQuery(foldersQuery)
@@ -268,7 +271,7 @@ function ImportForm({request}: { request: OpenedDialog<'import'> }) {
     // dropped on the window comes with the request, as the sheet opens or
     // onto it while it is open.
     useEffect(() => {
-        if (!request.path) importState.reset()
+        if (!request.path && !isRunning(useImportState.getState().phase)) resetImport()
     }, [request.seq, request.path])
     useEffect(() => {
         if (request.path) void checkFile(() => checkAudioFile(request.path as string))
@@ -302,7 +305,7 @@ function ImportForm({request}: { request: OpenedDialog<'import'> }) {
 
     const counted = () => setListening((count) => count + 1)
     useNativeEvent(IMPORT_PROGRESS_EVENT, (progress) => {
-        if (phase.step === 'importing') importState.set({step: 'importing', progress})
+        if (phase.step === 'importing') useImportState.setState({phase: {step: 'importing', progress}})
     }, {onListening: counted})
     useNativeEvent(IMPORT_COMPLETE_EVENT, (result) => {
         if (busy) void finish(result)
@@ -311,10 +314,10 @@ function ImportForm({request}: { request: OpenedDialog<'import'> }) {
         if (!busy) return
         if (phase.step === 'cancelling' || /cancel/i.test(error)) {
             toast.info('Import cancelled')
-            importState.set({step: file ? 'ready' : 'pick'})
+            useImportState.setState({phase: {step: file ? 'ready' : 'pick'}})
             closeDialog('import')
         } else {
-            importState.set({step: 'failed', error})
+            useImportState.setState({phase: {step: 'failed', error}})
         }
     }, {onListening: counted})
     // Native can fail at once (a file gone since its check), so the three
@@ -324,9 +327,9 @@ function ImportForm({request}: { request: OpenedDialog<'import'> }) {
 
     const submit = async (event: FormEvent) => {
         event.preventDefault()
-        if (phase.step === 'failed') return importState.set({step: file ? 'ready' : 'pick'})
+        if (phase.step === 'failed') return useImportState.setState({phase: {step: file ? 'ready' : 'pick'}})
         if (!file || phase.step !== 'ready' || !listeners) return
-        importState.set({step: 'importing', progress: null})
+        useImportState.setState({phase: {step: 'importing', progress: null}})
         try {
             await startImport({
                 sourcePath: file.path,
@@ -336,7 +339,7 @@ function ImportForm({request}: { request: OpenedDialog<'import'> }) {
                 provider: engine?.provider ?? null,
             })
         } catch (error) {
-            importState.set({step: 'failed', error: errorMessage(error)})
+            useImportState.setState({phase: {step: 'failed', error: errorMessage(error)}})
         }
     }
 
@@ -379,7 +382,7 @@ function ImportForm({request}: { request: OpenedDialog<'import'> }) {
                     {!busy && (
                         <IconButton
                             label="Remove the file"
-                            onClick={importState.reset}
+                            onClick={resetImport}
                         >
                             <XIcon size={10} aria-hidden/>
                         </IconButton>
