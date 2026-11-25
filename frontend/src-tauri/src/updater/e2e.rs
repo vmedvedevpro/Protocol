@@ -54,8 +54,12 @@ pub async fn run<R: Runtime>(app: &AppHandle<R>, result: &Path) {
         }
     }
 
-    // A fresh profile never finishes onboarding; nothing else is exempt.
-    if let Err(refusal) = install::install_now(app, Mode::Restart, &[BusyReason::Onboarding]).await {
+    // A fresh profile never finishes onboarding, and its first launch starts
+    // downloading the speech models (Parakeet, about 640 MB) as soon as the
+    // window loads, racing this install. Both belong to the first launch, not
+    // to the update under test, so both are exempt; nothing else is.
+    let exempt = [BusyReason::Onboarding, BusyReason::ModelDownload];
+    if let Err(refusal) = install::install_now(app, Mode::Restart, &exempt).await {
         let snapshot = state.snapshot();
         let detail = json!({ "outcome": "installRefused", "version": current, "refusal": refusal, "error": snapshot.error });
         finish(app, result, detail, 1);
