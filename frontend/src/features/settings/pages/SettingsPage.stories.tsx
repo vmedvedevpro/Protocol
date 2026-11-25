@@ -62,8 +62,40 @@ export const WhileRecording: Story = {
     },
 }
 
-/** A page #117 builds, opened from the simple page. */
-export const SummaryModelPage: Story = {
+/** Summaries in full: languages as chips, the model, the templates. */
+export const Ai: Story = {
     globals: {theme: 'light'},
-    args: {path: '/settings/summary-model'},
+    args: {path: '/settings?section=ai'},
+}
+
+export const AiDark: Story = {
+    globals: {theme: 'dark'},
+    args: {path: '/settings?section=ai'},
+}
+
+/** The data folder and AI agents. */
+export const AdvancedSection: Story = {
+    globals: {theme: 'light'},
+    args: {path: '/settings?section=advanced'},
+}
+
+export const AdvancedSectionDark: Story = {
+    globals: {theme: 'dark'},
+    args: {path: '/settings?section=advanced'},
+}
+
+/** A search: the rows of every section that match, then the pages whose rows do. */
+export const Searching: Story = {
+    globals: {theme: 'light'},
+    args: {path: '/settings?section=general&q=model'},
+}
+
+export const SearchingDark: Story = {
+    globals: {theme: 'dark'},
+    args: {path: '/settings?section=general&q=model'},
+}
+
+export const NothingMatches: Story = {
+    globals: {theme: 'light'},
+    args: {path: '/settings?section=general&q=zzzz'},
 }

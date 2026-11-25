@@ -1,11 +1,16 @@
-import {useEffect} from 'react'
-import {useSearchParams} from 'react-router-dom'
+import {useEffect, useMemo, useState} from 'react'
+import {MagnifyingGlassIcon} from '@phosphor-icons/react'
+import {useNavigate, useSearchParams} from 'react-router-dom'
 import styled from 'styled-components'
 import {Screen} from '@/components/screen/Screen'
 import {Crossfade, CrossfadeView} from '@/components/ui/Crossfade'
 import {TabList, TabPanels, Tabs} from '@/components/ui/SegmentedControl'
+import {SettingsGroup, SettingsNavRow, SettingsSearchScope} from '@/components/ui/SettingsRow'
 import {Switch} from '@/components/ui/Switch'
+import {TextField} from '@/components/ui/TextField'
 import {Tooltip} from '@/components/ui/Tooltip'
+import {paths} from '@/lib/paths'
+import {AgentsGroup, DiskGroup} from '../components/AgentsGroup'
 import {GeneralSection} from '../components/GeneralSection'
 import {RecordingSection} from '../components/RecordingSection'
 import {SimpleSettings} from '../components/SimpleSettings'
@@ -13,6 +18,8 @@ import {IntelOfferBanner} from '../components/speech/IntelOfferBanner'
 import {LabsGroup} from '../components/speech/LabsGroup'
 import {LocalAiGroup} from '../components/speech/LocalAiGroup'
 import {SpeechModelsGroup, TranscriptionGroups} from '../components/speech/TranscriptionGroups'
+import {SummariesGroup} from '../components/SummariesGroup'
+import {SETTINGS_PAGES, type SettingsPageId} from './settingsPages'
 import {sectionFromParam, SETTINGS_SECTIONS, type SettingsSection} from '../sections'
 import {useAdvancedSettingsStore} from '../store/advanced'
 
@@ -69,12 +76,30 @@ const Note = styled.p`
     color: ${({theme}) => theme.colors.muted};
 `
 
-function SectionView({section}: {section: SettingsSection}) {
+const Search = styled.div`
+    flex: 1;
+    max-width: 240px;
+    margin-left: auto;
+`
+
+const Results = styled.div`
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+`
+
+/**
+ * A section's groups. The speech half of #117 puts its own groups around
+ * the summaries (transcription before, speech models after) and around
+ * the agents (Local AI before, Labs after). The notes speak of the section
+ * as a whole, so search leaves them out.
+ */
+function SectionView({section, searching = false}: {section: SettingsSection, searching?: boolean}) {
     switch (section) {
         case 'general':
             return (
                 <>
-                    <Note>The defaults suit most meetings. What you change here stays when Advanced is off.</Note>
+                    {!searching && <Note>The defaults suit most meetings. What you change here stays when Advanced is off.</Note>}
                     <GeneralSection/>
                 </>
             )
@@ -83,9 +108,9 @@ function SectionView({section}: {section: SettingsSection}) {
         case 'ai':
             return (
                 <>
-                    <IntelOfferBanner/>
+                    {!searching && <IntelOfferBanner/>}
                     <TranscriptionGroups/>
-                    {/* The summary groups (#117's AI half) go here. */}
+                    <SummariesGroup/>
                     <SpeechModelsGroup/>
                 </>
             )
@@ -93,18 +118,76 @@ function SectionView({section}: {section: SettingsSection}) {
             return (
                 <>
                     <LocalAiGroup/>
-                    {/* AI agents and Disk (#117's AI half) go here. */}
+                    <DiskGroup/>
+                    <AgentsGroup/>
                     <LabsGroup/>
                 </>
             )
     }
 }
 
+const PAGE_IDS = Object.keys(SETTINGS_PAGES) as SettingsPageId[]
+
+const noop = () => undefined
+
+/**
+ * Settings search: every section's rows that match, under the section's
+ * name, then the pages whose rows match. Nothing is listed by hand: each
+ * section and page renders under its own scope and reports how many of its
+ * rows match; a page renders out of sight, and its row opens it.
+ */
+function SearchResults({query}: {query: string}) {
+    const navigate = useNavigate()
+    const [counts, setCounts] = useState<Record<string, number>>({})
+    const reporters = useMemo(() => {
+        const keys = [...SETTINGS_SECTIONS.map(({value}) => value), ...PAGE_IDS.map((id) => `page:${id}`)]
+        return Object.fromEntries(keys.map((key) => [key, (count: number) =>
+            setCounts((current) => (current[key] === count ? current : {...current, [key]: count}))]))
+    }, [])
+    const pages = PAGE_IDS.filter((id) => (counts[`page:${id}`] ?? 0) > 0)
+    const total = Object.values(counts).reduce((sum, count) => sum + count, 0)
+    const sectionLabel = (section: SettingsSection) => SETTINGS_SECTIONS.find(({value}) => value === section)?.label
+
+    return (
+        <Groups>
+            {SETTINGS_SECTIONS.map(({value, label}) => (
+                <SettingsSearchScope key={value} query={query} scope={label} onMatches={reporters[value]}>
+                    <SectionView section={value} searching/>
+                </SettingsSearchScope>
+            ))}
+            {pages.length > 0 && (
+                <SettingsGroup title="Pages">
+                    {pages.map((id) => (
+                        <SettingsNavRow
+                            key={id}
+                            label={SETTINGS_PAGES[id].title}
+                            description={`${sectionLabel(SETTINGS_PAGES[id].section)} · ${counts[`page:${id}`]} matching`}
+                            onClick={() => void navigate(paths.settingsPage(id))}
+                        />
+                    ))}
+                </SettingsGroup>
+            )}
+            <div hidden>
+                {PAGE_IDS.map((id) => {
+                    const {Page} = SETTINGS_PAGES[id]
+                    return (
+                        <SettingsSearchScope key={id} query={query} onMatches={reporters[`page:${id}`]}>
+                            <Page back={noop}/>
+                        </SettingsSearchScope>
+                    )
+                })}
+            </div>
+            {total === 0 && <Note>Nothing matches “{query.trim()}”.</Note>}
+        </Groups>
+    )
+}
+
 /**
  * Settings: the simple page, or with Advanced on every section in tabs. The
  * section is in the URL (`?section=`), which also takes the old UI's ids:
  * one turns Advanced on, and `about` (the tray's Check for Updates…) lands
- * on General › Updates.
+ * on General › Updates. A search is there too (`?q=`); picking a section
+ * leaves it.
  */
 export function SettingsPage() {
     const [search, setSearch] = useSearchParams()
@@ -113,6 +196,14 @@ export function SettingsPage() {
     const advanced = useAdvancedSettingsStore((state) => state.advanced)
     const setAdvanced = useAdvancedSettingsStore((state) => state.setAdvanced)
     const section = requested ?? 'general'
+    const query = search.get('q') ?? ''
+    const searching = query.trim() !== ''
+    const setQuery = (next: string) => setSearch((current) => {
+        const params = new URLSearchParams(current)
+        if (next) params.set('q', next)
+        else params.delete('q')
+        return params
+    }, {replace: true})
 
     // A link to a section shows the sections.
     useEffect(() => {
@@ -121,8 +212,8 @@ export function SettingsPage() {
 
     const turnAdvanced = (on: boolean) => {
         setAdvanced(on)
-        // The simple page has no sections.
-        if (!on && param) setSearch({}, {replace: true})
+        // The simple page has no sections and no search.
+        if (!on && (param || query)) setSearch({}, {replace: true})
     }
 
     return (
@@ -146,11 +237,39 @@ export function SettingsPage() {
                             value={section}
                             onChange={(next) => setSearch({section: next}, {replace: true})}
                         >
-                            {/* Search across the sections goes beside the tabs (#117). */}
-                            <TabRow><TabList/></TabRow>
-                            <TabPanels<SettingsSection>>
-                                {(shown) => <Groups><SectionView section={shown}/></Groups>}
-                            </TabPanels>
+                            <TabRow>
+                                <TabList/>
+                                <Search>
+                                    <TextField
+                                        type="search"
+                                        size="sm"
+                                        aria-label="Search settings"
+                                        placeholder="Search settings"
+                                        icon={<MagnifyingGlassIcon size={13} aria-hidden/>}
+                                        value={query}
+                                        onChange={(event) => setQuery(event.target.value)}
+                                        onKeyDown={(event) => {
+                                            if (event.key === 'Escape' && query) {
+                                                event.preventDefault()
+                                                setQuery('')
+                                            }
+                                        }}
+                                    />
+                                </Search>
+                            </TabRow>
+                            <Crossfade>
+                                {searching ? (
+                                    <View key="search">
+                                        <Results><SearchResults query={query}/></Results>
+                                    </View>
+                                ) : (
+                                    <View key="sections">
+                                        <TabPanels<SettingsSection>>
+                                            {(shown) => <Groups><SectionView section={shown}/></Groups>}
+                                        </TabPanels>
+                                    </View>
+                                )}
+                            </Crossfade>
                         </Tabs>
                     </View>
                 ) : (
