@@ -133,10 +133,6 @@ dashmap = "6.1.0"
 # Directories
 dirs = "5.0.1"
 
-# Additional dependencies for notification system
-url = "2.5.0"
-
-
 # System monitoring for resource management
 sysinfo = "0.32"
 
@@ -169,7 +165,6 @@ tauri = { version = "2.12.5", features = [ "macos-private-api", "protocol-asset"
 tauri-plugin-fs = "2.7.1"
 tauri-plugin-dialog = "2.8.3"
 tauri-plugin-store = "2.5.0"
-tauri-plugin-notification = "2.7.0"
 
 # Desktop-only single instance guard
 [target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
@@ -177,11 +172,9 @@ tauri-plugin-single-instance = "=2.5.4"
 # In-app updates from this repository's GitHub releases (src/updater/).
 tauri-plugin-updater = "2.14"
 
-# Windows-only: native toast notifications attributed to Protocol (not PowerShell).
-# tauri-winrt-notification is already used transitively by tauri-plugin-notification;
-# winreg registers our AppUserModelID so the toast shows our name + icon.
+# Windows-only. winreg reads the display adapters (GPU offers) and which apps
+# hold the microphone or camera (meeting detection).
 [target.'cfg(windows)'.dependencies]
-tauri-winrt-notification = "0.8.1"
 winreg = "0.55"
 windows-sys = { version = "0.59", features = [
     "Win32_UI_Shell",

@@ -62,7 +62,7 @@ A later stall no longer ends the meeting. `stream.rs` keeps polling after a
 five-second gap and reports `SystemCaptureStalled` once per stall through
 `RecordingState::report_warning`. That path does not count toward the stop
 thresholds, and `recording_commands.rs` turns it into the existing
-`recording-audio-route-warning` toast and notification for the main window,
+`recording-audio-route-warning` toast for the main window,
 the same channel the Windows loopback warning uses. The microphone keeps
 recording, and the log notes when callbacks resume. An ended Core Audio stream
 (`SystemCaptureEnded`) and a sample-rate change stay terminal. The unit test

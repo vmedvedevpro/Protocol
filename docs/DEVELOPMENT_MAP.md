@@ -1155,7 +1155,7 @@ beside an installed upstream build without sharing state:
 
 | Surface | Value | Owner |
 | --- | --- | --- |
-| Bundle identifier, Windows AUMID | `io.github.vmedvedevpro.protocol` | `tauri.conf.json`, `notifications/native_windows.rs` |
+| Bundle identifier, Windows AUMID | `io.github.vmedvedevpro.protocol` | `tauri.conf.json`, `windows_app_identity.rs` |
 | Product name, install folder | `Protocol`, `%LOCALAPPDATA%\vmedvedevpro\Protocol` | `tauri.conf.json`, `windows/installer.nsi` (`INSTALLDIRNAME`, a `; Protocol:` change to Tauri's stock template) |
 | Installer registry key | `HKCU\Software\vmedvedevpro\Protocol` (install folder, `BackendOverride`) | `bundle.publisher` + product name (stock `MANUPRODUCTKEY`); `windows/installer-hooks.nsh` |
 | Uninstall entry | `HKCU\…\Uninstall\io.github.vmedvedevpro.protocol` | `windows/installer.nsi` (`UNINSTKEY`, a `; Protocol:` change to Tauri's stock template) |
@@ -1163,6 +1163,14 @@ beside an installed upstream build without sharing state:
 | Default recordings folder | `protocol-recordings` | `audio/recording_preferences.rs` |
 | Cargo package and executable | `protocol`, `protocol.exe`; installer variants `protocol-vulkan.exe`, `protocol-vulkan-probe.exe` | `src-tauri/Cargo.toml`, `build-universal-windows.ps1`, `windows/installer-hooks.nsh` |
 | Release assets | `protocol-windows-x64-setup.exe`, `protocol-macos-arm64.{dmg,app.tar.gz}`, `protocol-linux-x86_64.AppImage`, `protocol_<version>_amd64.deb` | `scripts/release/release-lib.mjs` |
+
+On Windows the installer writes the identifier to its shortcuts as their
+AUMID, and `windows_app_identity.rs` binds the process to the same AUMID
+before any window opens, so the taskbar groups the running window with a
+pinned shortcut. Protocol shows no desktop notifications
+([#126](https://github.com/vmedvedevpro/Protocol/issues/126)): the toast
+registration under `HKCU\Software\Classes\AppUserModelId` that earlier
+versions wrote stays unread, as does `notifications.json`.
 
 The identifier also keys the single-instance lock, WebView storage, plugin
 stores, and the legacy `app_data_dir` migration in `paths.rs`; under the old
@@ -1255,7 +1263,9 @@ protocol scope). The other 63, by area:
   `get_parallel_processing_status`, `get_system_resources`,
   `check_resource_constraints`, `calculate_optimal_workers`,
   `prepare_audio_chunks`, `test_parallel_processing_setup`.
-- Notifications (recording notifications are unchanged):
+- Notifications (the rest went when
+  [#126](https://github.com/vmedvedevpro/Protocol/issues/126) removed desktop
+  notifications):
   `request_notification_permission`, `show_notification`,
   `show_test_notification`, `is_dnd_active`, `get_system_dnd_status`,
   `set_manual_dnd`, `set_notification_consent`, `clear_notifications`,
@@ -1390,9 +1400,8 @@ label/explanation markup display only the label; the full summary is retained.
 Missing summaries remain an explicit empty state. Cards link to the existing meeting detail route; Home
 refreshes its list on entry after a summary is saved. `StartupTranscriptRecovery`
 now mounts in the shared layout so IndexedDB recovery checks still run when Home
-opens first. Notification start events from Home route to `/` with the
-auto-start flag for the recording hook; the tray's Start emits
-`request-recording-toggle` to the main window instead (#110,
+opens first. The tray's Start emits `request-recording-toggle` to the main
+window (#110,
 [UI_ARCHITECTURE.md › Tray](UI_ARCHITECTURE.md#tray)). Topic extraction remains heuristic and
 depends on a recognizable Key Topics heading or legacy section. Verification
 covers frontend/native builds and the Windows installer payload; a local installer

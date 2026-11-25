@@ -121,12 +121,11 @@ pub fn migrate_legacy_data<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
 
     // Known app-managed items. Only copied when missing locally, so re-running
     // (marker deleted) never clobbers newer local data.
-    const ITEMS: [&str; 6] = [
+    const ITEMS: [&str; 5] = [
         "models",
         "templates",
         "meeting_minutes.sqlite",
         "meeting_minutes.db",
-        "notifications.json",
         "recordings",
     ];
 

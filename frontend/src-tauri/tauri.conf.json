@@ -74,8 +74,6 @@
                         "core:window:allow-set-always-on-top",
                         "store:default",
                         "dialog:allow-save",
-                        "notification:default",
-                        "notification:allow-is-permission-granted",
                         {
                             "identifier": "fs:scope",
                             "allow": [
