@@ -34,6 +34,11 @@ is inherited from the project Protocol forked from; Protocol did not release it.
   it is heard in more than one stretch of the meeting, so the chosen count
   goes to real voices, and Detect automatically no longer reports such a
   moment as a speaker of its own.
+- **Identify speakers after renaming a speaker**
+  ([#217](https://github.com/vmedvedevpro/Protocol/issues/217)). Running it
+  again after you named a speaker could not split that speaker any more. A
+  name now stays with the voice it belongs to and the other voices get their
+  own labels. A line you moved to someone on its own keeps that person.
 
 ## Protocol 1.0.0-rc.1 — 2026-11-26
 

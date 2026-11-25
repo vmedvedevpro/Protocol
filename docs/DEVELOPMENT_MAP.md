@@ -311,6 +311,26 @@ rows; on 1.0.0's clustering it fails with 45.8 s and 1.8 s. The automatic
 threshold (0.60, which merges the sample's two voices at 0.551) is not
 recalibrated here. Rerunning speaker
 identification must preserve transcript text, row identity, and timestamps.
+A rerun labels every line from the new clusters (`plan_labels`, #217): a name
+the user gave belongs to a voice, so each name goes to the cluster whose speech
+overlaps its lines most (one name per cluster, `cluster_to_manual_name`), and
+the lines of a cluster no name matched get a generated label even if they
+carried a name before; until #217 a named line was never relabelled, so once
+a meeting's only label was renamed no run could split it. A line the user
+moved on its own (Who said this, "These lines") carries `speaker_manual`
+(migration `20261126010000`, set by `reassign_transcript_speaker_component`,
+cleared when its name is removed) and keeps its label. Lines moved before
+that migration carry no mark: the data cannot tell them from a renamed
+speaker, so a rerun relabels them. With a chosen count, a cluster that leads
+no line joins the line it covers the largest part of, so every chosen
+speaker with speech over a line shows. The result reports
+`speakers_on_lines` (clusters that label a line) and `changed` (lines whose
+label changed), and the log the lines per label. Tests:
+`a_rerun_splits_a_renamed_single_label_between_two_voices`,
+`a_line_moved_by_hand_keeps_its_label`,
+`a_rerun_with_the_same_result_changes_no_line` and
+`a_chosen_speaker_that_leads_no_line_joins_the_line_it_covers_most`
+(`diarization/mod.rs`).
 `row_speakers` labels a row with the speaker who overlaps it most, then those who
 overlap it for a fifth of that and talk at the same time; of speakers who overlap
 it equally the lower index comes first (#75; it was hash order), so one timeline

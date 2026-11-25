@@ -34,7 +34,9 @@ Based on @ampersandru's `feat/nemotron-diarization` at
 - Nemotron always auto-detects; manual counts are offered only for Pyannote.
   Live labels continue to use the existing bundled engine.
 - Separate microphone and system files, local-user provenance, overlapping
-  activity, names, transcript text and timestamps are preserved.
+  activity, transcript text and timestamps are preserved. Names the user gave
+  go to the voice clusters they match on a rerun, not to the lines they sat
+  on (#217; see DEVELOPMENT_MAP.md).
 - Windows DirectML inference on the shared ONNX Runtime, with CPU fallback on
   GPU session initialization failure. All CPU/Vulkan/CUDA Whisper variants get
   the same Nemotron DirectML capability; those variants select Whisper's backend.

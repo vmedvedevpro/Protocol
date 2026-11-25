@@ -96,6 +96,11 @@
       "file": "20260928010000_reset_placeholder_titles.sql",
       "unix": "1caa429daca88ecdbeaf363312acf1ef619c5ba4bfa8662a590e82c1d1cd8838e2b3a4b0e46b320b2b204d09d46f426d",
       "windows": "1caa429daca88ecdbeaf363312acf1ef619c5ba4bfa8662a590e82c1d1cd8838e2b3a4b0e46b320b2b204d09d46f426d"
+    },
+    "20261126010000": {
+      "file": "20261126010000_mark_hand_placed_speaker_lines.sql",
+      "unix": "2174f97766724182fddc679a907bb0413540b19241e938ff054663904178df973e95e2a0a7f16051d2d5719a86ee9ad6",
+      "windows": "2174f97766724182fddc679a907bb0413540b19241e938ff054663904178df973e95e2a0a7f16051d2d5719a86ee9ad6"
     }
   }
 }

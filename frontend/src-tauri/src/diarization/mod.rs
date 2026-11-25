@@ -817,6 +817,12 @@ pub struct MeetingDiarizationResult {
     pub num_speakers: usize,
     /// Number of transcript segments that received a speaker label.
     pub labeled: usize,
+    /// How many of the `num_speakers` clusters label at least one line;
+    /// fewer when a cluster's speech overlaps no line (#207).
+    pub speakers_on_lines: usize,
+    /// Lines whose label this run changed; 0 when it ended with the labels
+    /// the meeting already had (#205).
+    pub changed: usize,
     /// (transcript_id, speaker_label) pairs, e.g. ("transcript-â€¦", "Speaker 1").
     pub assignments: Vec<(String, String)>,
 }
@@ -1238,61 +1244,18 @@ pub async fn diarize_meeting(
     .map_err(|e| format!("Diarization task failed: {}", e))?
     .map_err(|e| e.to_string())?;
 
-    // Load transcript segments with their recording-relative timings, plus any
-    // label they already carry from live diarization.
-    let rows: Vec<(
-        String,
-        Option<f64>,
-        Option<f64>,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-    )> = sqlx::query_as(
-        "SELECT id, audio_start_time, audio_end_time, speaker, transcript, timestamp FROM transcripts WHERE meeting_id = ? ORDER BY audio_start_time ASC, id ASC",
+    // Load transcript segments with their recording-relative timings, plus the
+    // label each already carries and whether the user placed it by hand.
+    let rows: Vec<LabelRow> = sqlx::query_as::<_, (String, Option<f64>, Option<f64>, Option<String>, bool)>(
+        "SELECT id, audio_start_time, audio_end_time, speaker, speaker_manual FROM transcripts WHERE meeting_id = ? ORDER BY audio_start_time ASC, id ASC",
     )
     .bind(&meeting_id)
     .fetch_all(pool)
     .await
-    .map_err(|e| format!("Failed to read transcripts: {}", e))?;
-
-    // Work out which of the freshly-clustered speakers is the local user.
-    let user_ranges: Vec<(f32, f32)> = rows
-        .iter()
-        .filter(|(_, _, _, spk, _, _)| {
-            spk.as_deref()
-                .map(|s| s.eq_ignore_ascii_case("you"))
-                .unwrap_or(false)
-        })
-        .filter_map(|(_, s, e, _, _, _)| match (s, e) {
-            (Some(s), Some(e)) if e > s => Some((*s as f32, *e as f32)),
-            _ => None,
-        })
-        .collect();
-
-    let user_speaker: Option<usize> = if result.user_speaker.is_some() {
-        result.user_speaker
-    } else if user_ranges.is_empty() {
-        None
-    } else {
-        let mut overlap_per_speaker: std::collections::HashMap<usize, f32> =
-            std::collections::HashMap::new();
-        for seg in &result.segments {
-            for (us, ue) in &user_ranges {
-                let ov = seg.end.min(*ue) - seg.start.max(*us);
-                if ov > 0.0 {
-                    *overlap_per_speaker.entry(seg.speaker).or_insert(0.0) += ov;
-                }
-            }
-        }
-        overlap_per_speaker
-            .into_iter()
-            .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
-            .map(|(spk, _)| spk)
-    };
-
-    if let Some(u) = user_speaker {
-        log::info!("🧑‍🤝‍🧑 Speaker {} identified as the local user", u + 1);
-    }
+    .map_err(|e| format!("Failed to read transcripts: {}", e))?
+    .into_iter()
+    .map(|(id, start, end, speaker, hand_placed)| LabelRow { id, start, end, speaker, hand_placed })
+    .collect();
 
     // Names the user gave speakers (on transcript lines, or linked contacts)
     // are matched to the new voice clusters, so a rerun carries each name to
@@ -1305,152 +1268,30 @@ pub async fn diarize_meeting(
     .await
     .unwrap_or_default();
 
-    let mut manual_speakers_ranges: std::collections::HashMap<String, Vec<(f32, f32)>> =
-        std::collections::HashMap::new();
-    for (_, s_opt, e_opt, spk_opt, _, _) in &rows {
-        if let (Some(s), Some(e), Some(spk)) = (s_opt, e_opt, spk_opt) {
-            if *e > *s {
-                for name in extract_manual_speaker_names(spk) {
-                    manual_speakers_ranges
-                        .entry(name)
-                        .or_default()
-                        .push((*s as f32, *e as f32));
-                }
-            }
-        }
-    }
-    for label in registered_speakers {
-        if is_manual_speaker_label(&label) {
-            manual_speakers_ranges.entry(label).or_default();
-        }
-    }
-
-    // Voice cluster index -> manual name (cluster 1 -> "Alice").
-    let mut cluster_to_manual_name: std::collections::HashMap<usize, String> =
-        std::collections::HashMap::new();
-    if !manual_speakers_ranges.is_empty() {
-        let mut cluster_overlaps: Vec<(usize, String, f32)> = Vec::new();
-        for spk in 0..result.num_speakers {
-            if Some(spk) == user_speaker {
-                continue;
-            }
-            for (name, ranges) in &manual_speakers_ranges {
-                let mut total_overlap = 0.0f32;
-                for seg in result.segments.iter().filter(|seg| seg.speaker == spk) {
-                    for (rs, re) in ranges {
-                        let ov = seg.end.min(*re) - seg.start.max(*rs);
-                        if ov > 0.0 {
-                            total_overlap += ov;
-                        }
-                    }
-                }
-                if total_overlap > 0.05 {
-                    cluster_overlaps.push((spk, name.clone(), total_overlap));
-                }
-            }
-        }
-        cluster_overlaps.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
-
-        // Pair clusters and names one-to-one, strongest overlap first.
-        let mut assigned_clusters = std::collections::HashSet::new();
-        let mut assigned_names = std::collections::HashSet::new();
-        for (spk, name, _) in &cluster_overlaps {
-            if !assigned_clusters.contains(spk) && !assigned_names.contains(name) {
-                cluster_to_manual_name.insert(*spk, name.clone());
-                assigned_clusters.insert(*spk);
-                assigned_names.insert(name.clone());
-            }
-        }
-        log::info!(
-            "🧑‍🤝‍🧑 Matched voice clusters to manual speaker names: {:?}",
-            cluster_to_manual_name
+    let LabelPlan {
+        updates,
+        assignments,
+        kept,
+        cluster_to_manual_name,
+        changed,
+        speakers_on_lines,
+        lines_per_label,
+    } = plan_labels(
+        &rows,
+        &result,
+        &profile_names,
+        &registered_speakers,
+        used_source_tracks,
+        num_speakers,
+    );
+    log::info!("🧑‍🤝‍🧑 Lines per label: {:?}", lines_per_label);
+    if speakers_on_lines < result.num_speakers {
+        log::warn!(
+            "🧑‍🤝‍🧑 {} speaker(s) found, but only {} label lines: the others overlap no line",
+            result.num_speakers,
+            speakers_on_lines
         );
     }
-
-    let speaker_label = |spk: usize| -> String {
-        if Some(spk) == user_speaker {
-            return "You".to_string();
-        }
-        // A name the user gave in this meeting wins over a voice-profile guess.
-        if let Some(manual_name) = cluster_to_manual_name.get(&spk) {
-            return manual_name.clone();
-        }
-        if let Some(name) = profile_names.get(&spk) {
-            return name.clone();
-        }
-        let display = match user_speaker {
-            Some(user) if spk > user => spk,
-            _ => spk + 1,
-        };
-        format!("Speaker {}", display)
-    };
-
-    let mut assignments: Vec<(String, String)> = Vec::new();
-    let mut updates: Vec<(String, Option<String>)> = Vec::new();
-    let mut preserved = 0u32;
-
-    for (id, start, end, existing, _, _) in rows {
-        if let Some(ref live) = existing {
-            let live_trim = live.trim();
-            if !live_trim.is_empty() {
-                let is_generated = live_trim.split(" + ").all(|part| {
-                    part.eq_ignore_ascii_case("guest")
-                        || part.eq_ignore_ascii_case("you")
-                        || part.to_ascii_lowercase().starts_with("speaker ")
-                });
-                let is_named = !is_generated;
-                if is_named {
-                    preserved += 1;
-                    assignments.push((id, live_trim.to_string()));
-                    continue;
-                }
-            }
-        }
-
-        let (s, e) = match (start, end) {
-            (Some(s), Some(e)) if e > s => (s as f32, e as f32),
-            _ => {
-                updates.push((id, None));
-                continue;
-            }
-        };
-
-        // Generated labels are not durable capture-source provenance. Preserve
-        // source hints without excluding genuine simultaneous speakers.
-        // Diarization updates labels only. Text length cannot establish word
-        // alignment, and reruns must preserve every transcript byte and timing.
-        {
-            let mut speakers = row_speakers(&result.segments, s, e);
-            if !speakers.is_empty() {
-                speakers.sort_unstable();
-                let mut labels: Vec<_> = speakers.into_iter().map(&speaker_label).collect();
-                apply_source_track_hint(existing.as_deref(), used_source_tracks, num_speakers != Some(1), &mut labels);
-                labels.dedup();
-                labels.truncate(3);
-                let final_label = labels.join(" + ");
-                updates.push((id.clone(), Some(final_label.clone())));
-                assignments.push((id, final_label));
-            } else {
-                // No voice overlaps this line: keep the source hint, or else the
-                // label it already had, rather than clearing it.
-                let mut labels = Vec::new();
-                apply_source_track_hint(existing.as_deref(), used_source_tracks, num_speakers != Some(1), &mut labels);
-                let fallback = (!labels.is_empty()).then(|| labels.join(" + ")).or_else(|| {
-                    existing
-                        .as_deref()
-                        .map(str::trim)
-                        .filter(|label| !label.is_empty())
-                        .map(str::to_string)
-                });
-                if let Some(label) = &fallback {
-                    preserved += 1;
-                    assignments.push((id.clone(), label.clone()));
-                }
-                updates.push((id, fallback));
-            }
-        }
-    }
-
     persist_speaker_labels(pool, &meeting_id, updates).await.map_err(|e| format!("Failed to save speaker labels: {e}"))?;
 
     // Link contacts whose saved voice profile named a cluster in this meeting.
@@ -1522,10 +1363,10 @@ pub async fn diarize_meeting(
             }
         }
     }
-    if preserved > 0 {
+    if kept > 0 {
         log::info!(
-            "🧑‍🤝‍🧑 Kept {} existing speaker label(s): named by the user, or no voice overlap",
-            preserved
+            "🧑‍🤝‍🧑 Kept {} existing speaker label(s): placed by hand, or no voice overlap",
+            kept
         );
     }
 
@@ -1539,6 +1380,8 @@ pub async fn diarize_meeting(
     Ok(MeetingDiarizationResult {
         num_speakers: result.num_speakers,
         labeled: assignments.len(),
+        speakers_on_lines,
+        changed,
         assignments,
     })
 }
@@ -1687,6 +1530,259 @@ pub(crate) fn row_speakers(segments: &[DiarizationSegment], s: f32, e: f32) -> V
         }
     }
     speakers
+}
+
+/// A transcript row as a rerun of speaker identification reads it.
+#[derive(Debug, Clone)]
+pub(crate) struct LabelRow {
+    pub id: String,
+    /// Seconds within the recording.
+    pub start: Option<f64>,
+    pub end: Option<f64>,
+    /// The label it carries now.
+    pub speaker: Option<String>,
+    /// The user moved this line to its speaker on its own (`speaker_manual`).
+    pub hand_placed: bool,
+}
+
+/// What a rerun writes, and what it found.
+#[derive(Debug, Default)]
+pub(crate) struct LabelPlan {
+    /// New labels; a row absent here keeps its label.
+    pub updates: Vec<(String, Option<String>)>,
+    /// Every row's label after the rerun.
+    pub assignments: Vec<(String, String)>,
+    /// Rows that kept their label: placed by hand, or with no voice over them.
+    pub kept: u32,
+    /// Voice cluster -> the name the user gave it.
+    pub cluster_to_manual_name: std::collections::HashMap<usize, String>,
+    /// Rows whose label is not the one they had.
+    pub changed: usize,
+    /// Clusters that label at least one row.
+    pub speakers_on_lines: usize,
+    /// Rows per label component ("Speaker 1", "Anna", "You").
+    pub lines_per_label: std::collections::BTreeMap<String, usize>,
+}
+
+/// The labels a diarization `result` gives the meeting's `rows` (#217).
+///
+/// A name the user gave belongs to a voice, not to the lines it sat on:
+/// every row is labelled from the new clusters, each given name goes to the
+/// cluster whose speech overlaps its lines most (one name per cluster), and
+/// the rows of a cluster no name matched get a generated label, even if they
+/// carried a name before. A row the user moved by hand on its own keeps its
+/// label. With a chosen count, a cluster that leads no row is added to the
+/// row it covers the largest part of, so the meeting shows every chosen
+/// speaker that has speech over a line.
+pub(crate) fn plan_labels(
+    rows: &[LabelRow],
+    result: &DiarizationResult,
+    profile_names: &std::collections::HashMap<usize, String>,
+    registered_speakers: &[String],
+    used_source_tracks: bool,
+    num_speakers: Option<usize>,
+) -> LabelPlan {
+    use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+    let timing = |row: &LabelRow| match (row.start, row.end) {
+        (Some(s), Some(e)) if e > s => Some((s as f32, e as f32)),
+        _ => None,
+    };
+
+    // Work out which of the freshly-clustered speakers is the local user.
+    let user_ranges: Vec<(f32, f32)> = rows
+        .iter()
+        .filter(|row| row.speaker.as_deref().is_some_and(|s| s.eq_ignore_ascii_case("you")))
+        .filter_map(timing)
+        .collect();
+    let user_speaker: Option<usize> = if result.user_speaker.is_some() {
+        result.user_speaker
+    } else if user_ranges.is_empty() {
+        None
+    } else {
+        let mut overlap_per_speaker: HashMap<usize, f32> = HashMap::new();
+        for seg in &result.segments {
+            for (us, ue) in &user_ranges {
+                let ov = seg.end.min(*ue) - seg.start.max(*us);
+                if ov > 0.0 {
+                    *overlap_per_speaker.entry(seg.speaker).or_insert(0.0) += ov;
+                }
+            }
+        }
+        overlap_per_speaker
+            .into_iter()
+            .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal).then_with(|| b.0.cmp(&a.0)))
+            .map(|(spk, _)| spk)
+    };
+    if let Some(u) = user_speaker {
+        log::info!("🧑‍🤝‍🧑 Speaker {} identified as the local user", u + 1);
+    }
+
+    let mut manual_speakers_ranges: BTreeMap<String, Vec<(f32, f32)>> = BTreeMap::new();
+    for row in rows {
+        if let (Some(range), Some(spk)) = (timing(row), &row.speaker) {
+            for name in extract_manual_speaker_names(spk) {
+                manual_speakers_ranges.entry(name).or_default().push(range);
+            }
+        }
+    }
+    for label in registered_speakers {
+        if is_manual_speaker_label(label) {
+            manual_speakers_ranges.entry(label.clone()).or_default();
+        }
+    }
+
+    // Voice cluster index -> manual name (cluster 1 -> "Alice").
+    let mut cluster_to_manual_name: HashMap<usize, String> = HashMap::new();
+    if !manual_speakers_ranges.is_empty() {
+        let mut cluster_overlaps: Vec<(usize, String, f32)> = Vec::new();
+        for spk in 0..result.num_speakers {
+            if Some(spk) == user_speaker {
+                continue;
+            }
+            for (name, ranges) in &manual_speakers_ranges {
+                let mut total_overlap = 0.0f32;
+                for seg in result.segments.iter().filter(|seg| seg.speaker == spk) {
+                    for (rs, re) in ranges {
+                        let ov = seg.end.min(*re) - seg.start.max(*rs);
+                        if ov > 0.0 {
+                            total_overlap += ov;
+                        }
+                    }
+                }
+                if total_overlap > 0.05 {
+                    cluster_overlaps.push((spk, name.clone(), total_overlap));
+                }
+            }
+        }
+        cluster_overlaps.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
+
+        // Pair clusters and names one-to-one, strongest overlap first.
+        let mut assigned_clusters = HashSet::new();
+        let mut assigned_names = HashSet::new();
+        for (spk, name, _) in &cluster_overlaps {
+            if !assigned_clusters.contains(spk) && !assigned_names.contains(name) {
+                cluster_to_manual_name.insert(*spk, name.clone());
+                assigned_clusters.insert(*spk);
+                assigned_names.insert(name.clone());
+            }
+        }
+        log::info!("🧑‍🤝‍🧑 Matched voice clusters to manual speaker names: {:?}", cluster_to_manual_name);
+    }
+
+    let speaker_label = |spk: usize| -> String {
+        if Some(spk) == user_speaker {
+            return "You".to_string();
+        }
+        // A name the user gave in this meeting wins over a voice-profile guess.
+        if let Some(manual_name) = cluster_to_manual_name.get(&spk) {
+            return manual_name.clone();
+        }
+        if let Some(name) = profile_names.get(&spk) {
+            return name.clone();
+        }
+        let display = match user_speaker {
+            Some(user) if spk > user => spk,
+            _ => spk + 1,
+        };
+        format!("Speaker {}", display)
+    };
+
+    // The clusters over each row the rerun labels; None for a row it keeps
+    // or clears.
+    let relabelled = |row: &LabelRow| !(row.hand_placed && row.speaker.as_deref().is_some_and(|s| !s.trim().is_empty()));
+    let mut row_clusters: Vec<Option<Vec<usize>>> = rows
+        .iter()
+        .map(|row| match timing(row) {
+            Some((s, e)) if relabelled(row) => Some(row_speakers(&result.segments, s, e)),
+            _ => None,
+        })
+        .collect();
+
+    // A chosen count is a promise (#207): a cluster that leads no row joins
+    // the row it covers the largest part of.
+    if num_speakers.is_some() {
+        let on_rows: BTreeSet<usize> = row_clusters.iter().flatten().flatten().copied().collect();
+        for spk in (0..result.num_speakers).filter(|spk| !on_rows.contains(spk)) {
+            let best = rows
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| row_clusters[*i].as_ref().is_some_and(|c| !c.is_empty()))
+                .filter_map(|(i, row)| {
+                    let (s, e) = timing(row)?;
+                    let covered: f32 = result
+                        .segments
+                        .iter()
+                        .filter(|seg| seg.speaker == spk)
+                        .map(|seg| (seg.end.min(e) - seg.start.max(s)).max(0.0))
+                        .sum();
+                    (covered > 0.0).then_some((i, covered / (e - s)))
+                })
+                .max_by(|a, b| a.1.total_cmp(&b.1).then_with(|| b.0.cmp(&a.0)));
+            if let Some((i, share)) = best {
+                log::info!("🧑‍🤝‍🧑 Speaker {} leads no line; added to the line it covers most ({:.0}%)", spk + 1, share * 100.0);
+                row_clusters[i].as_mut().expect("filtered on Some").push(spk);
+            }
+        }
+    }
+
+    let mut plan = LabelPlan::default();
+    let mut clusters_on_lines: BTreeSet<usize> = BTreeSet::new();
+    for (row, clusters) in rows.iter().zip(row_clusters) {
+        let existing = row.speaker.as_deref().map(str::trim).filter(|label| !label.is_empty());
+        if !relabelled(row) {
+            // Placed by hand: it keeps its label and is not written.
+            let label = existing.unwrap_or_default();
+            plan.kept += 1;
+            plan.assignments.push((row.id.clone(), label.to_string()));
+            for part in label.split(" + ") {
+                *plan.lines_per_label.entry(part.trim().to_string()).or_default() += 1;
+            }
+            continue;
+        }
+        let label: Option<String> = match clusters {
+            // A row without a duration overlaps no voice; its label is cleared.
+            None => None,
+            // Generated labels are not durable capture-source provenance.
+            // Preserve source hints without excluding genuine simultaneous
+            // speakers. Diarization updates labels only: text length cannot
+            // establish word alignment, and reruns must preserve every
+            // transcript byte and timing.
+            Some(mut speakers) if !speakers.is_empty() => {
+                speakers.sort_unstable();
+                speakers.dedup();
+                clusters_on_lines.extend(speakers.iter().copied());
+                let mut labels: Vec<_> = speakers.into_iter().map(&speaker_label).collect();
+                apply_source_track_hint(row.speaker.as_deref(), used_source_tracks, num_speakers != Some(1), &mut labels);
+                labels.dedup();
+                labels.truncate(3);
+                Some(labels.join(" + "))
+            }
+            Some(_) => {
+                // No voice overlaps this line: keep the source hint, or else
+                // the label it already had, rather than clearing it.
+                let mut labels = Vec::new();
+                apply_source_track_hint(row.speaker.as_deref(), used_source_tracks, num_speakers != Some(1), &mut labels);
+                let fallback = (!labels.is_empty()).then(|| labels.join(" + ")).or_else(|| existing.map(str::to_string));
+                if fallback.is_some() {
+                    plan.kept += 1;
+                }
+                fallback
+            }
+        };
+        if label.as_deref() != existing {
+            plan.changed += 1;
+        }
+        if let Some(label) = &label {
+            plan.assignments.push((row.id.clone(), label.clone()));
+            for part in label.split(" + ") {
+                *plan.lines_per_label.entry(part.trim().to_string()).or_default() += 1;
+            }
+        }
+        plan.updates.push((row.id.clone(), label));
+    }
+    plan.speakers_on_lines = clusters_on_lines.len();
+    plan.cluster_to_manual_name = cluster_to_manual_name;
+    plan
 }
 
 async fn persist_speaker_labels(
@@ -1955,6 +2051,93 @@ mod tests {
         assert_eq!(parsed("Sync_2026-09-01_10-00-05-123_2"), expect("Sync", "2026-09-01T10:00:05.123+00:00"));
         assert_eq!(parsed("Weekly Beats"), None);
         assert_eq!(parsed("Live_2019_Remastered"), None);
+    }
+
+    fn seg(start: f32, end: f32, speaker: usize) -> DiarizationSegment {
+        DiarizationSegment { start, end, speaker, overlapped: false }
+    }
+
+    fn row(id: &str, start: f64, end: f64, speaker: &str, hand_placed: bool) -> LabelRow {
+        LabelRow { id: id.into(), start: Some(start), end: Some(end), speaker: Some(speaker.into()), hand_placed }
+    }
+
+    fn labels(plan: &LabelPlan) -> Vec<(&str, &str)> {
+        plan.assignments.iter().map(|(id, label)| (id.as_str(), label.as_str())).collect()
+    }
+
+    /// Two voices: cluster 0 speaks 0-10 s and 20-30 s, cluster 1 10-20 s.
+    fn two_voices() -> DiarizationResult {
+        DiarizationResult {
+            segments: vec![seg(0.0, 10.0, 0), seg(10.0, 20.0, 1), seg(20.0, 30.0, 0)],
+            num_speakers: 2,
+            duration: 30.0,
+            user_speaker: None,
+        }
+    }
+
+    /// #207's second cause: the meeting's only label was renamed, so every
+    /// line carries the name. A rerun that finds two voices gives the name
+    /// to the voice it overlaps most and "Speaker 2" to the other.
+    #[test]
+    fn a_rerun_splits_a_renamed_single_label_between_two_voices() {
+        let rows: Vec<LabelRow> = [(0.0, 10.0), (10.0, 20.0), (20.0, 30.0)]
+            .iter()
+            .enumerate()
+            .map(|(i, &(s, e))| row(&format!("t{i}"), s, e, "Anna", false))
+            .collect();
+        let plan = plan_labels(&rows, &two_voices(), &Default::default(), &["Anna".to_string()], false, None);
+        assert_eq!(labels(&plan), vec![("t0", "Anna"), ("t1", "Speaker 2"), ("t2", "Anna")]);
+        assert_eq!((plan.changed, plan.kept, plan.speakers_on_lines), (1, 0, 2));
+        assert_eq!(plan.cluster_to_manual_name.get(&0).map(String::as_str), Some("Anna"));
+    }
+
+    /// A line moved by hand on its own keeps its label; the rest follow the
+    /// clusters.
+    #[test]
+    fn a_line_moved_by_hand_keeps_its_label() {
+        let rows = vec![
+            row("t0", 0.0, 10.0, "Speaker 1", false),
+            row("t1", 10.0, 20.0, "Boris", true),
+            row("t2", 20.0, 30.0, "Speaker 1", false),
+        ];
+        let plan = plan_labels(&rows, &two_voices(), &Default::default(), &[], false, None);
+        assert_eq!(labels(&plan), vec![("t0", "Speaker 1"), ("t1", "Boris"), ("t2", "Speaker 1")]);
+        assert!(plan.updates.iter().all(|(id, _)| id != "t1"));
+        assert_eq!(plan.kept, 1);
+    }
+
+    /// A run that ends with the labels the meeting had changes nothing, and
+    /// says so with `changed` 0.
+    #[test]
+    fn a_rerun_with_the_same_result_changes_no_line() {
+        let rows = vec![
+            row("t0", 0.0, 10.0, "Speaker 1", false),
+            row("t1", 10.0, 20.0, "Speaker 2", false),
+            row("t2", 20.0, 30.0, "Speaker 1", false),
+        ];
+        let plan = plan_labels(&rows, &two_voices(), &Default::default(), &[], false, None);
+        assert_eq!(plan.changed, 0);
+        assert_eq!(plan.lines_per_label.get("Speaker 2"), Some(&1));
+    }
+
+    /// With a count chosen, a cluster that leads no line joins the line it
+    /// covers the largest part of; detected, it is only reported.
+    #[test]
+    fn a_chosen_speaker_that_leads_no_line_joins_the_line_it_covers_most() {
+        let result = DiarizationResult {
+            segments: vec![seg(0.0, 10.0, 0), seg(10.0, 30.0, 0), seg(12.0, 13.0, 1), seg(25.0, 26.5, 1)],
+            num_speakers: 2,
+            duration: 30.0,
+            user_speaker: None,
+        };
+        let rows = vec![row("t0", 0.0, 10.0, "Speaker 1", false), row("t1", 10.0, 20.0, "Speaker 1", false), row("t2", 20.0, 30.0, "Speaker 1", false)];
+        // Overlapping speech counts only with 80 ms of simultaneous talk and a
+        // fifth of the main voice, so cluster 1 is on no row by itself here.
+        let detected = plan_labels(&rows, &result, &Default::default(), &[], false, None);
+        assert_eq!(detected.speakers_on_lines, 1);
+        let chosen = plan_labels(&rows, &result, &Default::default(), &[], false, Some(2));
+        assert_eq!(chosen.speakers_on_lines, 2);
+        assert_eq!(labels(&chosen)[2], ("t2", "Speaker 1 + Speaker 2"));
     }
 
     #[test]
