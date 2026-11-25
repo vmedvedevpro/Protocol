@@ -82,6 +82,7 @@ export function CloudGroup({provider, apiKey, onApiKey, model, onModel, maxLengt
                         options={options}
                         value={model || undefined}
                         placeholder={models.isPending ? 'Loading models…' : 'Choose a model'}
+                        pending={models.isPending}
                         disabled={options.length === 0}
                         onValueChange={onModel}
                     />

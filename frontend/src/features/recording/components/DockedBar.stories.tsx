@@ -29,6 +29,7 @@ const Line = styled.span`
 `
 
 // The layout as the design fills it; the recording (#112) brings the data.
+// Toggling `recording` plays a phase's arrival in the same bar.
 function Bar({recording}: { recording: boolean }) {
     return (
         <Window>

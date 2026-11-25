@@ -1,7 +1,6 @@
 import {useCallback, useEffect, useMemo, useState} from 'react'
 import {ArrowElbowDownLeftIcon, GearIcon, MagnifyingGlassIcon} from '@phosphor-icons/react'
 import {useQuery, useQueryClient} from '@tanstack/react-query'
-import {AnimatePresence} from 'motion/react'
 import * as m from 'motion/react-m'
 import {useNavigate, useSearchParams} from 'react-router-dom'
 import styled from 'styled-components'
@@ -10,6 +9,7 @@ import {type Folder, foldersQuery, type MeetingListItem, meetingsQuery} from '@/
 import {updaterStatusQuery} from '@/api/updater'
 import {Screen} from '@/components/screen/Screen'
 import {Button, IconButton} from '@/components/ui/Button'
+import {Collapse} from '@/components/ui/Collapse'
 import {Kbd} from '@/components/ui/Kbd'
 import {Spinner} from '@/components/ui/Spinner'
 import {colorTransition, focusRing} from '@/components/ui/styles'
@@ -214,10 +214,13 @@ export function HomeScreen() {
                     />
                 </Search>
             )}
-            <AnimatePresence initial={false}>
-                {offer && updater.data && <UpdateBanner key="update" snapshot={updater.data} offer={offer}/>}
-                {showPermission && access && <PermissionBanner key="permission" access={access}/>}
-            </AnimatePresence>
+            {/* A banner's slot opens and closes with it, so the list below slides. */}
+            <Collapse open={!!offer && !!updater.data}>
+                {offer && updater.data ? <UpdateBanner snapshot={updater.data} offer={offer}/> : null}
+            </Collapse>
+            <Collapse open={showPermission && !!access}>
+                {showPermission && access ? <PermissionBanner access={access}/> : null}
+            </Collapse>
             {meetings.isPending && <Empty aria-busy="true"><Spinner delayed/></Empty>}
             {meetings.isError && (
                 <Empty role="alert">

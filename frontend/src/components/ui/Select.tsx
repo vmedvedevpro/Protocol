@@ -6,6 +6,7 @@ import styled, {useTheme} from 'styled-components'
 import {durations, SCALE_FROM, tween} from '@/styles/motion'
 import {useControlLabelling} from './controlLabelling'
 import {useSlidingHighlight} from './SlidingHighlight'
+import {Spinner} from './Spinner'
 import {colorTransition, focusRing, popoverItem, popoverSurface, px} from './styles'
 
 export interface SelectOption<T extends string> {
@@ -60,6 +61,14 @@ const Trigger = styled(RadixSelect.Trigger)`
     }
 `
 
+// Radix's Icon clones its child, which Spinner would not take; the span wears
+// the caret's place and colour.
+const PendingMark = styled.span`
+    display: inline-flex;
+    flex: none;
+    color: ${({theme}) => theme.colors.muted};
+`
+
 // Radix positions the content and sets the transform origin on the side of
 // the button; the list inside grows from there.
 const List = styled(m.div)`
@@ -85,6 +94,8 @@ interface SelectProps<T extends string> {
     /** Shown while nothing is chosen. */
     placeholder?: string
     disabled?: boolean
+    /** The options are still loading: a delayed spinner stands in for the caret. */
+    pending?: boolean
 }
 
 /**
@@ -101,6 +112,7 @@ export function Select<T extends string>({
     label,
     placeholder,
     disabled,
+    pending,
 }: SelectProps<T>) {
     const theme = useTheme()
     const labelling = useControlLabelling(label)
@@ -135,10 +147,12 @@ export function Select<T extends string>({
             onOpenChange={changeOpen}
             disabled={disabled}
         >
-            <Trigger {...labelling}>
+            <Trigger {...labelling} aria-busy={pending || undefined}>
                 <RadixSelect.Value placeholder={placeholder}/>
                 <RadixSelect.Icon asChild>
-                    <CaretDownIcon size={11} aria-hidden/>
+                    {pending
+                        ? <PendingMark><Spinner size={11} delayed/></PendingMark>
+                        : <CaretDownIcon size={11} aria-hidden/>}
                 </RadixSelect.Icon>
             </Trigger>
             <RadixSelect.Portal>

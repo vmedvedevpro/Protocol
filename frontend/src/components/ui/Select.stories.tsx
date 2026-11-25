@@ -24,7 +24,8 @@ const LANGUAGES = [
 ] as const
 
 // The selects of the settings rows and sheets: a long value cut with an
-// ellipsis, a short list, and one with nothing chosen yet.
+// ellipsis, a short list, one with nothing chosen yet, and one waiting for
+// its options (its spinner shows after the spinner's delay).
 function Selects() {
     const [model, setModel] = useState<(typeof MODELS)[number]['value']>('turbo')
     const [language, setLanguage] = useState<(typeof LANGUAGES)[number]['value'] | undefined>(undefined)
@@ -33,6 +34,7 @@ function Selects() {
             <Select label="Model" options={MODELS} value={model} onValueChange={setModel}/>
             <Select label="Language" placeholder="Choose a language" options={LANGUAGES} value={language} onValueChange={setLanguage}/>
             <Select label="Unavailable" options={MODELS} value="parakeet" onValueChange={() => {}} disabled/>
+            <Select label="Loading" placeholder="Loading models…" options={[]} value={undefined} onValueChange={() => {}} disabled pending/>
         </Row>
     )
 }

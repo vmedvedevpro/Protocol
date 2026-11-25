@@ -80,4 +80,20 @@ describe('Select', () => {
         expect(onChange).not.toHaveBeenCalled()
         expect(screen.getByRole('combobox', {name: 'Model'})).toHaveTextContent('Parakeet')
     })
+
+    it('turns a spinner in place of its caret while its options load', () => {
+        const {rerender} = renderUi(
+            <Select label="Model" placeholder="Loading models…" options={[]} value={undefined} onValueChange={() => {}} disabled pending/>,
+        )
+        const button = screen.getByRole('combobox', {name: 'Model'})
+        const mark = () => getComputedStyle(button.querySelector('svg') as SVGElement).animationName
+
+        expect(button).toHaveAttribute('aria-busy', 'true')
+        expect(button).toHaveTextContent('Loading models…')
+        expect(mark()).not.toMatch(/^(none)?$/)
+
+        rerender(<Select label="Model" options={MODELS} value="turbo" onValueChange={() => {}}/>)
+        expect(button).not.toHaveAttribute('aria-busy')
+        expect(mark()).toMatch(/^(none)?$/)
+    })
 })

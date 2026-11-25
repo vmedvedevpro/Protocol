@@ -2,6 +2,8 @@ import {useState} from 'react'
 import {screen, waitFor} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import {describe, expect, it, vi} from 'vitest'
+import {settleIpc} from '@/test/ipc'
+import {playAnimations, watchStyles} from '@/test/motion'
 import {renderUi} from '@/test/renderUi'
 import {SegmentedControl, TabList, TabPanels, Tabs} from './SegmentedControl'
 
@@ -33,6 +35,17 @@ const option = (name: string) => screen.getByRole('radio', {name}).closest('labe
 
 const thumbOf = (group: HTMLElement) => group.querySelector(':scope > [aria-hidden]') as HTMLElement
 
+/**
+ * The transforms the thumb went through for one action: a key lands it at
+ * once (one value), the pointer slides it (several).
+ */
+async function pathOf(thumb: HTMLElement, act: () => Promise<unknown>, to: RegExp) {
+    const styles = watchStyles(thumb.parentElement as HTMLElement)
+    await act()
+    await waitFor(() => expect(styles.valuesOf(thumb, 'transform').at(-1)).toMatch(to), {timeout: 2000})
+    return styles.valuesOf(thumb, 'transform')
+}
+
 describe('SegmentedControl', () => {
     it('is a radio group with the current value checked', () => {
         renderUi(<Ranges/>)
@@ -62,6 +75,17 @@ describe('SegmentedControl', () => {
         expect(screen.getByRole('radio', {name: 'Day'})).toHaveFocus()
         await userEvent.keyboard('{ArrowRight}')
         expect(screen.getByRole('radio', {name: 'Week'})).toBeChecked()
+    })
+
+    it('lands its thumb at once from the keyboard and slides it from the pointer', async () => {
+        await playAnimations()
+        renderUi(<Ranges/>)
+        await settleIpc()
+        const thumb = thumbOf(screen.getByRole('radiogroup', {name: 'Range'}))
+
+        await userEvent.tab()
+        expect(await pathOf(thumb, () => userEvent.keyboard('{ArrowRight}'), /^translateX\(100%\)$/)).toHaveLength(1)
+        expect((await pathOf(thumb, () => userEvent.click(option('Month')), /^translateX\(200%\)$/)).length).toBeGreaterThan(2)
     })
 })
 
@@ -125,5 +149,17 @@ describe('Tabs', () => {
 
         await waitFor(() => expect(screen.getAllByRole('tabpanel')).toHaveLength(1))
         expect(screen.getByRole('tabpanel', {name: 'Summary'})).toHaveTextContent('summary view')
+    })
+
+    it('lands its thumb at once from the keyboard and slides it from the pointer', async () => {
+        await playAnimations()
+        renderUi(<Meeting/>)
+        await settleIpc()
+        const thumb = thumbOf(screen.getByRole('tablist', {name: 'Meeting views'}))
+
+        await userEvent.tab()
+        expect(await pathOf(thumb, () => userEvent.keyboard('{End}'), /^translateX\(200%\)$/)).toHaveLength(1)
+        const toNotes = () => userEvent.click(screen.getByRole('tab', {name: 'Notes'}))
+        expect((await pathOf(thumb, toNotes, /^(none|translateX\(0(%|px)?\))$/)).length).toBeGreaterThan(2)
     })
 })

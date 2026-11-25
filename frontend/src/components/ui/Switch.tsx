@@ -3,6 +3,7 @@ import * as m from 'motion/react-m'
 import styled from 'styled-components'
 import {springs} from '@/styles/motion'
 import {useControlLabelling} from './controlLabelling'
+import {useInstantOnKey} from './instantOnKey'
 import {colorTransition, focusRing} from './styles'
 
 // Off: a grey track and a light knob on the left. On: the track takes the
@@ -59,15 +60,23 @@ interface SwitchProps {
 /** An on/off setting that applies at once. Space toggles it from the keyboard. */
 export function Switch({checked, onCheckedChange, label, disabled}: SwitchProps) {
     const labelling = useControlLabelling(label)
+    // After a key press the knob lands at once, until a pointer press brings
+    // the spring back; a change from elsewhere follows whichever came last.
+    const {instant, handlers} = useInstantOnKey()
     return (
         <Track
             checked={checked}
             onCheckedChange={onCheckedChange}
             disabled={disabled}
+            {...handlers}
             {...labelling}
         >
             <RadixSwitch.Thumb asChild>
-                <Knob initial={false} animate={{x: checked ? '100%' : '0%'}} transition={springs.snappy}/>
+                <Knob
+                    initial={false}
+                    animate={{x: checked ? '100%' : '0%'}}
+                    transition={instant ? {duration: 0} : springs.snappy}
+                />
             </RadixSwitch.Thumb>
         </Track>
     )

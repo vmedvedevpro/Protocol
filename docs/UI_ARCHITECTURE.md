@@ -406,13 +406,17 @@ enter and exit, indicators and springs.
 - Only `transform` and `opacity` animate, plus colours in state feedback and
   the theme change. Width, height, top, left and margin never animate: each
   frame would lay the window out again. Something that has to grow appears
-  with a small rise under a veil, and the layout moves once. The one exception
-  is `Collapse`, a disclosure's content ("What's included?", advanced
-  settings): it grows its height under a clip, because what follows it has
-  to slide rather than jump, and its text must not fade, since text that
-  ends an opacity animation is rasterized again and visibly blinks. It is a
-  short block in a sheet or a settings card, so laying it out each frame
-  is cheap.
+  with a small rise under a veil, and the layout moves once. There are two
+  exceptions. One is `Collapse`, a disclosure's content ("What's included?",
+  advanced settings) or a banner's slot: it grows its height under a clip,
+  because what follows it has to slide rather than jump, and its text must
+  not fade, since text that ends an opacity animation is rasterized again
+  and visibly blinks. It is a short block in a sheet, a settings card or
+  atop Home, so laying it out each frame is cheap. The other exception is
+  the thumb of Home's folder chips: chips differ in width, so its width and
+  height follow the chosen chip's on the same spring as its position. A
+  `scaleX` would stretch its rounded ends; it is one absolutely positioned
+  box with no text, so its layout touches nothing around it.
 - Text never fades itself. Under an opacity below 1 Chromium draws text
   without subpixel antialiasing and draws it again when the fade ends, a
   visible blink. So content that holds text keeps its 4 px rise
@@ -422,7 +426,8 @@ enter and exit, indicators and springs.
   before it goes, or the element goes at once. The veil's colour is
   `--surface`, which a surface sets on the element inside it whose content
   swaps (the settings card, the processing strip's content, first launch's
-  download list and microphone card); the window's background otherwise.
+  download list and microphone card, the drop overlay's card, whose dim
+  fades on a layer of its own); the window's background otherwise.
   `statusSwap` (`styles/motion.ts`) is the motion of a status change. Overlays with a
   surface of their own (sheets, menus, select lists, tooltips, toasts, the
   transcript's Latest button) keep their fade. The ring's source button
@@ -467,18 +472,31 @@ enter and exit, indicators and springs.
     `delayed`: it fades in only after `spinner.delay`, so a fast load or
     action shows nothing rather than a flash. The notes editor's fallback,
     while its BlockNote chunk loads, turns one on the notes' first line.
+  - `Select`'s `pending` swaps its caret for a delayed spinner and sets
+    `aria-busy` while its options load (the import's model, the cloud
+    summary model, the contact to link); the placeholder says what loads.
   - `Button`'s `pending` disables the button and sets `aria-busy` at once;
     if what the click started runs past `spinner.delay`, the label turns
     transparent in one step (never fading), keeping the button's width, and
-    a delayed spinner fades in over it until the action ends. So Ignore,
+    the spinner takes its place over it in the same step, so no frame shows
+    an empty button, until the action ends. So Ignore,
     which usually ends at once, keeps its label. The crash report sheet's
     Send Report, Save ZIP and Ignore use it.
 - What animates and how:
   - Screens and first launch's steps arrive with a 4 px rise under a veil
     over `base`; the one they replace goes at once.
+  - The docked recording bar: a new phase's middle and action (Record,
+    then the timer, the sources and Stop) arrive the way a screen does,
+    keyed by the bar's label, so starting keeps the pending Record button
+    and pausing replays nothing; the bar and the ring stay mounted. The
+    phase the bar mounts in shows as it is, so opening a screen that
+    docks the bar replays nothing either.
   - Home's folder chips: the selected chip's outline is a thumb that
-    slides to the chip chosen by transform on `springs.snappy`.
-  - Tabs and segmented controls: the thumb slides; the panel below swaps
+    slides to the chip chosen by transform on `springs.snappy`, taking
+    the chip's size on the same spring.
+  - Tabs and segmented controls: the thumb slides, except that a change
+    made with the keyboard lands at once (so does the Switch's knob), as
+    the menus' highlight does; the panel below swaps
     through the veil over `base` (`Crossfade`: the new view, drawn over
     the old one on the colour behind both, covers it at once and is
     revealed, so the two never show together), without sliding. Other views that replace each other
@@ -493,7 +511,9 @@ enter and exit, indicators and springs.
     does.
   - Menus, select lists and tooltips: opacity and a scale from `SCALE_FROM`
     (0.96), with `transform-origin` on the side of their anchor, over
-    `fast`. Inside a menu or a select list one highlight slides between the
+    `fast`. A tooltip that opens within the skip window after another
+    (Radix's `instant-open`, moving along a row of buttons) appears at
+    once. Inside a menu or a select list one highlight slides between the
     items on `springs.snappy` (`SlidingHighlight`); an arrow key lands it on
     the next item at once, the pointer slides it. It stays on the last
     item while the pointer crosses a separator or a group label and lands
@@ -504,7 +524,9 @@ enter and exit, indicators and springs.
   - Lists: a new row rises 4 px under a veil over `base`, a removed row
     goes at once; no stagger, and no reordering animation (it needs layout).
     Home's banners and the meeting's processing strip and steps arrive the
-    same way.
+    same way; a banner (Home's, the Intel offer in Settings) does so inside
+    a `Collapse`, so the content below slides as its slot opens and closes,
+    and it leaves under its veil while the slot closes.
   - Disclosures: `Collapse` grows from nothing to its content's height over
     `base` and shrinks back the same way, at full opacity throughout; its
     button's caret turns over `fast`. The clip holds only while the height
@@ -547,7 +569,10 @@ enter and exit, indicators and springs.
   with `orca set media --reduced-motion reduce`.
 - Tests run with `MotionGlobalConfig.skipAnimations` (`src/test/setup.ts`), so
   every animation ends at once; motion writes styles on its next frame, so
-  assert them inside `waitFor`.
+  assert them inside `waitFor`. A test of how something moves calls
+  `playAnimations()` (`src/test/motion.ts`) and reads the path it took from
+  `watchStyles()`, every style written, not a sample at one moment, which a
+  busy machine takes late; setup.ts skips animations again after it.
 
 ## Native data
 

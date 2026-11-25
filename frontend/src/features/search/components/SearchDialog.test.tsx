@@ -105,4 +105,17 @@ describe('SearchDialog', () => {
 
         expect(await screen.findByText('Nothing found for “qzxqv”.')).toBeInTheDocument()
     })
+
+    it('moves the lit row in the same frame as the key, with no colour fade', async () => {
+        renderSearch()
+        act(() => openSearch())
+        await waitFor(() => expect(groupNames()).toEqual(['Recent meetings', 'Go to', 'Theme']))
+        const rows = screen.getAllByRole('option')
+
+        await userEvent.keyboard('{ArrowDown}')
+
+        // A palette driven by the keyboard changes in place: a fade would leave two rows half lit.
+        await waitFor(() => expect(rows[1]).toHaveAttribute('aria-selected', 'true'))
+        for (const row of rows.slice(0, 2)) expect(getComputedStyle(row).transitionProperty).not.toMatch(/background/)
+    })
 })

@@ -45,7 +45,9 @@ const Chip = styled.button<{ $selected: boolean }>`
 `
 
 // The selected chip's outline and fill, moved by transform to the chip
-// chosen, as SegmentedControl's thumb is; its size is the chip's, set at once.
+// chosen, as SegmentedControl's thumb is. Chips differ in width, so its size
+// follows the chip's on the same spring (UI_ARCHITECTURE › Motion: the one
+// size that animates besides Collapse; a scale would stretch its rounded ends).
 const Thumb = styled(m.span)`
     position: absolute;
     top: 0;
@@ -128,9 +130,8 @@ export function FolderBar({folders, selected, onSelect, onNew, onRename, onDelet
                 <Thumb
                     aria-hidden
                     data-testid="folder-thumb"
-                    style={{width: box.width, height: box.height}}
                     initial={false}
-                    animate={{x: box.x, y: box.y}}
+                    animate={{x: box.x, y: box.y, width: box.width, height: box.height}}
                     transition={springs.snappy}
                 />
             )}

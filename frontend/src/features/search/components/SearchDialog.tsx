@@ -24,7 +24,6 @@ import {Kbd} from '@/components/ui/Kbd'
 import {Sheet} from '@/components/ui/Sheet'
 import {Spinner} from '@/components/ui/Spinner'
 import {VisuallyHidden} from '@/components/ui/VisuallyHidden'
-import {colorTransition} from '@/components/ui/styles'
 import {headerWhen, parseDate} from '@/lib/dates'
 import {useHotkey} from '@/lib/hotkeys'
 import {paths} from '@/lib/paths'
@@ -155,7 +154,6 @@ const Item = styled(Command.Item)`
     color: ${({theme}) => theme.colors.text};
     cursor: pointer;
     user-select: none;
-    ${colorTransition};
 
     &[data-selected='true'] {
         background: ${({theme}) => theme.colors.surface};

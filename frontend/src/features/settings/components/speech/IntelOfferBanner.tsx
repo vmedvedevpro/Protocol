@@ -1,5 +1,4 @@
 import {useQuery, useQueryClient} from '@tanstack/react-query'
-import {AnimatePresence} from 'motion/react'
 import * as m from 'motion/react-m'
 import styled from 'styled-components'
 import {
@@ -18,6 +17,7 @@ import {
 import {trackIntelDownload} from '@/api/modelDownloadSync'
 import {downloadKey, PARAKEET_MODEL} from '@/api/models'
 import {Button} from '@/components/ui/Button'
+import {Collapse} from '@/components/ui/Collapse'
 import {toast} from '@/components/ui/toastStore'
 import {Veil} from '@/components/ui/Veil'
 import {formatModelSize} from '@/lib/sizes'
@@ -93,10 +93,10 @@ export function IntelOfferBanner() {
 
     const bytes = shown?.gpu ? companion?.downloadSize : companion?.runtime?.downloadSize
     return (
-        <AnimatePresence initial={false}>
+        // The slot opens and closes with the banner, so what is below slides.
+        <Collapse open={!!shown}>
             {shown && (
                 <Banner
-                    key="intel-offer"
                     aria-label="Intel GPU and NPU offer"
                     // Text never fades: it rises under a veil, which covers it
                     // again as it goes (Veil).
@@ -113,6 +113,6 @@ export function IntelOfferBanner() {
                     <Veil outset={1}/>
                 </Banner>
             )}
-        </AnimatePresence>
+        </Collapse>
     )
 }

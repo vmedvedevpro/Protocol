@@ -173,6 +173,7 @@ export function MergeContactSheet({open, onOpenChange, contact, onMerged}: {
             <Select
                 label="Merge into"
                 placeholder={people.isPending ? 'Loading contacts…' : 'Choose a contact'}
+                pending={people.isPending}
                 disabled={others.length === 0}
                 options={others.map((person) => ({value: person.id, label: person.displayName}))}
                 value={targetId}
