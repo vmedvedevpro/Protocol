@@ -48,6 +48,8 @@ export interface MockIntel {
     downloadStep: number
     /** `openvino_download` with `choose` saved the version as the after-meeting model. */
     chosen: boolean
+    /** Linux: the sentence naming Intel's GPU driver still to install (#178). */
+    driver: string | null
 }
 
 export function createMockIntel(): MockIntel {
@@ -63,6 +65,7 @@ export function createMockIntel(): MockIntel {
         npuState: 'needs_runtime',
         downloadStep: 10,
         chosen: false,
+        driver: null,
     }
 }
 
@@ -146,17 +149,18 @@ function fakeDownload(intel: MockIntel, id: string, onTick: (percent: number) =>
     })
 }
 
-/** `get_openvino_availability` answers everywhere; outside Windows native says it does not run. */
+/** `get_openvino_availability` answers everywhere; outside Windows and Linux native says it does not run. */
 export function intelHandlers(state: {intel: MockIntel, platform: string}): Record<string, MockHandler> {
     return {
-        get_openvino_availability: (): OpenVinoAvailability => state.platform !== 'windows'
-            ? {reason: 'OpenVINO runs only in the Windows app', device: null}
+        get_openvino_availability: (): OpenVinoAvailability => state.platform !== 'windows' && state.platform !== 'linux'
+            ? {reason: 'OpenVINO runs only in the Windows and Linux apps', device: null}
             : {
                 offer: state.intel.gpu,
                 gpu: state.intel.gpu ? 'Intel(R) Arc(TM) Graphics' : null,
                 reason: state.intel.gpu ? null : 'The GPU is not an Intel GPU',
                 device: state.intel.gpu && state.intel.runtimeInstalled ? 'GPU' : null,
                 mismatch: null,
+                driver: state.platform === 'linux' && state.intel.gpu ? state.intel.driver : null,
             },
     }
 }

@@ -1,5 +1,5 @@
 /**
- * Intel hardware for the speech models (Windows): Whisper's Intel GPU
+ * Intel hardware for the speech models (Windows; the Intel GPU also on Linux, #178): Whisper's Intel GPU
  * version (an OpenVINO "companion" of a ggml model, #79) and Parakeet on the
  * Intel NPU (#66), both run by Intel's libraries (OpenVINO GenAI), which
  * download per computer. Types mirror `availability()` in
@@ -8,7 +8,7 @@
  * parakeet_engine/npu/state.rs.
  *
  * Every command but `get_openvino_availability` is registered on Windows
- * only; elsewhere it rejects, which reads as "nothing there" (the queries
+ * (the NPU's) or on Windows and Linux (the Intel GPU's) only; elsewhere it rejects, which reads as "nothing there" (the queries
  * answer null or `NPU_ABSENT`). The device words the UI uses are "Intel
  * GPU", "Intel NPU" and "the processor"; native texts name OpenVINO, which
  * the UI never does (`intelError`).
@@ -23,7 +23,7 @@ import {command, errorMessage} from './core'
 import type {NativeEvent} from './events'
 import {PARAKEET_MODEL, POST_CALL_WHISPER_MODEL} from './models'
 
-/** `get_openvino_availability`. Outside Windows native answers `{available: false, …}`, without `offer`. */
+/** `get_openvino_availability`. Outside Windows and Linux native answers `{available: false, …}`, without `offer`. */
 export interface OpenVinoAvailability {
     /** Offer the download: the GPU whisper.cpp uses is an Intel GPU. */
     offer?: boolean
@@ -33,6 +33,8 @@ export interface OpenVinoAvailability {
     device: string | null
     /** …or why it cannot run Whisper here after all. */
     mismatch?: string | null
+    /** Linux: the sentence naming the package of Intel's GPU driver still to install. */
+    driver?: string | null
 }
 
 /** Intel's libraries as `openvino_status` reports them. */
