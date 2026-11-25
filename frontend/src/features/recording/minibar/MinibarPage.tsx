@@ -2,30 +2,25 @@ import {useEffect, useState} from 'react'
 import {useQuery, useQueryClient} from '@tanstack/react-query'
 import styled, {createGlobalStyle} from 'styled-components'
 import type {AudioSource} from '@/api/audio'
-import {useNativeEvent} from '@/api/events'
 import {useSystemAudioWarning} from '@/components/ring/levelAdvice'
 import {useHotkey} from '@/lib/hotkeys'
 import {platform} from '@/lib/platform'
 import {
-    MICROPHONE_MUTE_CHANGED_EVENT,
     pauseRecording,
-    RECORDING_PAUSED_EVENT,
-    RECORDING_RESUMED_EVENT,
     recordingKeys,
     recordingStateQuery,
     resumeRecording,
     setMicrophoneMuted,
     setSystemAudioMuted,
-    SYSTEM_AUDIO_MUTE_CHANGED_EVENT,
 } from '../api/recording'
-import {exitCompactMode, startWindowDragging, stopRecordingFromMinibar} from './api'
+import {exitCompactMode, resizeMinibar, startWindowDragging, stopRecordingFromMinibar} from './api'
 import {type MinibarPhase, MinibarPill} from './MinibarPill'
 
 /**
- * How often the bar reads native's state: the timer, pause and mutes. The
- * events below bring a change at once; the poll keeps the timer going and
- * catches what an event missed (PARITY.md, `get_recording_state`). Half a
- * second divides the timer's second, so each second shows for a second.
+ * How often the bar reads native's state: the timer, pause and mutes, its
+ * own commands' and those made elsewhere (the tray, a shortcut), which reach
+ * it within this. Half a second divides the timer's second, so each second
+ * shows for a second.
  */
 const POLL_MS = 500
 
@@ -42,11 +37,18 @@ const TransparentWindow = createGlobalStyle`
     }
 `
 
+// The window follows the pill's width a moment after it changes: hide what
+// is outside it until then rather than scroll.
 const Window = styled.div`
     display: flex;
     align-items: center;
     height: 100%;
+    overflow: hidden;
 `
+
+function fitWindow(width: number) {
+    void resizeMinibar(width).catch((error: unknown) => console.error('Minibar: resizing failed', error))
+}
 
 /**
  * The `minibar` window, which minibar.rs opens at `/minibar` while the main
@@ -58,6 +60,7 @@ const Window = styled.div`
 export function MinibarPage() {
     const queryClient = useQueryClient()
     const [stopping, setStopping] = useState(false)
+    // An object, so the same failure twice restarts its timer.
     const [failure, setFailure] = useState<{ text: string } | null>(null)
     // Once Stop is pressed the timer holds at the take's length.
     const state = useQuery({...recordingStateQuery, refetchInterval: stopping ? false : POLL_MS})
@@ -68,10 +71,6 @@ export function MinibarPage() {
     const warning = useSystemAudioWarning(phase === 'recording' && !muted.system)
 
     const refresh = () => void queryClient.invalidateQueries({queryKey: recordingKeys.state()})
-    useNativeEvent(RECORDING_PAUSED_EVENT, refresh)
-    useNativeEvent(RECORDING_RESUMED_EVENT, refresh)
-    useNativeEvent(MICROPHONE_MUTE_CHANGED_EVENT, refresh)
-    useNativeEvent(SYSTEM_AUDIO_MUTE_CHANGED_EVENT, refresh)
 
     useEffect(() => {
         if (!failure) return
@@ -106,6 +105,10 @@ export function MinibarPage() {
         setStopping(true)
         try {
             // Native hides this window as the stop begins and closes it after.
+            // From there the stop cannot fail: what goes wrong (the audio file)
+            // reaches the main window with `recording-stop-complete`, which
+            // says so in a toast (save.ts). A rejection comes before native
+            // hid the bar, so the bar is still where the user can read it.
             await stopRecordingFromMinibar()
         } catch (error) {
             console.error('Minibar: stop failed', error)
@@ -134,6 +137,7 @@ export function MinibarPage() {
                     onToggleMute={toggleMute}
                     onStop={() => void stop()}
                     onBackToWindow={() => void run(exitCompactMode, 'Could not open')}
+                    onWidthChange={fitWindow}
                     onDragStart={() => void startWindowDragging().catch((error: unknown) => console.error('Minibar: dragging failed', error))}
                 />
             )}

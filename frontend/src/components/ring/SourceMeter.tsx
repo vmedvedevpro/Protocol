@@ -1,4 +1,3 @@
-import type {ReactElement} from 'react'
 import {MicrophoneIcon, MicrophoneSlashIcon, SpeakerHighIcon, SpeakerSlashIcon, WarningIcon} from '@phosphor-icons/react'
 import {AnimatePresence} from 'motion/react'
 import * as m from 'motion/react-m'
@@ -107,9 +106,6 @@ interface SourceMeterProps {
     tooltip?: boolean
 }
 
-// Stands in for Tooltip where none fits: the control alone.
-const NoTooltip = ({children}: { content: string, children: ReactElement }) => children
-
 /**
  * The microphone or computer-audio button of the recording bar and the
  * minibar: the source's icon and its level, or, when muted, a slashed icon and
@@ -123,13 +119,12 @@ export function SourceMeter({source, muted, level, onToggle, warning = null, too
     const shown = muted ? null : warning
     const Icon = shown ? WarningIcon : ICONS[source][muted ? 'muted' : 'on']
     const state = muted ? 'muted' : shown ?? 'on'
-    const Hint = tooltip ? Tooltip : NoTooltip
 
     // The name comes from the content, so it holds the visible "Muted"
     // (WCAG 2.5.3): "Mute microphone" while on, "Muted microphone" while
     // muted, with aria-pressed for the state. The tooltip says what a click does.
     return (
-        <Hint content={muted ? `Turn on ${name}` : shown ? WARNINGS[shown].advice : `Mute ${name}`}>
+        <Tooltip disabled={!tooltip} content={muted ? `Turn on ${name}` : shown ? WARNINGS[shown].advice : `Mute ${name}`}>
             <Button type="button" aria-pressed={muted} $muted={muted} $warning={!!shown} onClick={onToggle}>
                 <AnimatePresence mode="wait" initial={false}>
                     <Content
@@ -154,6 +149,6 @@ export function SourceMeter({source, muted, level, onToggle, warning = null, too
                     </Content>
                 </AnimatePresence>
             </Button>
-        </Hint>
+        </Tooltip>
     )
 }

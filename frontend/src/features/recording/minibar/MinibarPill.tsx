@@ -1,4 +1,4 @@
-import {type FocusEvent, useState} from 'react'
+import {type FocusEvent, useLayoutEffect, useRef, useState} from 'react'
 import {ArrowsOutSimpleIcon, PauseIcon, PlayIcon, StopIcon} from '@phosphor-icons/react'
 import {AnimatePresence} from 'motion/react'
 import * as m from 'motion/react-m'
@@ -19,9 +19,9 @@ import {formatTimer} from '../store/session'
  */
 export type MinibarPhase = 'recording' | 'paused' | 'finishing'
 
-// The pill fills the window (minibar.rs) from its left edge, so opening it
-// moves neither the ring nor Stop: what it reveals arrives to their right.
-// No shadow: the window is the pill's size and would cut it off.
+// The pill fills the window (minibar.rs), which follows its width, from its
+// left edge: opening it moves neither the ring nor Stop, and what it reveals
+// arrives to their right. No shadow: the window would cut it off.
 const Pill = styled.div`
     display: inline-flex;
     flex: none;
@@ -218,6 +218,8 @@ export interface MinibarPillProps {
     onBackToWindow: () => void
     /** A press on the pill outside its buttons: the window follows the pointer. */
     onDragStart: () => void
+    /** The pill's width in CSS pixels, rounded up, on mount and on every change. */
+    onWidthChange?: (width: number) => void
 }
 
 /**
@@ -240,8 +242,10 @@ export function MinibarPill({
     onStop,
     onBackToWindow,
     onDragStart,
+    onWidthChange,
 }: MinibarPillProps) {
     const theme = useTheme()
+    const pill = useRef<HTMLDivElement>(null)
     const hover = useOpenOnHover()
     const finishing = phase === 'finishing'
     const paused = phase === 'paused'
@@ -250,8 +254,19 @@ export function MinibarPill({
     const pauseLabel = paused ? 'Resume recording' : 'Pause recording'
     const status = failure ?? (finishing ? 'Finishing…' : paused ? 'Paused' : 'Recording')
 
+    // Opening, closing and a longer status change the width; the observer
+    // reports the first one too.
+    useLayoutEffect(() => {
+        const element = pill.current
+        if (!element || !onWidthChange) return
+        const observer = new ResizeObserver(() => onWidthChange(Math.ceil(element.getBoundingClientRect().width)))
+        observer.observe(element)
+        return () => observer.disconnect()
+    }, [onWidthChange])
+
     return (
         <Pill
+            ref={pill}
             role="group"
             aria-label="Recording controls"
             {...hover.handlers}

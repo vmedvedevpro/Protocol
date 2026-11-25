@@ -42,6 +42,8 @@ interface TooltipProps {
     shortcut?: string
     /** The control; it must accept a ref and spread its props onto a DOM element. */
     children: ReactElement
+    /** The control alone, where a tooltip would not fit (the minibar's window). */
+    disabled?: boolean
 }
 
 /**
@@ -49,10 +51,11 @@ interface TooltipProps {
  * at the window's edge). It opens and closes as menus do: a fade and a scale
  * from `SCALE_FROM` toward its control, over `fast`.
  */
-export function Tooltip({content, shortcut, children}: TooltipProps) {
+export function Tooltip({content, shortcut, children, disabled = false}: TooltipProps) {
     const theme = useTheme()
     // Controlled, so AnimatePresence sees it close and plays the exit.
     const [open, setOpen] = useState(false)
+    if (disabled) return children
 
     return (
         <RadixTooltip.Root open={open} onOpenChange={setOpen}>

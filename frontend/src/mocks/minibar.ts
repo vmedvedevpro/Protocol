@@ -11,6 +11,8 @@ export function createMockMinibar() {
         entered: [] as (number | null)[],
         /** Presses that moved the window (`startDragging`). */
         drags: 0,
+        /** The window's width from the last `resize_minibar`, null before one. */
+        width: null as number | null,
     }
 }
 
@@ -25,6 +27,11 @@ export function minibarHandlers(state: MockState): Record<string, MockHandler> {
             if (!state.live.recording) return null
             state.minibar.open = true
             state.minibar.entered.push(typeof elapsedSeconds === 'number' ? elapsedSeconds : null)
+            return null
+        },
+        // Native clamps it between the pill's height and MINIBAR_WIDTH.
+        resize_minibar: ({width}: MockArgs) => {
+            state.minibar.width = Math.min(Math.max(Number(width), 52), 512)
             return null
         },
         exit_compact_mode: () => {

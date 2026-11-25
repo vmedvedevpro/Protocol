@@ -927,16 +927,19 @@ recording and hides the main window: minimizing the main window does it
   mounts neither `RecordingRuntime` nor the session. It polls
   `recordingStateQuery` (`get_recording_state`) every 500 ms, which divides
   the timer's second, so each second shows for a second; the timer is
-  native's `active_duration`, never a local counter. `recording-paused`,
-  `-resumed` and the two `*-mute-changed` events read it again at once.
+  native's `active_duration`, never a local counter. Its own commands read
+  it again once they answer; a pause or mute from elsewhere (the tray, a
+  shortcut) shows within a poll, so it listens to no recording event.
   Pause, resume and the mutes call the recording feature's wrappers
   (`api/recording.ts`).
 - **Stop** calls `stop_recording_from_minibar`. Native hides the bar and
   brings the main window back as the stop begins, and the main window saves
   the meeting on `recording-stop-complete`, as after any Stop (Recording ›
   Stop and save). Until native closes it, the bar stops polling, holds its
-  timer and says Finishing… with a spinner where Stop was. Back to the full
-  window is `exit_compact_mode`.
+  timer and says Finishing… with a spinner where Stop was. Once native has
+  hidden the bar the stop cannot fail: a failure to save the audio reaches
+  the main window in `recording-stop-complete` and its toast. Back to the
+  full window is `exit_compact_mode`.
 - **The pill** (`MinibarPill`): closed, the ring (pause), the timer over
   Recording, Paused or Finishing…, and Stop. Hover, or keyboard focus inside
   it, opens the rest to its right: the microphone and computer audio
@@ -947,27 +950,32 @@ recording and hides the main window: minimizing the main window does it
   The design draws Stop last; there a pointer on its way to Stop would land
   on a mute button as the pill opened. What opens fades in from 4 px to the
   left over `base`; the pill's width changes once.
-- **The window.** `minibar.rs` sizes it to the open pill with room for a
-  longer status, 512×52 clipped to a 26 px radius, and centres the closed
-  pill (170 px) at the top of the primary monitor; `sizes.minibar` in the
-  theme repeats the sizes. The pill is the window's height, so it has no
-  shadow and the window no tooltips: every button carries its name, the
-  ring and Stop their `aria-keyshortcuts`. A press on the pill outside its
-  buttons moves the window (`startDragging`, allowed by the `minibar-drag`
-  capability).
+- **The window** follows the pill, so no transparent part of it takes
+  clicks meant for the windows below: a `ResizeObserver` on the pill sends
+  its width to `resize_minibar` as it opens, closes or its status grows.
+  Native clamps it to 52–512 px, keeps the window's left edge (the pill
+  grows rightwards) unless the open pill would leave the monitor, and clips
+  the window on Windows to the new rounded rectangle (26 px radius). The
+  window starts at the closed pill's 170×52, centred at the top of the
+  primary monitor: GTK never shrinks a non-resizable window below its first
+  size. Until the window catches up, the page clips what lies outside it;
+  `sizes.minibar` in the theme repeats the sizes. The pill is the window's
+  height, so it has no shadow and the window no tooltips: every button
+  carries its name, the ring and Stop their `aria-keyshortcuts`. A press
+  on the pill outside its buttons moves the window (`startDragging`,
+  allowed by the `minibar-drag` capability).
 - **Keys** while the bar has focus: Space pauses and resumes unless a
   button has focus, ⌘R (Ctrl R) stops.
 - **Failures** take the status's place for 5 s ("Could not pause", "Could
-  not stop"): the window has no room for a toast. After a failed Stop the
-  bar and the recording go on.
-- **Limits.** While the pill is closed, the transparent rest of the window
-  (about 340×52 px to its right) still takes clicks meant for the windows
-  under it; giving the window the pill's size would take native resizing
-  and, on Windows, a new window region. Not checked on a Mac, where a
-  window without focus may not report hover. A Wayland compositor places
-  windows itself, so the position there is its choice.
+  not stop"): the window has no room for a toast. A Stop fails only before
+  native hides the bar, so the bar and the recording go on.
+- **Limits.** The resizing is checked by `cargo check` and the mock only:
+  how it looks on Windows (the region) and on Linux (GTK, Wayland) waits
+  for the real-app QA (#121). Not checked on a Mac, where a window without
+  focus may not report hover. A Wayland compositor places windows itself,
+  so the position there is its choice.
 - Tests: `MinibarPage.test.tsx` on the mock (`src/mocks/minibar.ts`: the
-  three minibar commands and the window drag; its Stop runs the mock
+  minibar commands, the resize and the window drag; its Stop runs the mock
   recorder's). Stories: `Recording/Minibar`, the pill in each state, and
   `Recording/MinibarPage` on the mock recorder.
 

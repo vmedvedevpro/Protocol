@@ -91,7 +91,7 @@ same day.
 | Window controls drawn by the app on Windows | window | `components/WindowControls.tsx`, `hooks/useCustomChrome.ts`, `lib/window-chrome.ts` | #110 | Minimize, maximize (follows `onResized`), close. |
 | Close hides the main window to the tray | window | native `lib.rs` | #110 | Native; the UI only needs to expect a hidden window. |
 | Minimizing during a recording opens the minibar | window | native `lib.rs` | #116 | Native; the design's minimize hint matches it. |
-| Minibar window `minibar` | window | native `minibar.rs` | #116 | 680×72, frameless, on top, no taskbar entry, top centre, draggable, clipped to a 24 px rounded rectangle. The design's smaller pill changes these constants: since #116 512×52 with a 26 px radius, the closed pill centred ([UI_ARCHITECTURE.md › The minibar](../UI_ARCHITECTURE.md#the-minibar)). |
+| Minibar window `minibar` | window | native `minibar.rs` | #116 | 680×72, frameless, on top, no taskbar entry, top centre, draggable, clipped to a 24 px rounded rectangle. The design's smaller pill changes these constants: since #116 as wide as the pill (`resize_minibar`, at most 512) × 52 with a 26 px radius, the closed pill centred ([UI_ARCHITECTURE.md › The minibar](../UI_ARCHITECTURE.md#the-minibar)). |
 | Sidebar | window | `components/Sidebar/index.tsx`, `components/Sidebar/SidebarProvider.tsx` | #113 | New recording, import, record for a group, search, Contacts, Groups, the meeting list (by date or group, select, export, delete, F2 rename), Settings, About, resize. The design has no sidebar: the list is Home. Bulk select, export and delete are dropped (owner decision 2026-11-24). |
 | Recording pill on other pages | window | `components/recording/RecordingPill.tsx` | #112 | Timer, pause, stop, back to the recording. |
 | About dialog from the wordmark | window | `components/About.tsx` | #114 | General › About. |
@@ -435,8 +435,8 @@ such a command only on its platform
 | `recording-resumed` | event | `services/recordingService.ts` | #112 | |
 | `recording-stop-complete` | event | `contexts/RecordingPostProcessingProvider.tsx` | #112 | Main window only, with `stop_id`, folder and meeting name; starts the save. |
 | `recording-error` | event | `contexts/RecordingPostProcessingProvider.tsx` | #112 | |
-| `microphone-mute-changed` | event | `services/recordingService.ts` | #112 | Also the minibar (#116). |
-| `system-audio-mute-changed` | event | `services/recordingService.ts` | #112 | Also the minibar (#116). |
+| `microphone-mute-changed` | event | `services/recordingService.ts` | #112 | The minibar polls the mutes instead (#116). |
+| `system-audio-mute-changed` | event | `services/recordingService.ts` | #112 | The minibar polls the mutes instead (#116). |
 | `recording-audio-levels` | event | `components/LiveAudioVisualizer.tsx` | #109 | Live meters during a recording (bar, minibar). |
 | `audio-levels` | event | `components/RecordingVoiceLane.tsx`, `components/onboarding/steps/AudioTestStep.tsx` | #109 | Device-preview meters. |
 | `recording-audio-route-warning` | event | `app/layout.tsx` | #112 | In-app toast for 30 s. Its OS notification is dropped with desktop notifications (owner decision 2026-11-24, native removal #126). |

@@ -232,9 +232,9 @@ const sizes = {
     /** A folder chip on the meetings list, and its New folder button. */
     chip: '26px',
     /**
-     * The minibar: its window (`MINIBAR_WIDTH` and `MINIBAR_HEIGHT` in
-     * minibar.rs), as wide as the open pill with room for a longer status;
-     * the pill is the window's height. The ring has 1 px to spare above and
+     * The minibar: its window at its widest (`MINIBAR_WIDTH` and
+     * `MINIBAR_HEIGHT` in minibar.rs; it follows the pill's width), the open
+     * pill with room for a longer status; the pill is the window's height. The ring has 1 px to spare above and
      * below inside the pill's border; the timer column holds `h:mm:ss`.
      */
     minibar: {width: '512px', height: '52px', ring: '48px', clock: '64px'},

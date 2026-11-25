@@ -96,11 +96,9 @@ describe('MinibarPage', () => {
         await waitFor(() => expect(recording.systemMuted).toBe(true))
     })
 
-    it('follows a pause and a mute made elsewhere by their events', async () => {
+    it('follows a pause and a mute made elsewhere by its poll', async () => {
         recordFor(30)
         const {pill} = await renderMinibar()
-        // Let the listeners register before native emits.
-        await new Promise((resolve) => setTimeout(resolve, 0))
 
         await handlers.pause_recording({})
         await handlers.set_microphone_muted({muted: true})
@@ -150,6 +148,36 @@ describe('MinibarPage', () => {
 
         await waitFor(() => expect(mockState.minibar.open).toBe(false))
         expect(mockState.live.recording).not.toBeNull()
+    })
+
+    it('fits the window to the pill as it opens and closes', async () => {
+        // jsdom lays nothing out: report the width an open pill would have.
+        let width = 169.4
+        vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(() => ({width}) as DOMRect)
+        const observers: ResizeObserverCallback[] = []
+        vi.stubGlobal('ResizeObserver', class {
+            callback: ResizeObserverCallback
+            constructor(callback: ResizeObserverCallback) {
+                this.callback = callback
+                observers.push(callback)
+            }
+            observe() {
+                this.callback([], this as unknown as ResizeObserver)
+            }
+            disconnect() {}
+        })
+        try {
+            recordFor(30)
+            await renderMinibar()
+            await waitFor(() => expect(mockState.minibar.width).toBe(170))
+
+            width = 431.2
+            observers.forEach((callback) => callback([], {} as ResizeObserver))
+            await waitFor(() => expect(mockState.minibar.width).toBe(432))
+        } finally {
+            vi.unstubAllGlobals()
+            vi.restoreAllMocks()
+        }
     })
 
     it('moves the window from a press on the pill, not on its buttons', async () => {

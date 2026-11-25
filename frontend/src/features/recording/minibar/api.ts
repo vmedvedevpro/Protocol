@@ -17,6 +17,13 @@ export const enterCompactMode = (elapsedSeconds: number) => command<null>('enter
 export const exitCompactMode = () => command<null>('exit_compact_mode')
 
 /**
+ * Fits the window to the pill, `width` CSS pixels wide, so no transparent
+ * part of it takes clicks meant for the windows below. Native keeps the
+ * window's left edge and its monitor.
+ */
+export const resizeMinibar = (width: number) => command<null>('resize_minibar', {width})
+
+/**
  * Stops the recording from the minibar. Native hides the bar and restores
  * the main window as the stop begins, and the main window saves the meeting
  * on `recording-stop-complete`, as after any other Stop (save.ts). Resolves
