@@ -17,7 +17,6 @@ const source = (extra: Partial<ExportSource> = {}): ExportSource => ({
         line('Hello', 14, 'Speaker 2'),
     ],
     summary: {markdown: '## Decisions\n\n- Ship the pilot'},
-    actionItems: [],
     userName: 'Jay',
     ...extra,
 })

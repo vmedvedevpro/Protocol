@@ -391,6 +391,32 @@ the public catalog without a key. Tests: `cargo test -p protocol --lib --
 cloud_models anthropic:: groq:: openai::` (a local HTTP server stands in for
 the providers), frontend `SummaryModelPage.test.tsx`.
 
+**Summaries and action items** (#218). A summary keeps its action section
+as the model wrote it; nothing splits it into rows any more, and the app has
+no commands for the `action_items` table (the meeting, person screen, search,
+live assistant and MCP server read the summary text instead). Up to
+1.0.0-rc.1 the UI moved the section into `action_items` rows and saved the
+summary without it (`original_markdown` kept the full text,
+`meetings.action_items_source` the text it read). At startup, after the
+migrations, `DatabaseManager::new` runs
+`database/repositories/action_item.rs::restore_action_sections`: for each
+meeting not yet marked `restored-to-summary` it puts the section back
+(from `original_markdown`, before the heading that followed it, else at the
+end), adds the user's own rows (added or edited by hand) the text does not
+name, or renders every row as an "Action Items" list when the summary was
+edited after the move and has no original, drops stale editor blocks
+(`summary_json`) so the editor rebuilds from the Markdown, and marks the
+meeting in the same transaction. A data step rather than a migration: the
+summary is JSON holding Markdown and the section is found with the old UI's
+heading rules (ported to Rust), which SQL cannot express; a failed meeting
+is logged and retried at the next launch, and the table itself stays as
+released migrations left it (contact merges and deletions still keep its
+owner links). A new summary no longer clears the marker. Tests:
+`cargo test -p protocol --lib action_item` (headings, placement, user rows,
+an edited summary, the startup step run twice), `global_search_tests`
+(action text found as a summary), `protocol-mcp` tests (no
+`get_action_items`, `get_meeting` shows the section inside the summary).
+
 `diarization/mod.rs` owns persisted engine settings and offline command dispatch.
 Nemotron is Auto-detect only; manual counts belong to Pyannote.
 Pyannote clusters its turns (one local speaker of one non-overlapping 10 s

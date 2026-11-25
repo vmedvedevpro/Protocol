@@ -65,6 +65,14 @@ is inherited from the project Protocol forked from; Protocol did not release it.
   ([#216](https://github.com/vmedvedevpro/Protocol/issues/216)). On Windows
   and Linux, a processor without AVX2 gets a message that it is not
   supported and what it lacks, instead of the app closing without a word.
+- **Action items stay in the summary**
+  ([#218](https://github.com/vmedvedevpro/Protocol/issues/218)). The summary
+  lists them as the model wrote them; the separate list with owners, due
+  dates and checkboxes is gone, from the meeting, the person screen and
+  search. Summaries whose action items were moved out get them back the
+  first time this version starts, with any items you added by hand. AI
+  agents read them in the summary; the MCP server's `get_action_items`
+  tool is gone.
 
 ## Protocol 1.0.0-rc.1 — 2026-11-26
 

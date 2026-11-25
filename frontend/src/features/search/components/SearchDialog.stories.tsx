@@ -30,7 +30,7 @@ export const Light: Story = {globals: {theme: 'light'}}
 
 export const Dark: Story = {globals: {theme: 'dark'}}
 
-/** Words found in lines, summaries and action items, grouped as native ranks them. */
+/** Words found in lines and summaries, grouped as native ranks them. */
 export const Results: Story = {beforeEach: () => openSearch('retention')}
 
 /** A person and the meetings with their name. */

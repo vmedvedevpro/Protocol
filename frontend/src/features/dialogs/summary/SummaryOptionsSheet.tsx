@@ -227,7 +227,7 @@ function SummaryForm({request, templateId, onTemplate, onWriting, onChangeModel}
                 onChange={(event) => setFocus(event.target.value)}
                 onKeyDown={onKeyDown}
             />
-            {summary.data?.userEdited && <Note>Writing it again replaces your edits to the summary. Your notes and action items stay.</Note>}
+            {summary.data?.userEdited && <Note>Writing it again replaces your edits to the summary. Your notes stay.</Note>}
         </Form>
     )
 }

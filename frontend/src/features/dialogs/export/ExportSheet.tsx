@@ -1,7 +1,6 @@
 import {useState} from 'react'
 import {useQuery} from '@tanstack/react-query'
 import styled from 'styled-components'
-import {actionItemsQuery} from '@/api/actionItems'
 import {errorMessage} from '@/api/core'
 import {meetingQuery, meetingTranscriptsQuery, summaryQuery} from '@/api/meetings'
 import {useUserName} from '@/api/preferences'
@@ -143,14 +142,13 @@ function ExportForm({request, format, onFormat, onBusy}: ExportFormProps) {
     const meeting = useQuery(meetingQuery(meetingId))
     const lines = useQuery(meetingTranscriptsQuery(meetingId))
     const summary = useQuery(summaryQuery(meetingId))
-    const items = useQuery(actionItemsQuery({meetingId}))
     const [chosen, setContent] = useState<ExportContent | null>(null)
     const [linkStyle, setLinkStyle] = useState<LinkStyle>(readLinkStyle)
 
     if (meeting.isError || lines.isError) {
         return <Muted role="alert">{errorMessage(meeting.error ?? lines.error)}</Muted>
     }
-    if (!meeting.data || !lines.data || summary.isPending || items.isPending) {
+    if (!meeting.data || !lines.data || summary.isPending) {
         return <Waiting aria-busy="true"><Spinner delayed/></Waiting>
     }
 
@@ -160,7 +158,6 @@ function ExportForm({request, format, onFormat, onBusy}: ExportFormProps) {
         createdAt: dateOf(meeting.data.created_at),
         lines: lines.data,
         summary: summary.data?.data,
-        actionItems: items.data ?? [],
         userName: userName || undefined,
     }
     const hasTranscript = lines.data.length > 0

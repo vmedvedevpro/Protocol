@@ -20,7 +20,7 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
-/** The summary, editable, its action items under it; the player docked below. */
+/** The summary, editable, its action items in it; the player docked below. */
 export const Light: Story = {globals: {theme: 'light'}}
 
 export const Dark: Story = {globals: {theme: 'dark'}}

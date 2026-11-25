@@ -119,47 +119,6 @@ export function summaryBlocks(data: SummaryData | null): unknown[] | null {
     return Array.isArray(data?.summary_json) ? data.summary_json : null
 }
 
-/** One editor's share of a summary: its blocks when the summary has them, and its Markdown. */
-export interface SummaryPart {
-    blocks: unknown[] | null
-    markdown: string
-}
-
-// The section the action items go before: the design orders Decisions,
-// Action items, Open questions. Both forms of a summary test their
-// headings' titles with it.
-const AFTER_ACTION_ITEMS = /^open questions\b/i
-const MARKDOWN_HEADING = /^#{1,6}[ \t]+(.*)$/
-
-const isSectionAfterActionItems = (title: string | undefined) => title !== undefined && AFTER_ACTION_ITEMS.test(title.trim())
-
-const NO_PART: SummaryPart = {blocks: null, markdown: ''}
-
-/**
- * Splits a summary where its action items belong, before its "Open
- * questions" section, so the rows sit between Decisions and Open questions.
- * Without that section (or when it comes first) the second part is empty.
- * A summary edited in the app splits its blocks; one native wrote, its Markdown.
- */
-export function splitSummaryAtActionItems(data: SummaryData | null): [SummaryPart, SummaryPart] {
-    const blocks = summaryBlocks(data)
-    if (blocks) {
-        const at = blocks.findIndex((raw) => {
-            const block = raw as { type?: string; content?: unknown }
-            return block?.type === 'heading' && isSectionAfterActionItems(inlineText(block.content))
-        })
-        if (at <= 0) return [{blocks, markdown: completeSummaryMarkdown(data)}, NO_PART]
-        const head = blocks.slice(0, at)
-        const tail = blocks.slice(at)
-        return [{blocks: head, markdown: blocksToMarkdown(head)}, {blocks: tail, markdown: blocksToMarkdown(tail)}]
-    }
-    const markdown = completeSummaryMarkdown(data)
-    const lines = markdown.split('\n')
-    const at = lines.findIndex((line) => isSectionAfterActionItems(MARKDOWN_HEADING.exec(line)?.[1]))
-    if (at <= 0) return [{blocks: null, markdown}, NO_PART]
-    return [{blocks: null, markdown: lines.slice(0, at).join('\n').trimEnd()}, {blocks: null, markdown: lines.slice(at).join('\n')}]
-}
-
 /**
  * A piece of a summary's Markdown as plain text, for one line of search
  * results: native's snippet is the stored Markdown cut around the match, so

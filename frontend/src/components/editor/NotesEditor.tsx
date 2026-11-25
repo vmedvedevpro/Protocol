@@ -36,8 +36,8 @@ export interface NotesEditorProps {
     /** The initial content is in the editor. */
     onReady?: () => void
     /**
-     * `summary`: every heading is a section label (small, semibold, muted, as
-     * Action items is), the editor is as tall as its content rather than its
+     * `summary`: every heading is a section label (small, semibold, muted),
+     * the editor is as tall as its content rather than its
      * panel, and the empty line BlockNote keeps at the end takes no room
      * until the editor has focus.
      */

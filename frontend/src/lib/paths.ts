@@ -11,7 +11,7 @@ export const paths = {
     folder: (folderId: string) => `/?${new URLSearchParams({folder: folderId})}`,
     /**
      * A meeting, optionally on a tab and at a moment (`?at=` seconds), as a
-     * search result opens a line that was said or an action item.
+     * search result opens a line that was said.
      */
     meeting: (meetingId: string, view: { tab?: 'notes' | 'transcript' | 'summary', at?: number, line?: string } = {}) => {
         const params = new URLSearchParams()

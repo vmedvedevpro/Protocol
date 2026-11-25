@@ -108,7 +108,7 @@ export class MeetingPlayer {
 
     skip = (delta: number) => this.seek(this.position + delta)
 
-    /** Plays from a moment, as a transcript time or an action item does. */
+    /** Plays from a moment, as a transcript time does. */
     playFrom = (seconds: number) => {
         this.seek(seconds)
         this.play()

@@ -36,7 +36,6 @@ async fn reading_changes_nothing_on_disk() {
     tools::get_meeting(conn, GetMeetingArgs { meeting_id: "m1".into(), include_transcript: Some(true) }).await.unwrap();
     tools::get_transcript(conn, GetTranscriptArgs { meeting_id: "m2".into(), offset: None, limit: None }).await.unwrap();
     tools::get_summary(conn, GetSummaryArgs { meeting_id: "m2".into() }).await.unwrap();
-    tools::get_action_items(conn, GetActionItemsArgs::default()).await.unwrap();
     tools::search(conn, SearchArgs { query: "budget".into(), ..Default::default() }).await.unwrap();
     tools::list_people(conn, ListPeopleArgs::default()).await.unwrap();
     tools::list_groups(conn, ListGroupsArgs::default()).await.unwrap();

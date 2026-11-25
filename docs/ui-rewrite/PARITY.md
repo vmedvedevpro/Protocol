@@ -181,9 +181,9 @@ such a command only on its platform
 
 | Item | Kind | Old file | Owner | Notes |
 | --- | --- | --- | --- | --- |
-| `api_create_action_item` | command | `lib/workspace-api.ts` | #113 | Add an item. |
+| `api_create_action_item` | command | `lib/workspace-api.ts` | dropped | Dropped with the separate action items (owner decision, #218): the summary keeps its action section as text. |
 | `api_create_group` | command | `lib/workspace-api.ts` | #113 | New folder; also the search command (#118). |
-| `api_delete_action_item` | command | `lib/workspace-api.ts` | #113 | Delete an item. |
+| `api_delete_action_item` | command | `lib/workspace-api.ts` | dropped | Dropped with the separate action items (owner decision, #218): the summary keeps its action section as text. |
 | `api_delete_group` | command | `lib/workspace-api.ts` | #113 | Delete a folder; meetings stay. |
 | `api_delete_meeting` | command | `lib/meeting-actions.ts` | #113 | Delete; audio files stay in the recordings folder. |
 | `api_get_group` | command | `lib/workspace-api.ts` | #113 | Folder detail (the Groups page used it; the list filter needs only the list). |
@@ -194,14 +194,14 @@ such a command only on its platform
 | `api_get_meeting_notes` | command | `lib/workspace-api.ts` | #111 | Notes as Markdown + BlockNote JSON. |
 | `api_get_meeting_transcripts` | command | `hooks/meeting-details/useCopyOperations.ts`, `hooks/meeting-details/useSummaryGeneration.ts`, `hooks/usePaginatedTranscripts.ts` +2 | #113 | Paged transcript; also copy, export (#119) and action-item backfill. |
 | `api_get_meetings` | command | `components/Sidebar/SidebarProvider.tsx`, `services/storageService.ts` | #113 | Meetings list with summary preview, speaker names and dates. |
-| `api_list_action_items` | command | `lib/workspace-api.ts` | #113 | Action items of a meeting; also person (#118) and search (#118). |
+| `api_list_action_items` | command | `lib/workspace-api.ts` | dropped | Dropped with the separate action items (owner decision, #218): the summary keeps its action section as text. |
 | `api_list_groups` | command | `lib/workspace-api.ts` | #113 | Folders (groups) for the list filter and pickers. |
 | `api_list_unsynced_action_meetings` | command | `lib/workspace-api.ts` | #113 | Backfill of older summaries, once per session (`af-action-backfill-done`). |
 | `api_save_meeting_notes` | command | `lib/workspace-api.ts` | #111 | Autosaved notes; the live notes are saved here on Stop (#112). |
 | `api_save_meeting_title` | command | `lib/meeting-actions.ts` | #113 | Rename. |
 | `api_set_meeting_group` | command | `hooks/useRecordingStop.ts`, `lib/workspace-api.ts` | #113 | Move to folder; also files a new recording into its pending group (#112). |
-| `api_sync_ai_action_items` | command | `lib/workspace-api.ts` | #113 | Copies items out of a new summary into the table. |
-| `api_update_action_item` | command | `lib/workspace-api.ts` | #113 | Check off, edit, owner, due date. |
+| `api_sync_ai_action_items` | command | `lib/workspace-api.ts` | dropped | Dropped with the separate action items (owner decision, #218): the summary keeps its action section as text. |
+| `api_update_action_item` | command | `lib/workspace-api.ts` | dropped | Dropped with the separate action items (owner decision, #218): the summary keeps its action section as text. |
 | `api_update_group` | command | `lib/workspace-api.ts` | #113 | Rename/recolor a folder. |
 | `get_waveform_peaks` | command | `hooks/useWaveform.ts` | #113 | Waveform in the player (Labs › Waveform scrubbing). |
 | `open_meeting_folder` | command | `hooks/meeting-details/useMeetingOperations.ts` | #113 | Open recording folder. |
@@ -232,7 +232,7 @@ such a command only on its platform
 | --- | --- | --- | --- | --- |
 | `api_create_person` | command | `lib/workspace-api.ts` | #118 | New contact (search command); also "New contact" in Who said this (#119). |
 | `api_delete_person` | command | `lib/workspace-api.ts` | #118 | Delete a contact. |
-| `api_get_person_profile` | command | `app/meetings/page.tsx`, `app/person/page.tsx` | #118 | Person screen: details, meetings together, open action items. |
+| `api_get_person_profile` | command | `app/meetings/page.tsx`, `app/person/page.tsx` | #118 | Person screen: details, meetings together; its open action items are dropped (#218). |
 | `api_list_people` | command | `lib/workspace-api.ts` | #118 | Contacts for search, the speaker dialog (#119) and filters. |
 | `api_merge_people` | command | `lib/workspace-api.ts` | #118 | Merge with another contact. |
 | `api_update_person` | command | `lib/workspace-api.ts` | #118 | Edit details. |
@@ -398,7 +398,7 @@ such a command only on its platform
 
 | Item | Kind | Old file | Owner | Notes |
 | --- | --- | --- | --- | --- |
-| `api_global_search` | command | `components/GlobalSearchDialog.tsx` | #118 | People, folders, meetings, action items, said in a meeting, in a summary. |
+| `api_global_search` | command | `components/GlobalSearchDialog.tsx` | #118 | People, folders, meetings, said in a meeting, in a summary (action item hits dropped in #218: they are summary text). |
 
 ### Dropped commands
 
@@ -620,7 +620,7 @@ removal #126).
 | Delete group | dialog | `components/groups/GroupDetailView.tsx` | #113 | Delete folder. |
 | Remove model? (Parakeet, Whisper, Intel GPU version) | dialog | `components/settings/ModelRow.tsx`, `components/settings/ForThisComputer.tsx` | #117 | |
 | Remove NVIDIA Nemotron? | dialog | `components/DiarizationSettings.tsx` | #117 | |
-| Search and commands | dialog | `components/GlobalSearchDialog.tsx` | #118 | Groups: People, Groups, Meetings, Action items, Said in a meeting, In a summary; commands: record, pause, stop, import, new contact, new group, go to, theme. |
+| Search and commands | dialog | `components/GlobalSearchDialog.tsx` | #118 | Groups: People, Groups, Meetings, Said in a meeting, In a summary (Action items dropped, #218); commands: record, pause, stop, import, new contact, new group, go to, theme. |
 | Update pill and panel | banner | `components/updater/UpdateIndicator.tsx`, `UpdatePanel.tsx`, `ReleaseNotes.tsx` | #113 | Home banner "Update ready". |
 | Update available / ready / failed | toast | `components/updater/UpdateToasts.tsx` | #113 | Seen keys in localStorage `protocol-updater-seen-v1`. |
 | Download progress panel | toast | `components/shared/DownloadProgressToast.tsx` | #117 | Replaced by one status line in the bottom bar while any download runs (Parakeet, built-in summary model, Whisper, Nemotron); a click opens Settings › Speech models (owner decision 2026-11-24). The line sits in #110's bar. |

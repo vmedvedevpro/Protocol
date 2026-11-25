@@ -11,13 +11,18 @@ opens the meeting database read-only. It is off until the user turns on
 | Tool | Answers | Paging and limits |
 |---|---|---|
 | `list_meetings` | Meetings newest first: local start time, length, transcript lines, group, named contacts, whether a summary exists. Filters: `from`/`to`, `person`, `group`, `title`. | `limit` ≤ 100, `offset` |
-| `get_meeting` | One meeting: contacts with the speaker labels they were given, the transcript's labels with line counts, the user's notes, action items, the AI summary; with `include_transcript`, the transcript's first lines. | one result |
+| `get_meeting` | One meeting: contacts with the speaker labels they were given, the transcript's labels with line counts, the user's notes, the AI summary (its action items are part of it); with `include_transcript`, the transcript's first lines. | one result |
 | `get_transcript` | `[start–end] Speaker: text` lines in the app's order; a label is written only where it changes, and on each page's first line. | `limit` ≤ 500, `offset` |
 | `search` | The Ctrl+K search (`meeting_library::search`) with filters (`kinds`, `from`/`to`, `person`, `group`); a transcript hit names its line (counted from 1, as `get_transcript` shows lines) and the `offset` to read it from. | `limit` ≤ 50, results 1–200 |
 | `get_summary` | The summary as Markdown, as the export renders it, with its status (being regenerated, failed, edited by the user). | one result |
-| `get_action_items` | One meeting's items in order, or open items across meetings; filters by owner, group, dates, status. | `limit` ≤ 200, `offset` |
 | `list_people` | Contacts with email, company, role, meeting count, last meeting, groups. Phone numbers and the user's notes about a person stay out. | `limit` ≤ 200, `offset` |
 | `list_groups` | Groups with kind, meeting count, last meeting, description. | `limit` ≤ 200, `offset` |
+
+There is no `get_action_items` tool since #218: the action items are the
+summary's own section, as the model wrote them, so `get_meeting`,
+`get_summary` and `search` (`kinds: ["summary"]`) carry them. The
+`action_items` table older versions filled stays in the database and is not
+read; the `action` search kind is refused as unknown.
 
 `person` and `group` take an id or a name: the exact name, else every name
 containing it; the answer says what the name matched. Dates are local calendar
@@ -28,8 +33,8 @@ Unknown arguments are refused with the list of allowed ones.
 query there takes its first rows in its own order (a meeting's lines from the
 start) before the merge re-sorts them; paged that way, later pages repeated
 earlier hits and never reached the rest. For the server each kind returns its
-best rows in the merged order instead: transcript lines and action items are
-sorted by the merge key in SQL, and every matching title, contact and group is
+best rows in the merged order instead: transcript lines are sorted by the
+merge key in SQL, and every matching title, contact and group is
 read, since their rank is computed in Rust (`search::Window`).
 
 Every result is one text block, with no `structuredContent` and no
@@ -77,7 +82,7 @@ The app's `PeopleRepository::global_search` (Ctrl+K) calls the same
 results.
 
 **Letter case.** SQLite's `lower()` and `LIKE` fold ASCII only, so before #8
-a capitalised Russian word in a title, transcript line or action item was
+a capitalised Russian word in a title or transcript line was
 found only as written ("бюджет" missed "Бюджет утвердили"). The search now
 lowers those columns with `unicode_lower` (`meeting_library::sql`), Rust's
 `str::to_lowercase` registered as an SQL function on every connection of the
@@ -139,7 +144,6 @@ laptop, median of three:
 | `search`, no match (scans every line) | 155 | 130 |
 | `search`, results 151–200 | 218 | 180 |
 | `search`, one group | 170 | 137 |
-| `get_action_items`, all open | 3 | |
 | `list_people`, 200 | 3 | |
 
 An app save of 500 transcript lines started during the no-match search
@@ -244,7 +248,8 @@ Code `/mcp` and reconnect; quit and reopen Claude Desktop).
   long page.
 - `cargo test -p protocol --lib`: `global_search_tests` (Ctrl+K unchanged
   except that capitalised Cyrillic now matches, in titles, transcript lines
-  and action items, at a line start and mid-sentence), `agent_access`, `claude_desktop_extension` (manifest 0.3 properties, the
+  and summaries, at a line start and mid-sentence, and that the old action
+  item rows are no results since #218), `agent_access`, `claude_desktop_extension` (manifest 0.3 properties, the
   bundle's contents, a moved app).
 - `frontend/tests/agent-access.test.tsx` (Bun): off by default, the privacy
   statement, the commands and Copy, the extension button and its failures, a

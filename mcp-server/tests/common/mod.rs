@@ -12,7 +12,8 @@ pub const DB_FILE: &str = "meeting_minutes.sqlite";
 
 /// Every kind of row the tools read, plus what they must never show: a
 /// deleted meeting's leftovers (rows written with foreign keys off, as legacy
-/// databases have), a person's phone and notes, a summary's hidden cache.
+/// databases have), a person's phone and notes, a summary's hidden cache, and
+/// the `action_items` rows older versions kept apart from the summary (#218).
 pub const LIBRARY: &str = r###"
 INSERT INTO groups (id, name, normalized_name, color, kind, description, created_at, updated_at) VALUES
     ('g1', 'Budget committee', 'budget committee', '#ff0000', 'team', 'Monthly budget review', '2026-09-01T00:00:00Z', '2026-09-01T00:00:00Z'),
@@ -40,7 +41,7 @@ INSERT INTO person_speakers (person_id, meeting_id, speaker_label) VALUES
 INSERT INTO meeting_notes (meeting_id, notes_markdown, created_at, updated_at) VALUES
     ('m1', 'Remember the travel freeze', '2026-10-01T09:30:00Z', '2026-10-01T09:30:00Z');
 INSERT INTO summary_processes (meeting_id, status, created_at, updated_at, result, error, user_edited) VALUES
-    ('m1', 'completed', '2026-10-01T10:00:00Z', '2026-10-01T10:00:00Z', '{"markdown":"## Decisions\n- Budget cut approved","english_cache":{"markdown":"cache text"}}', NULL, 1),
+    ('m1', 'completed', '2026-10-01T10:00:00Z', '2026-10-01T10:00:00Z', '{"markdown":"## Decisions\n- Budget cut approved\n\n## Action Items\n- Alice: Send the budget to finance (due Friday)","english_cache":{"markdown":"cache text"}}', NULL, 1),
     ('m2', 'completed', '2026-10-02T10:00:00Z', '2026-10-02T10:00:00Z', '{"summary_json":[{"type":"heading","props":{"level":2},"content":[{"text":"Итоги"}]},{"type":"bulletListItem","content":[{"text":"Бюджет согласован"}]}]}', NULL, 0),
     ('m3', 'PENDING', '2026-10-03T11:00:00Z', '2026-10-03T12:00:00Z', '{"markdown":"Retro notes"}', NULL, 0),
     ('m4', 'failed', '2026-10-04T10:00:00Z', '2026-10-04T10:00:00Z', NULL, 'model not downloaded', 0),

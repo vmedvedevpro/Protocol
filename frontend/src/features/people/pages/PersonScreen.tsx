@@ -1,10 +1,8 @@
-import {type ReactNode, type RefObject, useEffect, useMemo, useRef, useState} from 'react'
+import {type ReactNode, type RefObject, useEffect, useRef, useState} from 'react'
 import {DotsThreeIcon, GitMergeIcon, PencilSimpleIcon, TrashIcon} from '@phosphor-icons/react'
 import {useMutation, useQuery, useQueryClient} from '@tanstack/react-query'
-import * as m from 'motion/react-m'
 import {Link, useNavigate, useParams} from 'react-router-dom'
 import styled, {css} from 'styled-components'
-import {type ActionItem, actionItemsQuery, updateActionItemMutation} from '@/api/actionItems'
 import {errorMessage} from '@/api/core'
 import {
     describeVoiceSource,
@@ -23,13 +21,10 @@ import {Menu, MenuItem, MenuSeparator} from '@/components/ui/Menu'
 import {Spinner} from '@/components/ui/Spinner'
 import {colorTransition, focusRing} from '@/components/ui/styles'
 import {TextArea} from '@/components/ui/TextField'
-import {Veil} from '@/components/ui/Veil'
 import {toast} from '@/components/ui/toastStore'
-import {useArrivedIds} from '@/lib/arrivedIds'
 import {useAutosave, useSaving} from '@/lib/autosave'
 import {dayWhen, parseDate} from '@/lib/dates'
 import {paths} from '@/lib/paths'
-import {tween} from '@/styles/motion'
 import {ContactSheet, DeleteContactSheet, MergeContactSheet} from '../components/ContactSheets'
 
 const Head = styled.div`
@@ -112,9 +107,7 @@ const Badge = styled.span`
     color: ${({theme}) => theme.colors.muted};
 `
 
-// The card's colour is behind the veil of a row that arrives on it (Veil).
 const Card = styled.div`
-    --surface: ${({theme}) => theme.colors.surface};
     border-radius: ${({theme}) => theme.radii.xl};
     background: ${({theme}) => theme.colors.surface};
 `
@@ -185,34 +178,6 @@ const When = styled.span`
     color: ${({theme}) => theme.colors.muted};
 `
 
-const ItemRow = styled(m.div)`
-    position: relative;
-    ${rowStyle};
-    align-items: flex-start;
-    gap: ${({theme}) => theme.space[2.5]};
-`
-
-const Check = styled.input`
-    flex: none;
-    margin: ${({theme}) => theme.space[0.5]} 0 0;
-    accent-color: ${({theme}) => theme.colors.text};
-    cursor: pointer;
-    ${focusRing};
-`
-
-const ItemLink = styled(Link)`
-    flex: 1;
-    min-width: 0;
-    border-radius: ${({theme}) => theme.radii.xs};
-    color: ${({theme}) => theme.colors.text};
-    text-decoration: none;
-    ${focusRing};
-
-    &:hover > span:first-child {
-        text-decoration: underline;
-    }
-`
-
 const VoiceRow = styled.div`
     ${rowStyle};
     align-items: center;
@@ -254,8 +219,8 @@ export function PersonRoute() {
 const firstName = (name: string) => name.trim().split(/\s+/)[0] || name
 
 /**
- * A contact (#118): their details, their voice (Labs), the action items
- * they still owe, the meetings they spoke in and the user's private notes.
+ * A contact (#118): their details, their voice (Labs), the meetings they
+ * spoke in and the user's private notes.
  * It opens from search and from a name in a meeting's transcript; Edit,
  * Merge and Delete are in its menu.
  */
@@ -315,7 +280,6 @@ export function PersonScreen({personId}: { personId: string }) {
             <Body>
                 <Details person={person} onEdit={() => setSheet('edit')}/>
                 <Voice person={person}/>
-                <OpenItems person={person}/>
                 <Meetings person={person}/>
                 <Notes person={person} flushRef={flushNotes}/>
             </Body>
@@ -417,60 +381,6 @@ function Voice({person}: { person: PersonProfile }) {
                         <Button size="sm" pending={forget.isPending} disabled={learn.isPending} onClick={forgetVoice}>Forget</Button>
                     )}
                 </VoiceRow>
-            </Card>
-        </Section>
-    )
-}
-
-/** What they still owe: checking one off moves it out, with Undo in the toast. */
-function OpenItems({person}: { person: PersonProfile }) {
-    const items = useQuery(actionItemsQuery({personId: person.id, openOnly: true}))
-    const update = useMutation(updateActionItemMutation)
-    const first = firstName(person.displayName)
-
-    // Items there when the list first loads arrive with the screen; one that
-    // shows up later (Undo brings it back) rises under a veil, and one
-    // checked off goes at once: text never fades (Veil).
-    const itemIds = useMemo(() => items.data?.map((item) => item.id), [items.data])
-    const arrived = useArrivedIds(itemIds)
-
-    const setDone = (item: ActionItem, done: boolean) => update.mutate({...item, done}, {
-        onSuccess: () => done && toast.success('Marked as done', {
-            description: item.text,
-            action: {label: 'Undo', onClick: () => setDone(item, false)},
-        }),
-        onError: (error) => toast.error('Couldn’t update the action item', {description: error.message}),
-    })
-
-    return (
-        <Section aria-labelledby="person-items">
-            <SectionHeader id="person-items" title="Open action items"/>
-            <Card>
-                {items.isError && <Empty role="alert">Couldn’t load the action items: {items.error.message}</Empty>}
-                {items.isSuccess && items.data.length === 0 && <Empty>Nothing open for {first}.</Empty>}
-                {(items.data ?? []).map((item) => {
-                    const arriving = arrived.has(item.id)
-                    return (
-                        <ItemRow
-                            key={item.id}
-                            initial={arriving ? {y: 4} : false}
-                            animate={{y: 0}}
-                            transition={tween('base', 'enter')}
-                        >
-                            <Check
-                                type="checkbox"
-                                checked={item.done}
-                                aria-label={`Mark “${item.text}” as done`}
-                                onChange={(event) => setDone(item, event.target.checked)}
-                            />
-                            <ItemLink to={paths.meeting(item.meetingId, {tab: 'summary', at: item.audioTime})}>
-                                <OneLine>{item.text}</OneLine>
-                                <Sub>{[item.dueText, item.meetingTitle].filter(Boolean).join(' · ')}</Sub>
-                            </ItemLink>
-                            {arriving && <Veil/>}
-                        </ItemRow>
-                    )
-                })}
             </Card>
         </Section>
     )

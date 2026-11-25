@@ -77,8 +77,9 @@ async fn ctrl_k_results_stay_as_they_were() {
 }
 
 /// Capitalised Cyrillic, at the start of a text and in the middle of it, in a
-/// meeting title, transcript lines and an action item, found whatever case the
-/// query is typed in (#8).
+/// meeting title, transcript lines and a summary's action item, found whatever
+/// case the query is typed in (#8). The meeting's old `action_items` row is
+/// not a result of its own (#218): the item is found in the summary.
 #[tokio::test]
 async fn capitalised_cyrillic_is_found_in_any_case() {
     let pool = library().await;
@@ -89,8 +90,10 @@ INSERT INTO meetings (id, title, created_at, updated_at) VALUES
 INSERT INTO transcripts (id, meeting_id, transcript, timestamp, speaker, audio_start_time, audio_end_time) VALUES
     ('t7', 'm4', 'Отчёт сдаём в пятницу', '2026-10-04T09:00:05Z', 'You', 5.0, 7.0),
     ('t8', 'm4', 'Потом обсудим ОТЧЁТ целиком и Отчёт по рискам', '2026-10-04T09:00:09Z', 'Guest', 9.0, 12.0);
+INSERT INTO summary_processes (meeting_id, status, created_at, updated_at, result) VALUES
+    ('m4', 'completed', '2026-10-04T10:00:00Z', '2026-10-04T10:00:00Z', '{"markdown":"## Action Items\n- Борис: Отправить Отчёт финансистам"}');
 INSERT INTO action_items (id, meeting_id, text, owner_label, person_id, done, source, position, created_at, updated_at) VALUES
-    ('a3', 'm4', 'Отправить Отчёт финансистам', 'Борис', NULL, 0, 'user', 0, '2026-10-04T10:00:00Z', '2026-10-04T10:00:00Z');
+    ('a3', 'm4', 'Отправить Отчёт финансистам', 'Борис', NULL, 0, 'ai', 0, '2026-10-04T10:00:00Z', '2026-10-04T10:00:00Z');
 "###,
     )
     .execute(&pool)
@@ -105,17 +108,19 @@ INSERT INTO action_items (id, meeting_id, text, owner_label, person_id, done, so
             .iter()
             .map(|result| result["id"].as_str().unwrap().to_string())
             .collect();
-        assert_eq!(found, ["m4", "a3", "t8", "t7"], "query {query:?}");
+        assert_eq!(found, ["m4", "t8", "t7", "summary-m4"], "query {query:?}");
     }
     let owner = search(&pool, "борис", None).await;
-    assert_eq!(owner[0]["id"], "a3", "owner label: {owner}");
+    assert_eq!(owner.as_array().unwrap().len(), 1, "{owner}");
+    assert_eq!(owner[0]["id"], "summary-m4", "the owner as the summary wrote it: {owner}");
 }
 
 /// What the search returned on this library before it moved (#8), except for
 /// one deliberate change: "бюджет" now finds the transcript line "Бюджет …"
 /// (t3), which SQLite's ASCII-only `lower()` used to miss while the summary
 /// match (Rust lowercase) found "Бюджет согласован". The deleted meeting's
-/// line and the summary cache never match.
+/// line and the summary cache never match. Since #218 the `action_items` rows
+/// (a1, a2) are no results: an action item is found in its summary's text.
 const EXPECTED: &str = r###"{
   "50%": [
     {"id": "m3", "kind": "meeting", "meetingId": "m3", "snippet": "Retro 50% done",
@@ -135,9 +140,7 @@ const EXPECTED: &str = r###"{
      "speaker": "Alice", "timestamp": "2026-10-01T09:01:00Z", "title": "Budget review", "transcriptId": "t6"},
     {"audioStartTime": 12.5, "id": "t1", "kind": "transcript", "meetingId": "m1",
      "snippet": "We need to cut the budget by ten percent", "speaker": "Alice",
-     "timestamp": "2026-10-01T09:00:12.500Z", "title": "Budget review", "transcriptId": "t1"},
-    {"id": "a1", "kind": "action", "meetingId": "m1", "snippet": "Send the budget to finance",
-     "speaker": "Alice", "timestamp": "2026-10-01T09:00:00+00:00", "title": "Budget review"}
+     "timestamp": "2026-10-01T09:00:12.500Z", "title": "Budget review", "transcriptId": "t1"}
   ],
   "blank": [],
   "budget": [
@@ -147,10 +150,6 @@ const EXPECTED: &str = r###"{
      "snippet": "0 mapped meetings", "title": "Budgetary Office"},
     {"color": "#ff0000", "groupId": "g1", "id": "g1", "kind": "group", "meetingCount": 2,
      "snippet": "2 meetings", "title": "Budget committee"},
-    {"id": "a2", "kind": "action", "meetingId": "m3", "snippet": "Close the budget ticket",
-     "speaker": "Bob", "timestamp": "2026-10-03 10:00:00", "title": "Retro 50% done"},
-    {"id": "a1", "kind": "action", "meetingId": "m1", "snippet": "Send the budget to finance",
-     "speaker": "Alice", "timestamp": "2026-10-01T09:00:00+00:00", "title": "Budget review"},
     {"audioStartTime": 3.0, "id": "t3", "kind": "transcript", "meetingId": "m2",
      "snippet": "Бюджет утвердили, budget is final", "speaker": "Speaker 2",
      "timestamp": "2026-10-02T09:00:03Z", "title": "Планёрка по бюджету", "transcriptId": "t3"},

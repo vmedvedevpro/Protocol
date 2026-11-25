@@ -479,9 +479,9 @@ export const editorStyles = css`
 
 /**
  * The summary's editor (NotesEditor `variant="summary"`): every heading is
- * a section label like Action items under it, and the empty line BlockNote
- * keeps at the end takes no room until the editor has focus, so the gap
- * before the action items is the sections' own. One more `&` than
+ * a section label, and the empty line BlockNote keeps at the end takes no
+ * room until the editor has focus, so the gap after the summary is the
+ * panel's own. One more `&` than
  * editorStyles, which it follows.
  */
 export const summaryEditorStyles = css`

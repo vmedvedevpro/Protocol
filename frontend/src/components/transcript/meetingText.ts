@@ -1,4 +1,3 @@
-import type {ActionItem} from '@/api/actionItems'
 import type {TranscriptSegment} from '@/api/meetings'
 import {completeSummaryMarkdown, parseSummaryData} from '@/lib/summaryMarkdown'
 import {displaySpeaker, formatClock} from './turns'
@@ -34,18 +33,7 @@ export function transcriptMarkdown(
         .join('\n\n')
 }
 
-/**
- * The summary in whatever format it is stored, with its action items, which
- * live in their own rows since they left the summary text.
- */
-export function summaryMarkdown(data: unknown, items: readonly ActionItem[]): string {
-    const body = completeSummaryMarkdown(parseSummaryData(data)).trim()
-    if (items.length === 0) return body
-    const list = items
-        .map((item) => {
-            const meta = [item.personName ?? item.ownerLabel, item.dueText].filter(Boolean).join(', ')
-            return `- [${item.done ? 'x' : ' '}] ${item.text}${meta ? ` (${meta})` : ''}`
-        })
-        .join('\n')
-    return [body, `## Action items\n\n${list}`].filter(Boolean).join('\n\n')
+/** The summary in whatever format it is stored, its action section included (#218). */
+export function summaryMarkdown(data: unknown): string {
+    return completeSummaryMarkdown(parseSummaryData(data)).trim()
 }

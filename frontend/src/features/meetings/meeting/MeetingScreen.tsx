@@ -3,7 +3,6 @@ import {ArrowClockwiseIcon, CopyIcon} from '@phosphor-icons/react'
 import {useMutation, useQuery, useQueryClient} from '@tanstack/react-query'
 import {useLocation, useNavigate, useParams, useSearchParams} from 'react-router-dom'
 import styled from 'styled-components'
-import {actionItemsQuery} from '@/api/actionItems'
 import {errorMessage} from '@/api/core'
 import {
     foldersQuery,
@@ -242,11 +241,7 @@ export function MeetingScreen({meetingId}: { meetingId: string }) {
                 body = transcriptMarkdown(await client.fetchQuery(meetingTranscriptsQuery(meetingId)), userName || undefined)
                 if (!body) return void toast.info('There is no transcript to copy yet')
             } else {
-                const [stored, items] = await Promise.all([
-                    client.fetchQuery(summaryQuery(meetingId)),
-                    client.fetchQuery(actionItemsQuery({meetingId})),
-                ])
-                body = summaryMarkdown(stored.data, items)
+                body = summaryMarkdown((await client.fetchQuery(summaryQuery(meetingId))).data)
                 if (!body) return void toast.info('There is no summary to copy yet')
             }
             await navigator.clipboard.writeText(meetingDocument(title, createdAt, [[what === 'transcript' ? 'Transcript' : 'Summary', body]]))
@@ -346,7 +341,6 @@ export function MeetingScreen({meetingId}: { meetingId: string }) {
                                     canWrite={lines.length > 0}
                                     starting={starting}
                                     onWrite={() => void write()}
-                                    onPlayFrom={playback.status === 'ready' ? player.playFrom : undefined}
                                 />
                             )
                         }}

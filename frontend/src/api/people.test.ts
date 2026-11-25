@@ -2,7 +2,6 @@ import type {MutationOptions, QueryClient} from '@tanstack/react-query'
 import {describe, expect, it} from 'vitest'
 import {mockState} from '@/mocks/state'
 import {createTestQueryClient} from '@/test/queryClient'
-import {actionItemKeys, actionItemsQuery, createActionItem} from './actionItems'
 import {nativeLabQuery, setNativeLab} from './labs'
 import {getAllTranscripts, meetingKeys, meetingTranscriptsQuery, renameMeetingSpeaker, renameSpeakerMutation} from './meetings'
 import {
@@ -61,8 +60,7 @@ describe('people', () => {
         expect((await client.fetchQuery(peopleQuery)).map((person) => person.displayName)).toContain('Dana Wu')
     })
 
-    it('reads a profile: meetings together and speaking time; the items they own come from the items list', async () => {
-        await createActionItem('meeting-acme-review', {text: 'Send the support terms', ownerLabel: 'priya shah'})
+    it('reads a profile: meetings together and speaking time', async () => {
         const client = createTestQueryClient()
 
         const profile = await client.fetchQuery(personProfileQuery('person-priya'))
@@ -73,8 +71,6 @@ describe('people', () => {
         expect(profile.totalSpeakingSeconds).toBeGreaterThan(0)
         expect(profile.firstSeenAt! < profile.lastSeenAt!).toBe(true)
         expect(profile).not.toHaveProperty('actionItems')
-        // The owner as written matched them, so the items list filters by them too.
-        expect((await client.fetchQuery(actionItemsQuery({personId: 'person-priya'}))).map((item) => item.text)).toEqual(['Send the support terms'])
         await expect(client.fetchQuery(personProfileQuery('person-gone'))).rejects.toThrow('Person not found')
     })
 
@@ -104,32 +100,23 @@ describe('people', () => {
     })
 
     it('merges one contact into another and drops the one that went', async () => {
-        await createActionItem('meeting-acme-review', {text: 'Draft the procurement memo', ownerLabel: 'Sam Rivera'})
         const client = createTestQueryClient()
         await client.fetchQuery(personProfileQuery('person-sam'))
-        await client.fetchQuery(actionItemsQuery({personId: 'person-sam'}))
 
         const kept = await run(client, mergePeopleMutation, {sourceId: 'person-sam', targetId: 'person-tom'})
 
         expect(kept.id).toBe('person-tom')
         expect(await speakers('meeting-acme-review')).not.toContain('Sam Rivera')
         expect(client.getQueryData(peopleKeys.profile('person-sam'))).toBeUndefined()
-        expect(client.getQueryState(actionItemKeys.list({personId: 'person-sam'}))?.isInvalidated).toBe(true)
-        const items = await client.fetchQuery(actionItemsQuery({personId: 'person-tom'}))
-        expect(items.map((item) => [item.text, item.ownerLabel])).toEqual([['Draft the procurement memo', 'Tom Becker']])
     })
 
-    it('deletes a contact: their lines get a free Speaker label and their items lose the link', async () => {
-        await createActionItem('meeting-acme-review', {text: 'Write the retention statement', ownerLabel: 'Sam Rivera'})
+    it('deletes a contact: their lines get a free Speaker label', async () => {
         const client = createTestQueryClient()
 
         await run(client, deletePersonMutation, 'person-sam')
 
         expect(await speakers('meeting-acme-review')).toContain('Speaker 1')
         expect((await client.fetchQuery(peopleQuery)).some((person) => person.id === 'person-sam')).toBe(false)
-        const [item] = await client.fetchQuery(actionItemsQuery({meetingId: 'meeting-acme-review'}))
-        expect(item).toMatchObject({ownerLabel: 'Sam Rivera'})
-        expect(item).not.toHaveProperty('personId')
     })
 
     it('saves notes into the cached profile without reading it again', async () => {

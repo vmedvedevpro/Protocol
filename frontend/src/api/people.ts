@@ -11,7 +11,6 @@
  * a new one. Generated labels ("Speaker 2", "You", overlaps) never do.
  */
 import {mutationOptions, type QueryClient, queryOptions} from '@tanstack/react-query'
-import {actionItemKeys} from './actionItems'
 import {command} from './core'
 import {meetingKeys} from './meetings'
 
@@ -62,11 +61,7 @@ export interface PersonMeeting {
     excerpt?: string
 }
 
-/**
- * The person screen's data; mirrors `PersonProfile`. Native also sends the
- * action items they own; the screen reads them with `actionItemsQuery`,
- * which a check-off refreshes, so the copy here is left out.
- */
+/** The person screen's data; mirrors `PersonProfile`. */
 export interface PersonProfile {
     id: string
     displayName: string
@@ -141,17 +136,16 @@ export const updatePerson = (personId: string, details: PersonDetails) =>
     command<Person>('api_update_person', {personId, ...detailArgs(details)})
 
 /**
- * Folds `sourceId` into `targetId`: the source's meetings, action items,
- * notes and voice move to the target, which is returned, and the source is
+ * Folds `sourceId` into `targetId`: the source's meetings, notes and voice
+ * move to the target, which is returned, and the source is
  * deleted.
  */
 export const mergePeople = (sourceId: string, targetId: string) =>
     command<Person>('api_merge_people', {sourceId, targetId})
 
 /**
- * Deletes a contact. Their lines go back to free `Speaker N` labels, their
- * action items lose the link but keep the owner as written, and their voice
- * is forgotten; meetings stay.
+ * Deletes a contact. Their lines go back to free `Speaker N` labels and
+ * their voice is forgotten; meetings stay.
  */
 export const deletePerson = (personId: string) => command<null>('api_delete_person', {personId})
 
@@ -176,15 +170,13 @@ export const personProfileQuery = (personId: string) =>
     })
 
 /**
- * After a rename, merge or delete: native relabelled transcript lines and
- * moved or unlinked action items, so the meetings' transcripts and the items
- * are read again along with the people.
+ * After a rename, merge or delete: native relabelled transcript lines, so
+ * the meetings' transcripts are read again along with the people.
  */
 function invalidateRelabelled(client: QueryClient) {
     return Promise.all([
         client.invalidateQueries({queryKey: peopleKeys.all}),
         client.invalidateQueries({queryKey: meetingKeys.all}),
-        client.invalidateQueries({queryKey: actionItemKeys.all}),
     ])
 }
 

@@ -50,32 +50,16 @@ describe('MeetingScreen', () => {
         await waitFor(() => expect(screen.getByText(/^Today, .* · \d+ min · Acme Corp$/)).toBeInTheDocument())
     })
 
-    it('opens on the summary, its action section moved into action items', async () => {
+    it('opens on the summary with its action section as the model wrote it', async () => {
+        // The editor is a lazy chunk; see NotesEditor.test.tsx.
+        await import('@/components/editor/NotesEditorView')
         renderMeeting('meeting-acme-review')
-        const items = await screen.findByRole('region', {name: 'Action items'})
-        await waitFor(() => expect(within(items).getByText(/Prepare a local-models-only configuration/)).toBeInTheDocument())
-        expect(items).toHaveTextContent('· Priya Shah · Friday')
-        expect(mockState.meetings.summaries['meeting-acme-review'].data).not.toMatchObject({markdown: expect.stringContaining('## Action items')})
+        const summary = await screen.findByRole('textbox', {name: 'Summary'})
+        await waitFor(() => expect(summary).toHaveTextContent(/Prepare a local-models-only configuration for the pilot group/))
+        expect(screen.queryByRole('region', {name: 'Action items'})).not.toBeInTheDocument()
+        // Nothing moves the section out of the stored summary (#218).
+        expect(mockState.meetings.summaries['meeting-acme-review'].data).toMatchObject({markdown: expect.stringContaining('## Action items')})
         expect(screen.getByText('Written from the transcript.')).toBeInTheDocument()
-    })
-
-    it('checks off, adds and deletes action items', async () => {
-        renderMeeting('meeting-acme-review')
-        const items = await screen.findByRole('region', {name: 'Action items'})
-        const box = await within(items).findByRole('checkbox', {name: /Prepare a local-models-only/})
-        await userEvent.click(box)
-        await waitFor(() => expect(box).toBeChecked())
-
-        await userEvent.click(within(items).getByRole('button', {name: 'Add an action item'}))
-        // Nothing to add yet: Add waits for the text.
-        expect(screen.getByRole('button', {name: 'Add'})).toBeDisabled()
-        await userEvent.type(screen.getByRole('textbox', {name: 'What needs doing'}), 'Book the pilot kickoff')
-        await userEvent.click(screen.getByRole('button', {name: 'Add'}))
-        const added = await within(items).findByRole('button', {name: 'Book the pilot kickoff · no owner yet'})
-
-        await userEvent.click(added)
-        await userEvent.click(screen.getByRole('button', {name: 'Delete'}))
-        await waitFor(() => expect(within(items).queryByText('Book the pilot kickoff')).not.toBeInTheDocument())
     })
 
     it('switches tabs with ⌘1, ⌘2 and ⌘3, and keeps the tab in the URL', async () => {
@@ -96,7 +80,7 @@ describe('MeetingScreen', () => {
         expect(await screen.findByText('Writing the summary…', LIVE)).toBeInTheDocument()
 
         start.release()
-        expect(await screen.findByRole('region', {name: 'Action items'})).toBeInTheDocument()
+        expect(await screen.findByText('Written from the transcript.')).toBeInTheDocument()
         expect(mockState.meetings.summaries['meeting-untitled'].status).toBe('completed')
     })
 

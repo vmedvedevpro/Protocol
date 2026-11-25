@@ -7,7 +7,7 @@ import type {MockPeople} from './people'
  * `api_global_search` over the mock library, with native's shapes and
  * ranking (meeting-library's search.rs): an exact name or title first, then
  * a prefix, then the rest; a line whose speaker matches before one whose
- * text does, action items, then summaries; newest first within a rank.
+ * text does, then summaries; newest first within a rank.
  * Matching is case-blind and on the text as written, as native's
  * `unicode_lower` LIKE is.
  */
@@ -59,7 +59,6 @@ export function searchHandlers(state: { meetings: MockMeetings, people: MockPeop
             if (!needle) return []
             const db = state.meetings
             const ranked: Ranked[] = []
-            const meetingOf = (id: string) => db.meetings.find((meeting) => meeting.id === id)
             const spokeIn = (name: string) => new Set(Object.entries(db.transcripts)
                 .filter(([, lines]) => lines.some((line) => line.speaker?.trim().toLowerCase() === name.toLowerCase()))
                 .map(([meetingId]) => meetingId)).size
@@ -120,18 +119,6 @@ export function searchHandlers(state: { meetings: MockMeetings, people: MockPeop
                 if (folder.color) result.color = folder.color
                 ranked.push({score: quality(name, needle) + 1, time: '', result})
             }
-            for (const item of db.actionItems) {
-                const meeting = meetingOf(item.meetingId)
-                if (!meeting) continue
-                if (!item.text.toLowerCase().includes(needle) && !(item.ownerLabel ?? '').toLowerCase().includes(needle)) continue
-                const result: SearchResult = {
-                    kind: 'action', id: item.id, meetingId: meeting.id, title: meeting.title, snippet: item.text, timestamp: meeting.created_at,
-                }
-                if (item.ownerLabel) result.speaker = item.ownerLabel
-                if (item.audioTime != null) result.audioStartTime = item.audioTime
-                ranked.push({score: 18, time: meeting.created_at, result})
-            }
-
             ranked.sort((a, b) => a.score - b.score || b.time.localeCompare(a.time) || a.result.id.localeCompare(b.result.id))
             return ranked.slice(0, typeof limit === 'number' ? Math.min(limit, 100) : 40).map((entry) => entry.result)
         },

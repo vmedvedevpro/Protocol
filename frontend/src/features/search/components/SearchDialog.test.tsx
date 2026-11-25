@@ -3,7 +3,6 @@ import userEvent from '@testing-library/user-event'
 import {QueryClientProvider} from '@tanstack/react-query'
 import {createMemoryRouter, RouterProvider} from 'react-router-dom'
 import {describe, expect, it, vi} from 'vitest'
-import {createActionItem} from '@/api/actionItems'
 import {openSearch, useSearchLauncher} from '@/lib/searchLauncher'
 import {mockState} from '@/mocks/state'
 import {createTestQueryClient} from '@/test/queryClient'
@@ -56,20 +55,20 @@ describe('SearchDialog', () => {
         await waitFor(() => expect(useSearchLauncher.getState().open).toBe(false))
     })
 
-    it('opens a person, a folder and an action item where they live', async () => {
-        await createActionItem('meeting-roadmap', {text: 'Scope the player work', ownerLabel: 'Marcus Lee', audioTime: 42})
+    it('opens a person, a folder and an action item in its summary where they live', async () => {
         const router = renderSearch()
 
         act(() => openSearch('Marcus'))
         await userEvent.click(await screen.findByRole('option', {name: /^Marcus Lee/}))
         await waitFor(() => expect(router.state.location.pathname).toBe('/person/person-marcus'))
 
-        // The item matches "Marcus" too: wait for this query's rows, which
-        // replace the last query's, before clicking one.
-        act(() => openSearch('Scope the player'))
+        // An action item is part of its summary's text (#218): it is found
+        // there. Wait for this query's rows, which replace the last query's.
+        act(() => openSearch('scope the audio player'))
         await waitFor(() => expect(screen.queryByRole('option', {name: /^Marcus Lee/})).not.toBeInTheDocument())
-        await userEvent.click(await screen.findByRole('option', {name: /Scope the player work.*Marcus Lee · Q4 roadmap planning/}))
-        await waitFor(() => expect(router.state.location.pathname + router.state.location.search).toBe('/meetings/meeting-roadmap?tab=summary&at=42'))
+        expect(screen.queryByRole('group', {name: 'Action items'})).not.toBeInTheDocument()
+        await userEvent.click(await screen.findByRole('option', {name: /scope the audio player work.*Q4 roadmap planning/}))
+        await waitFor(() => expect(router.state.location.pathname + router.state.location.search).toBe('/meetings/meeting-roadmap?tab=summary'))
 
         act(() => openSearch('acme corp'))
         await userEvent.click(await screen.findByRole('option', {name: /^Acme Corp/}))

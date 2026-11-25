@@ -1,6 +1,5 @@
 import {type ReactNode, useEffect, useMemo, useRef, useState} from 'react'
 import {
-    CheckCircleIcon,
     CheckIcon,
     FileTextIcon,
     FolderIcon,
@@ -74,7 +73,6 @@ const PEOPLE_PREVIEW = 4
 
 const GROUP_TITLES: Record<SearchResultKind, string> = {
     meeting: 'Meetings',
-    action: 'Action items',
     transcript: 'Said in a meeting',
     summary: 'In a summary',
     person: 'People',
@@ -83,7 +81,6 @@ const GROUP_TITLES: Record<SearchResultKind, string> = {
 
 const RESULT_ICONS: Record<SearchResultKind, ReactNode> = {
     meeting: <FileTextIcon/>,
-    action: <CheckCircleIcon/>,
     transcript: <WaveformIcon/>,
     summary: <NotePencilIcon/>,
     person: <UserIcon/>,
@@ -370,13 +367,6 @@ export function SearchDialog({actions = []}: { actions?: readonly SearchCommand[
                 const sub = [when && headerWhen(when), folderId && folderName.get(folderId)].filter(Boolean).join(' · ')
                 return {...base, title: result.title, sub, onSelect: () => go(paths.meeting(meetingId))}
             }
-            case 'action':
-                return {
-                    ...base,
-                    title: result.snippet,
-                    sub: `${result.speaker || 'No owner yet'} · ${result.title}`,
-                    onSelect: () => go(paths.meeting(meetingId, {tab: 'summary', at: result.audioStartTime})),
-                }
             case 'transcript': {
                 const sub = [result.speaker, result.audioStartTime != null && formatClock(result.audioStartTime), result.title]
                 return {

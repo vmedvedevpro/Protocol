@@ -84,10 +84,10 @@ export const handlers: Record<string, MockHandler> = {
     // src-tauri/src/audio/retranscription.rs, diarization/mod.rs
     ...postCallHandlers(mockState),
 
-    // Meetings, transcripts, folders, summaries, action items, speaker labels (src/mocks/meetings.ts)
+    // Meetings, transcripts, folders, summaries, speaker labels (src/mocks/meetings.ts)
     ...meetingsHandlers(mockState),
 
-    // Contacts and their voices (src/mocks/people.ts); after the meetings, whose action item list it wraps
+    // Contacts and their voices (src/mocks/people.ts); after the meetings, whose speaker rename it wraps
     ...peopleHandlers(mockState),
 
     // The ⌘K search over the library (src/mocks/search.ts)

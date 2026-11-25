@@ -90,6 +90,11 @@ impl DatabaseManager {
             .after_connect(|conn, _| Box::pin(meeting_library::sql::register(conn)))
             .connect(tauri_db_path)
             .await?;
+        // #218: summaries older versions took the action items out of get
+        // them back. Idempotent, and a failure must not keep the app closed.
+        if let Err(error) = crate::database::repositories::action_item::restore_action_sections(&pool).await {
+            log::warn!("Could not put action items back into summaries: {}", error);
+        }
 
         Ok(DatabaseManager { pool })
     }

@@ -58,7 +58,6 @@ async fn eight_read_only_tools_with_text_results() {
     assert_eq!(
         names,
         [
-            "get_action_items",
             "get_meeting",
             "get_summary",
             "get_transcript",
@@ -115,7 +114,7 @@ async fn the_settings_switch_applies_without_a_restart() {
     meeting_library::agent_access::set_enabled(fixture.dir.path(), false).unwrap();
     let client = connect(fixture.db.clone(), None).await;
 
-    for tool in ["list_meetings", "list_people", "list_groups", "get_action_items"] {
+    for tool in ["list_meetings", "list_people", "list_groups"] {
         let off = call(&client, tool, serde_json::json!({})).await;
         assert_eq!(off.is_error, Some(true), "{tool}");
         assert!(text(&off).contains("Settings > AI agents"), "{tool}: {}", text(&off));

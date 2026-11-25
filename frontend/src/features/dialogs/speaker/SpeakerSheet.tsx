@@ -258,11 +258,11 @@ function removalNote({person, notes, voice, loading, unknown}: EmptiedContact, p
     // A contact name merges (a new name becomes a contact first); You and a voice are no contact.
     if (isPersonLabel(to)) {
         const into = personForSpeaker(people, to) ? toName : `the new contact ${toName}`
-        return `${lead} is merged into ${into}. Its notes are added to ${toName}’s, its details fill in only what ${toName} has none of, and its action items and voice move there.`
+        return `${lead} is merged into ${into}. Its notes are added to ${toName}’s, its details fill in only what ${toName} has none of, and its voice moves there.`
     }
     const details = !!(person.email || person.company || person.role || person.phone)
     const lost = [notes && 'private notes', details && 'details', voice && 'voice profile'].filter(Boolean) as string[]
-    if (unknown) return `${lead} is deleted, with everything it keeps. Its action items stay, without the contact.`
+    if (unknown) return `${lead} is deleted, with everything it keeps.`
     const what = lost.length ? `, with its ${lost.length > 1 ? `${lost.slice(0, -1).join(', ')} and ${lost[lost.length - 1]}` : lost[0]}` : ''
-    return `${lead} is deleted${what}. Its action items stay, without the contact.`
+    return `${lead} is deleted${what}.`
 }

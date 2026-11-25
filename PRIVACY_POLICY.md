@@ -57,8 +57,8 @@ Data leaves your machine only when **you** choose an action that sends it:
 - **AI agents** (off unless you turn on Settings › AI agents): an AI app on
   this computer that you connect to Protocol, such as Claude Desktop or Claude
   Code, can read your meetings through Protocol's MCP server: transcripts,
-  summaries, your notes, action items, contacts (not their phone numbers or
-  your notes about them) and groups. The server only reads the local database;
+  summaries (with the action items they list), your notes, contacts (not
+  their phone numbers or your notes about them) and groups. The server only reads the local database;
   it makes no network requests, cannot change anything and cannot play audio.
   What the agent reads is sent to that agent's model provider (for Claude,
   Anthropic) under your account, subject to their privacy policy. Turning the

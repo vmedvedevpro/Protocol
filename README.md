@@ -26,7 +26,7 @@
   </picture>
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/media/meeting-summary-dark.png">
-    <img src="docs/media/meeting-summary-light.png" alt="A saved meeting on its Summary tab: the summary, the decisions, and action items with their owners and due dates, above the recording's player" width="400">
+    <img src="docs/media/meeting-summary-light.png" alt="A saved meeting on its Summary tab: the summary with its decisions and action items, above the recording's player" width="400">
   </picture>
 </p>
 

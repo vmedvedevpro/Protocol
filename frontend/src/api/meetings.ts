@@ -145,7 +145,7 @@ export const renameMeeting = (meetingId: string, title: string) =>
     command<unknown>('api_save_meeting_title', {meetingId, title})
 
 /**
- * Deletes the meeting with its transcript, summary, notes and action items.
+ * Deletes the meeting with its transcript, summary and notes.
  * The audio stays in the recordings folder.
  */
 export const deleteMeeting = (meetingId: string) => command<unknown>('api_delete_meeting', {meetingId})
