@@ -1,6 +1,7 @@
 import {screen, waitFor, within} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import {describe, expect, it, vi} from 'vitest'
+import {mockState} from '@/mocks/state'
 import {renderDialogs} from '../testing/renderDialogs'
 
 const NAME = 'Identify speakers'
@@ -38,5 +39,16 @@ describe('IdentifySpeakersSheet', () => {
         await userEvent.click(within(dialog).getByRole('button', {name: 'Cancel'}))
         await closed()
         expect(identify).not.toHaveBeenCalled()
+    })
+
+    it('offers no count with Nemotron, which finds the number itself', async () => {
+        mockState.diarization.engine = 'nemotron'
+        mockState.diarization.nemotronInstalled = true
+        const {dialog, identify} = await open()
+        expect(await within(dialog).findByText(/finds the number of speakers itself/)).toBeInTheDocument()
+        expect(within(dialog).queryByRole('radio')).not.toBeInTheDocument()
+        await userEvent.click(within(dialog).getByRole('button', {name: 'Identify'}))
+        expect(identify).toHaveBeenCalledExactlyOnceWith(null)
+        await closed()
     })
 })

@@ -1,4 +1,7 @@
 import {type FormEvent, useState} from 'react'
+import {useQuery} from '@tanstack/react-query'
+import styled from 'styled-components'
+import {activeEngine, diarizationStatusQuery} from '@/api/diarization'
 import {Button} from '@/components/ui/Button'
 import {SettingsRadioGroup, SettingsRadioRow} from '@/components/ui/SettingsRow'
 import {Sheet, SheetClose} from '@/components/ui/Sheet'
@@ -10,6 +13,12 @@ const FORM_ID = 'identify-speakers'
 const SPEAKER_COUNTS = [2, 3, 4, 5, 6, 8] as const
 
 const AUTOMATIC = 'auto'
+
+const Note = styled.p`
+    margin: 0;
+    ${({theme}) => theme.text.body};
+    color: ${({theme}) => theme.colors.muted};
+`
 
 /**
  * Identify speakers, from the meeting's Transcript tab or its menu: how
@@ -43,17 +52,24 @@ export function IdentifySpeakersSheet() {
 
 function CountForm({request}: { request: Extract<OpenedDialog, { kind: 'identify-speakers' }> }) {
     const [choice, setChoice] = useState<string>(AUTOMATIC)
+    // diarize_meeting drops the count for Nemotron, so a count offered there
+    // would be ignored; the engine is read where Settings sets it.
+    const nemotron = activeEngine(useQuery(diarizationStatusQuery).data) === 'nemotron'
     const submit = (event: FormEvent) => {
         event.preventDefault()
-        request.identify(choice === AUTOMATIC ? null : Number(choice))
+        request.identify(nemotron || choice === AUTOMATIC ? null : Number(choice))
         closeDialog('identify-speakers')
     }
     return (
         <form id={FORM_ID} onSubmit={submit}>
-            <SettingsRadioGroup title="Speakers" layout="grid" value={choice} onValueChange={setChoice}>
-                <SettingsRadioRow value={AUTOMATIC} label="Detect automatically"/>
-                {SPEAKER_COUNTS.map((count) => <SettingsRadioRow key={count} value={String(count)} label={`${count} speakers`}/>)}
-            </SettingsRadioGroup>
+            {nemotron ? (
+                <Note>NVIDIA Nemotron, the speaker engine in Settings, finds the number of speakers itself.</Note>
+            ) : (
+                <SettingsRadioGroup title="Speakers" layout="grid" value={choice} onValueChange={setChoice}>
+                    <SettingsRadioRow value={AUTOMATIC} label="Detect automatically"/>
+                    {SPEAKER_COUNTS.map((count) => <SettingsRadioRow key={count} value={String(count)} label={`${count} speakers`}/>)}
+                </SettingsRadioGroup>
+            )}
         </form>
     )
 }

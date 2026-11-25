@@ -1,4 +1,4 @@
-import {useIsMutating, useMutation, useQuery} from '@tanstack/react-query'
+import {useIsMutating, useMutation, useQuery, useQueryClient} from '@tanstack/react-query'
 import {diarizationAvailableQuery, meetingKeys, type TranscriptSegment} from '@/api/meetings'
 import {diarizeMeeting, usePostCallJob} from '@/api/postCall'
 import {speakerKey, speakerParts} from '@/components/transcript/turns'
@@ -26,6 +26,7 @@ export const speakerCountLabel = (count: number) => `${count} ${count === 1 ? 's
  * audio, or while the post-call pass runs.
  */
 export function useIdentifySpeakers(meetingId: string, hasAudio: boolean) {
+    const client = useQueryClient()
     const engine = useQuery(diarizationAvailableQuery)
     const job = usePostCallJob(meetingId)
     const mutationKey = [...meetingKeys.all, 'diarize', meetingId]
@@ -51,6 +52,12 @@ export function useIdentifySpeakers(meetingId: string, hasAudio: boolean) {
     return {
         available: engine.data === true && hasAudio && !job,
         running,
-        identify: (count: number | null) => run.mutate(count),
+        // One run at a time: a second Enter while the sheet closes must not
+        // start another. The sheet keeps the `identify` of the render that
+        // opened it, so the cache is read at call time, not `run.isPending`.
+        identify: (count: number | null) => {
+            if (client.isMutating({mutationKey}) > 0) return
+            run.mutate(count)
+        },
     }
 }

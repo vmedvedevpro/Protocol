@@ -1300,8 +1300,11 @@ another meeting starts from fresh state).
   nothing, so a meeting is never relabelled by a stray pick. Offered
   only with a speaker engine, audio and no pass running; the sheet says
   that named lines, contact links, the text and its times are kept, as
-  native's rerun does. Native holds the busy reason; the mutation's own callbacks
-  refresh the transcript even if the user left the meeting. Naming a voice
+  native's rerun does. With Nemotron (`activeEngine` of the diarization
+  status), which native runs without a count, the sheet offers none and
+  says the engine finds the number itself. A second Identify while a run
+  is in the cache is ignored. Native holds the busy reason; the
+  mutation's own callbacks refresh the transcript even if the user left the meeting. Naming a voice
   waits until the pass is over, since the pass replaces the labels.
 - Tests: `home/*.test.tsx`, `meeting/*.test.tsx` and `lib/*.test.ts` on the
   mock IPC; the notes test holds a save in flight and checks the editor
@@ -1403,7 +1406,8 @@ another meeting starts from fresh state).
   a recording gets the session's lines and its rename function, so the
   dialog never imports features/recording; Identify speakers gets the
   meeting screen's run, so its toasts and running state stay with
-  features/meetings.
+  features/meetings; the screen closes that sheet as it unmounts, so it
+  never runs on a meeting the user has navigated away from.
 - Long work stays native and holds its own busy reason: the import
   (`start_import_audio_command`) and the retranscription. Each sheet
   registers its listeners before the start call, cannot be dismissed while

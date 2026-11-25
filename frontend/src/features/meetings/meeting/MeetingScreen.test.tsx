@@ -197,6 +197,30 @@ describe('MeetingScreen', () => {
         expect(run.mock.calls[0][0]).toMatchObject({meetingId: 'meeting-acme-review', numSpeakers: 4})
     })
 
+    it('starts one speaker run when the sheet’s Identify comes twice', async () => {
+        const run = hold('diarize_meeting')
+        renderMeeting('meeting-acme-review', '?tab=transcript')
+        const dialog = renderHook(() => useDialog())
+        await userEvent.click(await screen.findByRole('button', {name: 'Identify speakers…'}))
+        const request = dialog.result.current.request
+        act(() => {
+            identifyFromSheet(request, 4)
+            identifyFromSheet(request, 4)
+        })
+        run.release()
+        expect(await screen.findByText('Found 4 speakers')).toBeInTheDocument()
+        expect(run.spy).toHaveBeenCalledTimes(1)
+    })
+
+    it('closes the Identify speakers sheet when its meeting screen goes', async () => {
+        const {router} = renderMeeting('meeting-acme-review', '?tab=transcript')
+        const dialog = renderHook(() => useDialog())
+        await userEvent.click(await screen.findByRole('button', {name: 'Identify speakers…'}))
+        expect(dialog.result.current.open).toBe(true)
+        await act(() => router.navigate('/'))
+        expect(dialog.result.current.open).toBe(false)
+    })
+
     it('opens the same sheet from the menu’s Identify speakers again', async () => {
         renderMeeting('meeting-acme-review')
         const dialog = renderHook(() => useDialog())
