@@ -263,7 +263,7 @@ export function HomeScreen() {
                     <MeetingList
                         meetings={meetings.data}
                         shows={shows}
-                        folderNames={names}
+                        folderNames={folderId ? undefined : names}
                         onRename={renameMeeting}
                         empty={(
                             <NoMatch>

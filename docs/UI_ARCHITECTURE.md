@@ -1262,7 +1262,9 @@ another meeting starts from fresh state).
   folder moves only the thumb (`FolderBar.test.tsx`, Meetings/FolderBar
   in Storybook). Rows are grouped by date (`src/lib/dates.ts`);
   a row's second line is the post-call pass while one runs
-  (`ProcessingLine`), else its folder. F2 on a row renames the meeting. A
+  (`ProcessingLine`), else its folder while All is chosen (under a folder
+  it would repeat the chip); every row keeps the height of one with a
+  second line. F2 on a row renames the meeting. A
   meeting added while Home is open (a recording just saved) rises in under a veil;
   filtering does not animate. Home docks the recording bar
   (`Screen recordBar`) and draws no recording controls of its own.
