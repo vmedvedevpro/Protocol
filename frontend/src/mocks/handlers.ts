@@ -14,6 +14,7 @@ import {onboardingHandlers} from './onboarding'
 import {macosPermissionsHandlers, permissionsHandlers} from './permissions'
 import {postCallHandlers} from './postCall'
 import {preferencesHandlers} from './preferences'
+import {searchHandlers} from './search'
 import {shellHandlers} from './shell'
 import {speechHandlers} from './speech'
 import {templatesHandlers} from './templates'
@@ -82,6 +83,9 @@ export const handlers: Record<string, MockHandler> = {
 
     // Contacts and their voices (src/mocks/people.ts); after the meetings, whose action item list it wraps
     ...peopleHandlers(mockState),
+
+    // The ⌘K search over the library (src/mocks/search.ts)
+    ...searchHandlers(mockState),
 
     // First launch and its database: onboarding.rs, database/commands.rs
     ...onboardingHandlers(mockState),

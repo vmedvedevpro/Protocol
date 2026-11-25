@@ -1,7 +1,8 @@
 import {useCallback, useEffect, useMemo, useState} from 'react'
-import {GearIcon, MagnifyingGlassIcon} from '@phosphor-icons/react'
+import {ArrowElbowDownLeftIcon, GearIcon, MagnifyingGlassIcon} from '@phosphor-icons/react'
 import {useQuery, useQueryClient} from '@tanstack/react-query'
 import {AnimatePresence} from 'motion/react'
+import * as m from 'motion/react-m'
 import {useNavigate, useSearchParams} from 'react-router-dom'
 import styled from 'styled-components'
 import {actionItemKeys} from '@/api/actionItems'
@@ -9,11 +10,15 @@ import {type Folder, foldersQuery, type MeetingListItem, meetingsQuery} from '@/
 import {updaterStatusQuery} from '@/api/updater'
 import {Screen} from '@/components/screen/Screen'
 import {Button, IconButton} from '@/components/ui/Button'
+import {Kbd} from '@/components/ui/Kbd'
 import {Spinner} from '@/components/ui/Spinner'
+import {colorTransition, focusRing} from '@/components/ui/styles'
 import {TextField} from '@/components/ui/TextField'
 import {openDialog} from '@/lib/dialogs'
 import {paths} from '@/lib/paths'
 import {formatShortcut} from '@/lib/platform'
+import {openSearch} from '@/lib/searchLauncher'
+import {tween} from '@/styles/motion'
 import {RenameMeetingSheet} from '../components/RenameMeetingSheet'
 import {backfillActionItems} from '../lib/actionItemSync'
 import {FolderBar} from './FolderBar'
@@ -77,11 +82,51 @@ const NoMatch = styled(Muted)`
     text-align: center;
 `
 
+// Under the filtered list while the field has a query: the same words in
+// transcripts, summaries, action items and people, through search (#118).
+const Everywhere = styled(m.button)`
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: ${({theme}) => theme.space[2.5]};
+    margin: 0 ${({theme}) => theme.space[2]} ${({theme}) => theme.space[2]};
+    padding: ${({theme}) => theme.space[2]} ${({theme}) => theme.space[2.5]};
+    border: 1px solid ${({theme}) => theme.colors.border};
+    border-radius: ${({theme}) => theme.radii.md};
+    background: transparent;
+    color: ${({theme}) => theme.colors.text};
+    font: inherit;
+    ${({theme}) => theme.text.body};
+    text-align: left;
+    cursor: pointer;
+    ${colorTransition};
+    ${focusRing};
+
+    > svg {
+        flex: none;
+        color: ${({theme}) => theme.colors.muted};
+    }
+
+    > span {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+    }
+
+    &:hover {
+        background: ${({theme}) => theme.colors.surface};
+    }
+`
+
 const matches = (text: string | undefined, query: string) => !!text && text.toLowerCase().includes(query)
 
 /**
  * Home: the meetings list. Search filters it by title and folder as the
- * user types (search in transcripts is #118's); the folder chips filter it
+ * user types; Enter, or the row under the list, takes the words to search
+ * (⌘K), which looks in transcripts, summaries, action items and people
+ * too. The folder chips filter it
  * by folder, kept in the URL (`?folder=`), so Back from a meeting returns
  * to the same folder. Banners say when an update waits for a restart and
  * when Protocol cannot hear the microphone or the computer audio. The
@@ -150,14 +195,18 @@ export function HomeScreen() {
                         type="search"
                         tone="soft"
                         aria-label="Search meetings"
-                        placeholder="Search meetings"
+                        placeholder="Search meetings and transcripts"
                         icon={<MagnifyingGlassIcon aria-hidden/>}
+                        trailing={<Kbd tone="raised" aria-hidden>{formatShortcut('K')}</Kbd>}
                         value={query}
                         onChange={(event) => setQuery(event.target.value)}
                         onKeyDown={(event) => {
                             if (event.key === 'Escape' && query) {
                                 event.preventDefault()
                                 setQuery('')
+                            } else if (event.key === 'Enter') {
+                                event.preventDefault()
+                                openSearch(query)
                             }
                         }}
                     />
@@ -203,6 +252,23 @@ export function HomeScreen() {
                             </NoMatch>
                         )}
                     />
+                    <AnimatePresence initial={false}>
+                        {needle && (
+                            <Everywhere
+                                key="everywhere"
+                                type="button"
+                                initial={{opacity: 0, y: 4}}
+                                animate={{opacity: 1, y: 0}}
+                                exit={{opacity: 0, transition: tween('fast', 'exit')}}
+                                transition={tween('base', 'enter')}
+                                onClick={() => openSearch(query)}
+                            >
+                                <MagnifyingGlassIcon aria-hidden/>
+                                <span>Search transcripts, summaries and people for “{query.trim()}”</span>
+                                <ArrowElbowDownLeftIcon aria-hidden/>
+                            </Everywhere>
+                        )}
+                    </AnimatePresence>
                 </>
             )}
             <FolderNameSheet

@@ -1,4 +1,4 @@
-import {useState} from 'react'
+import {useEffect, useState} from 'react'
 import {ArrowClockwiseIcon, CopyIcon} from '@phosphor-icons/react'
 import {useMutation, useQuery, useQueryClient} from '@tanstack/react-query'
 import {useNavigate, useParams, useSearchParams} from 'react-router-dom'
@@ -155,6 +155,19 @@ export function MeetingScreen({meetingId}: { meetingId: string }) {
     useHotkey({code: 'Digit3', mod: true}, () => selectTab('summary'))
     useHotkey({code: 'F2'}, () => setRenaming(true), {enabled: meeting.isSuccess})
 
+    // A search result opens the meeting at a moment (`?at=` seconds): once
+    // the recording has loaded (a load starts it from 0) the player waits
+    // there, and the transcript keeps that turn in view. Without audio the
+    // tab opens at its top.
+    const [at] = useState(() => {
+        const seconds = Number(params.get('at') ?? Number.NaN)
+        return Number.isFinite(seconds) && seconds >= 0 ? seconds : null
+    })
+    const ready = playback.status === 'ready'
+    useEffect(() => {
+        if (ready && at !== null) player.seek(at)
+    }, [ready, at, player])
+
     const title = meeting.data?.title ?? ''
     const createdAt = parseDate(meeting.data?.created_at)
     const lines = transcript.data ?? []
@@ -249,7 +262,7 @@ export function MeetingScreen({meetingId}: { meetingId: string }) {
                                     <TranscriptPanel
                                         meetingId={meetingId}
                                         playback={hasAudio ? player.clock : undefined}
-                                        playing={playback.playing}
+                                        playing={playback.playing || at !== null}
                                         onSeek={playback.status === 'ready' ? player.playFrom : undefined}
                                     />
                                 )

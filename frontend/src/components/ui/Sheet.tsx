@@ -7,6 +7,7 @@ import styled, {useTheme} from 'styled-components'
 import {platform} from '@/lib/platform'
 import {springs, tween} from '@/styles/motion'
 import {IconButton} from './Button'
+import {VisuallyHidden} from './VisuallyHidden'
 
 // Behaviour and motion follow micka_design's Dialog on 21st.dev
 // (https://21st.dev/@micka_design/components/dialog): Radix's dialog with the
@@ -92,6 +93,13 @@ interface SheetProps {
     description?: string
     /** The actions at the bottom: Cancel inside `<SheetClose asChild>`, then the main action. */
     footer?: ReactNode
+    /**
+     * The children fill the panel, as search does with its own field and
+     * list: no visible header or close button (the title still names the
+     * dialog for screen readers), no padding, and the children scroll
+     * themselves. Escape and a press outside still close it.
+     */
+    bare?: boolean
     children: ReactNode
 }
 
@@ -118,7 +126,7 @@ function openerOf(focused: Element | null): HTMLElement | null {
  * `springs.gentle` while the scrim fades in over `base`, and leaves with
  * `tween('base', 'exit')`.
  */
-export function Sheet({open, onOpenChange, title, description, footer, children}: SheetProps) {
+export function Sheet({open, onOpenChange, title, description, footer, bare = false, children}: SheetProps) {
     const theme = useTheme()
     // Radix returns focus only to its own Trigger; the sheet remembers the
     // opener itself, so a button, a menu item or a shortcut all work alike.
@@ -162,16 +170,20 @@ export function Sheet({open, onOpenChange, title, description, footer, children}
                                 exit={{opacity: 0, y: offset, transition: tween('base', 'exit')}}
                                 transition={springs.gentle}
                             >
-                                <Header>
-                                    <Title>{title}</Title>
-                                    <Dialog.Close asChild>
-                                        <IconButton label="Close" tooltip={false}>
-                                            <XIcon size={12} aria-hidden/>
-                                        </IconButton>
-                                    </Dialog.Close>
-                                </Header>
+                                {bare ? (
+                                    <VisuallyHidden><Dialog.Title>{title}</Dialog.Title></VisuallyHidden>
+                                ) : (
+                                    <Header>
+                                        <Title>{title}</Title>
+                                        <Dialog.Close asChild>
+                                            <IconButton label="Close" tooltip={false}>
+                                                <XIcon size={12} aria-hidden/>
+                                            </IconButton>
+                                        </Dialog.Close>
+                                    </Header>
+                                )}
                                 {description && <Description>{description}</Description>}
-                                <Body>{children}</Body>
+                                {bare ? children : <Body>{children}</Body>}
                                 {footer && <Footer>{footer}</Footer>}
                             </Panel>
                         </Dialog.Content>
