@@ -1308,7 +1308,8 @@ another meeting starts from fresh state).
   reads the summary again. Notes do not feed the summary natively, so the
   footnote says "Written from the transcript."
 - **Speakers.** "N speakers" and an Identify speakers… button on the
-  Transcript tab, and the menu's Identify speakers again…, open the
+  Transcript tab (icon only, its name in the tooltip, so the row fits the
+  460 px window), and the menu's Identify speakers again…, open the
   Identify speakers sheet (`openDialog`, with the screen's run as
   `identify`); its Identify reruns diarization with a count or detecting
   it (`diarizeMeeting`) and closes, and picking a count alone starts

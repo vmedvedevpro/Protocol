@@ -28,6 +28,17 @@ export const Dark: Story = {globals: {theme: 'dark'}}
 /** The transcript in turns; a time plays from there, "3 speakers" finds them again. */
 export const Transcript: Story = {args: {tab: 'transcript'}}
 
+/** The 460 px window with many voices: the count and the icon button fit beside the tabs. */
+export const TranscriptManySpeakers: Story = {
+    args: {tab: 'transcript'},
+    beforeEach: () => {
+        const lines = mockState.meetings.transcripts['meeting-acme-review']
+        lines.forEach((line, index) => { line.speaker = `Speaker ${index % 12 + 1}` })
+    },
+}
+
+export const TranscriptManySpeakersDark: Story = {...TranscriptManySpeakers, globals: {theme: 'dark'}}
+
 export const Notes: Story = {args: {tab: 'notes'}}
 
 /** Labs on: the waveform behind the scrubber, 0.5× and 0.75×, and Clean or Verbatim text. */
