@@ -9,7 +9,7 @@ import {paths} from '@/lib/paths'
 import {tween} from '@/styles/motion'
 import {Veil} from '@/components/ui/Veil'
 import {ProcessingLine} from '../components/processing/ProcessingLine'
-import {dateGroup, formatLength, parseDate, rowWhen} from '../lib/dates'
+import {dateGroup, formatLength, parseDate, rowWhen} from '@/lib/dates'
 
 const Scroller = styled.div`
     flex: 1;
