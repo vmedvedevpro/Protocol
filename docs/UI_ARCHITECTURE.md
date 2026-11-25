@@ -1260,7 +1260,7 @@ another meeting starts from fresh state).
   a section label like Action items) saved as one summary.
 - **The meeting screen.** The header (title; when, how long, folder) and
   its menu: Rename (also F2), Move to folder, Copy transcript, Copy summary,
-  Open recording folder, Identify speakers again with a count, Delete.
+  Open recording folder, Identify speakers again…, Delete.
   Export, Enhance transcript and the summary's options join it with #119.
   Under it the post-call pass's status, then Notes, Transcript and Summary
   (⌘1, ⌘2, ⌘3; `?tab=`, Summary by default), and the player as the
@@ -1292,10 +1292,15 @@ another meeting starts from fresh state).
   native's words with Try again. Each `summary-progress` of the meeting
   reads the summary again. Notes do not feed the summary natively, so the
   footnote says "Written from the transcript."
-- **Speakers.** "N speakers ▾" on the Transcript tab and the menu's
-  Identify speakers again rerun diarization with a count or detecting it
-  (`diarizeMeeting`), offered only with a speaker engine, audio and no pass
-  running. Native holds the busy reason; the mutation's own callbacks
+- **Speakers.** "N speakers" and an Identify speakers… button on the
+  Transcript tab, and the menu's Identify speakers again…, open the
+  Identify speakers sheet (`openDialog`, with the screen's run as
+  `identify`); its Identify reruns diarization with a count or detecting
+  it (`diarizeMeeting`) and closes, and picking a count alone starts
+  nothing, so a meeting is never relabelled by a stray pick. Offered
+  only with a speaker engine, audio and no pass running; the sheet says
+  that named lines, contact links, the text and its times are kept, as
+  native's rerun does. Native holds the busy reason; the mutation's own callbacks
   refresh the transcript even if the user left the meeting. Naming a voice
   waits until the pass is over, since the pass replaces the labels.
 - Tests: `home/*.test.tsx`, `meeting/*.test.tsx` and `lib/*.test.ts` on the
@@ -1386,7 +1391,7 @@ another meeting starts from fresh state).
 
 - `features/dialogs` (#119) holds the sheets that open over any screen:
   Import a recording, Export, Improve the transcript, Summary options, the
-  template editor and Who said this line. No feature imports it. A screen
+  template editor, Who said this line and Identify speakers. No feature imports it. A screen
   opens one with `openDialog(request)` from `src/lib/dialogs.ts` (a
   Zustand store, as `paths` is for routes), and `DialogHost`, which the
   shell mounts under the router, shows the one open. One dialog is open at
@@ -1396,7 +1401,9 @@ another meeting starts from fresh state).
   again while the same kind is open (a second file dropped on Import), it
   keeps its `seq` and takes the new request. A request can carry what its caller owns: Who said this during
   a recording gets the session's lines and its rename function, so the
-  dialog never imports features/recording.
+  dialog never imports features/recording; Identify speakers gets the
+  meeting screen's run, so its toasts and running state stay with
+  features/meetings.
 - Long work stays native and holds its own busy reason: the import
   (`start_import_audio_command`) and the retranscription. Each sheet
   registers its listeners before the start call, cannot be dismissed while
