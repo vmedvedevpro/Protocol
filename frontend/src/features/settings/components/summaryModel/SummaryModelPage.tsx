@@ -15,14 +15,15 @@ import {Button} from '@/components/ui/Button'
 import {SettingsRadioGroup, SettingsRadioRow} from '@/components/ui/SettingsRow'
 import {Spinner} from '@/components/ui/Spinner'
 import {toast} from '@/components/ui/toastStore'
-import {isCloudProvider, readLegacyModelMap, summaryProviderKeys} from '../../api/summaryProviders'
+import {isCloudProvider, readLegacyModelMap, summaryProviderKeys} from '@/api/summaryProviders'
 import {SubpageFooter, type SubpageProps, SubpageGroups, SubpageScroll} from '../subpage'
 import {Warning} from '../styles'
-import {SUMMARY_PROVIDERS} from '../summaryModel'
+import {SUMMARY_PROVIDERS} from '@/api/summaryProviders'
 import {BuiltInModelsGroup} from './BuiltInModelsGroup'
-import {CloudGroup} from './CloudGroup'
+import {ClaudeLengthRow} from './ClaudeLengthRow'
+import {CloudGroup} from '@/components/summaryModel/CloudGroup'
 import {CustomServerGroup} from './CustomServerGroup'
-import {choiceOf, initialDraft, type SummaryModelDraft} from './draft'
+import {choiceOf, initialDraft, type SummaryModelDraft} from '@/components/summaryModel/draft'
 import {OllamaGroup} from './OllamaGroup'
 
 /** What the old settings stored beside the summary model when nothing was saved yet. */
@@ -93,9 +94,11 @@ function SummaryModelForm({config, customServer, back}: FormProps) {
                             onApiKey={(key) => change({apiKeys: {...draft.apiKeys, [cloud]: key}})}
                             model={model}
                             onModel={chooseModel}
-                            maxLength={draft.maxLength}
-                            onMaxLength={(maxLength) => change({maxLength})}
-                        />
+                        >
+                            {cloud === 'claude' && (
+                                <ClaudeLengthRow model={model} value={draft.maxLength} onChange={(maxLength) => change({maxLength})}/>
+                            )}
+                        </CloudGroup>
                     )}
                     {provider === 'ollama' && (
                         <OllamaGroup

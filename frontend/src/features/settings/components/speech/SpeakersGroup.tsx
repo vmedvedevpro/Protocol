@@ -24,7 +24,7 @@ import {SettingsGroup, SettingsRadioGroup, SettingsRadioRow, SettingsRow} from '
 import {focusRing} from '@/components/ui/styles'
 import {toast} from '@/components/ui/toastStore'
 import {formatModelSize} from '@/lib/sizes'
-import {useDebouncedSave} from '../../hooks/useDebouncedSave'
+import {useDebouncedSave} from '@/lib/useDebouncedSave'
 import {Disclosure, Range, SliderLine, SliderValue, Warning} from '../styles'
 import {ModelRow} from '../ModelRow'
 

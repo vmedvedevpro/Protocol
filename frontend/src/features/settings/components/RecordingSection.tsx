@@ -27,7 +27,7 @@ import {platform as currentPlatform, type Platform} from '@/lib/platform'
 import {openRecordingsFolder, pickRecordingsFolder} from '../api/recordingsFolder'
 import {DeviceRow} from './PreferenceRows'
 import {Range, SliderLine, SliderValue} from './styles'
-import {useDebouncedSave} from '../hooks/useDebouncedSave'
+import {useDebouncedSave} from '@/lib/useDebouncedSave'
 import {useRecordingPreferences} from '../hooks/useRecordingPreferences'
 import {Chip, chipMotion, ChipButton, Chips, Warning} from './styles'
 

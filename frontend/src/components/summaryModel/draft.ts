@@ -1,9 +1,10 @@
 import type {CustomServerConfig, SummaryModelChoice, SummaryModelConfig, SummaryProvider} from '@/api/preferences'
-import {claudeOutputMaximum, isCloudProvider} from '../../api/summaryProviders'
+import {claudeOutputMaximum, isCloudProvider} from '@/api/summaryProviders'
 
 /**
- * What the summary model page holds until Save: the fields as typed. A
- * provider switched to and back keeps what was typed for it.
+ * What the summary model page holds until Save, and first launch until
+ * Done: the fields as typed. A provider switched to and back keeps what was
+ * typed for it.
  */
 export interface SummaryModelDraft {
     /** '' while nothing is chosen (a removed provider): Save stays off. */

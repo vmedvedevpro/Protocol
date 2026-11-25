@@ -5,9 +5,9 @@ import {Button} from '@/components/ui/Button'
 import {Collapse} from '@/components/ui/Collapse'
 import {SettingsGroup, SettingsRow} from '@/components/ui/SettingsRow'
 import {TextField} from '@/components/ui/TextField'
-import {testCustomServer} from '../../api/summaryProviders'
+import {testCustomServer} from '@/api/summaryProviders'
 import {Warning} from '../styles'
-import {CUSTOM_LIMITS, parseNumber, type SummaryModelDraft} from './draft'
+import {CUSTOM_LIMITS, parseNumber, type SummaryModelDraft} from '@/components/summaryModel/draft'
 import {NarrowField} from './styles'
 
 type CustomFields = SummaryModelDraft['custom']

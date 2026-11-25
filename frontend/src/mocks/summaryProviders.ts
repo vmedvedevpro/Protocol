@@ -1,6 +1,6 @@
 import {emit} from '@tauri-apps/api/event'
 import type {NativeEvent} from '@/api/events'
-import {OLLAMA_PULL_PROGRESS_EVENT, type OllamaModel} from '@/features/settings/api/summaryProviders'
+import {OLLAMA_PULL_PROGRESS_EVENT, type OllamaModel} from '@/api/summaryProviders'
 import type {MockHandler} from './handlers'
 
 /**
