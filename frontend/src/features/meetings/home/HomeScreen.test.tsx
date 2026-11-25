@@ -143,6 +143,14 @@ describe('HomeScreen', () => {
         expect(importDialog.result.current.open).toBe(true)
     })
 
+    it('offers Import beside Settings once there are meetings', async () => {
+        renderHome()
+        const importDialog = renderHook(() => useDialog())
+        await screen.findByRole('region', {name: 'Today'})
+        await userEvent.click(screen.getByRole('button', {name: 'Import a recording'}))
+        expect(importDialog.result.current.open).toBe(true)
+    })
+
     it('announces a downloaded update and installs it on request', async () => {
         downloadedOffer()
         renderHome()

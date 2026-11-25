@@ -1,5 +1,5 @@
 import {useCallback, useEffect, useMemo, useState} from 'react'
-import {ArrowElbowDownLeftIcon, GearIcon, MagnifyingGlassIcon} from '@phosphor-icons/react'
+import {ArrowElbowDownLeftIcon, DownloadSimpleIcon, GearIcon, MagnifyingGlassIcon} from '@phosphor-icons/react'
 import {useQuery, useQueryClient} from '@tanstack/react-query'
 import * as m from 'motion/react-m'
 import {useNavigate, useSearchParams} from 'react-router-dom'
@@ -134,7 +134,8 @@ const matches = (text: string | undefined, query: string) => !!text && text.toLo
  * by folder, kept in the URL (`?folder=`), so Back from a meeting returns
  * to the same folder. Banners say when an update waits for a restart,
  * when Protocol cannot hear the microphone or the computer audio, and when
- * the built-in summary model is not downloaded. The
+ * the built-in summary model is not downloaded. Import a recording sits
+ * beside Settings once there are meetings, and in the empty state. The
  * recording bar docks below (`recordBar`).
  */
 export function HomeScreen() {
@@ -191,6 +192,12 @@ export function HomeScreen() {
         <Screen recordBar>
             <Head>
                 <Title>Meetings</Title>
+                {/* The empty state offers it as its own button; with meetings it lives here, as in ⌘K. */}
+                {!none && (
+                    <IconButton label="Import a recording" onClick={() => openDialog({kind: 'import'})}>
+                        <DownloadSimpleIcon size={17}/>
+                    </IconButton>
+                )}
                 <IconButton label="Settings" shortcut={formatShortcut(',')} onClick={() => void navigate(paths.settings())}>
                     <GearIcon size={17}/>
                 </IconButton>
