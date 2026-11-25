@@ -1089,7 +1089,8 @@ recording and hides the main window: minimizing the main window does it
   it runs, since a run that fails before its first step sends no event.
 - `TranscriptList` (`components/transcript/`) shows a transcript, saved
   or live: one row per turn, consecutive lines of one voice less than
-  2.5 s apart joined. Rows off screen are neither laid out nor painted
+  2.5 s apart joined; lines without a speaker (an import) stay one row
+  each, so each can be played from. Rows off screen are neither laid out nor painted
   (`content-visibility: auto`), so a meeting of several hours costs about
   what its visible rows cost, and rows re-render only when what they show
   changes: the callers' `onSeek` and `onRenameSpeaker` are called through a

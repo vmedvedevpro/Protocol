@@ -76,7 +76,10 @@ export const TURN_GAP_SECONDS = 2.5
 /**
  * Joins consecutive lines of one voice into turns. Live transcription and
  * the passes after a call cut speech into short pieces; a row per piece
- * would repeat the name every few words. Lines without times never join.
+ * would repeat the name every few words. Lines without times never join,
+ * and neither do lines without a speaker (an import, which does not
+ * diarize): they show no name to repeat, and joined, a whole contiguous
+ * recording became one row that a click could not seek within (#121).
  */
 export function joinTurns(lines: readonly TranscriptLine[]): Turn[] {
     const turns: Turn[] = []
@@ -84,7 +87,8 @@ export function joinTurns(lines: readonly TranscriptLine[]): Turn[] {
         const last = turns.at(-1)
         const lastEnd = last?.end ?? last?.start
         const gap = line.start !== null && lastEnd !== null && lastEnd !== undefined ? line.start - lastEnd : null
-        if (last && gap !== null && gap >= 0 && gap <= TURN_GAP_SECONDS && speakerKey(last.speaker) === speakerKey(line.speaker)) {
+        const labelled = !!line.speaker?.trim()
+        if (last && labelled && gap !== null && gap >= 0 && gap <= TURN_GAP_SECONDS && speakerKey(last.speaker) === speakerKey(line.speaker)) {
             last.text = `${last.text.trim()} ${line.text.trim()}`.trim()
             last.end = line.end ?? line.start
             last.lineIds.push(line.id)
