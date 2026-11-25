@@ -19,6 +19,9 @@ export interface SummaryModelDraft {
     custom: Record<'endpoint' | 'model' | 'apiKey' | 'maxTokens' | 'temperature' | 'topP', string>
 }
 
+/** What the old settings stored beside the summary model when nothing was saved yet; written back on Save. */
+export const WHISPER_MODEL_DEFAULT = 'large-v3'
+
 /** A key or an endpoint typed is asked about once typing has rested this long. */
 export const TYPING_SETTLE_MS = 500
 

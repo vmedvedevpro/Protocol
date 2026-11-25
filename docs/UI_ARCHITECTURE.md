@@ -194,7 +194,15 @@ minibar window has none of it.
   model valid. A fresh database selects no summary model
   (`initialize_fresh_database`), so after Later summaries stay off: Home
   shows no banner, and the post-call pass leaves the automatic summary out
-  until a model is chosen. The list is data
+  until a model is chosen. Unlike Settings' Save, which waits for the
+  download, Done selects a built-in model whose download is still running.
+  Two things keep a chosen but missing model (a quit mid-download, a cancel
+  in Settings) from being used: the post-call pass and its summary step ask
+  one predicate of native state (`usableSummaryModel` in
+  `postCallRunner.ts`: a provider and a model, and for built-in AI
+  `builtin_ai_is_model_ready`, a failed check counting as not ready), so
+  the summary is left out rather than failing on every meeting; and Home's
+  missing-model banner offers the download again. The list is data
   (`firstLaunchDownloads`): on an Intel GPU (`gpuOffered`) the
   after-meeting row is Whisper's Intel GPU version (`openvino_download`
   with `choose`, which native makes the after-meeting model), and on an

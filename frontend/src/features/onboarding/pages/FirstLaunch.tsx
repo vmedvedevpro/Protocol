@@ -5,7 +5,6 @@ import * as m from 'motion/react-m'
 import styled from 'styled-components'
 import {completeOnboarding, onboardingKeys, onboardingStatusQuery, saveOnboardingStep} from '@/api/onboarding'
 import {saveSummaryModelMutation} from '@/api/preferences'
-import {summaryProviderKeys} from '@/api/summaryProviders'
 import {Screen} from '@/components/screen/Screen'
 import {Button} from '@/components/ui/Button'
 import {toast} from '@/components/ui/toastStore'
@@ -103,11 +102,7 @@ export function FirstLaunch({platform = appPlatform}: { platform?: Platform }) {
         mutationFn: async () => {
             const {finish} = summary
             if (!finish) throw new Error(blocker ?? 'Choose how summaries are written')
-            if (finish.save) {
-                await saveSummary.mutateAsync(finish.save)
-                // A list asked with a key typed here is asked again with the saved one.
-                void queryClient.invalidateQueries({queryKey: summaryProviderKeys.all})
-            }
+            if (finish.save) await saveSummary.mutateAsync(finish.save)
             await completeOnboarding({summary: finish.summary, parakeetReady: isReady(rows, 'live')})
         },
         onSuccess: () => {

@@ -3,16 +3,19 @@ import {useQuery} from '@tanstack/react-query'
 import type {SummaryChoice} from '@/api/onboarding'
 import {apiKeyQuery, type CustomServerConfig, type SummaryModelChoice, summaryModelQuery} from '@/api/preferences'
 import {type CloudProvider, isCloudProvider} from '@/api/summaryProviders'
-import {choiceOf, initialDraft, type SummaryModelDraft} from '@/components/summaryModel/draft'
+import {choiceOf, initialDraft, type SummaryModelDraft, WHISPER_MODEL_DEFAULT} from '@/components/summaryModel/draft'
 import {type DownloadRow, useSummaryDownload} from './useFirstLaunchDownloads'
 
 /** How summaries get written: the built-in model, a provider with the user's key, or not yet. */
 export type SummaryWay = 'builtIn' | 'provider' | 'later'
 
-/** What the old settings stored beside the summary model when nothing was saved yet. */
-const WHISPER_MODEL_DEFAULT = 'large-v3'
-
-/** The built-in model counts as chosen once its download runs: Install was pressed and not cancelled. */
+/**
+ * The built-in model counts as chosen once its download runs: Install was
+ * pressed and not cancelled. Unlike Settings' Save, which waits for the
+ * download, first launch selects it then; the post-call pass uses it only
+ * once it is downloaded (`usableSummaryModel`), and Home's missing-model
+ * banner offers the download again when it was cut short.
+ */
 const installing = (row: DownloadRow | null) =>
     row !== null && (row.state.kind === 'downloading' || row.state.kind === 'activating' || row.state.kind === 'ready')
 
