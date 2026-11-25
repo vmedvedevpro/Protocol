@@ -471,6 +471,22 @@ pub fn diarize_file_with_models(
     };
 
     let num_found = labels.iter().copied().max().map(|m| m + 1).unwrap_or(0);
+    // Each cluster's turns and speech, so a log tells a real voice from a
+    // cluster of one odd turn (#207).
+    let mut cluster_turns = vec![(0usize, 0f32); num_found];
+    for (k, &turn_idx) in kept.iter().enumerate() {
+        cluster_turns[labels[k]].0 += 1;
+        cluster_turns[labels[k]].1 += turns[turn_idx].speech_secs;
+    }
+    log::info!(
+        "🧑‍🤝‍🧑 Clusters (turns, speech): {}",
+        cluster_turns
+            .iter()
+            .enumerate()
+            .map(|(c, (n, secs))| format!("Speaker {}: {} turns, {:.1}s", c + 1, n, secs))
+            .collect::<Vec<_>>()
+            .join("; ")
+    );
 
     // 5. Expand to segments, sort, merge adjacent same-speaker runs.
     // Overlapped regions keep the primary speaker but are flagged.

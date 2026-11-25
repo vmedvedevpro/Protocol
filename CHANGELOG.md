@@ -27,6 +27,13 @@ is inherited from the project Protocol forked from; Protocol did not release it.
   typed, search lists a few people after the recent meetings, newest meeting
   first. "Show all people" or the People command lists everyone, and typing
   filters them by name, role, company or email.
+- **Identify speakers with a chosen count**
+  ([#217](https://github.com/vmedvedevpro/Protocol/issues/217)). With 2
+  speakers chosen, a meeting could still show one: a single odd moment of
+  audio took the second speaker. A voice now counts as a speaker only when
+  it is heard in more than one stretch of the meeting, so the chosen count
+  goes to real voices, and Detect automatically no longer reports such a
+  moment as a speaker of its own.
 
 ## Protocol 1.0.0-rc.1 — 2026-11-26
 

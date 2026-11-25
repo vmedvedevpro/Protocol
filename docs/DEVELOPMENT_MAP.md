@@ -288,7 +288,28 @@ cloud_models anthropic:: groq:: openai::` (a local HTTP server stands in for
 the providers), frontend `SummaryModelPage.test.tsx`.
 
 `diarization/mod.rs` owns persisted engine settings and offline command dispatch.
-Nemotron is Auto-detect only; manual counts belong to Pyannote. Rerunning speaker
+Nemotron is Auto-detect only; manual counts belong to Pyannote.
+Pyannote clusters the embeddings of its turns (one local speaker of one
+non-overlapping 10 s window) with average-linkage AHC in
+`clustering::agglomerative` (#217). A cluster counts as a speaker only with
+`MIN_SPEAKER_TURNS` (2) turns, as pyannote's `min_cluster_size`: a voice heard
+in one window has no second sample to tell it from that window's noise. With a
+count chosen, the cut is the coarsest one of the merge tree with that many
+such clusters, and smaller clusters join the nearest one's centroid; when no
+cut has that many (too few turns), the cut with that many clusters of any
+size, so the count holds. Detect automatically cuts at the distance threshold
+and folds the small clusters the same way. On #207's meeting a single 1.6 s
+turn had been the second of two chosen speakers. `diarize_file_with_models`
+logs each cluster's turns and speech. Tests: the model-free
+`diarization::clustering::tests`, and the ignored
+`a_chosen_count_is_spent_on_the_two_voices` (`diarization/qualification.rs`):
+it downloads pyannote-audio's `sample.wav` and RTTM (MIT) and one FLEURS en
+sentence (CC BY 4.0, the kit's pinned archive, 172 MB into `.measure/cache`),
+builds sample, 1 s of silence, 2 s of the third voice alone in its window,
+sample, and checks that 2 chosen speakers are the sample's two and both lead
+rows; on 1.0.0's clustering it fails with 45.8 s and 1.8 s. The automatic
+threshold (0.60, which merges the sample's two voices at 0.551) is not
+recalibrated here. Rerunning speaker
 identification must preserve transcript text, row identity, and timestamps.
 `row_speakers` labels a row with the speaker who overlaps it most, then those who
 overlap it for a fifth of that and talk at the same time; of speakers who overlap
