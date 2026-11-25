@@ -51,12 +51,20 @@
 ## Changes from Meetily – Actually Free
 
 - A new compact interface, written from scratch for 1.0.
-- Faster transcription on the GPU and the processor, and Parakeet on Intel NPUs.
-- Models and speech runtimes download to each computer and update without a new release.
-- An in-app updater that installs only when you choose.
-- AI agents such as Claude can read your meetings through MCP.
-- Every installer, for Windows, macOS and Linux (deb and AppImage), is built from the tagged source in public GitHub Actions runs; Actually Free builds its Windows installer on its maintainer's computer.
-- Each release carries SHA-256 checksums and signed build provenance, so you can check what a download was built from.
+- Live transcription is 2.5 times faster than in Actually Free.
+- Transcription after a call is 5 times faster than in Actually Free.
+- Transcription after a call makes 20 % fewer word errors.
+- On Intel GPUs under Windows, Whisper runs through OpenVINO and is another 4 times faster.
+- On Intel NPUs, Parakeet uses 3.5 times less energy than on the processor.
+- AI agents can read your meetings through MCP.
+- The analytics code is removed.
+- Updates are built into the app.
+- Transcription and summary models are verified before they load. New models arrive without a new Protocol release.
+- Installers for Windows, macOS and Linux are built from the tagged source in public GitHub Actions runs.
+- Actually Free builds its Windows installer on its maintainer's computer.
+- Each release carries SHA-256 checksums and signed build provenance.
+
+The speed and energy figures were measured on an Intel Core Ultra laptop.
 
 ## Privacy
 
