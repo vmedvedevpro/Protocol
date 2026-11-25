@@ -299,7 +299,7 @@ describe('speakers', () => {
 
         const rename = await renameMeetingSpeaker('meeting-untitled', 'Speaker 1', 'Tom Becker')
 
-        expect(rename).toEqual({speaker: 'Tom Becker', count: 2, removedName: false})
+        expect(rename).toEqual({speaker: 'Tom Becker', count: 2, removedName: false, removedContact: false})
         expect((await getAllTranscripts('meeting-untitled')).map((line) => line.speaker)).toEqual(
             ['You', 'Tom Becker + You', 'You', 'Tom Becker', 'You', 'Speaker 2'],
         )

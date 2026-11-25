@@ -130,6 +130,18 @@ pub(crate) struct SpeakerRenameOutcome {
     pub count: u64,
     pub speaker: String,
     pub removed_name: bool,
+    /// The contact `from` belonged to, when the rename left it with no lines
+    /// and the caller allowed removing it.
+    pub removed_contact: Option<RemovedContact>,
+}
+
+/// What became of a contact a rename emptied.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum RemovedContact {
+    /// Folded into the contact the lines went to, with its notes and details.
+    Merged { source_id: String, target_id: String, target_name: String },
+    /// Deleted: the lines went to no contact (the user, a voice).
+    Deleted { person_id: String },
 }
 
 impl PeopleRepository {
@@ -431,6 +443,14 @@ impl PeopleRepository {
             return Err(sqlx::Error::Protocol("Choose two different contacts to merge".into()));
         }
         let mut tx = pool.begin().await?;
+        Self::merge_in(&mut tx, source_id, target_id).await?;
+        tx.commit().await?;
+        Self::list_item(pool, target_id).await
+    }
+
+    /// The merge inside the caller's transaction; returns the kept name.
+    async fn merge_in(tx: &mut Transaction<'_, Sqlite>, source_id: &str, target_id: &str) -> Result<String, sqlx::Error> {
+        let tx = &mut **tx;
         let source = sqlx::query_as::<
             _,
             (Option<String>, Option<String>, Option<String>, Option<String>, Option<String>),
@@ -530,17 +550,22 @@ impl PeopleRepository {
             .bind(source_id)
             .execute(&mut *tx)
             .await?;
-        tx.commit().await?;
-        Self::list_item(pool, target_id).await
+        Ok(target_name)
     }
 
     /// Removes a contact. Each meeting keeps its lines, relabelled with the
     /// lowest free `Speaker N`, and their action items stay but are unlinked.
     pub async fn delete_person(pool: &SqlitePool, person_id: &str) -> Result<(), sqlx::Error> {
         let mut tx = pool.begin().await?;
+        Self::delete_in(&mut tx, person_id).await?;
+        tx.commit().await
+    }
+
+    /// The deletion inside the caller's transaction.
+    async fn delete_in(tx: &mut Transaction<'_, Sqlite>, person_id: &str) -> Result<(), sqlx::Error> {
         let exists: Option<String> = sqlx::query_scalar("SELECT id FROM people WHERE id = ?")
             .bind(person_id)
-            .fetch_optional(&mut *tx)
+            .fetch_optional(&mut **tx)
             .await?;
         if exists.is_none() {
             return Err(sqlx::Error::RowNotFound);
@@ -549,32 +574,31 @@ impl PeopleRepository {
             "SELECT meeting_id, speaker_label FROM person_speakers WHERE person_id = ?",
         )
         .bind(person_id)
-        .fetch_all(&mut *tx)
+        .fetch_all(&mut **tx)
         .await?;
         for (meeting_id, label) in mappings {
             sqlx::query("DELETE FROM person_speakers WHERE person_id = ? AND meeting_id = ? AND speaker_label = ?")
                 .bind(person_id)
                 .bind(&meeting_id)
                 .bind(&label)
-                .execute(&mut *tx)
+                .execute(&mut **tx)
                 .await?;
-            let generated = next_available_speaker_label(&mut tx, &meeting_id).await?;
+            let generated = next_available_speaker_label(tx, &meeting_id).await?;
             sqlx::query("UPDATE transcripts SET speaker = ? WHERE meeting_id = ? AND speaker = ?")
                 .bind(&generated)
                 .bind(&meeting_id)
                 .bind(&label)
-                .execute(&mut *tx)
+                .execute(&mut **tx)
                 .await?;
         }
         sqlx::query("UPDATE action_items SET person_id = NULL WHERE person_id = ?")
             .bind(person_id)
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await?;
         sqlx::query("DELETE FROM people WHERE id = ?")
             .bind(person_id)
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await?;
-        tx.commit().await?;
         Ok(())
     }
 
@@ -613,8 +637,30 @@ impl PeopleRepository {
         from: &str,
         to: &str,
     ) -> Result<SpeakerRenameOutcome, sqlx::Error> {
+        Self::rename_speaker(pool, meeting_id, from, to, false).await
+    }
+
+    /// The rename, and with `remove_emptied` the contact `from` belonged to
+    /// when no meeting has its lines any more: merged into the contact the
+    /// lines went to, or deleted when they went to none. Merges have no
+    /// Undo, so only the Who said this sheet passes it, after its warning;
+    /// one transaction, so a failure leaves both contacts as they were.
+    pub(crate) async fn rename_speaker(
+        pool: &SqlitePool,
+        meeting_id: &str,
+        from: &str,
+        to: &str,
+        remove_emptied: bool,
+    ) -> Result<SpeakerRenameOutcome, sqlx::Error> {
         let to = to.trim();
         let mut tx = pool.begin().await?;
+        let source: Option<String> = sqlx::query_scalar(
+            "SELECT person_id FROM person_speakers WHERE meeting_id = ? AND speaker_label = ?",
+        )
+        .bind(meeting_id)
+        .bind(from.trim())
+        .fetch_optional(&mut *tx)
+        .await?;
         let removed_name = to.is_empty();
         let resolved_to = if removed_name {
             next_available_speaker_label(&mut tx, meeting_id).await?
@@ -647,11 +693,38 @@ impl PeopleRepository {
         } else if count > 0 {
             Self::reconcile_speaker_identity(&mut tx, meeting_id, from, &resolved_to).await?;
         }
+        let mut removed_contact = None;
+        if let Some(source_id) = source.filter(|_| remove_emptied && count > 0) {
+            let left: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM person_speakers WHERE person_id = ?")
+                .bind(&source_id)
+                .fetch_one(&mut *tx)
+                .await?;
+            let target: Option<String> = sqlx::query_scalar(
+                "SELECT person_id FROM person_speakers WHERE meeting_id = ? AND speaker_label = ?",
+            )
+            .bind(meeting_id)
+            .bind(&resolved_to)
+            .fetch_optional(&mut *tx)
+            .await?;
+            if left == 0 {
+                removed_contact = Some(match target.filter(|target| *target != source_id) {
+                    Some(target_id) => {
+                        let target_name = Self::merge_in(&mut tx, &source_id, &target_id).await?;
+                        RemovedContact::Merged { source_id, target_id, target_name }
+                    }
+                    None => {
+                        Self::delete_in(&mut tx, &source_id).await?;
+                        RemovedContact::Deleted { person_id: source_id }
+                    }
+                });
+            }
+        }
         tx.commit().await?;
         Ok(SpeakerRenameOutcome {
             count,
             speaker: resolved_to,
             removed_name,
+            removed_contact,
         })
     }
 
@@ -725,6 +798,7 @@ impl PeopleRepository {
             count: result.rows_affected(),
             speaker: resolved_to,
             removed_name,
+            removed_contact: None,
         })
     }
 
@@ -732,7 +806,8 @@ impl PeopleRepository {
     /// joins the contact with that name, or adds one. The contact that `from`
     /// pointed at is never renamed or deleted: it keeps its details and its
     /// other meetings, and only loses this meeting's lines. Contacts go away
-    /// only when the user deletes or merges them.
+    /// only when the user deletes or merges them, or confirms the Who said
+    /// this sheet's warning (`rename_speaker` with `remove_emptied`).
     pub(crate) async fn reconcile_speaker_identity(
         tx: &mut Transaction<'_, Sqlite>,
         meeting_id: &str,
@@ -1659,7 +1734,7 @@ mod tests {
         assert_eq!(people_count, 1);
     }
 
-    use super::PersonInput;
+    use super::{PersonInput, RemovedContact};
 
     async fn contacts_pool() -> sqlx::SqlitePool {
         let pool = sqlx::SqlitePool::connect(":memory:").await.unwrap();
@@ -1764,6 +1839,73 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(gone, 0);
+    }
+
+    async fn person_exists(pool: &sqlx::SqlitePool, person_id: &str) -> bool {
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM people WHERE id = ?")
+            .bind(person_id)
+            .fetch_one(pool)
+            .await
+            .unwrap()
+            == 1
+    }
+
+    #[tokio::test]
+    async fn a_rename_that_empties_a_contact_merges_it_into_the_new_one_when_allowed() {
+        let pool = contacts_pool().await;
+        let renamed = PeopleRepository::rename_speaker(&pool, "m1", "Tom", "Thomas Becker", true).await.unwrap();
+        assert_eq!(
+            renamed.removed_contact,
+            Some(RemovedContact::Merged {
+                source_id: "p-tom".into(),
+                target_id: "p-thomas".into(),
+                target_name: "Thomas Becker".into(),
+            })
+        );
+        assert!(!person_exists(&pool, "p-tom").await);
+        assert_eq!(speaker_of(&pool, "t1").await, "Thomas Becker");
+        let kept: (Option<String>, String) =
+            sqlx::query_as("SELECT p.notes, a.person_id FROM people p, action_items a WHERE p.id = 'p-thomas' AND a.id = 'a1'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(kept, (Some("Met at kickoff".into()), "p-thomas".into()));
+
+        // Without the sheet's consent the emptied contact stays.
+        let pool = contacts_pool().await;
+        let renamed = PeopleRepository::rename_meeting_speaker(&pool, "m1", "Tom", "Thomas Becker").await.unwrap();
+        assert_eq!(renamed.removed_contact, None);
+        assert!(person_exists(&pool, "p-tom").await);
+    }
+
+    #[tokio::test]
+    async fn a_rename_that_empties_a_contact_deletes_it_when_the_lines_go_to_no_contact() {
+        let pool = contacts_pool().await;
+        let renamed = PeopleRepository::rename_speaker(&pool, "m1", "Tom", "Speaker 1", true).await.unwrap();
+        assert_eq!(renamed.removed_contact, Some(RemovedContact::Deleted { person_id: "p-tom".into() }));
+        assert!(!person_exists(&pool, "p-tom").await);
+        assert_eq!(speaker_of(&pool, "t1").await, "Speaker 1");
+        let owner: Option<String> = sqlx::query_scalar("SELECT person_id FROM action_items WHERE id = 'a1'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(owner, None, "the action item stays, unlinked");
+    }
+
+    #[tokio::test]
+    async fn a_contact_with_lines_in_another_meeting_is_kept() {
+        let pool = contacts_pool().await;
+        sqlx::raw_sql(
+            "INSERT INTO person_speakers VALUES ('p-tom', 'm2', 'Tom'); \
+             INSERT INTO transcripts VALUES ('t5', 'm2', 'Tom');",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let renamed = PeopleRepository::rename_speaker(&pool, "m1", "Tom", "Thomas Becker", true).await.unwrap();
+        assert_eq!(renamed.removed_contact, None);
+        assert!(person_exists(&pool, "p-tom").await);
+        assert_eq!(speaker_of(&pool, "t5").await, "Tom");
     }
 
     #[tokio::test]

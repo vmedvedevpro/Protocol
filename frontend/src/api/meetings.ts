@@ -647,6 +647,8 @@ export interface SpeakerRename {
     count: number
     /** `to` was empty, so the voice went back to a "Speaker N" label. */
     removedName: boolean
+    /** `from`'s contact had no lines left anywhere and was removed (with `removeEmptiedContact`). */
+    removedContact: boolean
 }
 
 /**
@@ -654,8 +656,14 @@ export interface SpeakerRename {
  * the lines where it overlaps another voice. Native also links the name to
  * a contact of the same name.
  */
-export const renameMeetingSpeaker = (meetingId: string, from: string, to: string) =>
-    command<SpeakerRename>('rename_meeting_speaker', {meetingId, from, to})
+/**
+ * Relabels every line of `from`. With `removeEmptiedContact` (after the Who
+ * said this sheet's warning) native also removes `from`'s contact when no
+ * meeting has its lines any more: merged into the contact the lines went to,
+ * or deleted, in the same transaction.
+ */
+export const renameMeetingSpeaker = (meetingId: string, from: string, to: string, {removeEmptiedContact = false} = {}) =>
+    command<SpeakerRename>('rename_meeting_speaker', {meetingId, from, to, removeEmptiedContact})
 
 /**
  * Whether a speaker engine is installed, so the speaker count can be

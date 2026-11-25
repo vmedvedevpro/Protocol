@@ -192,12 +192,16 @@ export function SettingsPage() {
     const section = requested ?? 'general'
     const query = search.get('q') ?? ''
     const searching = query.trim() !== ''
+    // The field shows `?q=`, and the router commits a navigation in a
+    // transition. Until it commits, React keeps the field at the old value,
+    // so keys typed while the first results render were lost. flushSync
+    // commits each key before the next one arrives.
     const setQuery = (next: string) => setSearch((current) => {
         const params = new URLSearchParams(current)
         if (next) params.set('q', next)
         else params.delete('q')
         return params
-    }, {replace: true})
+    }, {replace: true, flushSync: true})
 
     // A link to a section shows the sections.
     useEffect(() => {

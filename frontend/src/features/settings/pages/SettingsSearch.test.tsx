@@ -1,5 +1,5 @@
 import {createElement} from 'react'
-import {screen, within} from '@testing-library/react'
+import {configure, getConfig, screen, waitFor, within} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import {describe, expect, it} from 'vitest'
 import {renderSettings} from '../testing'
@@ -37,6 +37,23 @@ describe('Settings search', () => {
         await userEvent.keyboard('{Escape}')
         expect(field).toHaveValue('')
         expect(await screen.findByRole('region', {name: 'You'})).toBeInTheDocument()
+    })
+
+    it('keeps every key typed while the first results render', async () => {
+        open()
+        const field = await search()
+        // Testing Library wraps each event in act(), which commits the
+        // router's transition before the next key. A real keyboard does not
+        // wait for it, so the keys go in without that wrapper.
+        const {eventWrapper} = getConfig()
+        configure({eventWrapper: (dispatch) => dispatch()})
+        try {
+            await userEvent.setup({delay: null}).type(field, 'model')
+        } finally {
+            configure({eventWrapper})
+        }
+        await waitFor(() => expect(screen.getByRole('region', {name: 'Pages'})).toBeInTheDocument())
+        expect(field).toHaveValue('model')
     })
 
     it('leaves the search for a section picked', async () => {

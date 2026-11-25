@@ -1308,7 +1308,8 @@ another meeting starts from fresh state).
   reads the summary again. Notes do not feed the summary natively, so the
   footnote says "Written from the transcript."
 - **Speakers.** "N speakers" and an Identify speakers… button on the
-  Transcript tab, and the menu's Identify speakers again…, open the
+  Transcript tab (icon only, its name in the tooltip, so the row fits the
+  460 px window), and the menu's Identify speakers again…, open the
   Identify speakers sheet (`openDialog`, with the screen's run as
   `identify`); its Identify reruns diarization with a count or detecting
   it (`diarizeMeeting`) and closes, and picking a count alone starts
@@ -1359,6 +1360,14 @@ another meeting starts from fresh state).
   them, any other name becomes a new contact, and generated labels ("You",
   "Speaker N", overlaps) never do (`isPersonLabel`). No command lists a
   meeting's links, so `personForSpeaker` maps a label by the same name rule.
+- Who said this, on every line of a contact that is in no other meeting
+  (`meetingCount` 1), warns that the contact goes: merged into the contact
+  the lines go to (a new name becomes one first), or deleted with what it
+  keeps (private notes, details, voice) when they go to the user or a voice.
+  Save then passes `removeEmptiedContact`, and native moves the lines and
+  removes the contact in one transaction after checking again
+  (`PeopleRepository::rename_speaker`); a contact with lines elsewhere stays.
+  Rename speaker never removes a contact.
 - A voice's label in `TranscriptList` opens a menu of `speakerActions`, the
   caller's (`SpeakerTarget` in: the label and the turn's lines, the first
   being the turn's id; `SpeakerAction` out: id, label, icon, onSelect),
@@ -1368,7 +1377,8 @@ another meeting starts from fresh state).
 - Mock: `src/mocks/people.ts` derives who spoke where from the transcripts,
   as `person_speakers` follows the labels. It wraps two of the meetings
   mock's handlers with what native does in the same write:
-  `rename_meeting_speaker` makes a contact of a new name, and
+  `rename_meeting_speaker` makes a contact of a new name (and removes an
+  emptied one when asked), and
   `api_list_action_items` answers with owners linked to their contacts.
 - Search (#118) is `features/search`: `SearchDialog` registers ⌘K / Ctrl K
   and opens from anywhere through `src/lib/searchLauncher.ts`

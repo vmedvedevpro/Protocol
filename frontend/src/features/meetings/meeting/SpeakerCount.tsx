@@ -1,7 +1,9 @@
 import {useMemo} from 'react'
+import {UsersIcon} from '@phosphor-icons/react'
 import styled from 'styled-components'
 import type {TranscriptSegment} from '@/api/meetings'
-import {Button} from '@/components/ui/Button'
+import {IconButton} from '@/components/ui/Button'
+import {Spinner} from '@/components/ui/Spinner'
 import {countSpeakers, speakerCountLabel} from './identifySpeakers'
 
 const Wrap = styled.div`
@@ -17,9 +19,12 @@ const Wrap = styled.div`
 `
 
 /**
- * "4 speakers · Identify speakers…" in the Transcript tab's row: how many
- * voices were found, and a button that opens the Identify speakers sheet,
- * where the user picks a count and confirms before anything is relabelled.
+ * "4 speakers" and a button in the Transcript tab's row: how many voices
+ * were found, and Identify speakers…, which opens the sheet where the user
+ * picks a count and confirms before anything is relabelled. The button has
+ * only an icon (the menu's Identify speakers again uses the same) and its
+ * name as the tooltip: with its text the row ran past the 460 px window.
+ * While a run goes it turns and waits.
  */
 export function SpeakerCount({lines, onIdentify, running}: {
     lines: readonly TranscriptSegment[]
@@ -31,7 +36,9 @@ export function SpeakerCount({lines, onIdentify, running}: {
     return (
         <Wrap>
             <span>{speakerCountLabel(count)}</span>
-            <Button size="sm" pending={running} onClick={onIdentify}>Identify speakers…</Button>
+            <IconButton label="Identify speakers…" disabled={running} aria-busy={running || undefined} onClick={onIdentify}>
+                {running ? <Spinner size={15}/> : <UsersIcon size={15} aria-hidden/>}
+            </IconButton>
         </Wrap>
     )
 }

@@ -40,6 +40,8 @@ export type SpeechModelStatus =
     | {Downloading: {progress: number}}
     | {Error: string}
     | {Corrupted: {file_size: number, expected_min_size: number}}
+    /** A Whisper download that stopped part way; the next download resumes from the file. */
+    | {Incomplete: {file_size: number, expected_size: number}}
 
 export interface ParakeetModelInfo {
     name: string
@@ -174,14 +176,18 @@ export interface BuiltInModelInfo {
 export const listBuiltInModels = () => command<BuiltInModelInfo[]>('builtin_ai_list_models')
 
 /**
- * How much of a built-in model a stopped download left, in percent, or null
- * for any other status: native keeps the partial file (`incomplete`) and the
- * next download resumes from it with a Range request
- * (summary_engine/model_manager.rs).
+ * How much of a model a stopped download left, in percent, or null for any
+ * other status: native keeps the partial file (a built-in model's
+ * `incomplete`, a Whisper model's `Incomplete`) and the next download
+ * resumes from it with a Range request (summary_engine/model_manager.rs,
+ * whisper_engine/whisper_engine.rs).
  */
 export function stoppedDownloadShare(status: SpeechModelStatus | BuiltInModelStatus | undefined): number | null {
-    if (typeof status !== 'object' || !('type' in status) || status.type !== 'incomplete') return null
-    return status.expected_size > 0 ? Math.floor((status.file_size / status.expected_size) * 100) : 0
+    if (typeof status !== 'object') return null
+    const stopped = 'type' in status ? (status.type === 'incomplete' ? status : null)
+        : 'Incomplete' in status ? status.Incomplete : null
+    if (!stopped) return null
+    return stopped.expected_size > 0 ? Math.floor((stopped.file_size / stopped.expected_size) * 100) : 0
 }
 
 /** Whether the file is there and whole; `refresh` scans the disk first instead of trusting the last scan. */

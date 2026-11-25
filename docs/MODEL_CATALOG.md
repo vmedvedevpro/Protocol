@@ -169,10 +169,12 @@ same 18 models as before #79, the companion the only hidden entry.
 Each download writes an install record beside the model (`<file>.install.json`;
 `install.json` in a Parakeet folder) with the repository, the commit and every
 file's size, SHA-256 and blob id: unfinished before the first byte, complete
-once every file matched. An unfinished Parakeet or summary download resumes
-from its recorded commit without asking the API, so its kept bytes stay valid;
-Whisper downloads start over. Startup sizes and the hash before load come from
-the complete record.
+once every file matched. An unfinished Parakeet, summary or Whisper download
+resumes from its recorded commit without asking the API, so its kept bytes stay
+valid; Settings shows it as stopped at its share with Resume (Whisper's status
+`Incomplete`, the summary models' `incomplete`). A cancelled Whisper download
+deletes its file and record instead. Startup sizes and the hash before load
+come from the complete record.
 
 ### Model sizes
 
