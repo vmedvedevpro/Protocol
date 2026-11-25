@@ -359,8 +359,9 @@ theme; the motion from the Motion section.
   from anywhere, a mutation's callback or an event handler outside React;
   `toast.dismiss(id?)` closes one or all. The window's one `Toaster`
   (`Toast.tsx`) draws them under the title strip, newest on top, at most
-  three (a fourth closes the oldest timed one; a persistent one, such as
-  "Copy notes", closes only for another persistent one), above an open
+  three (a fourth closes the oldest older timed one; a persistent one, such
+  as "Copy notes", closes only when every older toast is persistent, and
+  the newest always shows), above an open
   sheet and usable over it. The design draws no toast: it takes the Home banner's look, an icon
   for the tone (none is red, which is the recording's), a medium title, a
   muted line that wraps anywhere (a hash fits), one small action and the
@@ -916,7 +917,10 @@ quit is saved whatever screen is open. The minibar window mounts none of it.
   minutes: the step's error stands (a completed step fails), and a pass
   that native then rejects fails with Retry rather than holding the queue
   and the updater for good. A second Cancel while cancelling changes
-  nothing. Deleting a meeting cancels its pass first.
+  nothing. Deleting a meeting cancels its pass first and waits up to
+  `DELETE_SETTLE_LIMIT_MS` (2 min, the release limit's reason) for it, the
+  button pending; past that, or while native still retranscribes, Delete
+  refuses with a toast instead of deleting under native's writes.
 - **Recovery** (`api/recovery.ts`, `store/recover.ts`, `RecoverySheet`):
   IndexedDB `MeetilyRecoveryDB` v1 as the old UI wrote it. A recording's
   record is made at its start; every line is added. Once per page load the
@@ -992,9 +996,11 @@ recording and hides the main window: minimizing the main window does it
   left over `base`; the pill's width changes once.
 - **The window** follows the pill, so no transparent part of it takes
   clicks meant for the windows below: a `ResizeObserver` on the pill sends
-  its width to `resize_minibar` as it opens, closes or its status grows.
-  Native clamps it to 52–512 px, keeps the window's left edge (the pill
-  grows rightwards) unless the open pill would leave the monitor, and clips
+  its width to `resize_minibar` once it settles (a frame without a change),
+  and the widest at once when the pill starts to grow. Native clamps it to
+  52–512 px, keeps the window's left edge (the pill grows rightwards)
+  unless the open pill would leave the monitor, moves it back there once
+  the pill fits again (unless it was dragged meanwhile), and clips
   the window on Windows to the new rounded rectangle (26 px radius). The
   window starts at the closed pill's 170×52, centred at the top of the
   primary monitor: GTK never shrinks a non-resizable window below its first
@@ -1308,7 +1314,9 @@ another meeting starts from fresh state).
   at Home's `?folder=`, a transcript line on the meeting's transcript at
   that line, and an action item on its summary (`paths.meeting(id, {tab,
   at, line})`). The meeting screen reads `?at=` (seconds) and `?line=` (a
-  transcript id) once: the player waits at `at` once the recording has
+  transcript id) as each navigation brings them, then drops them from the
+  URL, so a hit inside the meeting already open (the same one again too)
+  goes there and a tab switch does not: the player waits at `at` once the recording has
   loaded, and `TranscriptList` scrolls the turn holding `line` into view
   (`revealLineId`), with audio or without. Playback is not followed until
   the user plays. An action item has no line of its own on the summary:

@@ -6,6 +6,7 @@ import {useSummaryLanguageStore} from '@/api/preferences'
 import {emitMockEvent} from '@/mocks/ipc'
 import {mockState} from '@/mocks/state'
 import type {NativeEvent} from '@/api/events'
+import {openDialog} from '@/lib/dialogs'
 import {renderDialogs} from '../testing/renderDialogs'
 
 const sheet = () => screen.findByRole('dialog', {name: 'Import a recording'})
@@ -48,6 +49,19 @@ describe('ImportSheet', () => {
             provider: 'parakeet',
         }])
         await waitFor(() => expect(screen.queryByRole('dialog', {name: 'Import a recording'})).not.toBeInTheDocument())
+    })
+
+    it('opens empty again after an import has finished, so the next one can start', async () => {
+        renderDialogs({kind: 'import'})
+        const dialog = await chooseFile()
+        await userEvent.click(within(dialog).getByRole('button', {name: 'Import'}))
+        await screen.findByText('Recording imported')
+        await waitFor(() => expect(screen.queryByRole('dialog', {name: 'Import a recording'})).not.toBeInTheDocument())
+
+        act(() => openDialog({kind: 'import'}))
+        const again = await chooseFile()
+        expect(within(again).getByRole('button', {name: 'Import'})).toBeEnabled()
+        expect(screen.queryByText('One recording imports at a time')).not.toBeInTheDocument()
     })
 
     it('files the meeting, applies the pinned summary language and takes the title, language and model chosen', async () => {

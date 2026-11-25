@@ -101,6 +101,8 @@ export interface TranscriptListProps {
      * search result opens the transcript there, whether or not it has audio.
      */
     revealLineId?: string
+    /** Names the request for `revealLineId`; a new key brings the line into view again. */
+    revealKey?: string
     /** Shown instead of the rows while there are none. */
     empty?: ReactNode
     /** Above the first row, such as a note that the text is still provisional. */
@@ -452,6 +454,7 @@ export function TranscriptList({
     playback,
     followPlayback = false,
     revealLineId,
+    revealKey,
     empty,
     before,
     after,
@@ -553,15 +556,19 @@ export function TranscriptList({
     }, [playback])
 
     // ---- The line asked for ------------------------------------------------
-    const revealed = useRef(false)
+    // The request last revealed: the list stays mounted while a meeting's
+    // search hits change the line, and the same line asked again is a new key.
+    const revealed = useRef<string | null>(null)
     useEffect(() => {
-        if (revealed.current || !revealLineId) return
+        if (!revealLineId) return
+        const request = `${revealKey ?? ''}:${revealLineId}`
+        if (revealed.current === request) return
         const turn = turns.find((entry) => entry.lineIds.includes(revealLineId))
         const row = turn ? rows.current.get(turn.id) : undefined
         if (!row) return
-        revealed.current = true
+        revealed.current = request
         row.scrollIntoView?.({block: 'center'})
-    }, [turns, revealLineId])
+    }, [turns, revealLineId, revealKey])
 
     // ---- Following a live end ----------------------------------------------
     const atEnd = useRef(true)

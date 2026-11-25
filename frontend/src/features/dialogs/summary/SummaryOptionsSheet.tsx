@@ -1,4 +1,4 @@
-import {type FormEvent, type KeyboardEvent, useState} from 'react'
+import {type FormEvent, type KeyboardEvent, useRef, useState} from 'react'
 import {queryOptions, useQuery} from '@tanstack/react-query'
 import {useNavigate} from 'react-router-dom'
 import styled from 'styled-components'
@@ -154,8 +154,14 @@ function SummaryForm({request, templateId, onTemplate, onWriting, onChangeModel}
     const savedLanguage = saved.data ?? DETECT_LANGUAGE
     const language = chosenLanguage ?? savedLanguage
 
+    // One submit at a time: ⌘↩ pressed twice would save the language twice,
+    // and the second write's refusal would end the first's pending state
+    // while it still starts. A ref, since the second press comes before a render.
+    const submitting = useRef(false)
     const submit = async (event?: FormEvent) => {
         event?.preventDefault()
+        if (submitting.current) return
+        submitting.current = true
         onWriting(true)
         try {
             if (language !== savedLanguage) {
@@ -170,6 +176,7 @@ function SummaryForm({request, templateId, onTemplate, onWriting, onChangeModel}
             const started = await write({again: true, templateId, customPrompt: focus.trim() || undefined})
             if (started) closeDialog('summary')
         } finally {
+            submitting.current = false
             onWriting(false)
         }
     }

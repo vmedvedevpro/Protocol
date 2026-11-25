@@ -180,6 +180,43 @@ describe('MinibarPage', () => {
         }
     })
 
+    it('resizes the window once the pill’s width settles, not on every frame of its animation', async () => {
+        let width = 169.4
+        vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(() => ({width}) as DOMRect)
+        const observers: ResizeObserverCallback[] = []
+        vi.stubGlobal('ResizeObserver', class {
+            callback: ResizeObserverCallback
+            constructor(callback: ResizeObserverCallback) {
+                this.callback = callback
+                observers.push(callback)
+            }
+            observe() {
+                this.callback([], this as unknown as ResizeObserver)
+            }
+            disconnect() {}
+        })
+        const resize = vi.spyOn(handlers, 'resize_minibar')
+        try {
+            recordFor(30)
+            await renderMinibar()
+            await waitFor(() => expect(mockState.minibar.width).toBe(170))
+            resize.mockClear()
+
+            // An opening: the width climbs frame by frame, one report each.
+            for (const step of [200, 260, 330, 400, 431.2]) {
+                width = step
+                observers.forEach((callback) => callback([], {} as ResizeObserver))
+            }
+            await waitFor(() => expect(mockState.minibar.width).toBe(432))
+            // The window opened to its widest at the first step, so the pill never
+            // grew into a clip, then fit it once settled.
+            expect(resize.mock.calls.map(([args]) => args.width)).toEqual([512, 432])
+        } finally {
+            vi.unstubAllGlobals()
+            vi.restoreAllMocks()
+        }
+    })
+
     it('moves the window from a press on the pill, not on its buttons', async () => {
         recordFor(30)
         const {pill} = await renderMinibar()

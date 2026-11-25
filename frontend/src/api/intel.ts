@@ -18,9 +18,7 @@
  * ends, and the NPU prepares itself once Intel's libraries are there.
  */
 import {queryOptions} from '@tanstack/react-query'
-import {create} from 'zustand'
-import {persist, type PersistStorage} from 'zustand/middleware'
-import {safely} from '@/lib/storage'
+import {safely, storedValue} from '@/lib/storage'
 import {command, errorMessage} from './core'
 import type {NativeEvent} from './events'
 import {PARAKEET_MODEL, POST_CALL_WHISPER_MODEL} from './models'
@@ -278,31 +276,15 @@ function readDismissed(stored: string | null): IntelDevice[] {
     return Array.isArray(value) ? value.filter((device): device is IntelDevice => device === 'Intel GPU' || device === 'Intel NPU') : []
 }
 
-interface DismissedStore {
-    dismissed: IntelDevice[]
-    dismiss: (devices: readonly IntelDevice[]) => void
-}
-
-// The old format: a bare JSON array of devices, the key removed when empty.
-const dismissedStorage: PersistStorage<Pick<DismissedStore, 'dismissed'>> = {
-    getItem: (name) => ({state: {dismissed: readDismissed(safely(() => localStorage.getItem(name)))}, version: 0}),
-    setItem: (name, {state}) => {
-        safely(() => (state.dismissed.length
-            ? localStorage.setItem(name, JSON.stringify(state.dismissed))
-            : localStorage.removeItem(name)))
-    },
-    removeItem: (name) => {
-        safely(() => localStorage.removeItem(name))
-    },
-}
-
-/** The devices whose offer got "Not now" (Keep reading: `meetily-intel-offer-dismissed`). */
-export const useIntelOfferDismissedStore = create<DismissedStore>()(
-    persist(
-        (set) => ({
-            dismissed: [],
-            dismiss: (devices) => set(({dismissed}) => ({dismissed: [...new Set([...dismissed, ...devices])]})),
-        }),
-        {name: INTEL_OFFER_DISMISSED_KEY, storage: dismissedStorage, partialize: ({dismissed}) => ({dismissed})},
-    ),
+/** The devices whose offer got "Not now", in the old format: a bare JSON array, the key removed when empty. */
+export const useIntelOfferDismissedStore = storedValue(
+    INTEL_OFFER_DISMISSED_KEY,
+    readDismissed,
+    (dismissed) => (dismissed.length ? JSON.stringify(dismissed) : null),
 )
+
+/** "Not now" for these devices, keeping the ones dismissed before. */
+export function dismissIntelOffer(devices: readonly IntelDevice[]) {
+    const {value, set} = useIntelOfferDismissedStore.getState()
+    set([...new Set([...value, ...devices])])
+}

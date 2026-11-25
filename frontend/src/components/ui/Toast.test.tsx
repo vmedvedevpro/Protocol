@@ -90,7 +90,7 @@ describe('Toast', () => {
         expect(toasts()[0]).toHaveTextContent(`Toast ${MAX_TOASTS + 1}`)
     })
 
-    it('closes timed toasts first and never a persistent one for a timed one', async () => {
+    it('closes older timed toasts first, and shows a new one even behind persistent ones', async () => {
         renderUi(<span/>)
 
         act(() => {
@@ -107,9 +107,10 @@ describe('Toast', () => {
             toast('Late', {duration: 30_000})
         })
 
-        await waitFor(() => expect(toastNamed('Late')).toBeUndefined())
+        // Every older toast is persistent: the oldest of them goes, never the new one.
+        await waitFor(() => expect(toastNamed('Late')).toBeDefined())
         expect(toasts()).toHaveLength(MAX_TOASTS)
-        expect(toastNamed('Your notes were not saved')).toBeDefined()
+        expect(toastNamed('Your notes were not saved')).toBeUndefined()
     })
 
     it('dismisses one toast by id, or all of them', async () => {

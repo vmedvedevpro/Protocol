@@ -5,6 +5,7 @@ import styled from 'styled-components'
 import {
     companionQuery,
     downloadGpuVersion,
+    dismissIntelOffer,
     downloadIntelLibraries,
     INTEL_LIBRARIES_ID,
     intelError,
@@ -61,8 +62,7 @@ export function IntelOfferBanner() {
     const availability = useQuery(openVinoAvailabilityQuery).data
     const companion = useQuery(companionQuery).data
     const npu = useQuery(npuQuery).data
-    const dismissed = useIntelOfferDismissedStore((state) => state.dismissed)
-    const dismiss = useIntelOfferDismissedStore((state) => state.dismiss)
+    const dismissed = useIntelOfferDismissedStore((state) => state.value)
 
     const running = (key: string) => downloads[key]?.state === 'downloading'
     const offer = npu ? offerFor({
@@ -104,7 +104,7 @@ export function IntelOfferBanner() {
                     <Title>{shown.title}</Title>
                     <Text>{formatModelSize(bytes) ? `${shown.description} · ${formatModelSize(bytes)}` : shown.description}</Text>
                     <Actions>
-                        <Button size="sm" variant="ghost" onClick={() => dismiss(shown.devices)}>Not now</Button>
+                        <Button size="sm" variant="ghost" onClick={() => dismissIntelOffer(shown.devices)}>Not now</Button>
                         <Button size="sm" variant="filled" onClick={switchNow}>Switch</Button>
                     </Actions>
                 </Banner>

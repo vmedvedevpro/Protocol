@@ -216,6 +216,24 @@ describe('MeetingScreen', () => {
         expect((scroll.mock.contexts[0] as HTMLElement).contains(text)).toBe(true)
     })
 
+    it('goes to each search result inside the meeting already open, the same one again too', async () => {
+        const lines = mockState.meetings.transcripts['meeting-acme-review']
+        const first = lines.find((entry) => entry.text.includes('data retention'))!
+        const other = lines.find((entry) => entry !== first)!
+        const scroll = vi.spyOn(Element.prototype, 'scrollIntoView')
+        const {router} = renderMeeting('meeting-acme-review', `?tab=transcript&line=${first.id}`)
+        await waitFor(() => expect(scroll).toHaveBeenCalledTimes(1))
+        // Read and taken out of the URL, so a tab switch is not a new request.
+        await waitFor(() => expect(router.state.location.search).toBe('?tab=transcript'))
+
+        await act(() => router.navigate(`/meetings/meeting-acme-review?tab=transcript&line=${other.id}`))
+        await waitFor(() => expect(scroll).toHaveBeenCalledTimes(2))
+        expect((scroll.mock.contexts[1] as HTMLElement).textContent).toContain(other.text.slice(0, 20))
+
+        await act(() => router.navigate(`/meetings/meeting-acme-review?tab=transcript&line=${other.id}`))
+        await waitFor(() => expect(scroll).toHaveBeenCalledTimes(3))
+    })
+
     it('says so when the meeting is gone', async () => {
         renderMeeting('meeting-nowhere')
         expect(await screen.findByRole('heading', {name: 'This meeting isn’t available'})).toBeInTheDocument()
