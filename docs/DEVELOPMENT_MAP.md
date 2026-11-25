@@ -1641,7 +1641,9 @@ install and update time, not at launch (Linux decides at launch, see
 
 How the main window, the minibar and the tray sit on a Linux desktop (#215)
 is in [LINUX_DESKTOP.md](LINUX_DESKTOP.md): the desktop's own window frame
-(`tauri.linux.conf.json`, `TitleBar.tsx`). Read it before changing the Linux
+(`tauri.linux.conf.json`, `TitleBar.tsx`); the windows' app id, which names
+the desktop file (`linux_desktop/app_id.rs`, `linux/main.desktop`, checked by
+`check-linux-desktop-entry.mjs` in the Linux release leg). Read it before changing the Linux
 window configuration, the title strip, the theme, keep on top or the tray.
 
 ### Fork identity and updates
@@ -1657,6 +1659,7 @@ beside an installed upstream build without sharing state:
 | Uninstall entry | `HKCU\…\Uninstall\io.github.vmedvedevpro.protocol` | `windows/installer.nsi` (`UNINSTKEY`, a `; Protocol:` change to Tauri's stock template) |
 | Fallback data root | OS data dir `/vmedvedevpro/Protocol` | `paths.rs` (`FALLBACK_PUBLISHER`, `FALLBACK_APP_NAME`) |
 | Default recordings folder | `protocol-recordings` | `audio/recording_preferences.rs` |
+| Linux window app id, `WM_CLASS`, desktop file | `Protocol` (the product name), `Protocol.desktop` with `StartupWMClass=Protocol` | `linux_desktop/app_id.rs`, `linux/main.desktop` ([LINUX_DESKTOP.md](LINUX_DESKTOP.md)) |
 | Cargo package and executable | `protocol`, `protocol.exe`; installer variants `protocol-vulkan.exe`, `protocol-vulkan-probe.exe` | `src-tauri/Cargo.toml`, `build-universal-windows.ps1`, `windows/installer-hooks.nsh` |
 | Release assets | `protocol-windows-x64-setup.exe`, `protocol-macos-arm64.{dmg,app.tar.gz}`, `protocol-linux-x86_64.AppImage`, `protocol_<version>_amd64.deb` | `scripts/release/release-lib.mjs` |
 | App, installer and tray icons | the recording ring (#120); the tray's in one colour, with a dot while recording | `frontend/scripts/build-icons.mjs` draws `src-tauri/icons/`; `src-tauri/src/tray/icon.rs` switches the tray's ([ARCHITECTURE.md › Branding assets](../ARCHITECTURE.md#branding-assets)) |

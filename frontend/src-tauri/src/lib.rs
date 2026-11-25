@@ -75,6 +75,8 @@ pub mod speech_choice;
 pub mod state;
 pub mod summary;
 pub mod tray;
+#[cfg(target_os = "linux")]
+mod linux_desktop;
 pub mod updater;
 pub mod utils;
 pub mod whisper_engine;
@@ -336,6 +338,11 @@ pub fn run() {
     // The taskbar and installer shortcuts use this same AUMID.
     #[cfg(windows)]
     windows_app_identity::bind_process();
+
+    let context = tauri::generate_context!();
+    // Before Tauri starts GTK, which names the windows after it.
+    #[cfg(target_os = "linux")]
+    linux_desktop::app_id::set(&context.package_info().name);
 
     let mut builder = tauri::Builder::default();
 
@@ -765,7 +772,7 @@ pub fn run() {
             #[cfg(windows)]
             model_catalog::openvino::openvino_runtime_download,
         ])
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("error while building tauri application")
         .run(|_app_handle, event| {
             match event {

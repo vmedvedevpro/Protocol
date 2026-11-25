@@ -119,6 +119,11 @@ is inherited from the project Protocol forked from; Protocol did not release it.
   window has the desktop's title bar, buttons, rounded corners and shadow,
   like the other windows, and its title names the open screen.
 
+### Fixed
+
+- **Linux: Protocol's icon for its window.** The task manager and the window
+  switcher show Protocol's ring instead of a generic icon on Wayland.
+
 ## Protocol 1.0.0-rc.1 — 2026-11-26
 
 A release candidate of Protocol 1.0, for trying it before the release: install

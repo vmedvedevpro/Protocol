@@ -33,6 +33,9 @@
     "linux": {
       "appimage": {
         "bundleMediaFramework": true
+      },
+      "deb": {
+        "desktopTemplate": "linux/main.desktop"
       }
     }
   }
