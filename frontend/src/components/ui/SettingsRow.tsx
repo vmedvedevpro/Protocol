@@ -14,96 +14,81 @@ import * as RadixRadio from '@radix-ui/react-radio-group'
 import styled, {css} from 'styled-components'
 import {MOTION_OK} from '@/styles/motion'
 import {ControlLabelContext} from './controlLabelling'
-import {searchTerms, settingsTextMatches, textOf} from './settingsSearch'
-import {colorTransition} from './styles'
+import {matchesTerms, searchTerms} from './settingsSearch'
+import {colorTransition, fieldFocusRing} from './styles'
 import {VisuallyHidden} from './VisuallyHidden'
 
 // ---- Search ------------------------------------------------------------------------------
 //
 // Settings search finds rows by their own text, so no list of settings is
 // kept by hand: inside a `SettingsSearchScope` every row checks its label,
-// description, badge and value against the query. In `show` a row that
-// does not match renders nothing and a group without a match hides; in
-// `index` no row renders, and the scope only learns which rows match, so a
-// subpage can be found by its rows without showing them. Rows report to
-// their group and the group to the scope; a row that renders nothing stays
-// mounted, so it can show again when the query changes.
+// string description, badge and value against the query. A row that does
+// not match renders nothing, so its control remounts when it shows again;
+// the row itself keeps listening, so it comes back when the query changes.
+// A group with no row left hides by CSS (`:has()`), and the scope counts
+// the rows that match for "Nothing matches".
 
 interface SearchState {
     /** The query's words, lower case; a row matches when its text holds every one. */
     terms: string[]
-    mode: 'show' | 'index'
     scope?: string
 }
 
 const SearchContext = createContext<SearchState | null>(null)
 
-/** A row says whether it matches: its label when it does, null when not or when it unmounts. */
-type MatchReport = (rowId: string, label: string | null) => void
+/** A row says whether it matches; false also when it unmounts. */
+type MatchReport = (rowId: string, matches: boolean) => void
 
 const ReportContext = createContext<MatchReport | null>(null)
 
-/**
- * Reports a row to its group and says whether it renders: always outside a
- * search, only when it matches in `show`, never in `index`.
- */
-function useSearchMatch(label: string, ...parts: ReactNode[]): boolean {
+/** Reports a row to the scope and says whether it renders: always outside a search, else only when it matches. */
+function useSearchMatch(...parts: (string | undefined)[]): boolean {
     const search = useContext(SearchContext)
     const report = useContext(ReportContext)
     const rowId = useId()
-    const text = parts.map(textOf).join(' ')
-    const matches = search === null || settingsTextMatches(search.terms.join(' '), label, text)
-    // Before paint, so a group never shows for a frame with rows that hide.
+    const matches = search === null || matchesTerms(search.terms, ...parts)
     useLayoutEffect(() => {
         if (!search || !report) return
-        report(rowId, matches ? label : null)
-        return () => report(rowId, null)
-    }, [search, report, rowId, matches, label])
-    return search === null || (matches && search.mode === 'show')
+        report(rowId, matches)
+        return () => report(rowId, false)
+    }, [search, report, rowId, matches])
+    return matches
 }
+
+/** Only a string description is searched; a StatusLine's text is not in its children. */
+const plain = (node: ReactNode) => (typeof node === 'string' ? node : undefined)
 
 interface SettingsSearchScopeProps {
     /** What the user typed; blank shows every row as usual. */
     query: string
-    /** `show` (the default) filters the rows in place; `index` renders none of them. */
-    mode?: 'show' | 'index'
     /** Put before each group's title: "AI" turns "Summaries" into "AI · Summaries". */
     scope?: string
-    /** The labels of the rows that match, in the order they mounted, whenever they change. */
-    onMatches?: (labels: string[]) => void
+    /** How many rows match, whenever that changes. */
+    onMatches?: (count: number) => void
     children: ReactNode
 }
 
 /** The rows and groups under it follow the query (see Search above). */
-export function SettingsSearchScope({query, mode = 'show', scope, onMatches, children}: SettingsSearchScopeProps) {
+export function SettingsSearchScope({query, scope, onMatches, children}: SettingsSearchScopeProps) {
     const key = searchTerms(query).join(' ')
-    const search = useMemo<SearchState | null>(
-        () => (key ? {terms: key.split(' '), mode, scope} : null),
-        [key, mode, scope],
-    )
+    const search = useMemo<SearchState | null>(() => (key ? {terms: key.split(' '), scope} : null), [key, scope])
 
-    // Rows keep the place they first mounted in, which is the order they
-    // appear in: re-reporting a row never moves it to the end.
-    const order = useRef(new Map<string, number>())
-    const matched = useRef(new Map<string, string>())
-    const [labels, setLabels] = useState<string[]>([])
-    const report = useCallback<MatchReport>((rowId, label) => {
-        if (!order.current.has(rowId)) order.current.set(rowId, order.current.size)
-        if (label === null) matched.current.delete(rowId)
-        else matched.current.set(rowId, label)
-        const next = [...matched.current.entries()]
-            .sort(([a], [b]) => (order.current.get(a) ?? 0) - (order.current.get(b) ?? 0))
-            .map(([, text]) => text)
-        setLabels((previous) => (previous.length === next.length && previous.every((text, index) => text === next[index]) ? previous : next))
+    const matched = useRef(new Set<string>())
+    const [count, setCount] = useState(0)
+    const report = useCallback<MatchReport>((rowId, matches) => {
+        if (matches) matched.current.add(rowId)
+        else matched.current.delete(rowId)
+        setCount(matched.current.size)
     }, [])
 
     const latest = useRef(onMatches)
     useLayoutEffect(() => {
         latest.current = onMatches
     })
+    // Before paint, so "Nothing matches" never shows for a frame over rows.
     useLayoutEffect(() => {
-        latest.current?.(labels)
-    }, [labels])
+        latest.current?.(count)
+    }, [count])
 
     return (
         <SearchContext.Provider value={search}>
@@ -114,14 +99,16 @@ export function SettingsSearchScope({query, mode = 'show', scope, onMatches, chi
 
 // ---- Groups ------------------------------------------------------------------------------
 
-const Section = styled.section`
+const Section = styled.section<{$searching: boolean}>`
     display: flex;
     flex-direction: column;
     gap: ${({theme}) => theme.space[1.5]};
 
-    &[hidden] {
-        display: none;
-    }
+    ${({$searching}) => $searching && css`
+        &:not(:has([data-settings-row])) {
+            display: none;
+        }
+    `}
 `
 
 const GroupTitle = styled.h2`
@@ -131,19 +118,16 @@ const GroupTitle = styled.h2`
     color: ${({theme}) => theme.colors.muted};
 `
 
-// Rows sit on one grey card, divided by hairlines.
-const cardStyles = css`
+// Rows sit on one grey card, divided by hairlines. A row that search hides
+// leaves an empty wrapper behind (a Collapse), which takes no line.
+const Card = styled.div`
     overflow: hidden;
     border-radius: ${({theme}) => theme.radii.xl};
     background: ${({theme}) => theme.colors.surface};
 
-    > * + * {
+    > :not(:empty) ~ :not(:empty) {
         border-top: 1px solid ${({theme}) => theme.colors.border};
     }
-`
-
-const Card = styled.div`
-    ${cardStyles};
 `
 
 const Note = styled.p`
@@ -168,26 +152,14 @@ interface SettingsGroupProps {
 function GroupFrame({title, note, card}: {title?: string, note?: string, card: (titleId?: string) => ReactNode}) {
     const titleId = useId()
     const search = useContext(SearchContext)
-    const parent = useContext(ReportContext)
-    const rows = useRef(new Set<string>())
-    const [matches, setMatches] = useState(0)
-    const report = useCallback<MatchReport>((rowId, label) => {
-        if (label === null) rows.current.delete(rowId)
-        else rows.current.add(rowId)
-        setMatches(rows.current.size)
-        parent?.(rowId, label)
-    }, [parent])
-
     const heading = search?.scope ? [search.scope, title].filter(Boolean).join(' · ') : title
     const labelled = heading ? titleId : undefined
     return (
-        <ReportContext.Provider value={search ? report : null}>
-            <Section aria-labelledby={labelled} hidden={search !== null && (matches === 0 || search.mode === 'index')}>
-                {heading && <GroupTitle id={titleId}>{heading}</GroupTitle>}
-                {card(labelled)}
-                {note && !search && <Note>{note}</Note>}
-            </Section>
-        </ReportContext.Provider>
+        <Section aria-labelledby={labelled} $searching={search !== null}>
+            {heading && <GroupTitle id={titleId}>{heading}</GroupTitle>}
+            {card(labelled)}
+            {note && !search && <Note>{note}</Note>}
+        </Section>
     )
 }
 
@@ -265,11 +237,11 @@ export function SettingsRow({label, description, badge, control, children}: Sett
         () => ({labelId, descriptionId: description ? descriptionId : undefined}),
         [labelId, descriptionId, description],
     )
-    if (!useSearchMatch(label, description, badge)) return null
+    if (!useSearchMatch(label, plain(description), badge)) return null
 
     return (
         <ControlLabelContext.Provider value={ids}>
-            <Row>
+            <Row data-settings-row="">
                 <Line>
                     <Text>
                         <Label>
@@ -293,27 +265,26 @@ const rowButton = css`
     align-items: center;
     width: 100%;
     margin: 0;
+    padding: ${({theme}) => theme.space[2.5]} ${({theme}) => theme.space[3]};
     border: 0;
     background: transparent;
+    color: ${({theme}) => theme.colors.text};
     font: inherit;
     cursor: pointer;
+    ${colorTransition};
+
+    &:hover:not(:disabled) {
+        background: ${({theme}) => theme.colors.raised};
+    }
+
+    &:focus-visible {
+        ${fieldFocusRing};
+    }
 `
 
 const NavButton = styled.button`
     ${rowButton};
     gap: ${({theme}) => theme.space[3]};
-    padding: ${({theme}) => theme.space[2.5]} ${({theme}) => theme.space[3]};
-    color: ${({theme}) => theme.colors.text};
-    ${colorTransition};
-
-    &:hover {
-        background: ${({theme}) => theme.colors.raised};
-    }
-
-    &:focus-visible {
-        outline: 2px solid ${({theme}) => theme.colors.text};
-        outline-offset: -2px;
-    }
 
     > svg {
         flex: none;
@@ -345,7 +316,7 @@ interface SettingsNavRowProps {
 export function SettingsNavRow({label, description, value, external = false, onClick}: SettingsNavRowProps) {
     if (!useSearchMatch(label, description, value)) return null
     return (
-        <NavButton type="button" onClick={onClick}>
+        <NavButton type="button" onClick={onClick} data-settings-row="">
             <Text>
                 <Label>
                     {label}
@@ -362,25 +333,9 @@ export function SettingsNavRow({label, description, value, external = false, onC
 
 // ---- Radio rows --------------------------------------------------------------------------
 
-const RadioCard = styled(RadixRadio.Root)`
-    ${cardStyles};
-`
-
 const RadioButton = styled(RadixRadio.Item)`
     ${rowButton};
     gap: ${({theme}) => theme.space[2.5]};
-    padding: ${({theme}) => theme.space[2.5]} ${({theme}) => theme.space[3]};
-    color: ${({theme}) => theme.colors.text};
-    ${colorTransition};
-
-    &:hover:not(:disabled) {
-        background: ${({theme}) => theme.colors.raised};
-    }
-
-    &:focus-visible {
-        outline: 2px solid ${({theme}) => theme.colors.text};
-        outline-offset: -2px;
-    }
 
     &:disabled {
         cursor: default;
@@ -451,16 +406,16 @@ export function SettingsRadioGroup<T extends string>({title, note, value, onValu
             title={title}
             note={note}
             card={(titleId) => (
-                <RadioCard
+                <RadixRadio.Root
+                    asChild
                     // Radix keeps '' for none; a value with no row leaves every row unchecked.
                     value={value ?? ''}
                     onValueChange={(next) => onValueChange(next as T)}
                     disabled={disabled}
                     aria-labelledby={titleId}
-                    aria-label={titleId ? undefined : title}
                 >
-                    {children}
-                </RadioCard>
+                    <Card>{children}</Card>
+                </RadixRadio.Root>
             )}
         />
     )
@@ -484,6 +439,7 @@ export function SettingsRadioRow({value, label, description, badge, disabled}: S
         <RadioButton
             value={value}
             disabled={disabled}
+            data-settings-row=""
             aria-labelledby={labelId}
             aria-describedby={description ? descriptionId : undefined}
         >

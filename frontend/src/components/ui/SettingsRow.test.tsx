@@ -11,7 +11,7 @@ import {
     SettingsRow,
     SettingsSearchScope,
 } from './SettingsRow'
-import {settingsTextMatches} from './settingsSearch'
+import {matchesTerms, searchTerms} from './settingsSearch'
 import {Switch} from './Switch'
 import {TextField} from './TextField'
 
@@ -49,9 +49,9 @@ describe('SettingsRow', () => {
     })
 })
 
-function Sections({query = '', mode, onMatches}: {query?: string, mode?: 'show' | 'index', onMatches?: (labels: string[]) => void}) {
+function Sections({query = '', onMatches}: {query?: string, onMatches?: (count: number) => void}) {
     return (
-        <SettingsSearchScope query={query} mode={mode} scope="AI" onMatches={onMatches}>
+        <SettingsSearchScope query={query} scope="AI" onMatches={onMatches}>
             <SettingsGroup title="Summaries" note="Written when a recording is saved.">
                 <SettingsRow label="Summarize automatically" description="When a recording is saved" control={<Switch checked onCheckedChange={() => {}}/>}/>
                 <SettingsNavRow label="Summary model" value="Built-in · Qwen 3.5 4B" onClick={() => {}}/>
@@ -66,9 +66,9 @@ function Sections({query = '', mode, onMatches}: {query?: string, mode?: 'show' 
 
 describe('settings search', () => {
     it('matches every word of the query in a row’s label, description, badge or value', () => {
-        expect(settingsTextMatches('model qwen', 'Summary model', 'Built-in · Qwen 3.5 4B')).toBe(true)
-        expect(settingsTextMatches('SAVED', 'Summarize automatically', 'When a recording is saved')).toBe(true)
-        expect(settingsTextMatches('model ollama', 'Summary model', 'Built-in · Qwen 3.5 4B')).toBe(false)
+        expect(matchesTerms(searchTerms('model qwen'), 'Summary model', 'Built-in · Qwen 3.5 4B')).toBe(true)
+        expect(matchesTerms(searchTerms('SAVED'), 'Summarize automatically', 'When a recording is saved')).toBe(true)
+        expect(matchesTerms(searchTerms('model ollama'), 'Summary model', 'Built-in · Qwen 3.5 4B')).toBe(false)
     })
 
     it('shows every row and note while the query is blank', () => {
@@ -105,16 +105,13 @@ describe('settings search', () => {
         expect(screen.getByRole('button', {name: /Summary model/})).toBeInTheDocument()
     })
 
-    it('reports the matching rows in order, and shows none of them in index mode', () => {
+    it('counts the rows that match', () => {
         const onMatches = vi.fn()
-        const {rerender} = renderUi(<Sections query="a" mode="index" onMatches={onMatches}/>)
+        const {rerender} = renderUi(<Sections query="summar" onMatches={onMatches}/>)
+        expect(onMatches).toHaveBeenLastCalledWith(3)
 
-        expect(onMatches).toHaveBeenLastCalledWith(['Summarize automatically', 'Summary model', 'Templates', 'Voice profiles'])
-        expect(screen.queryByRole('button')).not.toBeInTheDocument()
-        expect(screen.queryByRole('switch')).not.toBeInTheDocument()
-
-        rerender(<Sections query="summar" mode="index" onMatches={onMatches}/>)
-        expect(onMatches).toHaveBeenLastCalledWith(['Summarize automatically', 'Summary model', 'Templates'])
+        rerender(<Sections query="nothing like it" onMatches={onMatches}/>)
+        expect(onMatches).toHaveBeenLastCalledWith(0)
     })
 })
 

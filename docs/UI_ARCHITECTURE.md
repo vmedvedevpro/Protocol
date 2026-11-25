@@ -287,7 +287,7 @@ minibar window has none of it.
 
 `components/ui` holds the building blocks every screen uses, each with Light
 and Dark stories. Behaviour and accessibility come from Radix (Dialog, Select,
-DropdownMenu, Switch, Tooltip) or from native elements; the look from the
+DropdownMenu, RadioGroup, Switch, Tooltip) or from native elements; the look from the
 theme; the motion from the Motion section.
 
 - `Button` (filled, secondary, ghost; `sm` 28 px in rows, `md` 30 px in
@@ -317,14 +317,13 @@ theme; the motion from the Motion section.
   `MOTION_OK`.
 - Settings search needs no list of settings: under a `SettingsSearchScope`
   each `SettingsRow`, `SettingsNavRow` and `SettingsRadioRow` checks its own
-  label, description, badge and value against every word of the query
-  (`settingsSearch.ts`). In `show` a row that does not match renders
-  nothing, and a group hides while none of its rows matches, titled with
-  the scope before its own title ("AI · Summaries") and without its note;
-  in `index` no row renders and the scope only reports which match
-  (`onMatches`, in the order they mounted), so a page can be found by its
-  rows. A hidden row stays mounted and shows again when the query changes;
-  rows report before paint, so a group never flashes. Filtering does not
+  label, string description, badge and value against every word of the
+  query (`settingsSearch.ts`). A row that does not match renders nothing,
+  so its control remounts when it shows again; a group with no row left
+  (`[data-settings-row]`) hides by CSS `:has()`, titled with the scope
+  before its own title ("AI · Summaries") and without its note. The card's
+  hairlines skip the empty wrapper a hidden row leaves (a `Collapse`).
+  `onMatches` gives the count, for "Nothing matches". Filtering does not
   animate, as on Home.
 - `VisuallyHidden` holds text only assistive technology reads.
 - Menu and select rows keep the design's faint highlight; the keyboard's row

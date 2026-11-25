@@ -39,7 +39,7 @@ const Muted = styled.p`
 // search that filters them by their own text.
 function Settings({query: initialQuery = ''}: {query?: string}) {
     const [query, setQuery] = useState(initialQuery)
-    const [matches, setMatches] = useState<string[]>([])
+    const [matches, setMatches] = useState(0)
     const [provider, setProvider] = useState('builtin-ai')
     const [theme, setTheme] = useState<(typeof THEMES)[number]['value']>('system')
     const [name, setName] = useState('Tyler')
@@ -51,7 +51,7 @@ function Settings({query: initialQuery = ''}: {query?: string}) {
     return (
         <Page>
             <TextField type="search" aria-label="Search all settings" placeholder="Search" value={query} onChange={(event) => setQuery(event.target.value)}/>
-            {query.trim() && matches.length === 0 && <Muted>Nothing matches “{query.trim()}”.</Muted>}
+            {query.trim() && matches === 0 && <Muted>Nothing matches “{query.trim()}”.</Muted>}
             <SettingsSearchScope query={query} scope="Settings" onMatches={setMatches}>
             <SettingsGroup title="General">
                 <SettingsRow
