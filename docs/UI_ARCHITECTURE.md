@@ -179,11 +179,22 @@ minibar window has none of it.
   "Welcome" in the Linux title bar) has two steps: the name
   (`useUserNameStore`, under the old key), then the downloads with the
   microphone check. Each step change is saved (`save_onboarding_status_cmd`),
-  so a restart comes back to it. The downloads start as first launch opens
-  and run one after another, Parakeet, Whisper Large V3 Turbo
-  (`enablePostCall`) and the summary model
-  `builtin_ai_get_recommended_model` picks, skipping an installed one; a
-  failure moves on to the next, and its row offers Retry. The list is data
+  so a restart comes back to it. The speech downloads start as first launch
+  opens and run one after another, Parakeet then Whisper Large V3 Turbo
+  (`enablePostCall`), skipping an installed one; a failure moves on to the
+  next, and its row offers Retry. Summaries are a choice on the same step
+  (`SummaryChoice`, `useSummaryChoice`), Later by default: the model
+  `builtin_ai_get_recommended_model` picks, downloaded only on Install (its
+  size, progress and Cancel, `summaryDownload`); a cloud provider with the
+  user's key and a model (`components/summaryModel/CloudGroup`, the group
+  Settings uses), saved on Done with the same checks and command as Settings
+  (`choiceOf`, `saveSummaryModelMutation`), so the key goes only to native
+  storage; or Later. Done stays off, with the reason in the bar, until the
+  chosen way is complete: the download running or done, or the key and
+  model valid. A fresh database selects no summary model
+  (`initialize_fresh_database`), so after Later summaries stay off: Home
+  shows no banner, and the post-call pass leaves the automatic summary out
+  until a model is chosen. The list is data
   (`firstLaunchDownloads`): on an Intel GPU (`gpuOffered`) the
   after-meeting row is Whisper's Intel GPU version (`openvino_download`
   with `choose`, which native makes the after-meeting model), and on an
@@ -193,12 +204,14 @@ minibar window has none of it.
   `QueryClient`, not the screen, so it goes on after Done, and a failure
   after Done shows as a toast; a download still queued when the window
   reloads is not started, and Settings offers it. Done calls
-  `complete_onboarding` (the summary model and Parakeet, and which were
-  downloaded), says the downloads continue if any is unfinished, and
+  `complete_onboarding` (Parakeet; the provider and model chosen, writing the
+  summary model itself only for built-in AI; and what was ready), says the
+  downloads continue if any is unfinished, and
   invalidates the status (`onboardingKeys.status()`), so the gate reads it
   again and lets the app in. A model is in use only after its download completed:
   native code activates Whisper on completion, and a meeting uses
-  Parakeet and the summary model only once they are there.
+  Parakeet and the built-in summary model only once they are there; a
+  provider is saved only once its key and model pass Settings' checks.
 - The microphone check asks for the microphone first
   (`microphoneAccessQuery`), so the system's prompt comes from a step that
   explains it, then previews it on the ring (`test` mode); the chip changes
@@ -1194,14 +1207,16 @@ recording and hides the main window: minimizing the main window does it
   summary languages as chips (pin, remove, "+ Add language", under the old
   keys), the summary model, and Templates with the stored default's name.
   Advanced holds Disk (the data folder, `src/api/app.ts`) and AI agents.
-- Summary model keeps a draft until Save (`summaryModel/draft.ts`), which
+- Summary model keeps a draft until Save (`components/summaryModel/draft.ts`,
+  shared with first launch, as are `CloudGroup` and `src/api/summaryProviders.ts`;
+  Claude's maximum length row stays in Settings, `ClaudeLengthRow`), which
   stores the custom server first when it is the provider, then the choice
   (`saveSummaryModelMutation`); Cancel leaves without it. A provider switched
   to starts with the model the old settings saved for it (`providerModelMap`,
   read once, no longer written). Save waits for a provider's key, a
   downloaded built-in model, and a valid length or custom server; native
   checks the length again. A cloud provider's list is asked with the key
-  once typing it has rested (`useDebouncedSave`, a spinner meanwhile) and is
+  once typing it has rested (`lib/useDebouncedSave`, a spinner meanwhile) and is
   keyed by the provider alone, so no key is in a query hash; Ollama's list is
   keyed by its endpoint, also once typing rests, and Fetch models asks again.
   Built-in and Ollama models are `ModelRow`s, the speech half's download row

@@ -53,9 +53,10 @@ same day.
    `let _busy = busy::hold(BusyReason::Summary);` to it. Native `UiActivity`
    knows only `recordingSave` and `postCall`, and an unknown name rejects the
    whole `updater_set_ui_activity` call.
-4. **First launch** downloads Parakeet, Whisper Large V3 Turbo and the
-   built-in summary model `builtin_ai_get_recommended_model` picks, all in the
-   background (#115).
+4. **First launch** downloads Parakeet and Whisper Large V3 Turbo in the
+   background (#115) and asks how summaries are written: the built-in model
+   `builtin_ai_get_recommended_model` picks, on Install; a provider with the
+   user's key; or later (#123).
 5. **Default summary template:** #117 adds a stored default and the native
    part so the automatic summary uses it instead of the `daily_standup`
    fallback.
@@ -86,7 +87,7 @@ same day.
 | `/settings?section=…` | route | `app/settings/page.tsx` | #114 | Sections `general`, `recording`, `transcription`, `summaries`, `agents`, `detection`, `local`, `labs`, `about` map onto General, Recording, AI, Advanced (#114, #117). The tray sends `/settings` and `/settings?section=about`. Since #114 a section id turns Advanced on, and `about` lands on General › Updates ([UI_ARCHITECTURE.md › Settings](../UI_ARCHITECTURE.md#settings)). |
 | `/minibar` | route | `app/minibar/page.tsx` | #116 | The whole UI of the `minibar` window. Native opens this path (`minibar.rs`, `WebviewUrl::App("minibar")`); keep it or change it there. |
 | Startup gate: "Checking setup…", retry after 8 s or an error | route | `app/layout.tsx` | #110 | Waits for `get_onboarding_status`, then the crash report check. |
-| First launch instead of the app | route | `app/layout.tsx`, `components/onboarding/*` | #115 | Old flow has 5 steps (welcome, setup overview, downloads, name, audio test, which also asks for the microphone and macOS audio permissions); the design has 2. `PermissionsStep` is exported but never rendered. Completion reloads the window. The new first launch downloads Parakeet, Whisper Large V3 Turbo and the built-in summary model that `builtin_ai_get_recommended_model` picks, all in the background (owner decision 2026-11-24). The old setup step's Intel choice (Whisper's Intel GPU version, Intel's libraries for Parakeet on the NPU) joins that download list with #117; Nemotron stays an opt-in in Settings (decision 2026-11-25). |
+| First launch instead of the app | route | `app/layout.tsx`, `components/onboarding/*` | #115 | Old flow has 5 steps (welcome, setup overview, downloads, name, audio test, which also asks for the microphone and macOS audio permissions); the design has 2. `PermissionsStep` is exported but never rendered. Completion reloads the window. The new first launch downloads Parakeet and Whisper Large V3 Turbo in the background (owner decision 2026-11-24). Summaries are a choice on the same step (#123, owner decision 2026-11-25): the built-in model `builtin_ai_get_recommended_model` picks, downloaded only on Install; a cloud provider with the user's key and a model, saved as Settings saves it; or later, which leaves summaries off. The old flow and `initialize_fresh_database` always selected the built-in model; native no longer does. The old setup step's Intel choice (Whisper's Intel GPU version, Intel's libraries for Parakeet on the NPU) joins that download list with #117; Nemotron stays an opt-in in Settings (decision 2026-11-25). |
 | Main window `main` | window | native `tauri.conf.json`, `app/layout.tsx` | #110 | Opens at 460×700 and stays resizable (owner decision 2026-11-24); #110 changes `tauri.conf.json` (today 1280×760 with `minWidth` 700; the old layout also raises the minimum to `COMPACT_MIN_WIDTH`). |
 | Window controls drawn by the app on Windows | window | `components/WindowControls.tsx`, `hooks/useCustomChrome.ts`, `lib/window-chrome.ts` | #110 | Minimize, maximize (follows `onResized`), close. |
 | Close hides the main window to the tray | window | native `lib.rs` | #110 | Native; the UI only needs to expect a hidden window. |
@@ -379,7 +380,7 @@ such a command only on its platform
 | `check_default_legacy_database` | command | `contexts/OnboardingContext.tsx` | #115 | Not called: importing it copied the file onto itself, emptying it on Linux and macOS; `initialize_fresh_database` migrates that file itself (`DatabaseManager::new`). |
 | `check_first_launch` | command | `contexts/OnboardingContext.tsx` | #115 | Whether native holds the database; Protocol answers it from `AppState` instead of the file, which a failed set-up leaves behind. |
 | `check_homebrew_database` | command | `contexts/OnboardingContext.tsx` | #115 | macOS Homebrew-era database to import. |
-| `complete_onboarding` | command | `contexts/OnboardingContext.tsx` | #115 | Ends first launch. |
+| `complete_onboarding` | command | `contexts/OnboardingContext.tsx` | #115 | Ends first launch. Since #123 it takes the chosen `provider` and an optional built-in `model`, writes the summary model only for built-in AI, and records `selected_summary_provider`. |
 | `create_crash_report_zip` | command | `services/crashReportService.ts` | #110 | Crash report sheet (owner decision 2026-11-24); saves a zip through the dialog plugin. |
 | `dismiss_pending_crash_report` | command | `services/crashReportService.ts` | #110 | Crash report sheet: dismiss (owner decision 2026-11-24). |
 | `get_cuda_reconfiguration_status` | command | `components/CudaReconfigurationNotice.tsx`, `components/onboarding/steps/SetupOverviewStep.tsx` | dropped | Release builds have no `cuda` feature, so it always answers not applicable; the CUDA notice is dropped (owner decision 2026-11-24). |
