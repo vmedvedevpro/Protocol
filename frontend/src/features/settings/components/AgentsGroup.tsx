@@ -8,9 +8,8 @@ import {SettingsGroup, SettingsNavRow, SettingsRow} from '@/components/ui/Settin
 import {Switch} from '@/components/ui/Switch'
 import {toast} from '@/components/ui/toastStore'
 import {paths} from '@/lib/paths'
-import {platform as currentPlatform, type Platform} from '@/lib/platform'
 import {agentAccessQuery, setAgentAccessMutation} from '../api/agents'
-import {AGENT_PRIVACY, agentBlocker} from './agentTexts'
+import {agentBlocker} from './agentTexts'
 import {Warning} from './styles'
 
 /**
@@ -18,7 +17,7 @@ import {Warning} from './styles'
  * and where to connect them. The switch takes effect at an agent's next
  * question; nothing needs restarting.
  */
-export function AgentsGroup({platform = currentPlatform}: {platform?: Platform}) {
+export function AgentsGroup() {
     const navigate = useNavigate()
     const access = useQuery(agentAccessQuery)
     const toggle = useMutation({
@@ -30,12 +29,12 @@ export function AgentsGroup({platform = currentPlatform}: {platform?: Platform})
     const connect = () => void navigate(paths.settingsPage('agents'))
 
     return (
-        <SettingsGroup title="AI agents" note={AGENT_PRIVACY}>
+        <SettingsGroup title="AI agents">
             <SettingsRow
                 label="Let AI agents read your meetings"
                 description={access.isError
                     ? <Warning as="span">{errorMessage(access.error)}</Warning>
-                    : blocker ? <Warning as="span">{blocker}</Warning> : 'Claude Desktop and Claude Code, through MCP'}
+                    : blocker ? <Warning as="span">{blocker}</Warning> : undefined}
                 control={(
                     <Switch
                         checked={on}
@@ -45,14 +44,12 @@ export function AgentsGroup({platform = currentPlatform}: {platform?: Platform})
                 )}
             />
             <Collapse open={on && access.data !== undefined}>
-                <SettingsNavRow label="Connect Claude Code" description="One command in a terminal" onClick={connect}/>
+                <SettingsNavRow label="Connect Claude Code" onClick={connect}/>
             </Collapse>
             <Collapse open={on && access.data !== undefined}>
                 <SettingsNavRow
                     label="Connect Claude Desktop"
-                    description={access.data?.extensionMoved
-                        ? 'Protocol moved since you added it. Add it again.'
-                        : platform === 'linux' ? 'Copy the configuration' : 'Installs the Protocol extension'}
+                    description={access.data?.extensionMoved ? 'Protocol moved since you added it. Add it again.' : undefined}
                     onClick={connect}
                 />
             </Collapse>

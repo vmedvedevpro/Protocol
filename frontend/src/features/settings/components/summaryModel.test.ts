@@ -25,7 +25,7 @@ describe('describeSummaryModel', () => {
     })
 
     it('asks for a choice when there is none', () => {
-        expect(describeSummaryModel(null)).toEqual({value: 'Not chosen', description: 'Choose one to write summaries'})
+        expect(describeSummaryModel(null)).toEqual({value: 'Not chosen'})
         expect(describeSummaryModel(config({provider: ''})).value).toBe('Not chosen')
     })
 })

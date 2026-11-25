@@ -41,7 +41,7 @@ export const SETTINGS_PAGES: Record<SettingsPageId, SettingsPageEntry> = {
         Page: ChosenAppsPage,
         rows: [
             {label: 'Add an app'},
-            {label: 'An app that is not open', description: 'Pick it from your apps'},
+            {label: 'An app that is not open'},
         ],
     },
     'summary-model': {
@@ -57,7 +57,7 @@ export const SETTINGS_PAGES: Record<SettingsPageId, SettingsPageEntry> = {
             {label: 'gemma3:1b', description: 'A small model to start with'},
             {label: 'Endpoint URL'},
             {label: 'Model name'},
-            {label: 'Advanced options', description: 'Max tokens, temperature (0–2), top P (0–1)'},
+            {label: 'Advanced options'},
             {label: 'Max tokens'},
             {label: 'Temperature'},
             {label: 'Top P'},
@@ -90,7 +90,7 @@ export const SETTINGS_PAGES: Record<SettingsPageId, SettingsPageEntry> = {
         rows: [
             {label: 'Run once in a terminal', description: 'Claude Code then offers Protocol’s tools in every project.'},
             {label: 'Add to Claude Desktop', description: 'Installs the Protocol extension'},
-            {label: 'Set up by hand', description: 'Copy the configuration instead'},
+            {label: 'Set up by hand'},
             {label: 'Add to the Claude Desktop configuration'},
         ],
     },

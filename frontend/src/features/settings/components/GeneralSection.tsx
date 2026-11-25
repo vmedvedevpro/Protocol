@@ -12,7 +12,7 @@ export function GeneralSection() {
     return (
         <>
             <SettingsGroup title="Appearance">
-                <ThemeRow description="Every window, including the recording bar"/>
+                <ThemeRow/>
             </SettingsGroup>
             <SettingsGroup title="You">
                 <NameRow/>
@@ -22,14 +22,9 @@ export function GeneralSection() {
                 title="About"
                 note="Based on Meetily – Actually Free and the open-source Meetily project. MIT licensed."
             >
-                <SettingsNavRow label="Source code" description="On GitHub" external onClick={() => openLink(REPOSITORY_URL)}/>
+                <SettingsNavRow label="Source code" external onClick={() => openLink(REPOSITORY_URL)}/>
                 <SettingsNavRow label="Privacy policy" external onClick={() => openLink(PRIVACY_URL)}/>
-                <SettingsNavRow
-                    label="Credits"
-                    description="Models and open-source libraries"
-                    external
-                    onClick={() => openLink(CREDITS_URL)}
-                />
+                <SettingsNavRow label="Credits" external onClick={() => openLink(CREDITS_URL)}/>
             </SettingsGroup>
         </>
     )

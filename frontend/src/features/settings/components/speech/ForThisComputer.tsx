@@ -156,7 +156,7 @@ export function ForThisComputer() {
     )
 
     return (
-        <SettingsGroup title="For this computer" note="Picked for your hardware: live text while you record, and a more accurate transcript after each meeting.">
+        <SettingsGroup title="For this computer">
             {parakeetRow}
             {whisperRow}
             {librariesRow}

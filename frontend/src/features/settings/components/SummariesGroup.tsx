@@ -31,12 +31,7 @@ function SummaryLanguagesRow() {
         .filter(({code}) => !recents.includes(code))
         .map(({code, label}) => ({value: code, label}))
     return (
-        <SettingsRow
-            label="Summary language"
-            description={pinned
-                ? `Summaries are written in ${summaryLanguageLabel(pinned)}. Unpin to match the meeting`
-                : 'Matches the language spoken in the meeting. Pin one to always use it'}
-        >
+        <SettingsRow label="Summary language">
             <Chips>
                 <AnimatePresence initial={false} mode="popLayout">
                     {recents.map((code) => {
@@ -85,7 +80,6 @@ function TemplatesRow() {
     return (
         <SettingsNavRow
             label="Templates"
-            description="The sections a summary is written in"
             value={name ?? ''}
             onClick={() => void navigate(paths.settingsPage('templates'))}
         />
@@ -96,7 +90,7 @@ function TemplatesRow() {
 export function SummariesGroup() {
     return (
         <SettingsGroup title="Summaries">
-            <AutoSummaryRow description="When a recording is saved"/>
+            <AutoSummaryRow/>
             <SummaryLanguagesRow/>
             <SummaryModelRow/>
             <TemplatesRow/>

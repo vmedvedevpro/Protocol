@@ -115,7 +115,7 @@ export function SpeakersGroup() {
                 onValueChange={pick}
                 disabled={!status.data}
             >
-                <SettingsRadioRow value="pyannote" label="Pyannote" description="Built in. Ready right away" badge="Built in"/>
+                <SettingsRadioRow value="pyannote" label="Pyannote" badge="Built in"/>
                 <SettingsRadioRow
                     value="nemotron"
                     label="NVIDIA Nemotron"
@@ -129,7 +129,7 @@ export function SpeakersGroup() {
                     engine="nemotron"
                     model={{name: NEMOTRON, status: installed ? 'Available' : 'Missing', size_bytes: size}}
                     use={engine === 'nemotron' && installed ? 'Identifies speakers in new meetings' : null}
-                    description="Downloaded when you choose it"
+                    description=""
                     downloads={downloads}
                     onDownload={getNemotron}
                     onRemove={() => uninstallOptionalModel('nemotron').catch((error) =>
@@ -143,7 +143,6 @@ export function SpeakersGroup() {
                 {engine === 'nemotron' && installed && <ThresholdRow threshold={status.data?.nemotron_threshold ?? THRESHOLD.default}/>}
                 <SettingsRow
                     label="Model files and credits"
-                    description="Where speaker models are kept"
                     control={(
                         <Button size="sm" onClick={() => void openSpeakerModelFolder().catch((error) => toast.error('Couldn’t open the folder', {description: errorMessage(error)}))}>
                             Open folder

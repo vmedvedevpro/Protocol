@@ -1112,6 +1112,11 @@ recording and hides the main window: minimizing the main window does it
   Recording, AI and Advanced; the two views swap through `Crossfade`. Both
   use the same rows (`components/PreferenceRows.tsx`), so turning Advanced
   off only hides sections and every value stays.
+- A row has a description only when it says what its name cannot: data
+  that leaves the computer, a cost or requirement, a consequence the user
+  would not expect, or a state (owner decision 2026-11-25). One that
+  restates or decorates the name is left out, and so are group notes of
+  that kind; search finds a row by its name either way.
 - `?section=` names the tab, written with `replace`. `sections.ts` maps the
   old UI's nine ids onto the four; one in a link turns Advanced on. `about`
   (the tray's Check for Updates…) lands on General › Updates: `UpdatesGroup`

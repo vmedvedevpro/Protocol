@@ -35,12 +35,10 @@ export function LocalAiGroup() {
         <SettingsGroup title="Local AI">
             <SettingsRow
                 label="Parakeet"
-                description="Live text model"
                 control={<RowValue>{data ? (data.parakeet.loaded ? `Loaded · ${parakeetOn}` : 'Not loaded') : ''}</RowValue>}
             />
             <SettingsRow
                 label="Whisper"
-                description="After-meeting model"
                 control={<RowValue>{data ? (data.whisper.loaded ? `Loaded · ${whisperDevice(data)}` : 'Not loaded') : ''}</RowValue>}
             />
             <SettingsRow

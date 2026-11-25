@@ -10,7 +10,6 @@ import {useMutation, useQuery} from '@tanstack/react-query'
 import {useNavigate} from 'react-router-dom'
 import styled from 'styled-components'
 import {errorMessage} from '@/api/core'
-import {npuQuery} from '@/api/intel'
 import {downloadKey, downloadWhisperModel, POST_CALL_WHISPER_MODEL} from '@/api/models'
 import {
     isWhisperProvider,
@@ -47,7 +46,6 @@ function TranscriptionGroup() {
     const {parakeet, whisper, gpuVersion, downloads} = useSpeechModels()
     const live = useQuery(transcriptConfigQuery)
     const postCall = useQuery(postCallConfigQuery)
-    const npu = useQuery(npuQuery).data
     const saveLive = useMutation(saveTranscriptConfigMutation())
     const savePostCall = useMutation(savePostCallConfigMutation())
     const {preferences, save} = useRecordingPreferences()
@@ -58,8 +56,6 @@ function TranscriptionGroup() {
     const postCallValue = postCall.data
         ? (postCall.data.provider === 'live' ? SAME_AS_LIVE : valueOf(postCall.data.provider, postCall.data.model))
         : null
-    const liveEngine = parseSpeechModel(liveValue ?? undefined)?.provider ?? 'parakeet'
-    const onNpu = liveEngine === 'parakeet' && !!npu && (npu.state === 'ready' || npu.active)
 
     // Whisper's download finished but native could not save it as the after-meeting model.
     const copy = whisper.find(({name}) => name === POST_CALL_WHISPER_MODEL)
@@ -70,7 +66,6 @@ function TranscriptionGroup() {
         <SettingsGroup title="Transcription">
             <SettingsRow
                 label="During the meeting"
-                description={`Live text · on ${liveEngine === 'whisper' ? 'this computer' : onNpu ? 'the Intel NPU' : 'the processor'}`}
                 control={(
                     <Select
                         options={withSavedModel(choices, liveValue)}
@@ -93,7 +88,6 @@ function TranscriptionGroup() {
             </SettingsRow>
             <SettingsRow
                 label="After the meeting"
-                description="A cleaner transcript once you stop"
                 control={(
                     <Select
                         options={[{value: SAME_AS_LIVE, label: 'Same as during the meeting'}, ...withSavedModel(choices, postCallValue === SAME_AS_LIVE ? null : postCallValue)]}
@@ -121,7 +115,6 @@ function TranscriptionGroup() {
             <MeetingLanguageRow/>
             <SettingsRow
                 label="Faster live text"
-                description="Text arrives in 3.5-second pieces instead of 6"
                 control={(
                     <Switch
                         checked={preferences?.real_time_transcription ?? false}
@@ -208,7 +201,6 @@ export function SpeechModelsGroup() {
         <SettingsGroup title="Speech models">
             <SettingsNavRow
                 label="Downloaded models"
-                description="Download, update or remove"
                 value={engines || 'None'}
                 onClick={() => void navigate(paths.settingsPage('speech-models'))}
             />

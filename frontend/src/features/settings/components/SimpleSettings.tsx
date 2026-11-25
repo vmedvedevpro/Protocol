@@ -32,11 +32,7 @@ export function SimpleSettings() {
                 <SummaryModelRow/>
             </SettingsGroup>
             <SettingsGroup>
-                <SettingsNavRow
-                    label="More settings"
-                    description="Models, providers, audio tuning, Labs and more"
-                    onClick={() => setAdvanced(true)}
-                />
+                <SettingsNavRow label="More settings" onClick={() => setAdvanced(true)}/>
             </SettingsGroup>
         </>
     )
