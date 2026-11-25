@@ -2,12 +2,11 @@
  * Labs: experiments the user turns on in Settings › Advanced. Two of them
  * live only in the WebView, in localStorage `meetily-labs-v1` (PARITY.md,
  * Keep reading): Waveform scrubbing (the meeting's player) and Clean
- * transcript (the meeting's transcript and its summary). Two are native
+ * transcript (the meeting's transcript and its summary). Three are native
  * switches, each in a file of its own and read with Query: the Whisper
- * silence guard (whisper_engine/labs.rs) and Parakeet on the GPU
- * (parakeet_engine/labs.rs, Windows). The third native switch, Voice
- * profiles, belongs to the people domain (`src/api/people.ts`, #118), since
- * the voices it learns are people's.
+ * silence guard (whisper_engine/labs.rs), Parakeet on the GPU
+ * (parakeet_engine/labs.rs, Windows) and Voice profiles
+ * (diarization/voice_profiles.rs), whose voices are in `src/api/people.ts`.
  *
  * The old app also mirrored the native switches into the stored object.
  * Nothing reads that copy now: the object keeps the fields it holds, as it
@@ -74,7 +73,7 @@ export function setLab(name: WebViewLab, on: boolean) {
 
 // --- The native switches -----------------------------------------------------
 
-export type NativeLab = 'whisperSilenceGuard' | 'parakeetGpu'
+export type NativeLab = 'whisperSilenceGuard' | 'parakeetGpu' | 'voiceProfiles'
 
 /**
  * Each switch's commands. Parakeet on the GPU reloads the current Parakeet
@@ -90,6 +89,10 @@ const NATIVE_LABS: Record<NativeLab, {get: string, set: (on: boolean) => Promise
     parakeetGpu: {
         get: 'get_parakeet_gpu_enabled',
         set: (value) => command<null>('set_parakeet_gpu_enabled', {value}),
+    },
+    voiceProfiles: {
+        get: 'get_voice_profiles_enabled',
+        set: (value) => command<null>('set_voice_profiles_enabled', {value}),
     },
 }
 

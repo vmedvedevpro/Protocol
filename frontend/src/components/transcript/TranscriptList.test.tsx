@@ -157,7 +157,7 @@ describe('TranscriptList', () => {
         const menu = await screen.findByRole('menu')
         expect(within(menu).getAllByRole('menuitem').map((item) => item.textContent)).toEqual(['Open Priya Shah', 'Rename speaker'])
         await userEvent.click(within(menu).getByRole('menuitem', {name: 'Open Priya Shah'}))
-        expect(open).toHaveBeenCalledWith({speaker: 'Priya Shah', turnId: 'e', lineIds: ['e']})
+        expect(open).toHaveBeenCalledWith({speaker: 'Priya Shah', lineIds: ['e']})
 
         // The user's own voice has its actions, never a rename.
         await userEvent.click(screen.getAllByRole('button', {name: 'You'})[0])

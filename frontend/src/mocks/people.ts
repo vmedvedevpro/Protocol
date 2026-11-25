@@ -1,4 +1,3 @@
-import type {ActionItem} from '@/api/actionItems'
 import type {TranscriptSegment} from '@/api/meetings'
 import {
     isPersonLabel,
@@ -11,16 +10,17 @@ import {
     type VoiceProfile,
 } from '@/api/people'
 import type {MockHandler} from './handlers'
-import {meetingsHandlers, type MockMeetings} from './meetings'
+import type {MockLabs} from './labs'
+import {meetingsHandlers, type MockMeetings, relabelSpeaker, required} from './meetings'
 
 /**
  * Contacts and their voices, ported from the old browser preview
  * (`162e8be:frontend/src/dev/preview/fixtures.ts` and `index.ts`). Which
  * meetings a person spoke in is not stored here: as native's
  * `person_speakers`, it follows the transcripts, where a label with a
- * contact's name is theirs. A named voice nobody has as a contact yet
- * becomes one, as native's `ensure_label_identity` makes it when a voice
- * is named (#113's rename, #119's Who said this).
+ * contact's name is theirs. Naming a voice (`rename_meeting_speaker`) or
+ * learning a named speaker's voice makes a contact of a name nobody has
+ * yet, as native's `ensure_label_identity` does.
  */
 
 /** A `people` row. */
@@ -58,8 +58,6 @@ export function createMockPeople() {
             {id: 'person-sam', displayName: 'Sam Rivera', role: 'Procurement', company: 'Acme Corp'},
         ] as MockPerson[],
         voices: [{personId: 'person-tom', samples: 6, from: ['meeting-acme-kickoff']}] as MockVoice[],
-        /** Labs › Voice profiles (`voice_profiles_enabled.txt`). */
-        voicesEnabled: false,
         /** Whether the speaker models a voice is learned with are downloaded. */
         speakerModels: true,
     }
@@ -70,6 +68,8 @@ export type MockPeople = ReturnType<typeof createMockPeople>
 interface MockDb {
     people: MockPeople
     meetings: MockMeetings
+    /** `voiceProfiles` is Labs › Voice profiles. */
+    labs: MockLabs
 }
 
 let nextId = 0
@@ -77,29 +77,28 @@ const newPersonId = () => `person-mock-${(nextId++).toString(36)}`
 
 const clean = (value: unknown) => (typeof value === 'string' && value.trim() ? value.trim() : undefined)
 
-function required<T>(value: T | undefined, name: string, command: string): T {
-    if (value === undefined) throw `invalid args \`${name}\` for command \`${command}\`: command ${command} missing required key ${name}`
-    return value
-}
-
 const labelsOf = (line: TranscriptSegment) => (line.speaker ?? '').split(' + ').map((part) => part.trim()).filter(Boolean)
 
 /** The person a label is, by native's name rule. */
 const personNamed = (db: MockDb, label: string) =>
     db.people.rows.find((person) => normalizePersonName(person.displayName) === normalizePersonName(label))
 
+/** As native's `ensure_label_identity`: a named voice nobody has as a contact becomes one. */
+function ensureContact(db: MockDb, label: string): MockPerson | undefined {
+    if (!isPersonLabel(label)) return undefined
+    const known = personNamed(db, label)
+    if (known) return known
+    const person = {id: newPersonId(), displayName: label.trim()}
+    db.people.rows.push(person)
+    return person
+}
+
 /**
- * What native keeps true on every write: each named voice in a transcript
- * is a contact, and an action item whose owner is a contact's name is
- * linked to them. The mock applies it before every read.
+ * Native links an action item to the contact its owner names when it
+ * writes the item; the meetings mock does not know people, so this runs
+ * before the items are read.
  */
-function sync(db: MockDb) {
-    for (const lines of Object.values(db.meetings.transcripts)) {
-        for (const line of lines) {
-            const label = line.speaker?.trim()
-            if (isPersonLabel(label) && !personNamed(db, label)) db.people.rows.push({id: newPersonId(), displayName: label})
-        }
-    }
+function linkOwners(db: MockDb) {
     for (const item of db.meetings.actionItems) {
         if (item.personId || !item.ownerLabel) continue
         const owner = personNamed(db, item.ownerLabel)
@@ -162,30 +161,8 @@ function personOf(db: MockDb, personId: unknown, missing = 'Contact not found'):
     return person
 }
 
-function itemsOf(db: MockDb, personId: string): ActionItem[] {
-    return db.meetings.actionItems
-        .filter((item) => item.personId === personId)
-        .map((item) => {
-            const meeting = db.meetings.meetings.find((entry) => entry.id === item.meetingId)
-            return {...item, meetingTitle: meeting?.title ?? 'Meeting', meetingCreatedAt: meeting?.created_at ?? item.createdAt}
-        })
-}
-
-/** Relabels a voice in one meeting's transcript, joining it with a voice it overlapped. */
-function relabel(db: MockDb, meetingId: string, from: string, to: string) {
-    for (const line of db.meetings.transcripts[meetingId] ?? []) {
-        const parts = labelsOf(line)
-        if (parts.includes(from)) line.speaker = [...new Set(parts.map((part) => (part === from ? to : part)))].join(' + ')
-    }
-}
-
-/** The lowest `Speaker N` a meeting does not use yet. */
-function freeSpeaker(db: MockDb, meetingId: string): string {
-    const used = new Set((db.meetings.transcripts[meetingId] ?? []).flatMap(labelsOf))
-    let n = 1
-    while (used.has(`Speaker ${n}`)) n += 1
-    return `Speaker ${n}`
-}
+/** Relabels a voice in one meeting; an empty name gives it a free `Speaker N`. */
+const relabel = (db: MockDb, meetingId: string, from: string, to: string) => relabelSpeaker(db.meetings.transcripts[meetingId] ?? [], from, to)
 
 /** Native refuses a blank name and one another contact has. */
 function checkName(db: MockDb, name: string, self: string | null, refusal: string) {
@@ -211,10 +188,14 @@ function voiceInfo(db: MockDb, voice: MockVoice): VoiceProfile {
     return {person_id: voice.personId, name: person?.displayName ?? '', samples: voice.samples, meetings: Math.max(1, voice.from.length)}
 }
 
+/** What native checks before it reads any audio for a voice. */
+function checkVoices(db: MockDb) {
+    if (!db.labs.voiceProfiles) throw 'Turn on Voice profiles in Settings > Labs first.'
+    if (!db.people.speakerModels) throw 'Voice profiles need the speaker models. Download them in Settings > Transcription.'
+}
+
 /** Learns a voice from these meetings, replacing them or adding to the ones before. */
 function storeVoice(db: MockDb, person: MockPerson, meetingIds: string[], replace: boolean): VoiceProfile {
-    if (!db.people.voicesEnabled) throw 'Turn on Voice profiles in Settings > Labs first.'
-    if (!db.people.speakerModels) throw 'Voice profiles need the speaker models. Download them in Settings > Transcription.'
     const earlier = db.people.voices.find((voice) => voice.personId === person.id)
     const from = replace ? meetingIds : [...new Set([...(earlier?.from ?? []), ...meetingIds])]
     const voice: MockVoice = {personId: person.id, samples: from.length * 4, from}
@@ -224,25 +205,30 @@ function storeVoice(db: MockDb, person: MockPerson, meetingIds: string[], replac
 
 /**
  * The handlers of database/repositories/person.rs (but `api_global_search`)
- * and diarization/voice_profiles.rs. They also link action items to their
- * owners before `api_list_action_items` answers, as native does when it
- * writes them, so that reply is the meetings mock's with `personId` set.
+ * and of diarization/voice_profiles.rs (its Labs switch is in ./labs.ts).
+ * Two of the meetings mock's are wrapped with what native does in the same
+ * write: `rename_meeting_speaker` links the new name to a contact, and
+ * `api_list_action_items` answers with owners linked to theirs.
  */
 export function peopleHandlers(state: MockDb): Record<string, MockHandler> {
-    const listActionItems = meetingsHandlers(state).api_list_action_items
+    const meetings = meetingsHandlers(state)
     return {
+        rename_meeting_speaker: async (args) => {
+            const renamed = await meetings.rename_meeting_speaker(args) as { speaker: string }
+            ensureContact(state, renamed.speaker)
+            return renamed
+        },
         api_list_action_items: (args) => {
-            sync(state)
-            return listActionItems(args)
+            linkOwners(state)
+            return meetings.api_list_action_items(args)
         },
         api_list_people: () => {
-            sync(state)
+            linkOwners(state)
             return state.people.rows
                 .map((person) => listItem(state, person))
                 .sort((a, b) => (b.lastSeenAt ?? '').localeCompare(a.lastSeenAt ?? ''))
         },
         api_get_person_profile: ({personId}) => {
-            sync(state)
             const person = personOf(state, personId, 'Person not found')
             const meetings = meetingsOf(state, person)
             const profile: PersonProfile = {
@@ -250,7 +236,6 @@ export function peopleHandlers(state: MockDb): Record<string, MockHandler> {
                 messageCount: meetings.reduce((sum, entry) => sum + entry.messageCount, 0),
                 totalSpeakingSeconds: meetings.reduce((sum, entry) => sum + entry.speakingSeconds, 0),
                 meetings,
-                actionItems: itemsOf(state, person.id),
             }
             if (person.notes) profile.notes = person.notes
             if (meetings.length) profile.firstSeenAt = meetings[meetings.length - 1].createdAt
@@ -264,7 +249,6 @@ export function peopleHandlers(state: MockDb): Record<string, MockHandler> {
             return null
         },
         api_create_person: (args) => {
-            sync(state)
             const fields = details(args)
             required(args.displayName, 'displayName', 'api_create_person')
             checkName(state, fields.displayName, null, `A contact named "${fields.displayName}" already exists`)
@@ -273,7 +257,7 @@ export function peopleHandlers(state: MockDb): Record<string, MockHandler> {
             return listItem(state, person)
         },
         api_update_person: (args) => {
-            sync(state)
+            linkOwners(state)
             const person = personOf(state, args.personId)
             const fields = details(args)
             checkName(state, fields.displayName, person.id, `Another contact is already named "${fields.displayName}". Merge them instead.`)
@@ -290,7 +274,7 @@ export function peopleHandlers(state: MockDb): Record<string, MockHandler> {
             return listItem(state, updated)
         },
         api_merge_people: ({sourceId, targetId}) => {
-            sync(state)
+            linkOwners(state)
             if (sourceId === targetId) throw 'Choose two different contacts to merge'
             const source = personOf(state, sourceId)
             const target = personOf(state, targetId)
@@ -318,11 +302,11 @@ export function peopleHandlers(state: MockDb): Record<string, MockHandler> {
             return listItem(state, target)
         },
         api_delete_person: ({personId}) => {
-            sync(state)
+            linkOwners(state)
             const person = personOf(state, personId)
             for (const meeting of state.meetings.meetings) {
                 const label = labelIn(state, person, meeting.id)
-                if (label) relabel(state, meeting.id, label, freeSpeaker(state, meeting.id))
+                if (label) relabel(state, meeting.id, label, '')
             }
             for (const item of state.meetings.actionItems) if (item.personId === person.id) delete item.personId
             state.people.rows = state.people.rows.filter((entry) => entry.id !== person.id)
@@ -331,33 +315,28 @@ export function peopleHandlers(state: MockDb): Record<string, MockHandler> {
         },
 
         // ---- diarization/voice_profiles.rs
-        get_voice_profiles_enabled: () => state.people.voicesEnabled,
-        set_voice_profiles_enabled: ({value}) => {
-            state.people.voicesEnabled = !!value
-            return null
-        },
         list_voice_profiles: () =>
             state.people.voices
                 .filter((voice) => state.people.rows.some((person) => person.id === voice.personId))
                 .map((voice) => voiceInfo(state, voice)),
-        enroll_person_voice: ({personId, meetingId}) => {
-            sync(state)
+        // Without a meeting, as the app always calls it: their last 10 meetings.
+        enroll_person_voice: ({personId}) => {
             const person = personOf(state, personId)
-            const theirs = meetingsOf(state, person).map((entry) => entry.meetingId)
-            const from = typeof meetingId === 'string' ? theirs.filter((id) => id === meetingId) : theirs.slice(0, 10)
+            checkVoices(state)
+            const from = meetingsOf(state, person).map((entry) => entry.meetingId).slice(0, 10)
             if (!from.length) throw `${person.displayName} is not named as a speaker in a saved meeting yet.`
-            return storeVoice(state, person, from, meetingId == null)
+            return storeVoice(state, person, from, true)
         },
         enroll_voice_profile: ({meetingId, speaker}) => {
-            sync(state)
             const label = String(required(speaker, 'speaker', 'enroll_voice_profile'))
+            checkVoices(state)
             const generated = /^speaker /i.test(label.trim())
             if (!isPersonLabel(label)) {
                 throw generated ? 'Name this speaker before learning their voice.' : 'Only a named speaker on the call can have a voice profile.'
             }
-            const person = personNamed(state, label)
-            if (!person || !labelIn(state, person, String(meetingId))) throw 'This named speaker is not in the saved transcript yet.'
-            return storeVoice(state, person, [String(meetingId)], false)
+            const lines = state.meetings.transcripts[String(meetingId)] ?? []
+            if (!lines.some((line) => line.speaker === label)) throw 'This named speaker is not in the saved transcript yet.'
+            return storeVoice(state, ensureContact(state, label)!, [String(meetingId)], false)
         },
         delete_voice_profile: ({personId}) => {
             state.people.voices = state.people.voices.filter((voice) => voice.personId !== personId)

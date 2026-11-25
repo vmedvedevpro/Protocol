@@ -41,9 +41,7 @@ export interface PlaybackClock {
 export interface SpeakerTarget {
     /** The label as stored: "Speaker 2", "Priya Shah", "You", "A + B". */
     speaker: string
-    /** The turn's id, its first line's. */
-    turnId: string
-    /** Every line the turn joins, first to last. */
+    /** Every line the turn joins, first to last; the first is the turn's id. */
     lineIds: readonly string[]
 }
 
@@ -355,7 +353,7 @@ const TurnRow = memo(function TurnRow({turn, arriving, userName, editing, canSee
     // A single voice can be named here; the user's own and overlapping ones cannot.
     const renameable = canRename && !!speaker && !isUserSpeaker(speaker) && speakerParts(speaker).length === 1
 
-    const menu = speaker && speakerActions ? speakerActions({speaker, turnId: turn.id, lineIds: turn.lineIds}) : []
+    const menu = speaker && speakerActions ? speakerActions({speaker, lineIds: turn.lineIds}) : []
 
     let name: ReactNode = null
     if (speaker && editing && renameable) {

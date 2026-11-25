@@ -3,7 +3,8 @@ import {describe, expect, it} from 'vitest'
 import {mockState} from '@/mocks/state'
 import {createTestQueryClient} from '@/test/queryClient'
 import {actionItemKeys, actionItemsQuery, createActionItem} from './actionItems'
-import {getAllTranscripts, meetingKeys, meetingTranscriptsQuery, renameMeetingSpeaker} from './meetings'
+import {nativeLabQuery, setNativeLab} from './labs'
+import {getAllTranscripts, meetingKeys, meetingTranscriptsQuery, renameMeetingSpeaker, renameSpeakerMutation} from './meetings'
 import {
     createPersonMutation,
     deletePersonMutation,
@@ -12,17 +13,13 @@ import {
     isPersonLabel,
     learnPersonVoiceMutation,
     learnSpeakerVoice,
-    meetingSpeakerPeople,
     mergePeopleMutation,
     peopleKeys,
     peopleQuery,
-    type Person,
     personForSpeaker,
     personProfileQuery,
-    setVoiceProfilesEnabledMutation,
     updatePersonMutation,
     updatePersonNotesMutation,
-    voiceProfilesEnabledQuery,
     voiceProfilesQuery,
 } from './people'
 
@@ -54,7 +51,17 @@ describe('people', () => {
         expect(people.some((person) => person.displayName === 'Speaker 2')).toBe(false)
     })
 
-    it('reads a profile: meetings together, speaking time and the items they own', async () => {
+    it('reads the people again after a voice is named, since that can make a contact', async () => {
+        const client = createTestQueryClient()
+        await client.fetchQuery(peopleQuery)
+
+        await run(client, renameSpeakerMutation('meeting-untitled'), {from: 'Speaker 1', to: 'Dana Wu'})
+
+        expect(client.getQueryState(peopleQuery.queryKey)?.isInvalidated).toBe(true)
+        expect((await client.fetchQuery(peopleQuery)).map((person) => person.displayName)).toContain('Dana Wu')
+    })
+
+    it('reads a profile: meetings together and speaking time; the items they own come from the items list', async () => {
         await createActionItem('meeting-acme-review', {text: 'Send the support terms', ownerLabel: 'priya shah'})
         const client = createTestQueryClient()
 
@@ -65,7 +72,7 @@ describe('people', () => {
         expect(profile.meetings[0].excerpt).toMatch(/^Yes\. We can ship a config/)
         expect(profile.totalSpeakingSeconds).toBeGreaterThan(0)
         expect(profile.firstSeenAt! < profile.lastSeenAt!).toBe(true)
-        expect(profile.actionItems.map((item) => item.text)).toEqual(['Send the support terms'])
+        expect(profile).not.toHaveProperty('actionItems')
         // The owner as written matched them, so the items list filters by them too.
         expect((await client.fetchQuery(actionItemsQuery({personId: 'person-priya'}))).map((item) => item.text)).toEqual(['Send the support terms'])
         await expect(client.fetchQuery(personProfileQuery('person-gone'))).rejects.toThrow('Person not found')
@@ -108,8 +115,8 @@ describe('people', () => {
         expect(await speakers('meeting-acme-review')).not.toContain('Sam Rivera')
         expect(client.getQueryData(peopleKeys.profile('person-sam'))).toBeUndefined()
         expect(client.getQueryState(actionItemKeys.list({personId: 'person-sam'}))?.isInvalidated).toBe(true)
-        const profile = await client.fetchQuery(personProfileQuery('person-tom'))
-        expect(profile.actionItems.map((item) => [item.text, item.ownerLabel])).toEqual([['Draft the procurement memo', 'Tom Becker']])
+        const items = await client.fetchQuery(actionItemsQuery({personId: 'person-tom'}))
+        expect(items.map((item) => [item.text, item.ownerLabel])).toEqual([['Draft the procurement memo', 'Tom Becker']])
     })
 
     it('deletes a contact: their lines get a free Speaker label and their items lose the link', async () => {
@@ -146,28 +153,28 @@ describe('people', () => {
         for (const label of ['You', 'Speaker 2', 'Speaker 2 + Priya Shah', '', null, 'Guest']) {
             expect(personForSpeaker(people, label)).toBeUndefined()
         }
-        const mapped = meetingSpeakerPeople(people, ['You', 'Tom Becker', 'Sam Rivera', 'Speaker 4', 'Nobody Known'])
-        expect([...mapped].map(([label, person]: [string, Person]) => [label, person.id])).toEqual([
-            ['Tom Becker', 'person-tom'],
-            ['Sam Rivera', 'person-sam'],
-        ])
+        expect(personForSpeaker(people, 'Nobody Known')).toBeUndefined()
         expect(isPersonLabel('Elena García')).toBe(true)
         expect(isPersonLabel('system audio')).toBe(false)
     })
 
     it('learns, lists and forgets a voice once Labs allows it', async () => {
         const client = createTestQueryClient()
-        expect(await client.fetchQuery(voiceProfilesEnabledQuery)).toBe(false)
-        await expect(run(client, learnPersonVoiceMutation, {personId: 'person-priya'})).rejects.toThrow('Turn on Voice profiles')
+        expect(await client.fetchQuery(nativeLabQuery('voiceProfiles'))).toBe(false)
+        await expect(run(client, learnPersonVoiceMutation, 'person-priya')).rejects.toThrow('Turn on Voice profiles')
+        // Refused before any audio is read, so no contact is made either.
+        await expect(learnSpeakerVoice('meeting-untitled', 'Speaker 1')).rejects.toThrow('Turn on Voice profiles')
 
-        await run(client, setVoiceProfilesEnabledMutation, true)
-        expect(client.getQueryState(voiceProfilesEnabledQuery.queryKey)?.isInvalidated).toBe(true)
+        await setNativeLab('voiceProfiles', true)
         await client.fetchQuery(voiceProfilesQuery)
-        const voice = await run(client, learnPersonVoiceMutation, {personId: 'person-priya'})
+        await client.fetchQuery(peopleQuery)
+        const voice = await run(client, learnPersonVoiceMutation, 'person-priya')
 
         expect(voice).toMatchObject({person_id: 'person-priya', name: 'Priya Shah', meetings: 7})
         expect(describeVoiceSource(voice)).toBe('28 clear turns in 7 meetings')
+        // Learning can link or make a contact, so the people are read again too.
         expect(client.getQueryState(voiceProfilesQuery.queryKey)?.isInvalidated).toBe(true)
+        expect(client.getQueryState(peopleQuery.queryKey)?.isInvalidated).toBe(true)
         await expect(learnSpeakerVoice('meeting-acme-review', 'Speaker 2')).rejects.toThrow('Name this speaker before learning their voice.')
         expect(await learnSpeakerVoice('meeting-acme-review', 'Tom Becker')).toMatchObject({person_id: 'person-tom', meetings: 2})
 

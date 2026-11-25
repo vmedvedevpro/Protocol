@@ -1,8 +1,8 @@
 /**
  * People: the contacts a meeting's named voices belong to
  * (database/repositories/person.rs), their Labs voice profiles
- * (diarization/voice_profiles.rs), and which of a meeting's speaker labels
- * is which contact. The person screen and search (#118) and Who said this
+ * (diarization/voice_profiles.rs; the Labs switch itself is in labs.ts),
+ * and which of a meeting's speaker labels is which contact. The person screen and search (#118) and Who said this
  * (#119) read them.
  *
  * Native links a person to a meeting through `person_speakers` (meeting,
@@ -11,7 +11,6 @@
  * a new one. Generated labels ("Speaker 2", "You", overlaps) never do.
  */
 import {mutationOptions, type QueryClient, queryOptions} from '@tanstack/react-query'
-import type {ActionItem} from './actionItems'
 import {actionItemKeys} from './actionItems'
 import {command} from './core'
 import {meetingKeys} from './meetings'
@@ -63,7 +62,11 @@ export interface PersonMeeting {
     excerpt?: string
 }
 
-/** The person screen's data; mirrors `PersonProfile`. */
+/**
+ * The person screen's data; mirrors `PersonProfile`. Native also sends the
+ * action items they own; the screen reads them with `actionItemsQuery`,
+ * which a check-off refreshes, so the copy here is left out.
+ */
 export interface PersonProfile {
     id: string
     displayName: string
@@ -81,8 +84,6 @@ export interface PersonProfile {
     /** Newest first. */
     meetings: PersonMeeting[]
     groups: PersonFolder[]
-    /** Every item they own, done or not, each linked to its meeting. */
-    actionItems: ActionItem[]
 }
 
 /**
@@ -105,7 +106,6 @@ export const peopleKeys = {
     lists: () => [...peopleKeys.all, 'list'] as const,
     profile: (personId: string) => [...peopleKeys.all, 'profile', personId] as const,
     voices: () => [...peopleKeys.all, 'voices'] as const,
-    voicesEnabled: () => [...peopleKeys.all, 'voicesEnabled'] as const,
 }
 
 // ---- Contacts ------------------------------------------------------------------
@@ -159,15 +159,20 @@ export const deletePerson = (personId: string) => command<null>('api_delete_pers
 export const updatePersonNotes = (personId: string, notes: string) =>
     command<null>('api_update_person_notes', {personId, notes})
 
+// Both are read again whenever a screen mounts them (staleTime 0): deleting
+// a meeting or filing it in another folder changes a contact's meeting count
+// and folders, and those mutations know nothing of people.
 export const peopleQuery = queryOptions({
     queryKey: peopleKeys.lists(),
     queryFn: listPeople,
+    staleTime: 0,
 })
 
 export const personProfileQuery = (personId: string) =>
     queryOptions({
         queryKey: peopleKeys.profile(personId),
         queryFn: () => getPersonProfile(personId),
+        staleTime: 0,
     })
 
 /**
@@ -185,7 +190,7 @@ function invalidateRelabelled(client: QueryClient) {
 
 export const createPersonMutation = mutationOptions({
     mutationFn: createPerson,
-    onSuccess: (_person, _details, _result, {client}) => client.invalidateQueries({queryKey: peopleKeys.all}),
+    onSuccess: (_person, _details, _result, {client}) => client.invalidateQueries({queryKey: peopleKeys.lists()}),
 })
 
 export const updatePersonMutation = (personId: string) =>
@@ -257,16 +262,6 @@ export function personForSpeaker(people: readonly Person[], label: string | null
     return people.find((person) => normalizePersonName(person.displayName) === name)
 }
 
-/** Each of a meeting's speaker labels that is a contact, mapped to them. */
-export function meetingSpeakerPeople(people: readonly Person[], labels: Iterable<string | null | undefined>): Map<string, Person> {
-    const mapped = new Map<string, Person>()
-    for (const label of labels) {
-        const person = label ? personForSpeaker(people, label) : undefined
-        if (label && person) mapped.set(label, person)
-    }
-    return mapped
-}
-
 // ---- Voices (Labs) -------------------------------------------------------------
 
 /** "14 clear turns in 3 meetings" */
@@ -279,13 +274,11 @@ export function describeVoiceSource(voice: Pick<VoiceProfile, 'samples' | 'meeti
 export const listVoiceProfiles = () => command<VoiceProfile[]>('list_voice_profiles')
 
 /**
- * Learns a contact's voice. Without a meeting it is rebuilt from their
- * recent meetings, so it picks up everything recorded since; with one, that
- * meeting's audio is added. Rejects with native's reason: Labs is off, the
+ * Learns a contact's voice again from their recent meetings, so it picks up
+ * everything recorded since. Rejects with native's reason: Labs is off, the
  * speaker models are missing, or no meeting has clear call audio of them.
  */
-export const learnPersonVoice = (personId: string, meetingId?: string) =>
-    command<VoiceProfile>('enroll_person_voice', {personId, meetingId: meetingId ?? null})
+export const learnPersonVoice = (personId: string) => command<VoiceProfile>('enroll_person_voice', {personId})
 
 /** Adds one named speaker's lines in a saved meeting to their contact's voice. */
 export const learnSpeakerVoice = (meetingId: string, speaker: string) =>
@@ -293,30 +286,19 @@ export const learnSpeakerVoice = (meetingId: string, speaker: string) =>
 
 export const forgetVoice = (personId: string) => command<null>('delete_voice_profile', {personId})
 
-/** Whether Labs › Voice profiles is on (native `voice_profiles_enabled.txt`). */
-export const getVoiceProfilesEnabled = () => command<boolean>('get_voice_profiles_enabled')
-
-export const setVoiceProfilesEnabled = (value: boolean) => command<null>('set_voice_profiles_enabled', {value})
-
 export const voiceProfilesQuery = queryOptions({
     queryKey: peopleKeys.voices(),
     queryFn: listVoiceProfiles,
 })
 
-export const voiceProfilesEnabledQuery = queryOptions({
-    queryKey: peopleKeys.voicesEnabled(),
-    queryFn: getVoiceProfilesEnabled,
-})
-
+// Learning a named speaker's voice can link or make their contact
+// (`ensure_label_identity`), so the people are read again with the voices.
 const invalidateVoices = {
     onSuccess: (_reply: unknown, _variables: unknown, _result: unknown, {client}: { client: QueryClient }) =>
-        client.invalidateQueries({queryKey: peopleKeys.voices()}),
+        client.invalidateQueries({queryKey: peopleKeys.all}),
 }
 
-export const learnPersonVoiceMutation = mutationOptions({
-    mutationFn: ({personId, meetingId}: { personId: string, meetingId?: string }) => learnPersonVoice(personId, meetingId),
-    ...invalidateVoices,
-})
+export const learnPersonVoiceMutation = mutationOptions({mutationFn: learnPersonVoice, ...invalidateVoices})
 
 export const learnSpeakerVoiceMutation = mutationOptions({
     mutationFn: ({meetingId, speaker}: { meetingId: string, speaker: string }) => learnSpeakerVoice(meetingId, speaker),
@@ -324,8 +306,3 @@ export const learnSpeakerVoiceMutation = mutationOptions({
 })
 
 export const forgetVoiceMutation = mutationOptions({mutationFn: forgetVoice, ...invalidateVoices})
-
-export const setVoiceProfilesEnabledMutation = mutationOptions({
-    mutationFn: setVoiceProfilesEnabled,
-    onSuccess: (_reply, _value, _result, {client}) => client.invalidateQueries({queryKey: peopleKeys.voicesEnabled()}),
-})
