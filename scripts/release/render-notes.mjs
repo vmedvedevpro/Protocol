@@ -1,12 +1,14 @@
 #!/usr/bin/env node
 // The GitHub release body: the CHANGELOG section plus the fixed download,
-// install, update and verification text.
+// install, update and verification text. The platforms come from `sums`: a
+// release drafted before its macOS build finished says macOS follows, and
+// merge-macos.mjs renders the body again once macOS joins.
 //
 //   node scripts/release/render-notes.mjs --version 0.3.0 --notes <file> --sums <SHA256SUMS.txt> [--first-release] [--attestations] > notes.md
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { REPOSITORY, assetUrl, releaseAssets } from './release-lib.mjs';
+import { REPOSITORY, assetUrl, parseSha256Sums, platformsOf, releaseAssets } from './release-lib.mjs';
 
 export function renderNotes({ version, notes, sums, firstRelease = false, attestations = false, repository = REPOSITORY }) {
   const assets = releaseAssets(version);
@@ -14,6 +16,12 @@ export function renderNotes({ version, notes, sums, firstRelease = false, attest
   const [windows] = assets.windows;
   const [dmg] = assets.macos;
   const [appImage, deb] = assets.linux;
+  const { platforms, problems } = platformsOf(parseSha256Sums(sums).map(({ name }) => name), version);
+  if (problems.length > 0) throw new Error(problems.join('; '));
+  for (const platform of ['windows', 'linux']) {
+    if (!platforms.includes(platform)) throw new Error(`the checksums list no ${platform} assets`);
+  }
+  const macos = platforms.includes('macos') ? link(dmg) : 'Follows when its build finishes';
   return `Protocol is a local-first meeting recorder and transcriber, forked from
 [Meetily – Actually Free](https://github.com/TylerBuza/Meetily-ActuallyFree).${firstRelease ? ' This is its first release.' : ''}
 
@@ -26,7 +34,7 @@ ${notes.trim()}
 | Platform | File | Notes |
 | --- | --- | --- |
 | Windows 10/11 x64 | ${link(windows)} | Picks the Vulkan (GPU) or CPU build automatically |
-| macOS 14.2+ (Apple Silicon) | ${link(dmg)} | |
+| macOS 14.2+ (Apple Silicon) | ${macos} | |
 | Linux x64 — **experimental** | ${link(appImage)} or ${link(deb)} | Built in CI, not tested on real hardware |
 
 The \`.app.tar.gz\` and \`.sig\` files and \`latest.json\` are used by Protocol's built-in updater; you don't need to

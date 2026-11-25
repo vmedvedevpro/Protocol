@@ -12,10 +12,13 @@ import {
   compareVersions,
   cutChangelog,
   feedNotes,
+  feedKeys,
   formatSha256Sums,
   latestJson,
+  parsePlatforms,
   parseSha256Sums,
   parseVersion,
+  platformsOf,
   readVersionFiles,
   requiredAssets,
   unreleasedSection,
@@ -136,6 +139,35 @@ test('latest.json has tag-specific URLs, the signatures and the notes', () => {
   assert.deepEqual(feed.platforms['windows-x86_64-nsis'], feed.platforms['windows-x86_64']);
   assert.throws(() => latestJson({ version: '0.3.0', notes: '', pubDate: '2026-10-30T12:00:00Z', signatures: {} }), /no signature/);
   assert.throws(() => latestJson({ version: 'v0.3.0', notes: '', pubDate: '2026-10-30T12:00:00Z', signatures }), /invalid version/);
+  const early = latestJson({ version: '0.3.0', notes: '', pubDate: '2026-10-30T12:00:00Z', signatures, platforms: ['windows', 'linux'] });
+  assert.deepEqual(Object.keys(early.platforms), ['windows-x86_64-nsis', 'windows-x86_64', 'linux-x86_64-appimage']);
+  const { 'protocol-macos-arm64.app.tar.gz': _, ...withoutMacos } = signatures;
+  assert.doesNotThrow(() => latestJson({ version: '0.3.0', notes: '', pubDate: '2026-10-30T12:00:00Z', signatures: withoutMacos, platforms: ['windows', 'linux'] }));
+});
+
+test('a release is drafted from Windows and Linux; each platform is listed whole or not at all', () => {
+  assert.deepEqual(parsePlatforms('linux, windows'), ['windows', 'linux']);
+  assert.throws(() => parsePlatforms('windows,ios'), /unknown platform ios/);
+  assert.throws(() => parsePlatforms('linux,linux'), /invalid platform list/);
+  assert.throws(() => parsePlatforms(''), /invalid platform list/);
+  assert.deepEqual(feedKeys(['macos']), ['darwin-aarch64-app', 'darwin-aarch64']);
+  assert.deepEqual(requiredAssets('0.3.0', ['windows', 'linux']), [
+    'SHA256SUMS.txt',
+    'latest.json',
+    'protocol-linux-x86_64.AppImage',
+    'protocol-linux-x86_64.AppImage.sig',
+    'protocol-windows-x64-setup.exe',
+    'protocol-windows-x64-setup.exe.sig',
+    'protocol_0.3.0_amd64.deb',
+  ]);
+  assert.deepEqual(platformsOf(requiredAssets('0.3.0'), '0.3.0'), { platforms: ['windows', 'macos', 'linux'], problems: [] });
+  assert.deepEqual(platformsOf(['protocol-macos-arm64.dmg', 'protocol-windows-x64-setup.exe'], '0.3.0'), {
+    platforms: [],
+    problems: [
+      'windows is incomplete: protocol-windows-x64-setup.exe.sig missing',
+      'macos is incomplete: protocol-macos-arm64.app.tar.gz, protocol-macos-arm64.app.tar.gz.sig missing',
+    ],
+  });
 });
 
 test('long feed notes are cut at a boundary and link to the release', () => {
