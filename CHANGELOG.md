@@ -86,6 +86,9 @@ changes are included here.
 - **The Linux deb uses the system's ffmpeg**
   ([#100](https://github.com/vmedvedevpro/Protocol/issues/100)) and installs
   next to it. The AppImage still brings its own.
+- **Whisper no longer crashes on processors without AVX-512**
+  ([#176](https://github.com/vmedvedevpro/Protocol/issues/176)) on Windows
+  and Linux. Protocol needs a processor with AVX2.
 
 ## Protocol 0.5.1 — 2026-11-06
 

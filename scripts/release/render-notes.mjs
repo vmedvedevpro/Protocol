@@ -37,6 +37,9 @@ ${notes.trim()}
 | macOS 14.2+ (Apple Silicon) | ${macos} | |
 | Linux x64 | ${link(appImage)} or ${link(deb)} | |
 
+Windows and Linux need an x64 processor with AVX2: Intel Core from 2013 (Haswell) on, AMD from 2015 on. Some
+Pentium, Celeron and Atom models lack AVX2, and Protocol does not run on them.
+
 The \`.app.tar.gz\` and \`.sig\` files and \`latest.json\` are used by Protocol's built-in updater; you don't need to
 download them.
 

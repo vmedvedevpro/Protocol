@@ -915,6 +915,45 @@ GenAI with INT8 weights on the same GPU spends about 74 ms on the encoder and
 3.6 ms per token (166 ms per call); the difference is ggml-vulkan's encoder
 kernels, not the state or the decoder.
 
+### ggml CPU baseline (#176)
+
+ggml's CPU backend runs at every whisper.cpp model load, GPU or not
+(`ggml_backend_cpu_device_get_extra_buffers_type` among others), so the
+instruction set it is compiled for decides which CPUs can run Whisper at all.
+ggml defaults to `GGML_NATIVE=ON`: `-march=native` with GCC, FindSIMD.cmake
+with MSVC, i.e. the CPU of whichever runner builds the leg. The 1.0.0 RC's
+runners had AVX-512, and the packaged Linux app died with SIGILL at the first
+Whisper load on a Core Ultra without it (6191 zmm instructions, all in ggml;
+the Windows exes had 4780, also all in ggml).
+
+The x86_64 builds therefore set `GGML_NATIVE=OFF` and x86-64-v3
+(`GGML_SSE42`, `GGML_AVX`, `GGML_AVX2`, `GGML_FMA`, `GGML_F16C`, `GGML_BMI2`
+on, `GGML_AVX512` off), which `whisper-rs-sys` passes to CMake with every
+other `GGML_*` variable: the Linux leg's job env (deb and AppImage),
+`build-universal-windows.ps1` (CPU and Vulkan variants) and the updater-e2e
+Windows and Linux jobs. AVX2 CPUs go back to Intel Haswell (2013) and AMD
+Excavator (2015); CPUs without AVX2 are not supported, and the release notes
+(`render-notes.mjs`) say so. `llama-cpp-sys-2` (llama-helper) needs nothing:
+it sets `GGML_NATIVE=OFF` itself (unless `RUSTFLAGS` say `target-cpu=native`)
+and passes only `CMAKE_*` on, and ggml's defaults without NATIVE are this
+baseline; the RC's llama-helper had no zmm code on either platform. macOS
+arm64 keeps NATIVE: its runner is the M1 baseline. `whisper-rs-sys` does
+not rebuild when `GGML_*` change, so the rust-cache keys of those jobs are
+bumped with them.
+
+`scripts/release/check-cpu-baseline.mjs` checks the shipped executables
+(unit tests: `scripts/release/test/check-cpu-baseline.test.mjs`). The Linux
+leg runs it with `--no-evex` on both packages' `protocol` and `llama-helper`:
+no instruction may use a zmm register or the EVEX encoding at all, since the
+Linux executables have none outside ggml. `verify-windows-release.mjs` runs it
+on `protocol.exe`, `protocol-vulkan.exe` and `llama-helper.exe` for zmm only:
+an AVX-512 ggml always has zmm code, while about 18 EVEX xmm instructions
+outside ggml are MSVC auto-vectorized loops (`vpmullq`, `vpminuq`) behind the
+CRT's `__isa_available >= 6` check, which also appear in `protocol-mcp.exe`.
+Locally a `--features vulkan` test binary built with these variables had no
+EVEX instruction and loaded Large V3 Turbo on the Arc B390 and, with the
+Vulkan drivers hidden, on the CPU of a Core Ultra X7 358H (no AVX-512).
+
 ### Whisper on OpenVINO (Intel GPUs)
 
 On Windows the Vulkan build runs Large V3 Turbo through OpenVINO GenAI's
@@ -1182,7 +1221,8 @@ hook stops this install's copies by full path and deletes them. See
 without installing: `SHA256SUMS.txt`, the NSIS archive (7-Zip; `SEVEN_ZIP`
 overrides the path), the exact variant and runtime sets (no CUDA files), that the
 bundled `protocol.exe` does not import `vulkan-1.dll` while the Vulkan build
-does, the `nsis` marker on both, and that ffmpeg, llama-helper, protocol-mcp, ONNX Runtime and
+does, the `nsis` marker on both, no AVX-512 (zmm) code in the two builds and
+llama-helper ([ggml CPU baseline](#ggml-cpu-baseline-176)), and that ffmpeg, llama-helper, protocol-mcp, ONNX Runtime and
 the notices (`parakeet-rs-LICENSE.txt`, `THIRD_PARTY_MODELS.txt`) equal the
 staged files. A local warm build took about 8 minutes and produced a 118 MB
 installer (upstream's universal installer with CUDA was 674 MB).
