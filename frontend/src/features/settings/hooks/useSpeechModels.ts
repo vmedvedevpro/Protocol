@@ -8,8 +8,6 @@ import {
     downloadsQuery,
     downloadWhisperModel,
     isAlreadyDownloading,
-    isGpuVersion,
-    isOfferedParakeet,
     modelKeys,
     type ParakeetModelInfo,
     parakeetModelsQuery,
@@ -17,24 +15,17 @@ import {
     removeParakeetModel,
     removeWhisperModel,
     retryParakeetDownload,
-    type SpeechModelStatus,
     uninstallOptionalModel,
     type WhisperModelInfo,
     whisperModelsQuery,
 } from '@/api/models'
 import {isWhisperProvider, postCallConfigQuery, speechKeys, transcriptConfigQuery} from '@/api/speech'
 import {toast} from '@/components/ui/toastStore'
-
-export type SpeechEngine = 'parakeet' | 'whisper'
+import {isCorrupted, isGpuVersion, isOfferedParakeet, type SpeechEngine} from '@/lib/speechModels'
 
 export type SpeechModel =
     | (ParakeetModelInfo & {engine: 'parakeet', tier?: undefined, companion_of?: undefined})
     | (WhisperModelInfo & {engine: 'whisper'})
-
-export const isInstalled = (status: SpeechModelStatus | undefined) => status === 'Available'
-
-/** A copy that failed its size or integrity check: it is removed before it downloads again. */
-export const isCorrupted = (status: SpeechModelStatus | undefined) => typeof status === 'object' && 'Corrupted' in status
 
 /**
  * What a speech model is used for now: during meetings (the live model),
@@ -108,7 +99,7 @@ export function useSpeechModels() {
         }
     }
 
-    const parakeetModels: SpeechModel[] = (parakeet.data ?? [])
+    const parakeetModels = (parakeet.data ?? [])
         .filter(({name}) => isOfferedParakeet(name))
         .map((model) => ({...model, engine: 'parakeet' as const}))
     const whisperModels = (whisper.data ?? []).map((model) => ({...model, engine: 'whisper' as const}))

@@ -11,7 +11,7 @@ import {useNavigate} from 'react-router-dom'
 import styled from 'styled-components'
 import {errorMessage} from '@/api/core'
 import {npuQuery} from '@/api/intel'
-import {downloadKey, downloadWhisperModel, POST_CALL_WHISPER_MODEL, speechModelLabel} from '@/api/models'
+import {downloadKey, downloadWhisperModel, POST_CALL_WHISPER_MODEL} from '@/api/models'
 import {
     isWhisperProvider,
     MAX_VOCABULARY_CHARS,
@@ -23,35 +23,22 @@ import {
     vocabularyQuery,
 } from '@/api/speech'
 import {Button} from '@/components/ui/Button'
-import {Select, type SelectOption} from '@/components/ui/Select'
+import {Select} from '@/components/ui/Select'
 import {SettingsGroup, SettingsNavRow, SettingsRow} from '@/components/ui/SettingsRow'
 import {Switch} from '@/components/ui/Switch'
 import {TextArea} from '@/components/ui/TextField'
 import {toast} from '@/components/ui/toastStore'
 import {paths} from '@/lib/paths'
+import {parseSpeechModel, type SpeechEngine, speechModelChoices, withSavedModel} from '@/lib/speechModels'
 import {useRecordingPreferences} from '../../hooks/useRecordingPreferences'
-import {type SpeechModel, useSpeechModels} from '../../hooks/useSpeechModels'
+import {useSpeechModels} from '../../hooks/useSpeechModels'
 import {MeetingLanguageRow} from '../PreferenceRows'
 import {RowControls, Warning} from '../styles'
 import {SpeakersGroup} from './SpeakersGroup'
 
 const SAME_AS_LIVE = 'live'
 
-const valueOf = (engine: 'parakeet' | 'whisper', name: string) => `${engine}:${name}`
-const parse = (value: string) => {
-    const at = value.indexOf(':')
-    return {engine: value.slice(0, at) as 'parakeet' | 'whisper', name: value.slice(at + 1)}
-}
-
-/** The installed models as options, Parakeet first; a saved one that is gone is added as such. */
-function modelOptions(installed: SpeechModel[], saved: string | null): SelectOption<string>[] {
-    const options = installed.map((model) => ({value: valueOf(model.engine, model.name), label: speechModelLabel(model.engine, model)}))
-    if (saved && !options.some(({value}) => value === saved)) {
-        const {engine, name} = parse(saved)
-        options.push({value: saved, label: `${engine === 'whisper' ? 'Whisper' : 'Parakeet'} ${name} (not downloaded)`})
-    }
-    return options
-}
+const valueOf = (engine: SpeechEngine, name: string) => `${engine}:${name}`
 
 const failed = (error: unknown) => toast.error('Couldn’t save the model', {description: errorMessage(error)})
 
@@ -65,12 +52,13 @@ function TranscriptionGroup() {
     const savePostCall = useMutation(savePostCallConfigMutation())
     const {preferences, save} = useRecordingPreferences()
 
-    const installed = [...parakeet, ...whisper, ...(gpuVersion ? [gpuVersion] : [])].filter(({status}) => status === 'Available')
+    // Parakeet first; the Intel GPU version reads apart from the copy it serves (src/lib/speechModels.ts).
+    const choices = speechModelChoices(parakeet, [...whisper, ...(gpuVersion ? [gpuVersion] : [])])
     const liveValue = live.data ? valueOf(isWhisperProvider(live.data.provider) ? 'whisper' : 'parakeet', live.data.model) : null
     const postCallValue = postCall.data
         ? (postCall.data.provider === 'live' ? SAME_AS_LIVE : valueOf(postCall.data.provider, postCall.data.model))
         : null
-    const liveEngine = liveValue ? parse(liveValue).engine : 'parakeet'
+    const liveEngine = parseSpeechModel(liveValue ?? undefined)?.provider ?? 'parakeet'
     const onNpu = liveEngine === 'parakeet' && !!npu && (npu.state === 'ready' || npu.active)
 
     // Whisper's download finished but native could not save it as the after-meeting model.
@@ -85,18 +73,18 @@ function TranscriptionGroup() {
                 description={`Live text · on ${liveEngine === 'whisper' ? 'this computer' : onNpu ? 'the Intel NPU' : 'the processor'}`}
                 control={(
                     <Select
-                        options={modelOptions(installed, liveValue)}
+                        options={withSavedModel(choices, liveValue)}
                         value={liveValue ?? undefined}
                         placeholder="No model"
-                        disabled={!live.data || installed.length === 0}
+                        disabled={!live.data || choices.length === 0}
                         onValueChange={(value) => {
-                            const {engine, name} = parse(value)
-                            saveLive.mutate({provider: engine === 'whisper' ? 'localWhisper' : 'parakeet', model: name}, {onError: failed})
+                            const chosen = parseSpeechModel(value)
+                            if (chosen) saveLive.mutate({provider: chosen.provider === 'whisper' ? 'localWhisper' : 'parakeet', model: chosen.model}, {onError: failed})
                         }}
                     />
                 )}
             >
-                {installed.length === 0 && parakeet.length + whisper.length > 0 && (
+                {choices.length === 0 && parakeet.length + whisper.length > 0 && (
                     <RowControls>
                         <Warning role="alert">No speech model is downloaded, so recording can’t start</Warning>
                         <Button size="sm" onClick={() => void navigate(paths.settingsPage('speech-models'))}>Speech models</Button>
@@ -108,15 +96,12 @@ function TranscriptionGroup() {
                 description="A cleaner transcript once you stop"
                 control={(
                     <Select
-                        options={[{value: SAME_AS_LIVE, label: 'Same as during the meeting'}, ...modelOptions(installed, postCallValue === SAME_AS_LIVE ? null : postCallValue)]}
+                        options={[{value: SAME_AS_LIVE, label: 'Same as during the meeting'}, ...withSavedModel(choices, postCallValue === SAME_AS_LIVE ? null : postCallValue)]}
                         value={postCallValue ?? undefined}
                         disabled={!postCall.data}
                         onValueChange={(value) => {
-                            const choice = value === SAME_AS_LIVE ? {provider: 'live' as const, model: ''} : (() => {
-                                const {engine, name} = parse(value)
-                                return {provider: engine, model: name}
-                            })()
-                            savePostCall.mutate(choice, {onError: failed})
+                            const chosen = value === SAME_AS_LIVE ? {provider: 'live' as const, model: ''} : parseSpeechModel(value)
+                            if (chosen) savePostCall.mutate(chosen, {onError: failed})
                         }}
                     />
                 )}

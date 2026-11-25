@@ -143,24 +143,6 @@ export type OptionalModel = 'whisper' | 'nemotron'
  */
 export const uninstallOptionalModel = (model: OptionalModel) => command<null>('uninstall_optional_model', {model})
 
-/** Parakeet v2 is no longer offered, even while it is on disk. */
-export const isOfferedParakeet = (name: string) => name !== 'parakeet-tdt-0.6b-v2-int8'
-
-/** The Intel GPU version of a Whisper model lists the models it serves (`companion_of`). */
-export const isGpuVersion = (model: {companion_of?: string[]} | undefined | null) => !!model?.companion_of?.length
-
-const ENGINE_NAMES = {parakeet: 'Parakeet', whisper: 'Whisper'} as const
-
-/**
- * "Whisper Large V3 Turbo": the engine, then the catalog's name without an
- * engine name it may repeat, or the id when it has none. The Intel GPU
- * version reads apart from the model it serves.
- */
-export function speechModelLabel(engine: 'parakeet' | 'whisper', model: {name: string, display_name?: string | null, companion_of?: string[]}): string {
-    const own = (model.display_name ?? '').trim().replace(new RegExp(`^${ENGINE_NAMES[engine]}\\s+`, 'i'), '') || model.name
-    return `${ENGINE_NAMES[engine]} ${own}${isGpuVersion(model) ? ' · Intel GPU' : ''}`
-}
-
 // --- Built-in summary models -----------------------------------------------
 
 /** Serde's internal tagging (`type`), snake_case. Sizes in bytes; 0 when none is on record. */

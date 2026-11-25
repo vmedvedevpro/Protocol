@@ -16,7 +16,7 @@ import {SettingsRow} from '@/components/ui/SettingsRow'
 import {StatusLine, type Status} from '@/components/ui/StatusLine'
 import {toast} from '@/components/ui/toastStore'
 import {formatModelSize, withSize} from '@/lib/sizes'
-import {isCorrupted} from '../../hooks/useSpeechModels'
+import {isCorrupted} from '@/lib/speechModels'
 import {RowControls, RowValue, Warning} from '../styles'
 import {RemoveSheet} from './RemoveSheet'
 

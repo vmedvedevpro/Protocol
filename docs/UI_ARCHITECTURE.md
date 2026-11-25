@@ -736,6 +736,9 @@ levels) skip Query and React state; see Styling and the next section.
   model; Whisper Large V3 Turbo and Nemotron through
   `uninstall_optional_model`, which first puts back the choices that used
   them), and `src/api/modelCatalog.ts` starts and cancels a model's update.
+  What a picker offers and how a model is named (Parakeet v2 not offered,
+  the Intel GPU version, damaged copies, a saved model that is gone) is
+  `src/lib/speechModels.ts`, shared by Settings and the dialogs.
   `src/api/intel.ts` is Whisper's Intel GPU version, Intel's libraries and
   Parakeet on the Intel NPU (Windows only; elsewhere the queries answer
   null), with the offer and its Not now (`meetily-intel-offer-dismissed`,
