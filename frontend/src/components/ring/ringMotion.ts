@@ -33,8 +33,10 @@ interface ModeMotion {
 export const RING_MODES: Record<RingMode, ModeMotion> = {
     rec: {speed: 1, mono: 0, follow: (heard) => heard},
     test: {speed: 1, mono: 0, follow: (heard) => Math.min(1, heard * 1.25)},
-    // A faint breath of its own; the ring does not listen while it waits.
-    idle: {speed: 0.45, mono: 0.55, follow: (_heard, seconds) => 0.04 + 0.03 * Math.sin(seconds * 0.8)},
+    // A breath of its own, about every four seconds and deep enough to read as
+    // alive at a glance (the owner found the first, fainter one looked like a
+    // picture); still well under speech. The ring does not listen while it waits.
+    idle: {speed: 0.8, mono: 0.55, follow: (_heard, seconds) => 0.1 + 0.08 * Math.sin(seconds * 1.6)},
     // The clock keeps creeping, so the highlight still moves and the ring does
     // not look frozen.
     paused: {speed: 0.15, mono: 1, follow: () => 0},

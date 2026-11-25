@@ -758,7 +758,7 @@ levels) skip Query and React state; see Styling and the next section.
   so a stop arriving meanwhile would be undone.
 - `components/ring` holds what draws them. `Ring` is the design's WebGL ring
   in four modes: `rec` follows the level, `test` (the mic test) exaggerates
-  it, `idle` is greyed and slow and does not listen, `paused` is flat and
+  it, `idle` is greyed, turns at about the recording speed and breathes on its own every few seconds, without listening, `paused` is flat and
   grey. `LevelMeter` is the five bars;
   `SourceMeter` is the mute toggle of the recording bar and the minibar, with
   the bars or, muted, "Muted" on an inverted fill. Its name comes from its
