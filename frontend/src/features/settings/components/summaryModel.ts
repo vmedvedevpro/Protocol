@@ -27,7 +27,7 @@ export function describeSummaryModel(
 ): {value: string; description?: string} {
     // Nothing saved yet, or a provider this version no longer offers ('').
     const provider = config?.provider ? SUMMARY_PROVIDERS[config.provider] : undefined
-    if (!config || !provider) return {value: 'Not chosen', description: 'Choose one to write summaries'}
+    if (!config || !provider) return {value: 'Not chosen'}
     if (config.provider === 'builtin-ai') {
         const model = builtInName ? shortModelName(builtInName) : config.model
         return {value: model ? `Built-in · ${model}` : provider.label}

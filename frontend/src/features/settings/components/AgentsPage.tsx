@@ -47,7 +47,6 @@ function ClaudeDesktopRows({access}: {access: AgentAccess}) {
             />
             <SettingsRow
                 label="Set up by hand"
-                description="Copy the configuration instead"
                 control={(
                     <Button size="sm" variant="ghost" aria-expanded={byHand} onClick={() => setByHand(!byHand)}>
                         {byHand ? 'Hide' : 'Show'}
@@ -83,7 +82,6 @@ export function AgentsPage() {
                     <SettingsGroup>
                         <SettingsRow
                             label="Access for AI agents is off"
-                            description="Turn it on so a connected agent can read your meetings"
                             control={<Button size="sm" pending={turnOn.isPending} onClick={() => turnOn.mutate(true)}>Turn on</Button>}
                         />
                     </SettingsGroup>

@@ -41,7 +41,6 @@ export function NameRow() {
     return (
         <SettingsRow
             label="Your name"
-            description="Your microphone shows as “You (name)”"
             control={(
                 <NameField>
                     <TextField size="sm" value={name} placeholder="e.g. Tyler" onChange={(event) => setName(event.target.value)}/>
@@ -60,13 +59,12 @@ const ThemeFrame = styled.div`
 `
 
 /** Light, Dark or Match system, for every window. */
-export function ThemeRow({description}: {description?: string}) {
+export function ThemeRow() {
     const mode = useThemeModeStore((state) => state.mode)
     const setMode = useThemeModeStore((state) => state.setMode)
     return (
         <SettingsRow
             label="Theme"
-            description={description}
             control={(
                 <ThemeFrame>
                     <SegmentedControl label="Theme" options={THEME_MODES} value={mode} onChange={setMode}/>
@@ -87,7 +85,6 @@ const DeviceControls = styled.div`
 
 interface DeviceRowProps {
     type: 'Input' | 'Output'
-    description?: string
     /** A button beside the choice, such as the microphone's Test. */
     action?: ReactNode
 }
@@ -99,7 +96,7 @@ interface DeviceRowProps {
  * missing; the preference keeps it, so it is used again once it is back, and
  * only a choice the user makes writes the preference.
  */
-export function DeviceRow({type, description, action}: DeviceRowProps) {
+export function DeviceRow({type, action}: DeviceRowProps) {
     const devices = useQuery(audioDevicesQuery)
     const {preferences, save} = useRecordingPreferences()
     const field = type === 'Input' ? 'preferred_mic_device' : 'preferred_system_device'
@@ -115,7 +112,7 @@ export function DeviceRow({type, description, action}: DeviceRowProps) {
     return (
         <SettingsRow
             label={type === 'Input' ? 'Microphone' : 'System audio'}
-            description={missing ? `${missing} isn’t connected, so the default is used` : description}
+            description={missing ? `${missing} isn’t connected, so the default is used` : undefined}
             control={(
                 <DeviceControls>
                     <Select
@@ -154,13 +151,12 @@ export function MeetingLanguageRow() {
     )
 }
 
-export function AutoSummaryRow({description}: {description?: string}) {
+export function AutoSummaryRow() {
     const on = useAutoSummaryStore((state) => state.value)
     const setOn = useAutoSummaryStore((state) => state.set)
     return (
         <SettingsRow
             label="Summarize automatically"
-            description={description}
             control={<Switch checked={on} onCheckedChange={setOn}/>}
         />
     )

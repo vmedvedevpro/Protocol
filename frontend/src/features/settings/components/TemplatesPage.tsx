@@ -36,7 +36,7 @@ function SectionsGroup({template}: {template: TemplateListItem}) {
         onError: (error) => toast.error(`Couldn’t delete ${template.name}`, {description: errorMessage(error)}),
     })
     return (
-        <SettingsGroup title="Sections" note="Each meeting can still use another template from its summary options.">
+        <SettingsGroup title="Sections">
             {detail.isError && <SettingsRow label="Couldn’t read the template" description={errorMessage(detail.error)}/>}
             {detail.data?.sections.map((section) => (
                 <SettingsRow key={section.title} label={section.title} control={<Format>{FORMATS[section.format] ?? section.format}</Format>}/>

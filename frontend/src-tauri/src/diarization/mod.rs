@@ -669,8 +669,20 @@ pub async fn open_diarization_model_directory() -> Result<(), String> {
     Ok(())
 }
 
-/// Download the diarization models.
-/// Progress is emitted as `diarization-download-progress` events.
+/// One diarization download at a time.
+static DOWNLOAD_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+/// Takes the download lock and clears a Cancel left from before, so only a
+/// Cancel made during this download stops it.
+fn begin_download() -> Result<tokio::sync::MutexGuard<'static, ()>, String> {
+    let guard = DOWNLOAD_LOCK.try_lock().map_err(|_| "A diarization download is already running".to_string())?;
+    download::clear_cancel();
+    Ok(guard)
+}
+
+/// Download the diarization models: Nemotron's install, or a Pyannote repair.
+/// Progress is emitted as `diarization-download-progress` events tagged with
+/// the engine. Installing Nemotron does not choose it; the user does (#123).
 #[tauri::command]
 pub async fn download_diarization_models<R: tauri::Runtime>(
     app: tauri::AppHandle<R>,
@@ -680,22 +692,26 @@ pub async fn download_diarization_models<R: tauri::Runtime>(
     let target = engine.unwrap_or_else(get_active_engine);
     let _optional_guard = if target == "nemotron" { Some(crate::optional_models::operation("nemotron")?) } else { None };
     if !matches!(target.as_str(), "pyannote" | "nemotron") { return Err("Unknown diarization engine".into()); }
-    static DOWNLOAD_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
-    let _download_guard = DOWNLOAD_LOCK.try_lock().map_err(|_| "A diarization download is already running".to_string())?;
+    let _download_guard = begin_download()?;
     download::download_models_for_engine(&app, &target).await.map_err(|e| {
-        log::error!("Diarization model download failed: {}", e);
-        e.to_string()
+        let message = e.to_string();
+        // The event ends the download's record in every window, which a
+        // rejected call alone would not.
+        if message == download::CANCELLED {
+            download::emit_end(&app, &target, "cancelled", message.clone());
+        } else {
+            log::error!("Diarization model download failed: {}", message);
+            download::emit_end(&app, &target, "error", message.clone());
+        }
+        message
     })?;
-    // Finish the opt-in download in the native task. A WebView reload during
-    // setup must not discard the preference save along with its JS callback.
-    if target == "nemotron" {
-        set_diarization_engine(target).await.map_err(|e| {
-            format!("Model downloaded, but could not enable it: {e}")
-        })?;
-        use tauri::Emitter;
-        let _ = app.emit("diarization-engine-changed", "nemotron");
-    }
     Ok(())
+}
+
+/// Stop a running diarization download; it ends with `download::CANCELLED`.
+#[tauri::command]
+pub fn cancel_diarization_download() {
+    download::request_cancel();
 }
 
 /// Rename every transcript segment belonging to one speaker in a meeting.
@@ -1789,6 +1805,16 @@ fn apply_source_track_hint(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A Cancel made while nothing ran, or after a download's last chunk,
+    /// must not stop the next download (a Pyannote repair included).
+    #[test]
+    fn a_new_download_starts_uncancelled() {
+        download::request_cancel();
+        let guard = begin_download().unwrap();
+        assert!(!download::cancel_requested());
+        drop(guard);
+    }
 
     #[tokio::test]
     async fn label_reruns_preserve_text_timing_and_rollback_as_a_unit() {

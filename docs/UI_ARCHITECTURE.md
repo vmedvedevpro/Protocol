@@ -1112,6 +1112,11 @@ recording and hides the main window: minimizing the main window does it
   Recording, AI and Advanced; the two views swap through `Crossfade`. Both
   use the same rows (`components/PreferenceRows.tsx`), so turning Advanced
   off only hides sections and every value stays.
+- A row has a description only when it says what its name cannot: data
+  that leaves the computer, a cost or requirement, a consequence the user
+  would not expect, or a state (owner decision 2026-11-25). One that
+  restates or decorates the name is left out, and so are group notes of
+  that kind; search finds a row by its name either way.
 - `?section=` names the tab, written with `replace`. `sections.ts` maps the
   old UI's nine ids onto the four; one in a link turns Advanced on. `about`
   (the tray's Check for Updates…) lands on General › Updates: `UpdatesGroup`
@@ -1142,22 +1147,32 @@ recording and hides the main window: minimizing the main window does it
   which logs a failure.
 - The speech half of #117 is `components/speech/`: in AI, the Intel offer,
   Transcription (the installed models during and after the meeting; a
-  saved model that is gone shows as such), Vocabulary (Save, the 1000
-  characters native keeps), Speakers (a radio group; choosing Nemotron
-  downloads it, its threshold saves 250 ms after the slider rests) and the
+  saved model that is gone shows as such), Vocabulary (entries added one
+  at a time and removed by their chip, each change saved at once;
+  `speech/vocabulary.ts` keeps native's one-per-line text and its rule:
+  trimmed, blanks and repeats in any case dropped, a comma splits, 1000
+  characters), Speakers (a radio group of the installed engines; Nemotron
+  until installed is a `ModelRow` with Install, its progress and Cancel
+  (`cancel_diarization_download`, checked between chunks, so a stalled
+  stream ignores it until its next chunk or the one-hour timeout);
+  installing does not choose it, its
+  radio row appears and the user picks it; its threshold saves 250 ms
+  after the slider rests) and the
   row to Speech models; in Advanced, Local AI (read every 5 s while shown;
   both unloads refused during a recording) and Labs (Parakeet on the GPU
   on Windows only, hidden while the NPU runs Parakeet). Speech models
   (`SpeechModels`, its `SETTINGS_PAGES` entry) shows the pair for this
   computer with its Intel paths, then every Parakeet and Whisper model with
-  its download, Cancel, Retry, Remove after a sheet, a damaged copy's
+  its Install (with its size), Cancel, Retry, Remove after a sheet, a damaged copy's
   Download again, a stopped built-in download's share with Resume
   (`incomplete`: native resumes it with a Range request) and the
   catalog's update; a cancel reads the list again once native has removed
   the partial file, which it does only before the cancel resolves; every download row there,
   Nemotron's and the Intel ones included, is a `ModelRow` (shared with
   the summary models since #117's AI half); native reads missing sizes
-  (`model_catalog_request_sizes`). Tests: `components/speech/*.test.tsx`;
+  (`model_catalog_request_sizes`). A model or engine that is not
+  installed is never a choice in Settings: it shows Install, and choosing
+  an installed one only switches (#123). Tests: `components/speech/*.test.tsx`;
   stories: `Settings/Speech`.
 - The pages inside Settings are `SETTINGS_PAGES` (`pages/settingsPages.ts`):
   each names its title, the section Back returns to with Advanced on, the

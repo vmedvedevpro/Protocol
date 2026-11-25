@@ -66,7 +66,6 @@ export function CustomServerGroup({fields, onChange}: CustomServerGroupProps) {
             <SettingsRow label="API key" description="Optional">{field('apiKey', '', 'password')}</SettingsRow>
             <SettingsRow
                 label="Advanced options"
-                description="Max tokens, temperature (0–2), top P (0–1)"
                 control={(
                     <Button size="sm" variant="ghost" aria-expanded={advanced} onClick={() => setAdvanced(!advanced)}>
                         {advanced ? 'Hide' : 'Show'}

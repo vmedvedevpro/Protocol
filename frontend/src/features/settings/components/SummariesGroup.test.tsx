@@ -13,11 +13,10 @@ describe('AI › Summaries', () => {
         useRecentSummaryLanguagesStore.getState().set(['de', 'fr'])
         open()
         const group = await screen.findByRole('region', {name: 'Summaries'})
-        expect(within(group).getByText(/Matches the language spoken in the meeting/)).toBeInTheDocument()
+        expect(within(group).getByRole('button', {name: 'Always write summaries in German'})).toHaveAttribute('aria-pressed', 'false')
 
         await userEvent.click(within(group).getByRole('button', {name: 'Always write summaries in German'}))
         expect(localStorage.getItem(SUMMARY_LANGUAGE_DEFAULT_KEY)).toBe('de')
-        expect(within(group).getByText(/Summaries are written in German/)).toBeInTheDocument()
         expect(within(group).getByRole('button', {name: 'Unpin German'})).toHaveAttribute('aria-pressed', 'true')
 
         await userEvent.click(within(group).getByRole('button', {name: 'Remove German'}))

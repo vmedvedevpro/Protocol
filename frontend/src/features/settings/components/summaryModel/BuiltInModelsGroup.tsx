@@ -30,7 +30,7 @@ export function BuiltInModelsGroup({model, onChoose}: BuiltInModelsGroupProps) {
     const downloads = useQuery(downloadsQuery).data ?? {}
     const remove = useMutation(deleteBuiltInModelMutation)
     return (
-        <SettingsGroup title="Built-in models" note="The recommendation depends on how much memory this computer has.">
+        <SettingsGroup title="Built-in models">
             {models.isError && <SettingsRow label="Couldn’t list the models" description={errorMessage(models.error)}/>}
             {models.data?.map((entry) => (
                 <ModelRow

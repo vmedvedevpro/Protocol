@@ -156,7 +156,7 @@ export function ForThisComputer() {
     )
 
     return (
-        <SettingsGroup title="For this computer" note="Picked for your hardware: live text while you record, and a more accurate transcript after each meeting.">
+        <SettingsGroup title="For this computer">
             {parakeetRow}
             {whisperRow}
             {librariesRow}
@@ -167,7 +167,6 @@ export function ForThisComputer() {
                     model={{name: offered.id, status: 'Missing', size_bytes: offered.downloadSize}}
                     description="A faster Whisper for this computer, used after meetings"
                     downloads={downloads}
-                    downloadLabel="Switch"
                     onDownload={switchToGpu}
                     onCancel={() => cancelIntel(offered.id)}
                 />

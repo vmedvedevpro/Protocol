@@ -45,13 +45,11 @@ export interface ModelRowProps {
     /** What it is used for now ("In use during meetings"), shown strong while installed. */
     use?: string | null
     /** The facts shown while nothing happens to it. */
-    description: string
+    description?: string
     downloads?: Record<string, DownloadState>
     /** Its state instead of the one its status and download give (the Intel GPU version's). */
     state?: ModelState
     onDownload?: () => void
-    /** The download button's word while missing: Download, or Switch for the Intel GPU version. */
-    downloadLabel?: string
     onCancel?: () => void
     /** Installed and not in use: make it the one in use (a summary model). */
     onUse?: () => void
@@ -72,7 +70,7 @@ export interface ModelRowProps {
  * way with Resume, damaged with Download again, or missing with its size. An installed model the catalog
  * has a newer revision of offers its update.
  */
-export function ModelRow({name, engine, model, use, description, downloads, state, onDownload, downloadLabel = 'Download', onCancel, onUse, onRemove, removeDetail, catalog, children}: ModelRowProps) {
+export function ModelRow({name, engine, model, use, description, downloads, state, onDownload, onCancel, onUse, onRemove, removeDetail, catalog, children}: ModelRowProps) {
     const [removing, setRemoving] = useState(false)
     const shown = state ?? modelState(model.status, engine && downloads?.[downloadKey(engine, model.name)])
     const damaged = shown.kind === 'missing' && damagedCopy(model.status)
@@ -100,7 +98,7 @@ export function ModelRow({name, engine, model, use, description, downloads, stat
     } else if (shown.kind === 'missing' && stopped !== null) {
         control = onDownload && <Button size="sm" aria-label={`Resume downloading ${name}`} onClick={onDownload}>Resume</Button>
     } else if (shown.kind === 'missing') {
-        const verb = damaged ? 'Download again' : downloadLabel
+        const verb = damaged ? 'Download again' : 'Install'
         control = onDownload && (
             <Button size="sm" aria-label={`${verb} ${name}`} onClick={onDownload}>
                 {withSize(verb, model.size_bytes)}

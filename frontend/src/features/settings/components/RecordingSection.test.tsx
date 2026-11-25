@@ -22,7 +22,6 @@ describe('Recording › Saving', () => {
     it('shows the folder, and warns instead when audio is not saved', async () => {
         renderRecording()
         expect(await screen.findByText(stored().save_folder)).toBeInTheDocument()
-        expect(screen.getByText('Saved as MP4')).toBeInTheDocument()
 
         await userEvent.click(screen.getByRole('switch', {name: 'Save audio'}))
 

@@ -29,35 +29,68 @@ describe('Settings › AI, speech', () => {
         await waitFor(() => expect(mockState.speech.postCallConfig).toEqual({provider: 'whisper', model: POST_CALL_WHISPER_MODEL}))
     })
 
-    it('saves the words to recognize and counts them against the limit', async () => {
+    it('adds words to recognize one at a time, ignores repeats, and removes them, saving each change', async () => {
         renderSection('ai')
-        const field = await screen.findByRole('textbox', {name: 'Words to recognize'})
-        await waitFor(() => expect(field).toHaveValue('Acme\nPriya Shah\nParakeet'))
+        const vocabulary = group('Vocabulary')
+        const field = await within(vocabulary).findByRole('textbox', {name: 'Words to recognize'})
+        // The stored text shows as entries.
+        expect(await within(vocabulary).findByRole('button', {name: 'Remove Priya Shah'})).toBeInTheDocument()
         // The row's label names the field; it is not said twice.
-        expect(within(group('Vocabulary')).getAllByText('Words to recognize')).toHaveLength(1)
-        const save = within(group('Vocabulary')).getByRole('button', {name: 'Save'})
-        expect(save).toBeDisabled()
+        expect(within(vocabulary).getAllByText('Words to recognize')).toHaveLength(1)
+        const add = within(vocabulary).getByRole('button', {name: 'Add'})
+        expect(add).toBeDisabled()
 
-        await userEvent.clear(field)
-        await userEvent.type(field, 'Contoso')
-        expect(within(group('Vocabulary')).getByText('7 / 1000')).toBeInTheDocument()
-        await userEvent.click(save)
+        await userEvent.type(field, '  Contoso {Enter}')
+        await waitFor(() => expect(mockState.speech.vocabulary.global).toBe('Acme\nPriya Shah\nParakeet\nContoso'))
+        expect(field).toHaveValue('')
 
-        await waitFor(() => expect(mockState.speech.vocabulary.global).toBe('Contoso'))
-        await waitFor(() => expect(save).toBeDisabled())
+        await userEvent.type(field, 'acme')
+        await userEvent.click(add)
+        expect(field).toHaveValue('')
+        expect(within(vocabulary).getAllByRole('button', {name: /^Remove /})).toHaveLength(4)
+
+        await userEvent.click(within(vocabulary).getByRole('button', {name: 'Remove Priya Shah'}))
+        await waitFor(() => expect(mockState.speech.vocabulary.global).toBe('Acme\nParakeet\nContoso'))
+        await waitFor(() => expect(within(vocabulary).queryByRole('button', {name: 'Remove Priya Shah'})).not.toBeInTheDocument())
     })
 
-    it('downloads Nemotron when it is chosen, and native chooses it once it is there', async () => {
+    it('offers Nemotron to install instead of as a choice, and makes it a choice once installed', async () => {
         mockState.diarization.downloadStep = 100
         renderSection('ai')
-        const nemotron = await screen.findByRole('radio', {name: /NVIDIA Nemotron/})
         await waitFor(() => expect(screen.getByRole('radio', {name: /Pyannote/})).toBeChecked())
+        expect(screen.queryByRole('radio', {name: /NVIDIA Nemotron/})).not.toBeInTheDocument()
+
+        await userEvent.click(await screen.findByRole('button', {name: 'Install NVIDIA Nemotron'}))
+
+        // Installing is not choosing: the radio appears, and Pyannote stays chosen until it is picked.
+        const nemotron = await screen.findByRole('radio', {name: /NVIDIA Nemotron/})
+        expect(nemotron).not.toBeChecked()
+        expect(mockState.diarization).toMatchObject({engine: 'pyannote', nemotronInstalled: true})
 
         await userEvent.click(nemotron)
-
         await waitFor(() => expect(nemotron).toBeChecked())
-        expect(mockState.diarization).toMatchObject({engine: 'nemotron', nemotronInstalled: true})
+        expect(mockState.diarization.engine).toBe('nemotron')
         expect(await screen.findByRole('slider', {name: 'Speech threshold'})).toBeInTheDocument()
+    })
+
+    it('cancels Nemotron’s install, and it stays offered', async () => {
+        renderSection('ai')
+        await userEvent.click(await screen.findByRole('button', {name: 'Install NVIDIA Nemotron'}))
+        await userEvent.click(await screen.findByRole('button', {name: 'Cancel downloading NVIDIA Nemotron'}))
+
+        expect(await screen.findByRole('button', {name: 'Install NVIDIA Nemotron'})).toBeInTheDocument()
+        expect(mockState.diarization).toMatchObject({engine: 'pyannote', nemotronInstalled: false})
+        expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    })
+
+    it('only switches between installed speaker engines', async () => {
+        mockState.diarization.nemotronInstalled = true
+        renderSection('ai')
+        await userEvent.click(await screen.findByRole('radio', {name: /NVIDIA Nemotron/}))
+        await waitFor(() => expect(mockState.diarization.engine).toBe('nemotron'))
+
+        await userEvent.click(screen.getByRole('radio', {name: /Pyannote/}))
+        await waitFor(() => expect(mockState.diarization.engine).toBe('pyannote'))
     })
 
     it('removes Nemotron after asking, and Pyannote identifies speakers again', async () => {
@@ -87,7 +120,7 @@ describe('Settings › Speech models', () => {
         mockState.models.downloadStep = 100
         renderPage()
         const whisper = await screen.findByRole('region', {name: 'Whisper'})
-        await userEvent.click(await within(whisper).findByRole('button', {name: 'Download Small'}))
+        await userEvent.click(await within(whisper).findByRole('button', {name: 'Install Small'}))
 
         await waitFor(() => expect(mockState.models.whisper.small).toBe('Available'))
         await userEvent.click(await within(whisper).findByRole('button', {name: 'Remove Small'}))
@@ -95,7 +128,7 @@ describe('Settings › Speech models', () => {
         await userEvent.click(within(sheet).getByRole('button', {name: 'Remove'}))
 
         await waitFor(() => expect(mockState.models.whisper.small).toBe('Missing'))
-        expect(await within(whisper).findByRole('button', {name: 'Download Small'})).toBeInTheDocument()
+        expect(await within(whisper).findByRole('button', {name: 'Install Small'})).toBeInTheDocument()
     })
 
     it('says what the pair for this computer is used for', async () => {
@@ -131,7 +164,7 @@ describe('Settings › AI, the Intel offer', () => {
         const offer = await screen.findByRole('region', {name: 'Intel GPU and NPU offer'})
         expect(within(offer).getByText('Protocol can use your Intel GPU')).toBeInTheDocument()
 
-        await userEvent.click(within(offer).getByRole('button', {name: 'Switch'}))
+        await userEvent.click(within(offer).getByRole('button', {name: 'Install'}))
 
         await waitFor(() => expect(mockState.speech.postCallConfig).toEqual({provider: 'whisper', model: GPU_VERSION_ID}))
         await waitFor(() => expect(screen.queryByRole('region', {name: 'Intel GPU and NPU offer'})).not.toBeInTheDocument())

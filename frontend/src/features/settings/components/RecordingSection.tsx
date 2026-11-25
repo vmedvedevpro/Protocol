@@ -67,7 +67,6 @@ function FolderRow({preferences}: {preferences: RecordingPreferences}) {
     return (
         <SettingsRow
             label="Where recordings are saved"
-            description={`Saved as ${preferences.file_format.toUpperCase()}`}
             control={(
                 <Actions>
                     <Button size="sm" pending={change.isPending} onClick={() => change.mutate()}>Change</Button>
@@ -87,7 +86,6 @@ function SavingGroup() {
         <SettingsGroup title="Saving">
             <SettingsRow
                 label="Save audio"
-                description="For playback and a better transcript after the meeting"
                 control={<Switch checked={on} disabled={!preferences} onCheckedChange={(auto_save) => save({auto_save})}/>}
             >
                 <Collapse open={!on}>
@@ -143,10 +141,7 @@ function ChosenAppsRow({targets}: {targets: PerAppTarget[]}) {
     const navigate = useNavigate()
     const {save} = useRecordingPreferences()
     return (
-        <SettingsRow
-            label="Chosen apps"
-            description={targets.length ? 'Only their sound is recorded' : 'Add the apps of your calls'}
-        >
+        <SettingsRow label="Chosen apps">
             <Chips>
                 <AnimatePresence initial={false} mode="popLayout">
                     {targets.map((target) => (
@@ -210,7 +205,7 @@ function ComputerAudioGroup({platform}: {platform: Platform}) {
                     <ChosenAppsRow targets={preferences?.per_app_targets ?? []}/>
                 </Collapse>
             )}
-            {platform !== 'macos' && <DeviceRow type="Output" description="The other people in the call"/>}
+            {platform !== 'macos' && <DeviceRow type="Output"/>}
             <GainRow label="System volume" field="system_gain"/>
         </SettingsGroup>
     )
@@ -264,14 +259,13 @@ export function RecordingSection({platform = currentPlatform}: RecordingSectionP
         <>
             <SavingGroup/>
             <SettingsGroup title="Microphone">
-                <DeviceRow type="Input" description="Your voice, labeled “You”" action={test}/>
+                <DeviceRow type="Input" action={test}/>
                 <GainRow label="Mic volume" field="mic_gain" meter={micFeed(phase, testing, mic)}/>
             </SettingsGroup>
             <ComputerAudioGroup platform={platform}/>
             <SettingsGroup title="Import">
                 <SettingsRow
                     label="Import a recording"
-                    description="Transcribe an audio or video file"
                     control={<Button size="sm" onClick={() => openDialog({kind: 'import'})}>Choose a file</Button>}
                 />
             </SettingsGroup>

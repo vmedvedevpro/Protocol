@@ -60,7 +60,7 @@ export function ChosenAppsPage() {
         <SubpageScroll>
             <SubpageGroups>
                 <SettingsGroup title="Recording these apps">
-                    {targets.length === 0 && <SettingsRow label="No apps yet" description="Add one below"/>}
+                    {targets.length === 0 && <SettingsRow label="No apps yet"/>}
                     {targets.map((target) => (
                         <SettingsRow
                             key={target.id}
@@ -100,13 +100,12 @@ export function ChosenAppsPage() {
                 {open.length > 0 && <SettingsGroup title="Open apps"><AppRows apps={open} onAdd={add}/></SettingsGroup>}
                 {running.isSuccess && offered.length === 0 && needle && (
                     <SettingsGroup>
-                        <SettingsRow label={`No open app matches “${search.trim()}”`} description="Pick it from your apps below"/>
+                        <SettingsRow label={`No open app matches “${search.trim()}”`}/>
                     </SettingsGroup>
                 )}
                 <SettingsGroup>
                     <SettingsRow
                         label="An app that is not open"
-                        description="Pick it from your apps"
                         control={<Button size="sm" pending={browse.isPending} onClick={() => browse.mutate()}>Browse…</Button>}
                     />
                 </SettingsGroup>

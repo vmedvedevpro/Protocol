@@ -69,7 +69,7 @@ describe('Summary model page', () => {
 
     it('downloads a built-in model with its progress, and cancels it', async () => {
         open()
-        await userEvent.click(await screen.findByRole('button', {name: 'Download Gemma 3 1B'}))
+        await userEvent.click(await screen.findByRole('button', {name: 'Install Gemma 3 1B'}))
 
         expect(await screen.findByRole('progressbar', {name: 'Downloading Gemma 3 1B'})).toBeInTheDocument()
         await userEvent.click(screen.getByRole('button', {name: 'Cancel downloading Gemma 3 1B'}))
@@ -94,7 +94,7 @@ describe('Summary model page', () => {
         await userEvent.click(await screen.findByRole('radio', {name: /Ollama/}))
         expect(await screen.findByText('llama3.2:3b')).toBeInTheDocument()
 
-        await userEvent.click(screen.getByRole('button', {name: 'Download gemma3:1b'}))
+        await userEvent.click(screen.getByRole('button', {name: 'Install gemma3:1b'}))
         expect(await screen.findByText('In use')).toBeInTheDocument()
         expect(screen.getByText('gemma3:1b')).toBeInTheDocument()
         expect(save()).toBeEnabled()

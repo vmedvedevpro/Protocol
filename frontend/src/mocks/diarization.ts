@@ -1,8 +1,8 @@
 import {emit} from '@tauri-apps/api/event'
 import type {NativeEvent} from '@/api/events'
 import {
+    DIARIZATION_DOWNLOAD_CANCELLED,
     DIARIZATION_DOWNLOAD_PROGRESS_EVENT,
-    DIARIZATION_ENGINE_CHANGED_EVENT,
     type DiarizationStatus,
     type SpeakerEngine,
 } from '@/api/diarization'
@@ -34,6 +34,7 @@ const send = <T, >(event: NativeEvent<T>, payload: T) => void emit(event, payloa
 export function diarizationHandlers(state: {diarization: MockDiarization}): Record<string, MockHandler> {
     const diarization = () => state.diarization
     let downloading = false
+    let cancelled = false
     return {
         diarization_get_status: (): DiarizationStatus => ({
             active_engine: diarization().engine,
@@ -63,13 +64,21 @@ export function diarizationHandlers(state: {diarization: MockDiarization}): Reco
             if (engine !== 'nemotron') throw 'Unknown diarization engine'
             if (downloading) throw 'A diarization download is already running'
             downloading = true
+            cancelled = false
             const fails = diarization().failNext
             diarization().failNext = false
             return new Promise((resolve, reject) => {
                 let percent = 0
                 const timer = setInterval(() => {
                     percent = Math.min(100, percent + diarization().downloadStep)
-                    const progress = {file: 'nemotron3_diar_v3.onnx', file_index: 1, file_count: 2, downloaded: (NEMOTRON_BYTES * percent) / 100, total: NEMOTRON_BYTES}
+                    const progress = {engine: 'nemotron' as const, file: 'nemotron3_diar_v3.onnx', file_index: 1, file_count: 2, downloaded: (NEMOTRON_BYTES * percent) / 100, total: NEMOTRON_BYTES}
+                    if (cancelled) {
+                        clearInterval(timer)
+                        downloading = false
+                        send(DIARIZATION_DOWNLOAD_PROGRESS_EVENT, {...progress, percent: 0, status: 'cancelled', message: DIARIZATION_DOWNLOAD_CANCELLED})
+                        reject(DIARIZATION_DOWNLOAD_CANCELLED)
+                        return
+                    }
                     if (fails && percent >= 50) {
                         clearInterval(timer)
                         downloading = false
@@ -83,14 +92,16 @@ export function diarizationHandlers(state: {diarization: MockDiarization}): Reco
                     }
                     clearInterval(timer)
                     downloading = false
-                    // Native verifies, saves the engine, then says so.
+                    // Native verifies it; choosing it is the user's (#123).
                     diarization().nemotronInstalled = true
-                    diarization().engine = 'nemotron'
                     send(DIARIZATION_DOWNLOAD_PROGRESS_EVENT, {...progress, percent: 100, status: 'done'})
-                    send(DIARIZATION_ENGINE_CHANGED_EVENT, 'nemotron')
                     resolve(null)
                 }, TICK_MS)
             })
+        },
+        cancel_diarization_download: () => {
+            if (downloading) cancelled = true
+            return null
         },
     }
 }
