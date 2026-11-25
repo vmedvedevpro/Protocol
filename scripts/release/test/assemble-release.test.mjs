@@ -49,3 +49,15 @@ test('assembly refuses a file that two legs carry', { skip }, async () => {
     assert.match(run.stdout, /protocol-windows-x64-setup\.exe comes from more than one leg/);
   });
 });
+
+test('assembly takes only the Windows and Linux legs; macOS joins the release later', { skip }, async () => {
+  await withTempDir(async (dir) => {
+    const legs = join(dir, 'legs');
+    await leg(legs, 'leg-windows', { 'protocol-windows-x64-setup.exe': 'w' });
+    await leg(legs, 'leg-linux', { 'protocol-linux-x86_64.AppImage': 'a', 'protocol_0.3.0_amd64.deb': 'd' });
+    await leg(legs, 'leg-macos', { 'protocol-macos-arm64.dmg': 'm', 'protocol-macos-arm64.app.tar.gz': 't' });
+    const run = assemble(legs, join(dir, 'dist'));
+    assert.equal(run.status, 1);
+    assert.match(run.stderr, /unexpected protocol-macos-arm64\.app\.tar\.gz/);
+  });
+});

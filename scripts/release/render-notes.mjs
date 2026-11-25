@@ -1,12 +1,14 @@
 #!/usr/bin/env node
 // The GitHub release body: the CHANGELOG section plus the fixed download,
-// install, update and verification text.
+// install, update and verification text. The platforms come from `sums`: a
+// release drafted before its macOS build finished says macOS follows, and
+// merge-macos.mjs renders the body again once macOS joins.
 //
 //   node scripts/release/render-notes.mjs --version 0.3.0 --notes <file> --sums <SHA256SUMS.txt> [--first-release] [--attestations] > notes.md
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { REPOSITORY, assetUrl, releaseAssets } from './release-lib.mjs';
+import { REPOSITORY, assetUrl, parseSha256Sums, platformsOf, releaseAssets, unwrapMarkdown } from './release-lib.mjs';
 
 export function renderNotes({ version, notes, sums, firstRelease = false, attestations = false, repository = REPOSITORY }) {
   const assets = releaseAssets(version);
@@ -14,7 +16,13 @@ export function renderNotes({ version, notes, sums, firstRelease = false, attest
   const [windows] = assets.windows;
   const [dmg] = assets.macos;
   const [appImage, deb] = assets.linux;
-  return `Protocol is a local-first meeting recorder and transcriber, forked from
+  const { platforms, problems } = platformsOf(parseSha256Sums(sums).map(({ name }) => name), version);
+  if (problems.length > 0) throw new Error(problems.join('; '));
+  for (const platform of ['windows', 'linux']) {
+    if (!platforms.includes(platform)) throw new Error(`the checksums list no ${platform} assets`);
+  }
+  const macos = platforms.includes('macos') ? link(dmg) : 'Follows when its build finishes';
+  return unwrapMarkdown(`Protocol is a local-first meeting recorder and transcriber, forked from
 [Meetily – Actually Free](https://github.com/TylerBuza/Meetily-ActuallyFree).${firstRelease ? ' This is its first release.' : ''}
 
 ## What's new
@@ -26,8 +34,8 @@ ${notes.trim()}
 | Platform | File | Notes |
 | --- | --- | --- |
 | Windows 10/11 x64 | ${link(windows)} | Picks the Vulkan (GPU) or CPU build automatically |
-| macOS 14.2+ (Apple Silicon) | ${link(dmg)} | |
-| Linux x64 — **experimental** | ${link(appImage)} or ${link(deb)} | Built in CI, not tested on real hardware |
+| macOS 14.2+ (Apple Silicon) | ${macos} | |
+| Linux x64 | ${link(appImage)} or ${link(deb)} | |
 
 The \`.app.tar.gz\` and \`.sig\` files and \`latest.json\` are used by Protocol's built-in updater; you don't need to
 download them.
@@ -48,10 +56,9 @@ that Protocol is free of malware. Click **Done**, open **System Settings → Pri
 about Protocol and click **Open Anyway**, then confirm. You only do this once. (Terminal alternative:
 \`xattr -dr com.apple.quarantine /Applications/Protocol.app\`.) Allow microphone and system-audio access when asked.
 
-**Linux (experimental).** AppImage: \`chmod +x ${appImage} && ./${appImage}\`
+**Linux.** AppImage: \`chmod +x ${appImage} && ./${appImage}\`
 (Ubuntu 22.04 needs \`libfuse2\`, 24.04 \`libfuse2t64\`). Debian/Ubuntu package:
-\`sudo apt install ./${deb}\`. Linux builds compile and start in CI but have not been tested with real
-meetings; system-audio capture may not work on your desktop. Reports are welcome.
+\`sudo apt install ./${deb}\`.
 
 ## Updates
 
@@ -84,7 +91,7 @@ ${sums.trim()}
   after updates (\`/BACKEND=auto\` returns to the automatic choice).
 
 **Full changelog:** [CHANGELOG.md](https://github.com/${repository}/blob/v${version}/CHANGELOG.md)
-`;
+`);
 }
 
 function main() {

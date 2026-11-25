@@ -1,14 +1,15 @@
 #!/usr/bin/env node
 // Writes the updater feed of a release from the signed payloads in a folder.
 //
-//   node scripts/release/make-latest-json.mjs --version 0.3.0 --notes <file> --dir dist [--pub-date <RFC 3339>] [--repository owner/name]
+//   node scripts/release/make-latest-json.mjs --version 0.3.0 --notes <file> --dir dist [--platforms windows,linux] [--pub-date <RFC 3339>] [--repository owner/name]
 //
-// Reads <dir>/<payload>.sig for each updater payload and writes <dir>/latest.json.
-// Run it after the final signatures exist: the feed carries their content.
+// Reads <dir>/<payload>.sig for the updater payload of each platform (default:
+// all three) and writes <dir>/latest.json. Run it after the final signatures
+// exist: the feed carries their content. merge-macos.mjs adds macOS later.
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { REPOSITORY, UPDATER_PAYLOADS, latestJson } from './release-lib.mjs';
+import { PLATFORMS, PLATFORM_PAYLOADS, REPOSITORY, latestJson, parsePlatforms } from './release-lib.mjs';
 
 function main() {
   const args = process.argv.slice(2);
@@ -19,17 +20,20 @@ function main() {
   const version = option('version');
   const dir = option('dir');
   if (!version || !dir || !option('notes')) {
-    console.error('usage: make-latest-json.mjs --version <v> --notes <file> --dir <dir> [--pub-date <date>] [--repository <owner/name>]');
+    console.error('usage: make-latest-json.mjs --version <v> --notes <file> --dir <dir> [--platforms <list>] [--pub-date <date>] [--repository <owner/name>]');
     process.exit(2);
   }
-  const signatures = Object.fromEntries(
-    UPDATER_PAYLOADS.map((name) => [name, readFileSync(join(dir, `${name}.sig`), 'utf8')]),
-  );
+  const platforms = option('platforms') ? parsePlatforms(option('platforms')) : PLATFORMS;
+  const signatures = Object.fromEntries(platforms.map((platform) => {
+    const name = PLATFORM_PAYLOADS[platform];
+    return [name, readFileSync(join(dir, `${name}.sig`), 'utf8')];
+  }));
   const feed = latestJson({
     version,
     notes: readFileSync(option('notes'), 'utf8').trim(),
     pubDate: option('pub-date') ?? new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
     signatures,
+    platforms,
     repository: option('repository') ?? REPOSITORY,
   });
   writeFileSync(join(dir, 'latest.json'), `${JSON.stringify(feed, null, 2)}\n`);

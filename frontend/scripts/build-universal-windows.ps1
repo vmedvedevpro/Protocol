@@ -157,7 +157,8 @@ if ($deepestPath -gt 259) {
 if (-not $SkipFrontend) {
   Push-Location $frontend
   try {
-    Invoke-Node @("node_modules\next\dist\bin\next", "build")
+    Invoke-Node @("node_modules\typescript\bin\tsc", "-b")
+    Invoke-Node @("node_modules\vite\bin\vite.js", "build")
   } finally { Pop-Location }
 }
 if (-not (Test-Path (Join-Path $frontend "out\index.html"))) {

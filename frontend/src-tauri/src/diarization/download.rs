@@ -16,6 +16,7 @@ use anyhow::{anyhow, Result};
 use futures_util::StreamExt;
 use serde::Serialize;
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{AppHandle, Emitter, Runtime};
 
 #[derive(Clone, Serialize)]
@@ -31,14 +32,63 @@ pub struct DownloadProgress {
     pub total: u64,
     /// Overall progress across all files, 0–100.
     pub percent: f32,
-    /// "downloading" | "verifying" | "skipped" | "done" | "error"
+    /// "downloading" | "verifying" | "skipped" | "done" | "error" | "cancelled"
     pub status: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
 }
 
-fn emit<R: Runtime>(app: &AppHandle<R>, p: DownloadProgress) {
-    let _ = app.emit("diarization-download-progress", p);
+/// The event's payload: the progress and the engine whose files it is, so a
+/// Pyannote repair never reads as Nemotron's download.
+#[derive(Clone, Serialize)]
+struct EngineProgress<'a> {
+    engine: &'a str,
+    #[serde(flatten)]
+    progress: DownloadProgress,
+}
+
+fn emit<R: Runtime>(app: &AppHandle<R>, engine: &str, progress: DownloadProgress) {
+    let _ = app.emit("diarization-download-progress", EngineProgress { engine, progress });
+}
+
+/// The error a cancelled download ends with.
+pub const CANCELLED: &str = "Download cancelled";
+
+/// Set by `cancel_diarization_download`, cleared when any diarization
+/// download starts (`clear_cancel`, under the command's download lock); a
+/// transfer checks it between chunks and removes its `.part`. A stream that
+/// stalls sees it only at its next chunk or when the client's timeout ends it.
+static CANCEL: AtomicBool = AtomicBool::new(false);
+
+pub fn request_cancel() {
+    CANCEL.store(true, Ordering::SeqCst);
+}
+
+/// A new download starts uncancelled, whatever an earlier Cancel left behind.
+pub fn clear_cancel() {
+    CANCEL.store(false, Ordering::SeqCst);
+}
+
+pub fn cancel_requested() -> bool {
+    CANCEL.load(Ordering::SeqCst)
+}
+
+/// The last event of a download that did not finish: `error` or `cancelled`.
+pub fn emit_end<R: Runtime>(app: &AppHandle<R>, engine: &str, status: &str, message: String) {
+    emit(
+        app,
+        engine,
+        DownloadProgress {
+            file: String::new(),
+            file_index: 0,
+            file_count: 0,
+            downloaded: 0,
+            total: 0,
+            percent: 0.0,
+            status: status.into(),
+            message: Some(message),
+        },
+    );
 }
 
 /// Overall progress while a file has not been checked yet. It stays below
@@ -149,6 +199,7 @@ pub async fn download_pyannote_models<R: Runtime>(app: &AppHandle<R>) -> Result<
                 log::info!("✅ {} already present and verified", name);
                 emit(
                     app,
+                    "pyannote",
                     DownloadProgress {
                         file: name.to_string(),
                         file_index,
@@ -167,12 +218,13 @@ pub async fn download_pyannote_models<R: Runtime>(app: &AppHandle<R>) -> Result<
         }
 
         log::info!("⬇️ Downloading {} from {} …", name, url);
-        download_single_file(app, &client, url, &dest, pinned, file_index, PYANNOTE.len(), completed_bytes, total_bytes).await?;
+        download_single_file(app, "pyannote", &client, url, &dest, pinned, file_index, PYANNOTE.len(), completed_bytes, total_bytes).await?;
         completed_bytes += pinned.size;
     }
 
     emit(
         app,
+        "pyannote",
         DownloadProgress {
             file: String::new(),
             file_index: PYANNOTE.len(),
@@ -212,6 +264,7 @@ pub async fn download_nemotron_models<R: Runtime>(app: &AppHandle<R>) -> Result<
             log::info!("✅ {} already present and verified by SHA-256", name);
             emit(
                 app,
+                "nemotron",
                 DownloadProgress {
                     file: name.to_string(),
                     file_index,
@@ -228,12 +281,13 @@ pub async fn download_nemotron_models<R: Runtime>(app: &AppHandle<R>) -> Result<
         let _ = tokio::fs::remove_file(&dest).await;
 
         log::info!("⬇️ Downloading {} from {} …", name, url);
-        download_single_file(app, &client, url, &dest, pinned, file_index, NEMOTRON.len(), completed_bytes, total_bytes).await?;
+        download_single_file(app, "nemotron", &client, url, &dest, pinned, file_index, NEMOTRON.len(), completed_bytes, total_bytes).await?;
         completed_bytes += pinned.size;
     }
 
     emit(
         app,
+        "nemotron",
         DownloadProgress {
             file: String::new(),
             file_index: NEMOTRON.len(),
@@ -251,6 +305,7 @@ pub async fn download_nemotron_models<R: Runtime>(app: &AppHandle<R>) -> Result<
 
 async fn download_single_file<R: Runtime>(
     app: &AppHandle<R>,
+    engine: &str,
     client: &reqwest::Client,
     url: &str,
     dest: &Path,
@@ -285,6 +340,11 @@ async fn download_single_file<R: Runtime>(
     let mut stream = response.bytes_stream();
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(|e| anyhow!("Download of {} interrupted: {}", name, e))?;
+        if cancel_requested() {
+            drop(file);
+            let _ = tokio::fs::remove_file(&part).await;
+            return Err(anyhow!(CANCELLED));
+        }
         if let Err(error) = check.update(&chunk) {
             drop(file);
             let _ = tokio::fs::remove_file(&part).await;
@@ -300,6 +360,7 @@ async fn download_single_file<R: Runtime>(
             last_emit = std::time::Instant::now();
             emit(
                 app,
+                engine,
                 DownloadProgress {
                     file: name.to_string(),
                     file_index,
@@ -322,6 +383,7 @@ async fn download_single_file<R: Runtime>(
 
     emit(
         app,
+        engine,
         DownloadProgress {
             file: name.to_string(),
             file_index,

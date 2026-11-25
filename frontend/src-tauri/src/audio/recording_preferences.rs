@@ -141,6 +141,16 @@ impl Default for RecordingPreferences {
     }
 }
 
+/// `protocol-recordings` in `dir`, or in the home folder when the system
+/// names no such folder (Linux without `user-dirs.dirs`). Never in ".": a
+/// relative folder would follow whatever directory the app was started from.
+/// The temp folder is the last resort only when no home folder is known.
+fn recordings_folder_in(dir: Option<PathBuf>) -> PathBuf {
+    dir.or_else(dirs::home_dir)
+        .unwrap_or_else(std::env::temp_dir)
+        .join("protocol-recordings")
+}
+
 /// Get the default recordings folder based on platform
 pub fn get_default_recordings_folder() -> PathBuf {
     #[cfg(target_os = "windows")]
@@ -150,9 +160,7 @@ pub fn get_default_recordings_folder() -> PathBuf {
             music_dir.join("protocol-recordings")
         } else {
             // Fallback to Documents if Music folder is not available
-            dirs::document_dir()
-                .unwrap_or_else(|| PathBuf::from("."))
-                .join("protocol-recordings")
+            recordings_folder_in(dirs::document_dir())
         }
     }
 
@@ -163,18 +171,14 @@ pub fn get_default_recordings_folder() -> PathBuf {
             movies_dir.join("protocol-recordings")
         } else {
             // Fallback to Documents if Movies folder is not available
-            dirs::document_dir()
-                .unwrap_or_else(|| PathBuf::from("."))
-                .join("protocol-recordings")
+            recordings_folder_in(dirs::document_dir())
         }
     }
 
     #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     {
         // Linux/Others: ~/Documents/protocol-recordings
-        dirs::document_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join("protocol-recordings")
+        recordings_folder_in(dirs::document_dir())
     }
 }
 
@@ -359,16 +363,24 @@ pub async fn load_recording_preferences<R: Runtime>(
 fn preferences_from_store_value(value: Option<serde_json::Value>) -> RecordingPreferences {
     if let Some(value) = value {
         match serde_json::from_value::<RecordingPreferences>(value) {
-            Ok(p) => {
+            Ok(mut p) => {
                 info!("Loaded recording preferences from store");
                 // Update macOS backend to current value if needed
                 #[cfg(target_os = "macos")]
-                let p = {
-                    let mut p = p;
+                {
                     let backend = crate::audio::capture::get_current_backend();
                     p.system_audio_backend = Some(backend.to_string());
-                    p
-                };
+                }
+                // Settings carried from another OS (`C:\…` on Linux, `/home/…`
+                // on Windows) name no folder here: a path that is not absolute
+                // on this OS would resolve against the working directory.
+                if !p.save_folder.is_absolute() {
+                    warn!(
+                        "Recordings folder {:?} is not a path on this system, using the default",
+                        p.save_folder
+                    );
+                    p.save_folder = get_default_recordings_folder();
+                }
                 p
             }
             Err(e) => {
@@ -654,6 +666,16 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
+    fn default_recordings_folder_is_absolute_without_a_documents_folder() {
+        let folder = recordings_folder_in(None);
+        assert!(folder.is_absolute(), "{folder:?}");
+        if let Some(home) = dirs::home_dir() {
+            assert_eq!(folder, home.join("protocol-recordings"));
+        }
+        assert!(get_default_recordings_folder().is_absolute());
+    }
+
+    #[test]
     fn old_preferences_default_system_gain_to_unity() {
         let preferences: RecordingPreferences = serde_json::from_value(serde_json::json!({
             "save_folder": "recordings",
@@ -665,6 +687,25 @@ mod tests {
 
         assert_eq!(preferences.system_gain, 1.0);
         assert!(!preferences.real_time_transcription);
+    }
+
+    #[test]
+    fn another_systems_recordings_folder_falls_back_to_the_default() {
+        let other = if cfg!(windows) { "/home/user/protocol-recordings" } else { r"C:\Users\User\Music\protocol-recordings" };
+        let preferences = preferences_from_store_value(Some(serde_json::json!({
+            "save_folder": other,
+            "auto_save": true,
+            "file_format": "mp4"
+        })));
+        assert_eq!(preferences.save_folder, get_default_recordings_folder());
+
+        let own = std::env::temp_dir().join("protocol-recordings");
+        let preferences = preferences_from_store_value(Some(serde_json::json!({
+            "save_folder": own,
+            "auto_save": true,
+            "file_format": "mp4"
+        })));
+        assert_eq!(preferences.save_folder, own, "this system's folder stays, even before it exists");
     }
 
     #[test]

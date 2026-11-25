@@ -15,9 +15,7 @@ pub struct DatabaseCheckResult {
 /// Check if this is the first launch (no database exists yet)
 #[tauri::command]
 pub async fn check_first_launch(app: AppHandle) -> Result<bool, String> {
-    DatabaseManager::is_first_launch(&app)
-        .await
-        .map_err(|e| format!("Failed to check first launch: {}", e))
+    Ok(app.try_state::<AppState>().is_none())
 }
 
 /// Check for legacy database in the default app data directory
@@ -123,23 +121,9 @@ pub async fn initialize_fresh_database(app: AppHandle) -> Result<(), String> {
     // Update app state with the new manager
     app.manage(AppState { db_manager: db_manager.clone() });
 
-    // Set default model configuration for fresh installs
+    // No default summary model: first launch records the user's choice
+    // (`complete_onboarding`), and until one is made summaries stay off.
     let pool = db_manager.pool();
-    
-    let default_summary_model = crate::summary::summary_engine::commands::get_recommended_summary_model_for_current_system()
-        .unwrap_or_else(|_| crate::summary::summary_engine::commands::FALLBACK_SUMMARY_MODEL.to_string());
-
-    // Default Summary Model: Built-in AI (Qwen recommendation for this system)
-    if let Err(e) = crate::database::repositories::setting::SettingsRepository::save_model_config(
-        pool,
-        "builtin-ai",
-        &default_summary_model,
-        "large-v3", // Default whisper model (unused for builtin but required)
-        None,
-        None, // summaryMaxTokens: provider default
-    ).await {
-        error!("Failed to set default summary model config: {}", e);
-    }
 
     // Default Transcription Model: Parakeet
     if let Err(e) = crate::database::repositories::setting::SettingsRepository::save_transcript_config(

@@ -7,36 +7,74 @@ is inherited from the project Protocol forked from; Protocol did not release it.
 
 ## Protocol — unreleased
 
-## Protocol 0.6.0 — 2026-11-08
+## Protocol 1.0.0 — 2026-11-25
 
-Protocol can now follow your system's light or dark mode. When Windows
-switches between them during the day, Protocol switches with it, without a
-restart.
+Protocol 1.0 has a new interface. Version 0.6.0 was never released; its
+changes are included here.
+
+### New
+
+- **New interface**
+  ([#123](https://github.com/vmedvedevpro/Protocol/issues/123)). One compact
+  window: your meetings by date, with folders; each meeting's notes,
+  transcript and summary; a ring that shows what the microphone and the
+  computer hear; a floating bar while you record.
+- **Search**
+  ([#118](https://github.com/vmedvedevpro/Protocol/issues/118)). Ctrl K
+  finds meetings, transcript lines, summaries, people and settings. A
+  transcript hit opens the meeting at that line.
+- **People**
+  ([#118](https://github.com/vmedvedevpro/Protocol/issues/118)). Each person
+  has a page with your meetings together, their open action items and your
+  notes.
+- **Editing a meeting**
+  ([#119](https://github.com/vmedvedevpro/Protocol/issues/119)). Rename or
+  merge speakers from a line, identify speakers again, improve the
+  transcript with another model, and write the summary again with another
+  template, language or model. Drop an audio file on the window to import
+  it.
+- **Settings**
+  ([#114](https://github.com/vmedvedevpro/Protocol/issues/114),
+  [#117](https://github.com/vmedvedevpro/Protocol/issues/117)). The common
+  settings come first; Advanced shows the rest. A model downloads only when
+  you click Install.
+- **Light, Dark or Match system**
+  ([#96](https://github.com/vmedvedevpro/Protocol/issues/96)). Match system
+  follows the system's mode in every window. A saved Midnight or Charcoal
+  becomes Dark, and Vanilla becomes Light.
 
 ### Changed
 
-- **Light, Dark or Match system**
-  ([#96](https://github.com/vmedvedevpro/Protocol/issues/96)). Settings ›
-  General › Theme is now one small selector instead of three theme cards.
-  Match system follows the light or dark mode of Windows (or macOS) and
-  switches every window, the floating recording bar included, as soon as the
-  system does, for example on a schedule. Charcoal is gone: a saved Midnight
-  or Charcoal becomes Dark and Vanilla becomes Light. Without a saved choice,
-  Protocol now follows the system.
-- **Meeting detection is off for now**
-  ([#102](https://github.com/vmedvedevpro/Protocol/issues/102)). It kept
-  repeating "meeting detected" while a call app was open, and on macOS and
-  Linux an app idle in the tray was enough. Settings › Meeting detection and
-  Labs › Meeting automation are hidden, and detection no longer runs even if
-  you had turned it on. It comes back once it is fixed.
+- **Quit asks while work is running**
+  ([#121](https://github.com/vmedvedevpro/Protocol/issues/121)): a
+  recording, the transcript pass after a meeting, a summary, an import or a
+  download. On Linux and macOS, logging out or shutting down no longer shows
+  a crash report at the next start.
+- **An interrupted download shows Resume**
+  ([#121](https://github.com/vmedvedevpro/Protocol/issues/121)) instead of
+  calling the file damaged.
+- **Meeting detection is off**
+  ([#102](https://github.com/vmedvedevpro/Protocol/issues/102)) until it
+  stops repeating "meeting detected" while a call app is open.
+
+### Removed
+
+- The AI chat, the Contacts and Groups pages (groups are now folders), bulk
+  actions and sorting in the meeting list, the recording notice and desktop
+  notifications ([#126](https://github.com/vmedvedevpro/Protocol/issues/126)).
+  Your meetings, people and groups are kept.
 
 ### Fixed
 
-- **The Linux deb installs next to the system's ffmpeg**
-  ([#100](https://github.com/vmedvedevpro/Protocol/issues/100)). The deb
-  brought its own `/usr/bin/ffmpeg` and failed to install where the
-  distribution's `ffmpeg` package already was. It now depends on that package
-  and uses it. The AppImage still brings its own ffmpeg.
+- **Recordings play on Linux**
+  ([#121](https://github.com/vmedvedevpro/Protocol/issues/121)).
+- **A library from another computer opens**
+  ([#121](https://github.com/vmedvedevpro/Protocol/issues/121)). The Linux
+  version opens a database made on Windows, and a meeting whose folder
+  moved finds its recording by folder name in your recordings folder.
+- **The Linux deb uses the system's ffmpeg**
+  ([#100](https://github.com/vmedvedevpro/Protocol/issues/100)) and installs
+  next to it. The AppImage still brings its own.
 
 ## Protocol 0.5.1 — 2026-11-06
 

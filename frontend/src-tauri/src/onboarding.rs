@@ -20,9 +20,16 @@ pub struct OnboardingStatus {
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct ModelStatus {
     pub parakeet: String,  // "downloaded" | "not_downloaded" | "downloading"
-    pub summary: String,   // Generic field for summary model (Qwen 3.5 or legacy Gemma variants)
+    /// "downloaded" once the summary model can be used: for built-in AI its
+    /// download completed; for a cloud provider it means configured (its key
+    /// and model were saved), since nothing downloads.
+    pub summary: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub selected_summary_model: Option<String>,
+    /// The summary provider first launch chose ("builtin-ai", "claude", ...);
+    /// absent when the user left it for later, and in statuses saved before it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selected_summary_provider: Option<String>,
 }
 
 impl Default for OnboardingStatus {
@@ -35,6 +42,7 @@ impl Default for OnboardingStatus {
                 parakeet: "not_downloaded".to_string(),
                 summary: "not_downloaded".to_string(),  // Changed from gemma
                 selected_summary_model: None,
+                selected_summary_provider: None,
             },
             last_updated: chrono::Utc::now().to_rfc3339(),
         }
@@ -138,32 +146,46 @@ pub async fn save_onboarding_status_cmd<R: Runtime>(
         .map_err(|e| format!("Failed to save onboarding status: {}", e))
 }
 
+/// Ends first launch with the summary choice it made: `provider` "builtin-ai"
+/// selects the built-in `model` here; a cloud provider was saved before this
+/// call through `api_save_model_config`, after the same checks as Settings;
+/// no provider (decided later) leaves the summary model unset. The summary
+/// model config is written only for built-in AI, so a choice saved another
+/// way is never overwritten.
+///
+/// First launch selects a built-in model whose download is still running.
+/// That model is not used before it is there: the post-call pass and the
+/// summary step check it is downloaded (`usableSummaryModel` in the
+/// frontend's postCallRunner), and Home's missing-model banner offers the
+/// download again when it was cut short or cancelled.
 #[tauri::command]
 pub async fn complete_onboarding<R: Runtime>(
     app: AppHandle<R>,
     state: tauri::State<'_, AppState>,
-    model: String,
+    model: Option<String>,
+    provider: Option<String>,
     parakeet_ready: Option<bool>,
     summary_ready: Option<bool>,
 ) -> Result<(), String> {
-    info!("Completing onboarding with builtin-ai model: {}", model);
+    info!("Completing onboarding with summary provider {:?}, model {:?}", provider, model);
 
     // Step 1: Save model configuration to SQLite database FIRST
     let pool = state.db_manager.pool();
 
-    // Onboarding always uses builtin-ai (local LLM)
-    if let Err(e) = SettingsRepository::save_model_config(
-        pool,
-        "builtin-ai",
-        &model,
-        "large-v3",
-        None,
-        None, // summaryMaxTokens: provider default
-    ).await {
-        error!("Failed to save builtin-ai model config: {}", e);
-        return Err(format!("Failed to save builtin-ai model config: {}", e));
+    if let (Some("builtin-ai"), Some(model)) = (provider.as_deref(), model.as_deref()) {
+        if let Err(e) = SettingsRepository::save_model_config(
+            pool,
+            "builtin-ai",
+            model,
+            "large-v3",
+            None,
+            None, // summaryMaxTokens: provider default
+        ).await {
+            error!("Failed to save builtin-ai model config: {}", e);
+            return Err(format!("Failed to save builtin-ai model config: {}", e));
+        }
+        info!("Saved builtin-ai model config: model={}", model);
     }
-    info!("Saved builtin-ai model config: model={}", model);
 
     // Save transcription model config (parakeet provider) - always parakeet
     if let Err(e) = SettingsRepository::save_transcript_config(
@@ -186,19 +208,38 @@ pub async fn complete_onboarding<R: Runtime>(
     // Completing setup is independent of completing native model downloads.
     status.model_status.parakeet = if parakeet_ready.unwrap_or(false) { "downloaded" } else { "not_downloaded" }.into();
     status.model_status.summary = if summary_ready.unwrap_or(false) { "downloaded" } else { "not_downloaded" }.into();
-    status.model_status.selected_summary_model = Some(model.clone());
+    status.model_status.selected_summary_provider = recorded_summary_provider(provider.as_deref(), model.as_deref());
+    status.model_status.selected_summary_model = model;
 
     save_onboarding_status(&app, &status)
         .await
         .map_err(|e| format!("Failed to save completed onboarding status: {}", e))?;
 
-    info!("Onboarding completed successfully with model: {}", model);
+    info!("Onboarding completed successfully");
     Ok(())
+}
+
+/// The provider the status records: built-in AI only with the model it
+/// selected, since without one nothing was applied; any other provider as
+/// given, saved before `complete_onboarding`.
+fn recorded_summary_provider(provider: Option<&str>, model: Option<&str>) -> Option<String> {
+    match (provider, model) {
+        (Some("builtin-ai"), None) => None,
+        (provider, _) => provider.map(str::to_string),
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn records_built_in_ai_only_with_its_model() {
+        assert_eq!(recorded_summary_provider(Some("builtin-ai"), None), None);
+        assert_eq!(recorded_summary_provider(Some("builtin-ai"), Some("qwen3.5:4b")).as_deref(), Some("builtin-ai"));
+        assert_eq!(recorded_summary_provider(Some("claude"), Some("claude-sonnet-4-5")).as_deref(), Some("claude"));
+        assert_eq!(recorded_summary_provider(None, None), None);
+    }
 
     #[test]
     fn onboarding_status_deserializes_without_selected_summary_model() {
@@ -217,5 +258,6 @@ mod tests {
         .expect("old onboarding status should remain compatible");
 
         assert_eq!(status.model_status.selected_summary_model, None);
+        assert_eq!(status.model_status.selected_summary_provider, None);
     }
 }

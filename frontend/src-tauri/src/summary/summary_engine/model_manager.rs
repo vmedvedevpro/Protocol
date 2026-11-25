@@ -400,12 +400,10 @@ impl ModelManager {
 
     /// Get list of all models with their status
     pub async fn list_models(&self) -> Vec<ModelInfo> {
-        self.available_models
-            .read()
-            .await
-            .values()
-            .cloned()
-            .collect()
+        let mut models: Vec<ModelInfo> = self.available_models.read().await.values().cloned().collect();
+        // The map's order changes from scan to scan; Settings lists them as given.
+        models.sort_by(list_order);
+        models
     }
 
     /// Get info for a specific model
@@ -1216,9 +1214,42 @@ impl ModelManager {
     }
 }
 
+/// Smallest first, then by name; a size not known yet sorts last.
+fn list_order(a: &ModelInfo, b: &ModelInfo) -> std::cmp::Ordering {
+    let size = |model: &ModelInfo| model.size_bytes.unwrap_or(u64::MAX);
+    size(a)
+        .cmp(&size(b))
+        .then_with(|| a.display_name.cmp(&b.display_name))
+        .then_with(|| a.name.cmp(&b.name))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn models_list_by_size_then_name_with_unknown_sizes_last() {
+        let model = |name: &str, size_bytes: Option<u64>| ModelInfo {
+            name: name.into(),
+            display_name: name.into(),
+            status: ModelStatus::NotDownloaded,
+            path: PathBuf::new(),
+            size_bytes,
+            context_size: 0,
+            description: String::new(),
+            gguf_file: String::new(),
+            recommended: false,
+        };
+        let mut models = vec![
+            model("Qwen 4B", Some(2_700)),
+            model("Unknown", None),
+            model("Gemma 4B", Some(2_700)),
+            model("Gemma 1B", Some(800)),
+        ];
+        models.sort_by(list_order);
+        let names: Vec<_> = models.iter().map(|model| model.name.as_str()).collect();
+        assert_eq!(names, ["Gemma 1B", "Gemma 4B", "Qwen 4B", "Unknown"]);
+    }
 
     /// The 0.3.0 size of `name`, which a 0.3.x install is checked against.
     fn legacy_size(name: &str) -> u64 {

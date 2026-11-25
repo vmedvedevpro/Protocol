@@ -162,6 +162,22 @@ export function cutChangelog(text, version, date) {
   return lines.join(eol);
 }
 
+// The platforms of a release, in this order wherever they are listed. A tag
+// run drafts the release from DRAFT_PLATFORMS; macOS joins the same release
+// when its build finishes (#164), because macOS runners can take up to a day.
+export const PLATFORMS = ['windows', 'macos', 'linux'];
+export const DRAFT_PLATFORMS = ['windows', 'linux'];
+export const LATE_PLATFORM = 'macos';
+
+// `windows,linux` -> ['windows', 'linux'] in PLATFORMS order; throws on an
+// unknown, repeated or missing name.
+export function parsePlatforms(text) {
+  const names = String(text ?? '').split(',').map((name) => name.trim()).filter(Boolean);
+  for (const name of names) if (!PLATFORMS.includes(name)) throw new Error(`unknown platform ${name}`);
+  if (names.length === 0 || new Set(names).size !== names.length) throw new Error(`invalid platform list "${text}"`);
+  return PLATFORMS.filter((name) => names.includes(name));
+}
+
 // Release asset names. Versionless where people link to them
 // (/releases/latest/download/<name>), Debian's name_version_arch for the deb.
 export function releaseAssets(version) {
@@ -172,23 +188,48 @@ export function releaseAssets(version) {
   };
 }
 
-// Files the updater installs; each gets a `.sig` from the production key.
-export const UPDATER_PAYLOADS = [
-  'protocol-windows-x64-setup.exe',
-  'protocol-macos-arm64.app.tar.gz',
-  'protocol-linux-x86_64.AppImage',
-];
+// The file the updater installs on each platform; each gets a `.sig` from the
+// production key.
+export const PLATFORM_PAYLOADS = {
+  windows: 'protocol-windows-x64-setup.exe',
+  macos: 'protocol-macos-arm64.app.tar.gz',
+  linux: 'protocol-linux-x86_64.AppImage',
+};
+export const UPDATER_PAYLOADS = PLATFORMS.map((platform) => PLATFORM_PAYLOADS[platform]);
 
-// Every asset of a complete release, sorted.
-export function requiredAssets(version) {
-  const assets = Object.values(releaseAssets(version)).flat();
-  return [...assets, ...UPDATER_PAYLOADS.map((name) => `${name}.sig`), 'latest.json', 'SHA256SUMS.txt'].sort();
+// A platform's own assets: its packages and its payload's signature, sorted.
+export function platformAssets(version, platform) {
+  return [...releaseAssets(version)[platform], `${PLATFORM_PAYLOADS[platform]}.sig`].sort();
+}
+
+// Every asset of a release that has `platforms`, sorted. latest.json and
+// SHA256SUMS.txt always cover exactly the platforms the release has.
+export function requiredAssets(version, platforms = PLATFORMS) {
+  return [...platforms.flatMap((platform) => platformAssets(version, platform)), 'latest.json', 'SHA256SUMS.txt'].sort();
+}
+
+// The platforms whose assets `names` holds, as { platforms, problems }. A
+// platform with only some of its assets is a problem: a release never shows
+// a macOS download without its updater bundle, or the reverse.
+export function platformsOf(names, version) {
+  const platforms = [];
+  const problems = [];
+  for (const platform of PLATFORMS) {
+    const assets = platformAssets(version, platform);
+    const present = assets.filter((name) => names.includes(name));
+    if (present.length === assets.length) platforms.push(platform);
+    else if (present.length > 0) problems.push(`${platform} is incomplete: ${assets.filter((name) => !present.includes(name)).join(', ')} missing`);
+  }
+  return { platforms, problems };
 }
 
 // tauri-plugin-updater looks up `{os}-{arch}-{installer}` first, then
 // `{os}-{arch}`. The generic keys cover executables without a bundle-type
 // marker; Linux has no generic key, so a .deb install (marker "deb") finds no
-// entry and #31 shows a download link instead of installing an AppImage.
+// entry and #31 shows a download link instead of installing an AppImage. A
+// release without macOS yet has no darwin keys: macOS installs report "not
+// available for macOS yet" (noPlatform) and are offered the release once
+// macOS joins it.
 export const FEED_PLATFORMS = {
   'windows-x86_64-nsis': 'protocol-windows-x64-setup.exe',
   'windows-x86_64': 'protocol-windows-x64-setup.exe',
@@ -196,6 +237,12 @@ export const FEED_PLATFORMS = {
   'darwin-aarch64': 'protocol-macos-arm64.app.tar.gz',
   'linux-x86_64-appimage': 'protocol-linux-x86_64.AppImage',
 };
+
+// The feed keys of `platforms`, in FEED_PLATFORMS order.
+export function feedKeys(platforms) {
+  const payloads = platforms.map((platform) => PLATFORM_PAYLOADS[platform]);
+  return Object.keys(FEED_PLATFORMS).filter((key) => payloads.includes(FEED_PLATFORMS[key]));
+}
 
 export function assetUrl(version, name, repository = REPOSITORY) {
   return `https://github.com/${repository}/releases/download/v${version}/${name}`;
@@ -231,13 +278,15 @@ function prefixWithinBytes(text, budget) {
 }
 
 // latest.json for tauri-plugin-updater. `signatures` maps each updater payload
-// to the content of its .sig file (base64 text, as Tauri writes it). Missing
-// payloads are errors: every release that becomes Latest needs a full feed.
-export function latestJson({ version, notes, pubDate, signatures, repository = REPOSITORY }) {
+// to the content of its .sig file (base64 text, as Tauri writes it). A missing
+// payload of one of `platforms` is an error: every platform the release has
+// needs its full set of feed keys.
+export function latestJson({ version, notes, pubDate, signatures, platforms: releasePlatforms = PLATFORMS, repository = REPOSITORY }) {
   if (!parseVersion(version)) throw new Error(`invalid version ${version}`);
   if (Number.isNaN(Date.parse(pubDate))) throw new Error(`invalid pub_date ${pubDate}`);
   const platforms = {};
-  for (const [platform, asset] of Object.entries(FEED_PLATFORMS)) {
+  for (const platform of feedKeys(releasePlatforms)) {
+    const asset = FEED_PLATFORMS[platform];
     const signature = signatures[asset]?.trim();
     if (!signature) throw new Error(`no signature for ${asset}`);
     platforms[platform] = { signature, url: assetUrl(version, asset, repository) };
@@ -265,4 +314,31 @@ export function parseSha256Sums(text) {
     if (!match) throw new Error(`invalid SHA256SUMS line: ${line}`);
     return { hash: match[1], name: match[2] };
   });
+}
+
+// GitHub renders each newline of a release body as a line break, so text
+// wrapped for the source (the CHANGELOG and the notes template) would show
+// its wraps. Joins the lines of every paragraph and list item; blank lines,
+// headings, list markers, tables, quotes, HTML, code blocks and hard breaks
+// (two trailing spaces or a backslash) stay as they are.
+export function unwrapMarkdown(text) {
+  const lines = [];
+  let inFence = false;
+  for (const line of text.split('\n')) {
+    const fence = /^\s*```/.test(line);
+    const previous = lines.at(-1);
+    if (!inFence && !fence && joinsPrevious(previous, line)) {
+      lines[lines.length - 1] = `${previous.trimEnd()} ${line.trim()}`;
+    } else {
+      lines.push(line);
+    }
+    if (fence) inFence = !inFence;
+  }
+  return lines.join('\n');
+}
+
+function joinsPrevious(previous, line) {
+  if (previous === undefined || previous.trim() === '' || line.trim() === '') return false;
+  if (/^\s*([-*+]\s|\d+[.)]\s|#|\||>|<)/.test(line)) return false;
+  return !/^\s*(#|\||```)/.test(previous) && !/( {2}|\\)$/.test(previous);
 }

@@ -434,6 +434,71 @@ pub(crate) mod testing {
         });
         url
     }
+
+    /// Announces all of `body` to one HTTP request, sends its first `sent`
+    /// bytes and closes the connection, as a dropped download does.
+    pub async fn serve_cut_once(body: Vec<u8>, sent: usize) -> String {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/model", listener.local_addr().unwrap());
+        tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut request = Vec::new();
+            let mut buffer = [0; 1024];
+            while !request.windows(4).any(|part| part == b"\r\n\r\n") {
+                match stream.read(&mut buffer).await {
+                    Ok(0) | Err(_) => return,
+                    Ok(read) => request.extend_from_slice(&buffer[..read]),
+                }
+            }
+            let head = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len());
+            let _ = stream.write_all(head.as_bytes()).await;
+            let _ = stream.write_all(&body[..sent]).await;
+            let _ = stream.shutdown().await;
+        });
+        url
+    }
+
+    /// Answers one HTTP request with `body`, or with its tail as 206 Partial
+    /// Content when the request asks for `bytes=N-`; returns the URL and the
+    /// Range header the request carried.
+    pub async fn serve_range_once(body: Vec<u8>) -> (String, tokio::sync::oneshot::Receiver<Option<String>>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/model", listener.local_addr().unwrap());
+        let (asked, range) = tokio::sync::oneshot::channel();
+        tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut request = Vec::new();
+            let mut buffer = [0; 1024];
+            while !request.windows(4).any(|part| part == b"\r\n\r\n") {
+                match stream.read(&mut buffer).await {
+                    Ok(0) | Err(_) => return,
+                    Ok(read) => request.extend_from_slice(&buffer[..read]),
+                }
+            }
+            let request = String::from_utf8_lossy(&request).to_string();
+            let header = request.lines().find_map(|line| {
+                let (name, value) = line.split_once(':')?;
+                name.eq_ignore_ascii_case("range").then(|| value.trim().to_string())
+            });
+            let start = header
+                .as_deref()
+                .and_then(|value| value.strip_prefix("bytes=")?.strip_suffix('-')?.parse::<usize>().ok());
+            let _ = asked.send(header);
+            let head = match start {
+                Some(start) => format!(
+                    "HTTP/1.1 206 Partial Content\r\nContent-Range: bytes {}-{}/{}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    start,
+                    body.len() - 1,
+                    body.len(),
+                    body.len() - start
+                ),
+                None => format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len()),
+            };
+            let _ = stream.write_all(head.as_bytes()).await;
+            let _ = stream.write_all(&body[start.unwrap_or(0)..]).await;
+        });
+        (url, range)
+    }
 }
 
 #[cfg(test)]

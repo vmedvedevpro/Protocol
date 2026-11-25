@@ -135,7 +135,7 @@ Paths below are relative to `frontend/src-tauri/src/` unless marked frontend.
 | `diarization/nemotron.rs` | Validates the pinned model and adapts the attributed Sortformer API to Meetily. Live configuration must not change offline defaults. |
 | `diarization/sortformer/` | Attributed model implementation, including speaker cache, feed/flush, streaming profiles, and ORT session construction. Preserve license/attribution. |
 | `audio/recording_saver.rs`, `audio/incremental_saver.rs` | Persistent transcript/source hints and recording tracks. A displayed rename alone does not update every save path. |
-| `frontend/src/contexts/TranscriptContext.tsx` | Frontend transcript events, ordering/buffering, local recovery, and live state. |
+| `frontend/src/features/recording/` | Frontend recording: the session store and its native sync (`store/session.ts`, `store/runtime.ts`), the start order (`store/start.ts`), live lines and the IndexedDB crash copy (`api/transcript.ts`, `api/recovery.ts`), the save after Stop (`store/save.ts`) and the post-call pass (`store/postCallRunner.ts`). [UI_ARCHITECTURE.md › Recording](UI_ARCHITECTURE.md#recording) describes them. |
 
 ### Time and identity invariants
 
@@ -186,12 +186,16 @@ native code and the main window:
    `system.mp4` from their checkpoints and writes `transcripts.json` (at most
    5 minutes), clears `IS_RECORDING`, then sends `recording-stopped` and,
    to the main window only, `recording-stop-complete` with a `stop_id`.
-2. WebView, `RecordingPostProcessingProvider` → `useRecordingStop`: discards a
-   take under 10 seconds; otherwise waits 4.5 s for late transcript events,
-   saves the meeting and transcript rows (`api_save_transcript`), files the
-   meeting into a pending group, saves call notes and the summary language,
-   clears the IndexedDB recovery record, and opens
-   `/meeting-details?source=recording`, which starts post-call processing.
+2. WebView, `frontend/src/features/recording/store/save.ts` (`saveAfterStop`,
+   heard by `RecordingRuntime` on every screen): discards a take under 10
+   seconds; otherwise polls `get_transcription_status` until the queue is
+   empty (at most 60 s), waits 4.5 s for late transcript events, saves the
+   meeting and transcript rows (`api_save_transcript`), files the meeting
+   into the folder picked while recording, saves the notes and the summary
+   language, marks the IndexedDB recovery record saved, and opens
+   `/meetings/:id` and queues post-call processing. A wait that times out or
+   fails saves nothing and answers `notSaved`; the record stays for
+   recovery.
 3. The WebView answers the Stop with `recording_save_finished(stopId,
    outcome)`: `saved`, `discarded`, `notSaved` or `failed`.
    `audio/save_handoff.rs` tracks the latest handoff from `begin` until that
@@ -204,11 +208,26 @@ the meeting row; the next start offered the meeting for recovery from IndexedDB
 (only with at least one transcript line), with audio rebuilt from the
 checkpoints.
 
-`quit.rs` owns user quits: tray Quit, and on macOS ⌘Q and Dock Quit
-(`RunEvent::ExitRequested { code: None }`, held back by `quit::holds_exit`).
-`plan` reads recording state (running, stopping, or saving through the
-handoff) and whether a downloaded update would install. With no recording work
-the quit goes to `updater::quit_app` as before. Otherwise the main window leaves
+`quit.rs` owns user quits: tray Quit, on macOS ⌘Q and Dock Quit
+(`RunEvent::ExitRequested { code: None }`, held back by `quit::holds_exit`),
+and on Unix SIGTERM and SIGINT (logout, shutdown, `kill`, Ctrl+C;
+`quit_on_termination_signals`, tokio's signal streams), so a signal ends in
+`RunEvent::Exit` and the crash session is marked clean instead of being
+reported as an unclean shutdown on the next start (#121). The first signal
+asks as tray Quit does; a second one exits at once (on a logout nobody
+answers, and the session manager's SIGKILL would follow), and no signal
+installs a downloaded update, which a logout would kill midway
+(`on_signal`). After **Stop and quit** saved the meeting, only a recording
+started meanwhile asks again; other busy work does not, since the user
+already chose to quit. `plan` reads
+recording state (running, stopping, or saving through the handoff), the other
+work `updater::busy::current` reports, and whether a downloaded update would
+install. Busy work without a recording (the post-call pass, a
+retranscription, speaker identification, a summary, an import, a model
+download or GPU compile; unfinished setup does not count) asks "Protocol is
+still busy: <the work>. Quit anyway?" with **Quit anyway** and **Cancel** (#121: tray
+Quit during the post-call pass used to quit at once). With nothing busy the
+quit goes to `updater::quit_app` as before. With recording work the main window leaves
 compact mode and comes forward, and a native dialog (tauri-plugin-dialog, a
 task dialog on Windows) asks "A recording is in progress. Stop and save it, then
 quit?" with **Stop and quit** and **Cancel**. Stop and quit runs the tray's
@@ -225,11 +244,12 @@ gets the question again.
 Tests: `cargo test -p protocol --lib quit:: audio::save_handoff::
 updater::busy::` (the decision matrix, the second quit, the macOS hold, which
 answers let the app exit, handoff ids and the answer window) and
-`frontend/tests/recording-stop/` (the answer for each ending, no meeting page
-when quitting, the `stop_id` hand-over). Limits: Stop and quit does not run
-speaker identification or the automatic summary; import, retranscription,
-post-call processing and model downloads are not asked about and end with the
-process as before (a summary cut off this way stays pending); Windows shutdown
+`frontend/src/features/recording/store/save.test.tsx` (the answer for each
+ending, no meeting page and no post-call pass when quitting, the `stop_id`
+hand-over). Limits: Stop and quit does not run
+speaker identification or the automatic summary; **Quit anyway** ends busy
+work with the process (a summary cut off this way stays pending, a built-in
+model download or a Whisper one resumes from its partial file); Windows shutdown
 and log-off exit without asking (tao ends the process on `WM_ENDSESSION`); only
 the latest handoff is tracked, so a second Stop during a save is answered
 `notSaved`.
@@ -238,6 +258,19 @@ the latest handoff is tracked, so a second Stop during a save is answered
 
 Summary-generated title ownership, placeholder rejection and completion refresh
 are documented in [SUMMARY_GENERATED_TITLES.md](SUMMARY_GENERATED_TITLES.md).
+
+A summary run's template is `api_process_transcript`'s `template_id`. Without
+one native takes the stored default (`summary/template_settings.rs`, #117): the
+id in `default_summary_template.txt` in the data root while that template still
+loads, else `standard_meeting`, the template the UI always sent (upstream fell
+back to `daily_standup`). Settings › Summary templates stores it with
+`api_set_default_template`, which accepts only a template that loads, so a
+deleted custom default falls back by itself. The UI's
+`startSummary` (`frontend/src/api/meetings.ts`) leaves the template out unless
+a run picks one, so the automatic summary after a recording uses the default.
+The module also reads one template whole (`api_get_template`) for its sections
+and the editor; the frontend domain is `frontend/src/api/templates.ts`. Tests:
+native `summary::template_settings::tests`, frontend `src/api/templates.test.ts`.
 
 `diarization/mod.rs` owns persisted engine settings and offline command dispatch.
 Nemotron is Auto-detect only; manual counts belong to Pyannote. Rerunning speaker
@@ -249,9 +282,11 @@ always gives the same labels.
 Read [PR34_NEMOTRON.md](PR34_NEMOTRON.md) before changing that contract.
 
 Frontend post-call sequencing lives in
-`frontend/src/components/MeetingDetails/PostCallProcessingWorker.tsx`, owned above
-navigation by `frontend/src/contexts/PostCallJobsContext.tsx`. The page's
-`PostCallProcessingDialog.tsx` registers/detaches only its view. Completion and
+`frontend/src/features/recording/store/postCallRunner.ts`, mounted above
+navigation through `RecordingRuntime` in the shell; screens read the job
+(`src/api/postCall.ts`) and ask the runner to cancel, retry or skip. The old
+UI (`162e8be`) had it in `components/MeetingDetails/PostCallProcessingWorker.tsx`
+and `contexts/PostCallJobsContext.tsx`. Completion and
 transcript refresh target the matching mounted meeting; inactive meetings refresh
 on return. See [OCTOBER_PR_INTEGRATION.md](OCTOBER_PR_INTEGRATION.md) for cancellation
 ownership and lifecycle limits. Related
@@ -527,7 +562,7 @@ cross IPC as text, so the UI matches the phrases "was deleted", "could not be
 deleted" and "Nothing was deleted".
 
 - Download: `Check` hashes while streaming and refuses bytes past the pinned
-  size; `Check::resume` re-reads a kept partial first (Parakeet, GGUF). Diarization
+  size; `Check::resume` re-reads a kept partial first (Parakeet, GGUF, Whisper). Diarization
   keeps its `.part` + rename flow on the same checker. A mismatch deletes the
   file, or says it could not; the shared download toast (`categorizeError`)
   shows each outcome, and a wrong `Content-Length` (Whisper, GGUF) as "the
@@ -1068,7 +1103,8 @@ Data flow:
    `tauri.conf.json`, `frontend/src-tauri/Cargo.toml`, `Cargo.lock` and
    `frontend/package.json`, and `## Protocol <version> — <date>` in `CHANGELOG.md`.
 2. Once the merged commit's `main` runs of `release.yml` and `updater-e2e.yml`
-   are green, the owner pushes the tag `v<version>` on that commit.
+   are green apart from their macOS jobs, which gate nothing (#164), the owner
+   pushes the tag `v<version>` on that commit.
    `validate-release.mjs` checks the tag format, that the commit is on
    `origin/main`, the version files, the CHANGELOG section (it becomes the notes),
    the published releases (no duplicate, above every non-draft release whatever
@@ -1077,22 +1113,35 @@ Data flow:
    `check-migration-checksums.mjs --source git` the migration table.
 3. `pr-checks.yml` runs as a reusable workflow, then the legs
    `release-build-{windows,macos,linux}.yml` build, test and smoke-test, and each
-   uploads a `leg-<platform>` artifact with its `SHA256SUMS.txt` (the assembly
-   downloads exactly `leg-*`). Legs have no secrets.
-4. `draft` (environment `release`, tag runs only) runs `assemble-release.sh`:
-   checks the artifacts, signs the three updater payloads with the production key
-   and `--app-version`, verifies the signatures against `plugins.updater.pubkey`
-   (`verify-updater-signature.mjs`), writes `latest.json` (`make-latest-json.mjs`),
-   `SHA256SUMS.txt` and the notes (`render-notes.mjs`), then attests the installers
-   and creates the draft; `check-release-assets.mjs` compares the uploaded assets
-   with the local files. Dry runs run the same script in `preview` with a
-   throwaway key.
-5. The owner publishes; `release-published.yml` (`check-published-release.mjs`)
-   checks the public assets, the feed and `/releases/latest`.
+   uploads a `leg-<platform>` artifact with its `SHA256SUMS.txt`. Legs have no
+   secrets.
+4. `draft` (environment `release`, tag runs only) needs only the Windows and
+   Linux legs and runs `assemble-release.sh` on `leg-windows` and `leg-linux`:
+   checks the artifacts, signs the two updater payloads with the production key
+   and `--app-version` (`sign-payloads.sh`), verifies the signatures against
+   `plugins.updater.pubkey` (`verify-updater-signature.mjs`), writes `latest.json`
+   (`make-latest-json.mjs --platforms windows,linux`), `SHA256SUMS.txt` and the
+   notes (`render-notes.mjs`, whose macOS row says the download follows), then
+   attests the installers and creates the draft; `check-release-assets.mjs`
+   compares the uploaded assets with the local files. Dry runs run the same
+   script in `preview` with a throwaway key.
+5. `join-macos` (environment `release`, tag runs only) follows `build-macos` and
+   `draft`, draft or published: `join-macos.sh` signs and verifies the macOS
+   bundle with `sign-payloads.sh`, `merge-macos.mjs` merges the darwin keys into
+   the release's `latest.json` and the macOS lines into its `SHA256SUMS.txt` and
+   renders the body again unless it was edited by hand; the job attests and
+   uploads the macOS files (feed last) and checks the release, publicly once it
+   is published. Re-runs replace only the macOS entries. Dry runs do the same in
+   `preview-macos` against the `release-dry-run` artifact.
+6. The owner publishes, with or without macOS; `release-published.yml`
+   (`check-published-release.mjs`) checks the public assets of the platforms the
+   release has (Windows and Linux required, macOS whole or not at all), the feed
+   and `/releases/latest`.
 
 The feed has `windows-x86_64-nsis` and `windows-x86_64` (both the setup),
-`darwin-aarch64-app` and `darwin-aarch64` (`protocol-macos-arm64.app.tar.gz`) and
-`linux-x86_64-appimage`, and deliberately no `linux-x86_64` or deb key: a deb
+`darwin-aarch64-app` and `darwin-aarch64` (`protocol-macos-arm64.app.tar.gz`,
+from the moment macOS has joined; before that macOS installs get `noPlatform`)
+and `linux-x86_64-appimage`, and deliberately no `linux-x86_64` or deb key: a deb
 install finds no entry and gets #31's download link instead of an AppImage.
 Signatures carry the version (`signer sign --app-version`, tauri-cli 2.12 from
 #33); `verify-updater-signature.mjs` checks it. Until #31's configuration is in
@@ -1127,6 +1176,15 @@ both columns; `check-migration-checksums.mjs` recomputes them from git blobs in
 after setting `core.autocrlf` explicitly. The authoritative check is the Rust test
 `embedded_migrations_match_released_checksums` (`database/manager.rs`) over the
 embedded `MIGRATOR`. The Windows column matches the owner's two real databases.
+A database carried to the other platform opens there (#121):
+`DatabaseManager::run_migrations` answers a mismatch in a historical migration
+by rewriting each stored checksum that is exactly the other platform's released
+one to this build's (`accept_other_platform_checksums`, tests
+`opens_a_database_made_by_the_other_platform` and the two after it), as it
+already repairs the people migration; any other mismatch stays an error. A
+database that still does not open no longer ends the process at startup: native
+logs it and leaves the database unset, and the window's startup screen shows
+native's reason with Retry. Verified with the owner's Windows database on Linux.
 A new migration needs an `eol=lf` line in `.gitattributes` and
 `check-migration-checksums.mjs --add-new`, run after `git add`: it hashes the
 staged blob and refuses an untracked migration or one with unstaged changes.
@@ -1148,7 +1206,7 @@ beside an installed upstream build without sharing state:
 
 | Surface | Value | Owner |
 | --- | --- | --- |
-| Bundle identifier, Windows AUMID | `io.github.vmedvedevpro.protocol` | `tauri.conf.json`, `notifications/native_windows.rs` |
+| Bundle identifier, Windows AUMID | `io.github.vmedvedevpro.protocol` | `tauri.conf.json`, `windows_app_identity.rs` |
 | Product name, install folder | `Protocol`, `%LOCALAPPDATA%\vmedvedevpro\Protocol` | `tauri.conf.json`, `windows/installer.nsi` (`INSTALLDIRNAME`, a `; Protocol:` change to Tauri's stock template) |
 | Installer registry key | `HKCU\Software\vmedvedevpro\Protocol` (install folder, `BackendOverride`) | `bundle.publisher` + product name (stock `MANUPRODUCTKEY`); `windows/installer-hooks.nsh` |
 | Uninstall entry | `HKCU\…\Uninstall\io.github.vmedvedevpro.protocol` | `windows/installer.nsi` (`UNINSTKEY`, a `; Protocol:` change to Tauri's stock template) |
@@ -1156,6 +1214,15 @@ beside an installed upstream build without sharing state:
 | Default recordings folder | `protocol-recordings` | `audio/recording_preferences.rs` |
 | Cargo package and executable | `protocol`, `protocol.exe`; installer variants `protocol-vulkan.exe`, `protocol-vulkan-probe.exe` | `src-tauri/Cargo.toml`, `build-universal-windows.ps1`, `windows/installer-hooks.nsh` |
 | Release assets | `protocol-windows-x64-setup.exe`, `protocol-macos-arm64.{dmg,app.tar.gz}`, `protocol-linux-x86_64.AppImage`, `protocol_<version>_amd64.deb` | `scripts/release/release-lib.mjs` |
+| App, installer and tray icons | the recording ring (#120); the tray's in one colour, with a dot while recording | `frontend/scripts/build-icons.mjs` draws `src-tauri/icons/`; `src-tauri/src/tray/icon.rs` switches the tray's ([ARCHITECTURE.md › Branding assets](../ARCHITECTURE.md#branding-assets)) |
+
+On Windows the installer writes the identifier to its shortcuts as their
+AUMID, and `windows_app_identity.rs` binds the process to the same AUMID
+before any window opens, so the taskbar groups the running window with a
+pinned shortcut. Protocol shows no desktop notifications
+([#126](https://github.com/vmedvedevpro/Protocol/issues/126)): the toast
+registration under `HKCU\Software\Classes\AppUserModelId` that earlier
+versions wrote stays unread, as does `notifications.json`.
 
 The identifier also keys the single-instance lock, WebView storage, plugin
 stores, and the legacy `app_data_dir` migration in `paths.rs`; under the old
@@ -1178,7 +1245,7 @@ busy. The feature note is [AUTO_UPDATE.md](AUTO_UPDATE.md).
 | `updater/install.rs` | Install gate (engine lifecycle lock, busy re-check), exit preparation, per-platform install |
 | `updater/engine.rs`, `cache.rs`, `schedule.rs`, `prefs.rs`, `support.rs`, `journal.rs` | Plugin calls and error mapping, the verified download cache and install marker, check timing and backoff, `updater.json` preferences, which installs can update, `updater.log` |
 | `model_catalog/service.rs` | The model list and model update check, run from the same scheduler tick and switch (see [MODEL_CATALOG.md](MODEL_CATALOG.md)) |
-| `tray.rs`, `quit.rs` | Check for Updates, the available or ready version, Restart to Update; Quit through `quit::request`, which saves a running recording first and then calls `updater::quit_app` |
+| `tray.rs`, `quit.rs` | Check for Updates, the available or ready version, Restart to Update; Quit through `quit::request`, which saves a running recording first, asks about other busy work, and then calls `updater::quit_app` |
 | `contexts/UpdaterContext.tsx`, `lib/updater.ts` | Snapshot mirror, commands, every user-visible sentence |
 | `components/updater/*` | Sidebar pill and panel, Settings › About block, toasts, `UpdaterActivityReporter` |
 
@@ -1248,7 +1315,9 @@ protocol scope). The other 63, by area:
   `get_parallel_processing_status`, `get_system_resources`,
   `check_resource_constraints`, `calculate_optimal_workers`,
   `prepare_audio_chunks`, `test_parallel_processing_setup`.
-- Notifications (recording notifications are unchanged):
+- Notifications (the rest went when
+  [#126](https://github.com/vmedvedevpro/Protocol/issues/126) removed desktop
+  notifications):
   `request_notification_permission`, `show_notification`,
   `show_test_notification`, `is_dnd_active`, `get_system_dnd_status`,
   `set_manual_dnd`, `set_notification_consent`, `clear_notifications`,
@@ -1383,11 +1452,48 @@ label/explanation markup display only the label; the full summary is retained.
 Missing summaries remain an explicit empty state. Cards link to the existing meeting detail route; Home
 refreshes its list on entry after a summary is saved. `StartupTranscriptRecovery`
 now mounts in the shared layout so IndexedDB recovery checks still run when Home
-opens first. Tray/notification start events from Home route to `/` with the
-auto-start flag for the recording hook. Topic extraction remains heuristic and
+opens first. The tray's Start emits `request-recording-toggle` to the main
+window (#110,
+[UI_ARCHITECTURE.md › Tray](UI_ARCHITECTURE.md#tray)). Topic extraction remains heuristic and
 depends on a recognizable Key Topics heading or legacy section. Verification
 covers frontend/native builds and the Windows installer payload; a local installer
 is not a published release.
+
+### Recording playback (#121)
+
+`api_get_meeting_audio` (`api/api.rs`) finds a meeting's playback file and adds
+its folder to the asset protocol scope; the meeting screen's `<audio>`
+(`frontend/src/features/meetings/meeting/player.ts`) plays it from
+`audioSource` in `frontend/src/api/meetings.ts`. On Windows and macOS that is
+the asset protocol (`convertFileSrc`), which WebView2 and WKWebView stream with
+byte ranges. WebKitGTK's media player accepts only blob, data, file, http and
+https URLs (`isProtocolAllowed` in WebKit's `GStreamerCommon.cpp`) and fails
+`asset://` with a FormatError before any request, so on Linux the reply also
+carries `playbackUrl` from `recording_stream.rs`: a loopback HTTP server bound to
+127.0.0.1 that serves only files native registered, each under a random 256-bit
+token, with Range support, at most 32 connections at once; only Linux's CSP
+(`tauri.linux.conf.json`) adds `http://127.0.0.1:*` to `media-src`.
+WebKitGTK copies a streamed recording into an unlinked, 0600 temp file in
+`/var/tmp` while its player exists (GStreamer's download buffering), so memory
+stays flat for long recordings. Verified on WebKitGTK 2.52.6 under Xvfb with
+WAV, M4A and a two-hour AAC `audio.mp4` (playing, and seeking to 1:56:00);
+`recording_stream::tests` cover the ranges, unknown tokens and paths. Whether a
+meeting has audio comes from native, not from playback: a recording the WebView
+cannot play only switches the player off.
+
+Meetings carried over from another computer keep the absolute `folder_path`
+they were saved with (a `C:\…` path on Linux). When that folder is gone,
+`api_get_meeting_audio` looks for a folder of the same name in the current
+recordings folder (`meeting_folder.rs`) and, when there is one, writes its path
+back to `meetings.folder_path`, since retranscription, speakers, the summary
+and Open recording folder read that column too; otherwise it reports
+`missingFolder` and the player says "The recording isn't where it was saved"
+with the folder, not "No audio was saved". A recordings folder setting that is
+not an absolute path on this OS falls back to the default folder on load
+(`preferences_from_store_value`, not written back). Tests:
+`meeting_folder::tests` and
+`another_systems_recordings_folder_falls_back_to_the_default`; checked on Linux
+with a `C:\…` folder path and a `C:\…` recordings folder.
 
 ### AI agents: the MCP server (#8)
 
@@ -1406,45 +1512,43 @@ cannot read safely. Data flow, limits, packaging and the update path:
 
 ### Speaker colors in transcripts
 
-`speakerUtils.ts` supplies the shared dot/text palette for the live and post-call
-virtualized transcript, the live speakers list, the person card and the identify
-dialog. The Tailwind scan must include `src/utils`, where the palette class names
-are declared, or named speakers can render without a dot or text color in
-production. A named person is drawn in their avatar's colour (`colorForName`),
+In the old UI (`162e8be`), `speakerUtils.ts` supplies the shared dot/text
+palette for the live and post-call virtualized transcript, the live speakers
+list, the person card and the identify dialog. A named person is drawn in their avatar's colour (`colorForName`),
 so they look the same in the transcript, the meeting header and their contact
 page; their transcript bubbles take a faint wash of it (`.af-speaker-bubble`).
 Unnamed voices ("Speaker 2") get palette slots by first-spoken meeting order, so
 they stay apart until identified; `You` uses the theme accent. The palette has
 eight slots, so meetings with more than eight unnamed voices reuse colors.
-The focused `tests/lib/speaker-colors.test.mjs` checks slot continuity and the
-contact colour; the Next production CSS output must also contain every dot
-palette class.
 
 ### Themes (#96)
 
-`lib/app-theme.ts` owns the theme. The preference (`light`, `dark` or
-`system`, the default) lives in localStorage under `meetily_theme`, which the
-main window and the minibar share, so a `storage` event repaints the other
-window. Values saved before #96 map on read: Midnight and Charcoal to `dark`,
-Vanilla to `light`. The palettes are channel tokens in `globals.css` under
-`:root[data-theme='light' | 'dark']`; the dark one also carries the `dark`
-class for `dark:` variants and BlockNote. `THEME_BOOT_SCRIPT` paints before
-React with the same rules as `normalizeThemePreference` and must stay in step
-with it.
+`frontend/src/styles/themeMode.ts` owns the theme mode; the rules are in
+[UI_ARCHITECTURE.md](UI_ARCHITECTURE.md). The preference (`light`, `dark` or
+`system`, the default) lives in localStorage under `meetily_theme` as a bare
+string, which the main window and the minibar share, so a `storage` event
+repaints the other window (`AppThemeProvider`). Values saved before #96 map on
+read: Midnight and Charcoal to `dark`, Vanilla to `light`; a missing or
+unknown value reads as `system`. The palettes are the light and dark themes in
+`src/styles/theme.ts`. The boot script in `frontend/index.html` sets
+`color-scheme` before the bundle runs with the same rules as `readThemeMode`
+and must stay in step with it.
 
 `system` reads `prefers-color-scheme`, which under Tauri reports the window's
 theme, not the OS one. So the windows start with no forced theme
-(`tauri.conf.json` and `tauri.windows.conf.json` set none), `applyAppTheme`
+(`tauri.conf.json` and `tauri.windows.conf.json` set none), `AppThemeProvider`
 calls `setTheme(null)` for `system` and `setTheme('light' | 'dark')`
-otherwise, and on Windows Tauri passes each OS switch (tao's
-`WM_SETTINGCHANGE` handling emits `ThemeChanged`) on to WebView2's preferred
-color scheme, where `useAppTheme`'s media query listener picks it up. wry sets
-that scheme on the WebView2 profile, which both windows share, so the last
-window to change its theme sets it for both; while the preference is
-`system` neither window has a forced theme, so they agree.
+otherwise (`setWindowTheme` in `src/api/window.ts`), and on Windows Tauri
+passes each OS switch (tao's `WM_SETTINGCHANGE` handling emits
+`ThemeChanged`) on to WebView2's preferred color scheme, where
+`useResolvedTheme`'s media query listener picks it up. wry sets that scheme on
+the WebView2 profile, which both windows share, so the last window to change
+its theme sets it for both; while the preference is `system` neither window
+has a forced theme, so they agree.
 
-`tests/lib/app-theme.test.ts` checks the mapping of saved values, the
-resolution and that the boot script paints what the module would. The browser
+`src/styles/themeMode.test.tsx` checks the mapping of saved values and the
+resolution, and `src/styles/themeBoot.test.ts` that the boot script paints
+what the module would. The browser
 preview was checked with emulated `prefers-color-scheme`. The OS switch in the
 desktop app rests on tauri-runtime-wry 2.12.3 and tao 0.37.2 as read in their
 source, not on a run in the app; on Linux the media query follows what
@@ -1479,16 +1583,17 @@ General) and Labs > Meeting automation, which only acts on detection's events.
 The code, the saved settings and the `layout.tsx` listeners stay; turning
 detection back on after a fix means flipping both constants. #6 waits for that.
 
-From `frontend/`, run all frontend test files in separate Bun processes. The
-portable runner discovers `tests/**/*.test.{js,mjs,ts,tsx}` and fails if any file
-fails. CI uses the same command, including optional-download, diarization, Labs,
-and audio-level lifecycle tests. Isolation is required: summary-language tests
-define a read-only `window`, while meeting-automation tests install their own
-window; combining them in one Bun process caused repeated CI failures.
+From `frontend/`, the frontend checks are `pnpm run lint`, `pnpm test` (Vitest
+runs every test file in one invocation), `pnpm run build` and
+`pnpm run build-storybook`, as CI's `pr-checks.yml` runs them. Where tests live
+and how they use the mock IPC is in
+[UI_ARCHITECTURE.md › Tests](UI_ARCHITECTURE.md#tests).
 
 ```text
-pnpm dlx bun@1.3.10 scripts/test-isolated.mjs
+pnpm run lint
+pnpm test
 pnpm run build
+pnpm run build-storybook
 ```
 
 Native tests containing `live_nemotron` cover timeline attribution, retained tail,
@@ -1505,9 +1610,10 @@ Run with `--ignored --nocapture --test-threads=1`; a normal unit-test pass does
 not mean these model tests ran. Use nonprivate fixtures and report synthetic
 throughput separately from real-call accuracy and concurrent-ASR performance.
 
-Do not run Next builds concurrently with native commands embedding `frontend/out`
-or with standalone TypeScript checking. When using pnpm in this environment,
-`PNPM_CONFIG_ENABLE_GLOBAL_VIRTUAL_STORE=false` avoids the known store-layout issue.
+Do not run `pnpm run build` concurrently with native commands embedding
+`frontend/out`. When using pnpm in this environment,
+`PNPM_CONFIG_ENABLE_GLOBAL_VIRTUAL_STORE=false` avoids the known store-layout
+issue.
 
 | Note | Purpose |
 | --- | --- |

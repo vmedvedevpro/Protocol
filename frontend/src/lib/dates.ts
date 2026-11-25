@@ -1,97 +1,78 @@
-/** Date wording shared by lists, headers, and search. */
+/**
+ * Dates as the meetings list, a meeting's header, search and a contact's
+ * meetings word them, in the user's locale. `now` and `locale` are parameters so tests pin them.
+ */
 
-const DAY_MS = 86_400_000;
+const DAY_MS = 86_400_000
 
-function startOfDay(date: Date): number {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+/** Calendar days from `date` to `now`: 0 today, 1 yesterday. */
+function daysAgo(date: Date, now: Date): number {
+    const start = (day: Date) => new Date(day.getFullYear(), day.getMonth(), day.getDate()).getTime()
+    return Math.round((start(now) - start(date)) / DAY_MS)
 }
 
 export function parseDate(value?: string | null): Date | null {
-  if (!value) return null;
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? null : date;
+    if (!value) return null
+    const date = new Date(value)
+    return Number.isNaN(date.getTime()) ? null : date
 }
 
-/** Section a date falls in, relative to now: Today, Yesterday, Previous 7 days, … */
-export function dateSection(date: Date, now: Date = new Date()): string {
-  const days = Math.round((startOfDay(now) - startOfDay(date)) / DAY_MS);
-  if (days <= 0) return 'Today';
-  if (days === 1) return 'Yesterday';
-  if (days < 7) return 'Previous 7 days';
-  if (date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth()) return 'Earlier this month';
-  return date.toLocaleDateString(undefined, {
-    month: 'long',
-    year: date.getFullYear() === now.getFullYear() ? undefined : 'numeric',
-  });
+/** The list's section for a meeting: Today, Yesterday, This week, Earlier this month, then a month. */
+export function dateGroup(date: Date, now = new Date(), locale?: string): string {
+    const days = daysAgo(date, now)
+    if (days <= 0) return 'Today'
+    if (days === 1) return 'Yesterday'
+    if (days < 7) return 'This week'
+    if (date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth()) return 'Earlier this month'
+    return date.toLocaleDateString(locale, {
+        month: 'long',
+        year: date.getFullYear() === now.getFullYear() ? undefined : 'numeric',
+    })
 }
 
-export function formatTime(date: Date): string {
-  return date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+export const formatTime = (date: Date, locale?: string) =>
+    date.toLocaleTimeString(locale, {hour: 'numeric', minute: '2-digit'})
+
+function shortDate(date: Date, now: Date, locale?: string) {
+    return date.toLocaleDateString(locale, {
+        month: 'short',
+        day: 'numeric',
+        year: date.getFullYear() === now.getFullYear() ? undefined : 'numeric',
+    })
 }
 
-export function formatShortDate(date: Date, now: Date = new Date()): string {
-  return date.toLocaleDateString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    year: date.getFullYear() === now.getFullYear() ? undefined : 'numeric',
-  });
+/** A row's time, beside its section: "9:30 AM" today and yesterday, "Sat" this week, "Nov 12" before. */
+export function rowWhen(date: Date, now = new Date(), locale?: string): string {
+    const days = daysAgo(date, now)
+    if (days <= 1) return formatTime(date, locale)
+    if (days < 7) return date.toLocaleDateString(locale, {weekday: 'short'})
+    return shortDate(date, now, locale)
 }
 
-/** "Today, 2:30 PM", "Yesterday, 9:00 AM", "Sep 12, 4:15 PM". */
-export function formatWhen(date: Date, now: Date = new Date()): string {
-  const days = Math.round((startOfDay(now) - startOfDay(date)) / DAY_MS);
-  const time = formatTime(date);
-  if (days === 0) return `Today, ${time}`;
-  if (days === 1) return `Yesterday, ${time}`;
-  if (days > 1 && days < 7) return `${date.toLocaleDateString(undefined, { weekday: 'long' })}, ${time}`;
-  return `${formatShortDate(date, now)}, ${time}`;
+/** A day without its time, as a contact's meetings list them: "Today", "Yesterday", "Sat", "Nov 7". */
+export function dayWhen(date: Date, now = new Date(), locale?: string): string {
+    const days = daysAgo(date, now)
+    if (days <= 0) return 'Today'
+    if (days === 1) return 'Yesterday'
+    if (days < 7) return date.toLocaleDateString(locale, {weekday: 'short'})
+    return shortDate(date, now, locale)
 }
 
-/** "in 2 days", "tomorrow", "in 3 hours", "in 12 min", "now". */
-export function formatRelativeFuture(target: Date, now: Date = new Date()): string {
-  const diff = target.getTime() - now.getTime();
-  if (diff <= 5 * 60_000) return diff > -60 * 60_000 ? 'now' : 'earlier';
-  const minutes = Math.round(diff / 60_000);
-  if (minutes < 60) return `in ${minutes} min`;
-  const days = Math.round((startOfDay(target) - startOfDay(now)) / DAY_MS);
-  if (days === 0) {
-    const hours = Math.round(minutes / 60);
-    return `in ${hours} hour${hours === 1 ? '' : 's'}`;
-  }
-  if (days === 1) return 'tomorrow';
-  return `in ${days} days`;
+/** A meeting's header: "Today, 9:30 AM", "Saturday, 3:05 PM", "Nov 12, 4:15 PM". */
+export function headerWhen(date: Date, now = new Date(), locale?: string): string {
+    const days = daysAgo(date, now)
+    const time = formatTime(date, locale)
+    if (days <= 0) return `Today, ${time}`
+    if (days === 1) return `Yesterday, ${time}`
+    if (days < 7) return `${date.toLocaleDateString(locale, {weekday: 'long'})}, ${time}`
+    return `${shortDate(date, now, locale)}, ${time}`
 }
 
-/** "Last seen 3 days ago" style: "today", "yesterday", "3 days ago", "Sep 12". */
-export function formatRelativePast(date: Date, now: Date = new Date()): string {
-  const days = Math.round((startOfDay(now) - startOfDay(date)) / DAY_MS);
-  if (days <= 0) return 'today';
-  if (days === 1) return 'yesterday';
-  if (days < 7) return `${days} days ago`;
-  if (days < 28) {
-    const weeks = Math.round(days / 7);
-    return `${weeks} week${weeks === 1 ? '' : 's'} ago`;
-  }
-  return formatShortDate(date, now);
-}
-
-/** "45m", "1h 05m", "38s". */
-export function formatDuration(seconds?: number | null): string {
-  if (seconds == null || !Number.isFinite(seconds) || seconds <= 0) return '';
-  const total = Math.round(seconds);
-  const h = Math.floor(total / 3600);
-  const m = Math.floor((total % 3600) / 60);
-  if (h > 0) return `${h}h ${String(m).padStart(2, '0')}m`;
-  if (m > 0) return `${m}m`;
-  return `${total}s`;
-}
-
-/** Recording timer: "4:05", "12:34", "1:02:03". */
-export function formatClock(totalSeconds: number): string {
-  const seconds = Math.max(0, Math.floor(totalSeconds));
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  const s = seconds % 60;
-  const mm = String(m).padStart(h > 0 ? 2 : 1, '0');
-  return h > 0 ? `${h}:${mm}:${String(s).padStart(2, '0')}` : `${mm}:${String(s).padStart(2, '0')}`;
+/** "45 min", "1 h 12 min"; under a minute counts as one. Empty without a length. */
+export function formatLength(seconds?: number | null): string {
+    if (seconds == null || !Number.isFinite(seconds) || seconds <= 0) return ''
+    const minutes = Math.max(1, Math.round(seconds / 60))
+    if (minutes < 60) return `${minutes} min`
+    const rest = minutes % 60
+    return rest ? `${Math.floor(minutes / 60)} h ${rest} min` : `${minutes / 60} h`
 }

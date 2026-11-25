@@ -7,20 +7,5 @@
       "installer-variants/*",
       "binaries/onnxruntime/*"
     ]
-  },
-  "app": {
-    "windows": [
-      {
-        "title": "Protocol",
-        "url": "/",
-        "width": 1280,
-        "height": 760,
-        "minWidth": 700,
-        "center": true,
-        "resizable": true,
-        "fullscreen": false,
-        "decorations": false
-      }
-    ]
   }
 }

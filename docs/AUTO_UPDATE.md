@@ -74,8 +74,11 @@ that model lists ask Hugging Face for sizes whether the switch is on or not
 - **Quit.** Tray Quit, and on macOS ⌘Q and Dock Quit, install a downloaded
   update without relaunch when nothing is busy; the next start runs the new
   version. Otherwise they quit as before. A quit during a recording first asks
-  to stop and save it (#32, `quit.rs`); after **Stop and quit** has saved the
-  meeting, the install follows the same gate. macOS and Linux skip the install
+  to stop and save it (#32, `quit.rs`), and one during other busy work asks
+  whether to quit anyway (#121); after **Stop and quit** has saved the
+  meeting, the install follows the same gate. On Unix SIGTERM and SIGINT ask
+  the same questions but never install: a logout would kill the installer
+  midway. macOS and Linux skip the install
   on quit when the app's folder is not writable instead of raising an
   administrator prompt. On Windows only tray Quit installs: closing the window
   hides it to the tray.
@@ -93,6 +96,19 @@ that model lists ask Hugging Face for sizes whether the switch is on or not
   (`protocol-macos-arm64.app.tar.gz`), Linux `linux-x86_64-appimage`. `.deb`
   installs check `linux-x86_64-appimage` too but only show a link. The release
   pipeline (#15) writes the feed and validates the updater configuration.
+- The feed of a release starts with the Windows and Linux keys only: the tag
+  run drafts the release without waiting for the macOS leg, and its
+  `join-macos` job adds `darwin-aarch64-app` and `darwin-aarch64` (signed with
+  the same production key) to the same release's `latest.json` when that leg
+  finishes, also after the release is published (#164,
+  [WORKFLOWS_OVERVIEW.md](../.github/workflows/WORKFLOWS_OVERVIEW.md#macos-joins-later)).
+  Until then a macOS install finds no entry for its platform (`noPlatform`):
+  automatic checks stay silent, a manual check says the version isn't
+  available for macOS yet, and the next check after the join offers it. The
+  join replaces `latest.json` by deleting and uploading it (the Releases API
+  has no atomic replace), so on a published release the feed is missing for a
+  moment on each run of the job; a check that lands then fails as `noRelease`,
+  which is benign, and the next one sees the feed again.
 - `requireSignedVersion: true`: each minisign signature carries the version it
   was made for in its trusted comment, so a tampered feed cannot pair an old
   signed installer with a newer version number. `tauri build` adds the version;

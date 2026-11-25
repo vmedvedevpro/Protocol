@@ -20,11 +20,19 @@ use std::time::Duration;
 use tauri::{AppHandle, Manager, Runtime, WebviewUrl, WebviewWindowBuilder};
 
 const MINIBAR_LABEL: &str = "minibar";
-const MINIBAR_WIDTH: f64 = 680.0;
-// Matches the bar's rendered height. The window is clipped to this rounded
-// rectangle so Windows does not draw a square frame around it.
-const MINIBAR_HEIGHT: f64 = 72.0;
-const MINIBAR_RADIUS: f64 = 24.0;
+// The bar is a pill (features/recording/minibar): small by default, it opens
+// rightwards from its left edge on hover. The window follows the pill's width
+// (`resize_minibar`), so no transparent part of it takes clicks meant for the
+// windows below. The theme's `sizes.minibar` repeats these values.
+// The closed pill (ring, timer, Stop): the window's first size, which it is
+// centred on. GTK never shrinks a non-resizable window below its first size.
+const MINIBAR_CLOSED_WIDTH: f64 = 170.0;
+// The widest the page may ask for: the open pill with room for a longer status.
+const MINIBAR_WIDTH: f64 = 512.0;
+// Matches the pill's height. The window is clipped to this rounded rectangle
+// so Windows does not draw a square frame around it.
+const MINIBAR_HEIGHT: f64 = 52.0;
+const MINIBAR_RADIUS: f64 = 26.0;
 const IPC_CLOSE_DELAY: Duration = Duration::from_millis(500);
 
 // Serialize window lifecycle changes so a queued minimize request cannot race a
@@ -32,9 +40,48 @@ const IPC_CLOSE_DELAY: Duration = Duration::from_millis(500);
 static MINIBAR_LIFECYCLE: Mutex<()> = Mutex::new(());
 static MAIN_HIDDEN_BY_MINIBAR: AtomicBool = AtomicBool::new(false);
 static MINIBAR_GENERATION: AtomicU64 = AtomicU64::new(0);
+// A resize that would run the bar off the right edge moves it left. This is
+// where it stood before (home) and where the shift put it, so a narrower bar
+// goes back home instead of staying shifted; a bar the user dragged since
+// stands elsewhere and takes that as its home.
+static EDGE_SHIFT: Mutex<Option<EdgeShift>> = Mutex::new(None);
 
-/// Drop the square window frame and clip the HWND to the bar's rounded rect.
-fn fit_minibar_shape<R: Runtime>(window: &tauri::WebviewWindow<R>) {
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct EdgeShift {
+    home: i32,
+    shifted: i32,
+}
+
+/// Where a bar `width` physical pixels wide stands, its left edge at `x`
+/// now, on a monitor from `left` to `right`, and the shift to remember.
+fn edge_position(
+    shift: Option<EdgeShift>,
+    x: i32,
+    width: i32,
+    left: i32,
+    right: i32,
+) -> (i32, Option<EdgeShift>) {
+    let home = match shift {
+        Some(shift) if shift.shifted == x => shift.home,
+        _ => x,
+    };
+    let fitted = if home + width > right {
+        (right - width).max(left)
+    } else {
+        home
+    };
+    (
+        fitted,
+        (fitted != home).then_some(EdgeShift {
+            home,
+            shifted: fitted,
+        }),
+    )
+}
+
+/// Drop the square window frame and clip the HWND to the bar's rounded rect,
+/// `width` logical pixels wide.
+fn fit_minibar_shape<R: Runtime>(window: &tauri::WebviewWindow<R>, width: f64) {
     #[cfg(target_os = "windows")]
     {
         use windows_sys::Win32::Graphics::Gdi::{CreateRoundRectRgn, SetWindowRgn};
@@ -49,7 +96,7 @@ fn fit_minibar_shape<R: Runtime>(window: &tauri::WebviewWindow<R>) {
         };
         let hwnd = handle.0;
         let scale = window.scale_factor().unwrap_or(1.0);
-        let width = (MINIBAR_WIDTH * scale).round() as i32;
+        let width = (width * scale).round() as i32;
         let height = (MINIBAR_HEIGHT * scale).round() as i32;
         let radius = (MINIBAR_RADIUS * scale).round() as i32;
 
@@ -76,7 +123,7 @@ fn fit_minibar_shape<R: Runtime>(window: &tauri::WebviewWindow<R>) {
 
     #[cfg(not(target_os = "windows"))]
     {
-        let _ = window;
+        let _ = (window, width);
     }
 }
 
@@ -219,7 +266,7 @@ pub async fn enter_compact_mode<R: Runtime>(
         let window =
             WebviewWindowBuilder::new(&app, MINIBAR_LABEL, WebviewUrl::App("minibar".into()))
                 .title("Recording")
-                .inner_size(MINIBAR_WIDTH, MINIBAR_HEIGHT)
+                .inner_size(MINIBAR_CLOSED_WIDTH, MINIBAR_HEIGHT)
                 .resizable(false)
                 .decorations(false) // frameless: the bar draws its own chrome
                 .transparent(true) // lets the rounded corners read as rounded
@@ -230,16 +277,17 @@ pub async fn enter_compact_mode<R: Runtime>(
                 .build()
                 .map_err(|e| format!("Failed to create compact bar: {}", e))?;
 
-        // Park it top-centre, clear of the title bars of whatever is behind it.
+        // Park the closed pill top-centre, clear of the title bars of whatever
+        // is behind it.
         if let Ok(Some(monitor)) = window.primary_monitor() {
             let size = monitor.size();
             let scale = monitor.scale_factor();
             let screen_w = size.width as f64 / scale;
-            let x = (screen_w - MINIBAR_WIDTH) / 2.0;
+            let x = (screen_w - MINIBAR_CLOSED_WIDTH) / 2.0;
             let _ = window.set_position(tauri::LogicalPosition::new(x.max(0.0), 12.0));
         }
 
-        fit_minibar_shape(&window);
+        fit_minibar_shape(&window, MINIBAR_CLOSED_WIDTH);
         window
     };
 
@@ -285,6 +333,38 @@ pub async fn exit_compact_mode<R: Runtime>(app: AppHandle<R>) -> Result<(), Stri
     Ok(())
 }
 
+/// Fit the bar's window to the pill, `width` logical pixels wide, as the page
+/// measures it opening and closing. The left edge stays, since the pill grows
+/// rightwards; only an open pill that would leave the monitor moves left.
+#[tauri::command]
+pub async fn resize_minibar<R: Runtime>(app: AppHandle<R>, width: f64) -> Result<(), String> {
+    let _lifecycle = MINIBAR_LIFECYCLE
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let Some(bar) = app.get_webview_window(MINIBAR_LABEL) else {
+        return Ok(());
+    };
+    let width = width.clamp(MINIBAR_HEIGHT, MINIBAR_WIDTH);
+    bar.set_size(tauri::LogicalSize::new(width, MINIBAR_HEIGHT))
+        .map_err(|error| error.to_string())?;
+    fit_minibar_shape(&bar, width);
+
+    if let (Ok(Some(monitor)), Ok(position)) = (bar.current_monitor(), bar.outer_position()) {
+        let left = monitor.position().x;
+        let right = left + monitor.size().width as i32;
+        let physical_width = (width * monitor.scale_factor()).round() as i32;
+        let mut shift = EDGE_SHIFT
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let (x, next) = edge_position(*shift, position.x, physical_width, left, right);
+        *shift = next;
+        if x != position.x {
+            let _ = bar.set_position(tauri::PhysicalPosition::new(x, position.y));
+        }
+    }
+    Ok(())
+}
+
 /// Stop the recording from the compact bar. Native shutdown owns both window
 /// teardown and the main-window-only post-processing completion signal.
 #[tauri::command]
@@ -305,4 +385,39 @@ pub async fn stop_recording_from_minibar<R: Runtime>(app: AppHandle<R>) -> Resul
     schedule_close_after_ipc(app);
 
     Ok(outcome? == crate::audio::recording_commands::StopOutcome::Completed)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_bar_shifted_off_the_right_edge_goes_back_once_it_is_narrower() {
+        // A monitor 0..1000; the closed bar stands at 700, 170 wide.
+        let (x, shift) = edge_position(None, 700, 170, 0, 1000);
+        assert_eq!((x, shift), (700, None));
+        // Open, 512 wide, it would run off: it moves left and remembers 700.
+        let (x, shift) = edge_position(shift, 700, 512, 0, 1000);
+        assert_eq!(
+            (x, shift),
+            (
+                488,
+                Some(EdgeShift {
+                    home: 700,
+                    shifted: 488
+                })
+            )
+        );
+        // Closed again, it fits at home.
+        assert_eq!(edge_position(shift, x, 170, 0, 1000), (700, None));
+    }
+
+    #[test]
+    fn a_bar_dragged_after_a_shift_takes_its_new_place_as_home() {
+        let shift = Some(EdgeShift {
+            home: 700,
+            shifted: 488,
+        });
+        assert_eq!(edge_position(shift, 300, 170, 0, 1000), (300, None));
+    }
 }

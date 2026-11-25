@@ -138,8 +138,8 @@ fn install_fatal_error_callback<R: Runtime>(
     });
 }
 
-/// Surfaces a degraded source through the same toast and notification as the
-/// Windows route warning, so the user knows the meeting is only partly captured.
+/// Surfaces a degraded source through the same in-app toast as the Windows
+/// route warning, so the user knows the meeting is only partly captured.
 fn install_capture_warning_callback<R: Runtime>(
     manager: &mut RecordingManager,
     app: &AppHandle<R>,
@@ -147,7 +147,7 @@ fn install_capture_warning_callback<R: Runtime>(
     let app_for_warning = app.clone();
     manager.set_warning_callback(move |error| {
         // Main window only, as for the Windows warning: every window's layout
-        // listens, so a broadcast would toast and notify once per window.
+        // listens, so a broadcast would toast once per window.
         if let Some(window) = app_for_warning.get_webview_window("main") {
             let _ = window.emit(
                 "recording-audio-route-warning",

@@ -7,7 +7,10 @@ name: Updater end-to-end
 # 9.0.1 updated from 9.0.0 and the installed files are the new ones.
 # No secrets, read-only token. See docs/AUTO_UPDATE.md.
 # Runs on every push to main, like the release dry run, and by hand; pull
-# requests run only pr-checks.yml.
+# requests run only pr-checks.yml. The three jobs are independent: a tag
+# needs the windows and linux jobs green, and the macos job, whose runner can
+# take up to a day, gates nothing (#164). A red macos job is fixed in a
+# follow-up like any other change (WORKFLOWS_OVERVIEW.md).
 on:
   push:
     branches: [main]
@@ -210,6 +213,7 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+  # Reports on its own and gates no tag; keep it out of every `needs`.
   macos:
     runs-on: macos-15
     timeout-minutes: 150

@@ -1,0 +1,250 @@
+import {useState} from 'react'
+import {useMutation, useQuery, useQueryClient} from '@tanstack/react-query'
+import {CaretRightIcon, FileZipIcon, PaperPlaneTiltIcon} from '@phosphor-icons/react'
+import styled from 'styled-components'
+import {
+    chooseCrashReportDestination,
+    createCrashReportZip,
+    crashReportKeys,
+    dismissPendingCrashReport,
+    openCrashReportIssue,
+    type PendingCrashReport,
+    pendingCrashReportQuery,
+} from '@/api/crashReport'
+import {Button} from '@/components/ui/Button'
+import {Collapse} from '@/components/ui/Collapse'
+import {Sheet, SheetClose} from '@/components/ui/Sheet'
+import {focusRing} from '@/components/ui/styles'
+import {MOTION_OK} from '@/styles/motion'
+
+type CrashAction = 'send' | 'save' | 'ignore'
+
+const FAILED: Record<CrashAction, string> = {
+    send: "Couldn't prepare the crash report.",
+    save: "Couldn't save the crash report.",
+    ignore: "Couldn't dismiss the crash report.",
+}
+
+/**
+ * How a choice ended: `cancelled` in the save dialog, `done`, or
+ * `browserFailed` when Send saved the ZIP but the browser did not open.
+ */
+type Resolution = 'cancelled' | 'done' | 'browserFailed'
+
+/**
+ * Save asks where to put the ZIP; Send does the same, then opens a GitHub
+ * issue to attach it to. Either ends by dismissing the report, as Ignore
+ * does, once the ZIP is saved.
+ */
+async function resolveReport(action: CrashAction, report: PendingCrashReport): Promise<Resolution> {
+    let resolution: Resolution = 'done'
+    if (action !== 'ignore') {
+        const destination = await chooseCrashReportDestination(report)
+        if (!destination) return 'cancelled'
+        await createCrashReportZip(destination)
+        if (action === 'send') {
+            try {
+                await openCrashReportIssue()
+            } catch (error) {
+                // The ZIP is saved and the user has decided: a report left
+                // pending would offer Send again and write a second ZIP.
+                console.warn('Failed to open the crash report issue:', error)
+                resolution = 'browserFailed'
+            }
+        }
+    }
+    try {
+        await dismissPendingCrashReport()
+    } catch (error) {
+        // The ZIP is saved and the user has decided; the next launch may ask again.
+        console.warn('Failed to dismiss the crash report:', error)
+    }
+    return resolution
+}
+
+function describeCrash(report: PendingCrashReport): string {
+    const what = report.crashType === 'panic'
+        ? 'Protocol encountered an internal error during the previous session.'
+        : 'Protocol did not shut down cleanly during the previous session.'
+    return `${what} Creating or ignoring this report does not include or modify meeting content.`
+}
+
+function formatDetected(detectedAt: string): string {
+    const date = new Date(detectedAt)
+    return Number.isNaN(date.getTime()) ? 'The previous session' : date.toLocaleString()
+}
+
+const Facts = styled.dl`
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: ${({theme}) => theme.space[1.5]} ${({theme}) => theme.space[4]};
+    margin: 0;
+    padding: ${({theme}) => theme.space[2.5]} ${({theme}) => theme.space[3]};
+    border-radius: ${({theme}) => theme.radii.md};
+    background: ${({theme}) => theme.colors.surface};
+
+    dt {
+        color: ${({theme}) => theme.colors.muted};
+    }
+
+    dd {
+        margin: 0;
+        text-align: right;
+    }
+`
+
+const Version = styled.dd`
+    font-family: ${({theme}) => theme.fonts.mono};
+`
+
+const Disclosure = styled.button`
+    display: inline-flex;
+    align-items: center;
+    gap: ${({theme}) => theme.space[1]};
+    margin-top: ${({theme}) => theme.space[3]};
+    padding: 0;
+    border: 0;
+    border-radius: ${({theme}) => theme.radii.xs};
+    background: none;
+    ${({theme}) => theme.text.label};
+    color: ${({theme}) => theme.colors.soft};
+    cursor: pointer;
+    ${focusRing};
+
+    /* The turned caret is the open state, so it shows under reduced motion too; only the turn animates. */
+    &[aria-expanded='true'] svg {
+        transform: rotate(90deg);
+    }
+
+    ${MOTION_OK} {
+        svg {
+            transition: transform ${({theme}) => theme.motion.duration.fast} ${({theme}) => theme.motion.easing.standard};
+        }
+    }
+`
+
+const Small = styled.p`
+    margin-top: ${({theme}) => theme.space[2]};
+    ${({theme}) => theme.text.small};
+    color: ${({theme}) => theme.colors.muted};
+`
+
+const Failure = styled.p`
+    margin-top: ${({theme}) => theme.space[3]};
+    ${({theme}) => theme.text.small};
+    color: ${({theme}) => theme.colors.text};
+    font-weight: ${({theme}) => theme.fontWeights.medium};
+`
+
+/**
+ * The crash report a previous session left, offered once first launch is
+ * done, as the old app did. Closing the sheet without a choice leaves the
+ * report for the next launch.
+ */
+export function CrashReportSheet() {
+    const queryClient = useQueryClient()
+    const {data} = useQuery(pendingCrashReportQuery)
+    // Held after the query empties, so the sheet stays mounted to play its exit.
+    const [report, setReport] = useState<PendingCrashReport | null>(null)
+    if (data && data !== report) setReport(data)
+    const [open, setOpen] = useState(true)
+    const [showIncluded, setShowIncluded] = useState(false)
+
+    const resolve = useMutation({
+        mutationFn: async (action: CrashAction): Promise<Resolution> =>
+            report === null ? 'cancelled' : resolveReport(action, report),
+        onSuccess: (resolution) => {
+            if (resolution === 'cancelled') return
+            // Without the browser the sheet stays open to say where to send the ZIP.
+            if (resolution === 'done') setOpen(false)
+            void queryClient.invalidateQueries({queryKey: crashReportKeys.all})
+        },
+        onError: (error) => console.error('Crash report action failed:', error),
+    })
+    const busy = resolve.isPending
+    const browserFailed = resolve.data === 'browserFailed'
+    // The choice in progress shows a spinner; the other two wait, disabled.
+    const pending = (action: CrashAction) => busy && resolve.variables === action
+
+    if (!report) return null
+
+    return (
+        <Sheet
+            open={open}
+            // Not in the middle of a save: the dialog and the ZIP belong to it.
+            onOpenChange={(next) => !busy && setOpen(next)}
+            title="Protocol encountered a problem"
+            description={describeCrash(report)}
+            footer={browserFailed ? (
+                <SheetClose asChild>
+                    <Button variant="filled">Done</Button>
+                </SheetClose>
+            ) : (
+                <>
+                    <Button
+                        variant="ghost"
+                        disabled={busy}
+                        pending={pending('ignore')}
+                        onClick={() => resolve.mutate('ignore')}
+                    >
+                        Ignore
+                    </Button>
+                    <Button disabled={busy} pending={pending('save')} onClick={() => resolve.mutate('save')}>
+                        <FileZipIcon aria-hidden/>
+                        Save ZIP
+                    </Button>
+                    <Button
+                        variant="filled"
+                        disabled={busy}
+                        pending={pending('send')}
+                        onClick={() => resolve.mutate('send')}
+                    >
+                        <PaperPlaneTiltIcon aria-hidden/>
+                        Send Report
+                    </Button>
+                </>
+            )}
+        >
+            <Facts>
+                <dt>Detected</dt>
+                <dd>{formatDetected(report.detectedAt)}</dd>
+                <dt>Version</dt>
+                <Version>{report.appVersion}</Version>
+            </Facts>
+
+            <Disclosure
+                type="button"
+                aria-expanded={showIncluded}
+                onClick={() => setShowIncluded(!showIncluded)}
+            >
+                <CaretRightIcon size={12} aria-hidden/>
+                What&apos;s included?
+            </Disclosure>
+            <Collapse open={showIncluded}>
+                <Small>
+                    Crash time and type, Protocol version, coarse operating-system details, bucketed CPU core
+                    count, rounded memory size, acceleration backend, and source-relative panic file/line
+                    details with a location fingerprint when available.
+                </Small>
+                <Small>
+                    No audio, recordings, transcripts, summaries, meeting names, database, settings,
+                    credentials, usernames, hostnames, or device names.
+                </Small>
+            </Collapse>
+
+            <Small>
+                Send Report asks where to save the private ZIP, then opens a public GitHub issue. Opening GitHub
+                contacts GitHub; the ZIP stays local until you choose it as an attachment, which uploads it before
+                issue submission.
+            </Small>
+
+            {resolve.isError && <Failure role="alert">{FAILED[resolve.variables]}</Failure>}
+            {browserFailed && (
+                <Failure role="alert">
+                    The ZIP is saved, but the browser didn&apos;t open. Attach it to a new issue at
+                    github.com/vmedvedevpro/Protocol/issues.
+                </Failure>
+            )}
+        </Sheet>
+    )
+}
