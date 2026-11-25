@@ -2,7 +2,9 @@ name: Release build (macOS)
 
 # Called by release.yml. Builds the Apple Silicon DMG and the updater bundle
 # (Protocol.app.tar.gz), ad-hoc signed and not notarized, tests and verifies
-# them, and uploads the leg-macos artifact. No secrets, read-only token.
+# them, and uploads the leg-macos artifact. No secrets, read-only token. The
+# release does not wait for it: release.yml's join-macos (tag) or
+# preview-macos (dry run) adds the artifact when this leg finishes (#164).
 on:
   workflow_call:
     inputs:
