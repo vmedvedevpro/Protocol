@@ -508,12 +508,23 @@ pub async fn get_local_stack_status() -> Result<serde_json::Value, String> {
         m
     };
 
+    // Where a loaded Whisper runs, not only how the build was compiled: a
+    // Vulkan build without a hardware Vulkan device runs on the CPU. Asked
+    // only once a model is loaded, which has listed ggml's devices already.
+    let stt_backend = {
+        use super::acceleration::{whisper_has_gpu, WhisperCompiledBackend};
+        let compiled = WhisperCompiledBackend::current();
+        if !whisper_loaded || whisper_has_gpu(compiled) { compiled } else { WhisperCompiledBackend::Cpu }
+    };
+
     Ok(serde_json::json!({
         "recording": recording,
         "whisper": {
             "loaded": whisper_loaded,
             "model": whisper_model,
             "openvino": whisper_openvino,
+            // Linux: why Whisper stays off the graphics card after a crash.
+            "gpuStopped": super::vulkan::stopped(),
         },
         "parakeet": {
             "loaded": parakeet_loaded,
@@ -530,10 +541,18 @@ pub async fn get_local_stack_status() -> Result<serde_json::Value, String> {
         "vramHintMb": vram_hint_mb,
         "cuda": cfg!(feature = "cuda"),
         "vulkan": cfg!(feature = "vulkan"),
-        "sttBackend": super::acceleration::WhisperCompiledBackend::current().as_str(),
+        "sttBackend": stt_backend.as_str(),
         "networkPolicy": "local-first",
         "networkNote": "No telemetry. Cloud LLM only if you add an API key and select that provider.",
     }))
+}
+
+/// Lets the next start run Whisper on the graphics card again after a crash
+/// kept it on the processor (Linux, whisper_engine/vulkan.rs).
+#[command]
+pub async fn whisper_gpu_retry() -> Result<(), String> {
+    super::vulkan::retry();
+    Ok(())
 }
 
 /// Whether this app can run Whisper on OpenVINO here (#79): the Settings row

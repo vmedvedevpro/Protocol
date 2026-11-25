@@ -186,6 +186,7 @@ async fn prepare_exit<R: Runtime>(app: &AppHandle<R>) {
     crate::whisper_engine::openvino::set_closing(true);
     #[cfg(windows)]
     crate::parakeet_engine::npu::guard::set_closing(true);
+    crate::whisper_engine::vulkan::set_closing(true);
     if let Some(app_state) = app.try_state::<crate::state::AppState>() {
         if let Err(error) = sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)")
             .execute(app_state.db_manager.pool())
@@ -207,6 +208,7 @@ fn resume_after_failed_install() {
     crate::whisper_engine::openvino::set_closing(false);
     #[cfg(windows)]
     crate::parakeet_engine::npu::guard::set_closing(false);
+    crate::whisper_engine::vulkan::set_closing(false);
     if let Err(error) = crate::crash_report::start_session() {
         log::warn!("[updater] could not reopen the crash session: {error}");
     }

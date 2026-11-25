@@ -146,7 +146,7 @@ impl WhisperEngine {
             let threads = whisper_threads();
             let mut state = ctx.create_state()?;
             state.pcm_to_mel(samples, threads)?;
-            let (id, probabilities) = state.lang_detect(0, threads)?;
+            let (id, probabilities) = super::vulkan::first_run(|| state.lang_detect(0, threads))?;
             Ok(whisper_rs::get_lang_str(id)
                 .map(|language| (language.to_string(), probabilities.get(id as usize).copied().unwrap_or(0.0))))
         })
@@ -194,7 +194,7 @@ fn decode_on_new_state<T>(
     read: impl FnOnce(&WhisperState) -> T,
 ) -> Result<Option<T>> {
     let mut state = ctx.create_state()?;
-    match state.full(params, samples) {
+    match super::vulkan::first_run(|| state.full(params, samples)) {
         Ok(_) => Ok(Some(read(&state))),
         Err(WhisperError::GenericError(KV_CACHE_RECREATE_FAILED)) => {
             std::mem::forget(state);

@@ -12,7 +12,7 @@ use tokio::fs;
 use tokio::io::AsyncWriteExt;
 use crate::model_catalog::{self, huggingface, installed, schema::Engine};
 use crate::model_integrity;
-use super::acceleration::{whisper_context_acceleration_for, whisper_gpu_device, WhisperCompiledBackend, WhisperContextAcceleration};
+use super::acceleration::{whisper_context_acceleration_for, whisper_gpu_device, whisper_has_gpu, WhisperCompiledBackend, WhisperContextAcceleration};
 
 const MAX_INITIAL_PROMPT_TOKENS: usize = 224;
 
@@ -26,6 +26,10 @@ pub(crate) fn context_parameters(
         profile.gpu_type,
         profile.performance_tier,
     );
+    if acceleration.use_gpu && !whisper_has_gpu(acceleration.compiled_backend) {
+        acceleration.use_gpu = false;
+        acceleration.flash_attn = false;
+    }
     acceleration.gpu_device = whisper_gpu_device(acceleration.compiled_backend);
     let params = WhisperContextParameters {
         use_gpu: acceleration.use_gpu,
@@ -534,7 +538,7 @@ impl WhisperEngine {
                     // let _suppressor = crate::whisper_engine::StderrSuppressor::new();
 
                     // Load whisper context with hardware-optimized parameters
-                    WhisperContext::new_with_params(&model_info.path, context_param)
+                    super::vulkan::load(context_param.use_gpu, || WhisperContext::new_with_params(&model_info.path, context_param))
                         .map_err(|e| anyhow!("Failed to load model {}: {}", model_name, e))?
                     // Suppressor dropped here, stderr restored
                 };
@@ -598,7 +602,7 @@ impl WhisperEngine {
             return Ok("OpenVINO GPU");
         }
         let (params, acceleration) = context_parameters(&crate::audio::HardwareProfile::detect());
-        let ctx = WhisperContext::new_with_params(path, params)
+        let ctx = super::vulkan::load(params.use_gpu, || WhisperContext::new_with_params(path, params))
             .map_err(|e| anyhow!("Failed to load model {}: {}", path.display(), e))?;
         let mut ctx_guard = self.current_context.write().await;
         self.live_state.lock().await.take();
@@ -875,7 +879,7 @@ impl WhisperEngine {
             Some(state) => state,
             None => live_state.insert(ctx.create_state()?),
         };
-        if let Err(error) = state.full(params, &audio_data) {
+        if let Err(error) = super::vulkan::first_run(|| state.full(params, &audio_data)) {
             // A failed call may leave the state half written: the next call
             // gets a new one.
             live_state.take();
@@ -992,7 +996,7 @@ impl WhisperEngine {
                       transcription_count, audio_data.len(), duration_seconds);
         }
         let mut state = ctx.create_state()?;
-        state.full(params, &audio_data)?;
+        super::vulkan::first_run(|| state.full(params, &audio_data))?;
 
         // Extract text with improved segment handling
         let num_segments = state.full_n_segments();

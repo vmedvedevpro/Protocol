@@ -3,6 +3,7 @@ pub mod post_meeting;
 pub mod decoding;
 pub mod labs;
 pub mod acceleration;
+pub mod vulkan;
 pub mod commands;
 #[cfg(windows)]
 pub mod openvino;
