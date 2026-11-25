@@ -1621,6 +1621,26 @@ WAV, M4A and a two-hour AAC `audio.mp4` (playing, and seeking to 1:56:00);
 meeting has audio comes from native, not from playback: a recording the WebView
 cannot play only switches the player off.
 
+The deb plays through the system's GStreamer. The AppImage's AppRun lets
+GStreamer load plugins only from the image (`GST_PLUGIN_SYSTEM_PATH_1_0`), so
+the image carries them: `bundle.linux.appimage.bundleMediaFramework` in
+`tauri.linux.conf.json` runs linuxdeploy-plugin-gstreamer, which copies the
+files of `GSTREAMER_PLUGINS_DIR`, their libraries and the plugin scanner, and
+writes the AppRun hook that points GStreamer at them. The Linux leg fills that
+directory with the player's plugins only (`scripts/release/appimage-gstreamer.mjs
+stage`, the list with what each is for): playbin and its conversion elements,
+autoaudiosink with pulsesink (also PipeWire through pipewire-pulse; pipewiresink
+has rank none and is never picked) and alsasink, and the containers and decoders
+of recordings (AAC in MP4: qtdemux, aacparse, faad) and of the import formats
+WAV, MP3, FLAC, OGG and WebM (Vorbis, Opus). WMA, and codecs other than these
+inside MKV, do not play. A build without them had no autoaudiosink, and
+WebKitWebProcess aborted as soon as a meeting opened (the first 1.0.0 RC). The
+leg fails when the image lacks a listed plugin or the scanner, or when the
+hook points elsewhere (`appimage-gstreamer.mjs check`, tested in
+`scripts/release/test/appimage-gstreamer.test.mjs`). When neither pulsesink
+nor alsasink opens (no sound server, no device), autoaudiosink falls back to a
+fakesink, so the player still loads and plays, silently.
+
 Meetings carried over from another computer keep the absolute `folder_path`
 they were saved with (a `C:\…` path on Linux). When that folder is gone,
 `api_get_meeting_audio` looks for a folder of the same name in the current

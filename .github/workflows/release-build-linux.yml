@@ -69,7 +69,8 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf \
             libasound2-dev libx11-dev libxtst-dev libxrandr-dev libdbus-1-dev libssl-dev pkg-config \
-            libclang-dev libfuse2 squashfs-tools xvfb file
+            libclang-dev libfuse2 squashfs-tools xvfb file \
+            gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-alsa
       # Whisper on Vulkan (#176): ggml-vulkan needs the Vulkan headers and glslc
       # to build, the SDK Windows builds with (release-build-windows.yml), not
       # Ubuntu 22.04's 1.3.204 headers. -lvulkan links against the SDK's loader
@@ -100,6 +101,14 @@ jobs:
         run: |
           cargo build --release --locked -p protocol-mcp
           cp target/release/protocol-mcp frontend/src-tauri/binaries/protocol-mcp-x86_64-unknown-linux-gnu
+      # WebKitGTK plays recordings through GStreamer, and the AppImage's AppRun
+      # lets GStreamer load plugins from the image only: without them
+      # WebKitWebProcess aborts when a meeting opens. bundleMediaFramework
+      # (tauri.linux.conf.json) copies GSTREAMER_PLUGINS_DIR into the
+      # AppImage; this directory holds only the player's plugins
+      # (scripts/release/appimage-gstreamer.mjs). The deb uses the system's.
+      - name: Stage the AppImage's GStreamer plugins
+        run: node scripts/release/appimage-gstreamer.mjs stage /usr/lib/x86_64-linux-gnu/gstreamer-1.0 "$RUNNER_TEMP/gstreamer-plugins"
       - name: Install frontend dependencies
         working-directory: frontend
         run: pnpm install --frozen-lockfile
@@ -119,7 +128,7 @@ jobs:
           key="$RUNNER_TEMP/build.key"
           node node_modules/@tauri-apps/cli/tauri.js signer generate --ci -w "$key"
           TAURI_SIGNING_PRIVATE_KEY="$key" pnpm exec tauri build --ci --bundles deb --features vulkan --config src-tauri/tauri.deb.conf.json -- --locked
-          TAURI_SIGNING_PRIVATE_KEY="$key" pnpm exec tauri build --ci --bundles appimage --features vulkan -- --locked
+          GSTREAMER_PLUGINS_DIR="$RUNNER_TEMP/gstreamer-plugins" TAURI_SIGNING_PRIVATE_KEY="$key" pnpm exec tauri build --ci --bundles appimage --features vulkan -- --locked
       # The bundled libwayland-client crashes WebKitGTK's EGL setup on some
       # Wayland desktops (upstream's workaround, kept). Repacked with the
       # AppImage's own runtime and squashfs-tools from the distribution, before
@@ -228,6 +237,10 @@ jobs:
           fi
           # The AppImage keeps the pinned ffmpeg next to the executable.
           grep -q '/usr/bin/ffmpeg$' "$appimage_contents"
+          # The player's GStreamer plugins, and AppRun pointing GStreamer at them.
+          unsquashfs -no-progress -o "$offset" -d "$RUNNER_TEMP/appimage-hook" "$appimage" apprun-hooks >/dev/null
+          node scripts/release/appimage-gstreamer.mjs check "$appimage_contents" \
+            "$RUNNER_TEMP/appimage-hook/apprun-hooks/linuxdeploy-plugin-gstreamer.sh"
           mcp_version=$(APPIMAGE_EXTRACT_AND_RUN=1 "$appimage" --mcp-server --version)
           echo "$mcp_version"
           [[ "$mcp_version" == "protocol-mcp "* ]]
