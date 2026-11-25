@@ -30,8 +30,8 @@ export const paths = {
      * new sections there (#114, #117). It replaces the old sessionStorage tab keys.
      */
     settings: (section?: string) => (section ? `/settings?${new URLSearchParams({section})}` : '/settings'),
-    /** A page inside Settings, such as the summary model's (#117 builds them). */
-    settingsPage: (page: 'summary-model' | 'chosen-apps' | 'speech-models') => `/settings/${page}`,
+    /** A page inside Settings, such as the summary model's. */
+    settingsPage: (page: 'summary-model' | 'templates' | 'chosen-apps' | 'agents' | 'speech-models') => `/settings/${page}`,
     /** The minibar window's whole UI. */
     minibar: '/minibar',
 } as const
