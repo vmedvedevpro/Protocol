@@ -422,7 +422,8 @@ enter and exit, indicators and springs.
   before it goes, or the element goes at once. The veil's colour is
   `--surface`, which a surface sets on the element inside it whose content
   swaps (the settings card, the processing strip's content, first launch's
-  download list and microphone card); the window's background otherwise.
+  download list and microphone card, the drop overlay's card, whose dim
+  fades on a layer of its own); the window's background otherwise.
   `statusSwap` (`styles/motion.ts`) is the motion of a status change. Overlays with a
   surface of their own (sheets, menus, select lists, tooltips, toasts, the
   transcript's Latest button) keep their fade. The ring's source button

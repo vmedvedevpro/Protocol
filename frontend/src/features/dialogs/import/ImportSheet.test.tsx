@@ -140,6 +140,20 @@ describe('dropping a file on the window', () => {
         await waitFor(() => expect(screen.queryByText('Drop to import this recording')).not.toBeInTheDocument())
     })
 
+    it('dims the window by a layer of its own and brings the text in under a veil', async () => {
+        renderDialogs()
+        await listened()
+        await act(() => emitMockEvent(DRAG_ENTER, {paths: ['/tmp/call.mp3']}))
+        const card = (await screen.findByText('Drop to import this recording')).parentElement as HTMLElement
+
+        // Text never fades itself: only the dim beside the card and the veil in it do.
+        expect(card.lastElementChild).toHaveAttribute('aria-hidden', 'true')
+        for (let box = card.parentElement; box && box !== document.body; box = box.parentElement) {
+            expect(box.style.opacity).toBe('')
+        }
+        await waitFor(() => expect((card.previousElementSibling as HTMLElement).style.opacity).toBe('1'))
+    })
+
     it('says which formats work when nothing dropped is audio', async () => {
         renderDialogs()
         await listened()

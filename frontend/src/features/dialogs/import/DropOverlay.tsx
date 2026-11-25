@@ -6,7 +6,9 @@ import * as m from 'motion/react-m'
 import styled, {useTheme} from 'styled-components'
 import {AUDIO_FORMATS_TEXT, isAudioPath} from '@/api/audioImport'
 import {type NativeEvent, useNativeEvent} from '@/api/events'
+import {px} from '@/components/ui/styles'
 import {toast} from '@/components/ui/toastStore'
+import {Veil} from '@/components/ui/Veil'
 import {openDialog} from '@/lib/dialogs'
 import {platform} from '@/lib/platform'
 import {tween} from '@/styles/motion'
@@ -18,18 +20,27 @@ const DRAG_DROP_EVENT = 'tauri://drag-drop' as NativeEvent<{ paths: string[] }>
 
 // Under the title strip, like a sheet's scrim; it takes no pointer, since
 // the files are over the window and the webview gets no DOM drag events.
-const Scrim = styled(m.div)`
+const Scrim = styled.div`
     position: fixed;
     inset: ${({theme}) => theme.sizes.titleBar[platform]} 0 0;
     display: flex;
     align-items: center;
     justify-content: center;
     padding: ${({theme}) => theme.space[6]};
-    background: ${({theme}) => theme.colors.scrim};
     pointer-events: none;
 `
 
+// The dim alone fades; the card's text rises under a veil instead, since
+// text never fades itself (and dragging in and out repeats a blink).
+const Dim = styled(m.div)`
+    position: absolute;
+    inset: 0;
+    background: ${({theme}) => theme.colors.scrim};
+`
+
 const Card = styled(m.div)`
+    position: relative;
+    --surface: ${({theme}) => theme.colors.raised};
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -83,17 +94,24 @@ export function DropOverlay() {
     return (
         <AnimatePresence>
             {dragging && (
-                <Scrim
-                    aria-hidden
-                    initial={{opacity: 0}}
-                    animate={{opacity: 1}}
-                    exit={{opacity: 0, transition: tween('base', 'exit')}}
-                    transition={tween('base')}
-                >
-                    <Card initial={{y: theme.space[1]}} animate={{y: 0}} transition={tween('base', 'enter')}>
+                <Scrim key="drop" aria-hidden>
+                    <Dim
+                        initial={{opacity: 0}}
+                        animate={{opacity: 1}}
+                        exit={{opacity: 0, transition: tween('base', 'exit')}}
+                        transition={tween('base')}
+                    />
+                    <Card
+                        initial={{y: theme.space[1]}}
+                        animate={{y: 0}}
+                        exit={{y: theme.space[1], transition: tween('base', 'exit')}}
+                        transition={tween('base', 'enter')}
+                    >
                         <DownloadSimpleIcon size={24} aria-hidden/>
                         <Title>Drop to import this recording</Title>
                         <Formats>{AUDIO_FORMATS_TEXT}</Formats>
+                        {/* Over the dashed border too: the whole card arrives. */}
+                        <Veil outset={px(theme.sizes.radio.ring)}/>
                     </Card>
                 </Scrim>
             )}
