@@ -55,7 +55,8 @@
 - Models and speech runtimes download to each computer and update without a new release.
 - An in-app updater that installs only when you choose.
 - AI agents such as Claude can read your meetings through MCP.
-- Builds for Windows, macOS and Linux (deb and AppImage) from public GitHub Actions runs.
+- Every installer, for Windows, macOS and Linux (deb and AppImage), is built from the tagged source in public GitHub Actions runs; Actually Free builds its Windows installer on its maintainer's computer.
+- Each release carries SHA-256 checksums and signed build provenance, so you can check what a download was built from.
 
 ## Privacy
 
