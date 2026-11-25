@@ -214,12 +214,14 @@ export function MeetingScreen({meetingId}: { meetingId: string }) {
                 hasRecordingFolder={!!meeting.data.folder_path}
                 hasSummary={!!summaryText}
                 canIdentifySpeakers={speakers.available && !speakers.running}
+                canImprove={hasAudio && !!meeting.data.folder_path && !job && !speakers.running}
                 onRename={() => setRenaming(true)}
                 onMove={(folderId) => move.mutate(folderId)}
                 onNewFolder={() => setNaming(true)}
                 onCopyTranscript={() => void copy('transcript')}
                 onCopySummary={() => void copy('summary')}
                 onExport={() => openDialog({kind: 'export', meetingId})}
+                onImprove={() => openDialog({kind: 'enhance', meetingId})}
                 onOpenRecordingFolder={() => void openMeetingFolder(meetingId).catch((error: unknown) =>
                     toast.error('Couldn’t open the recording folder', {description: errorMessage(error)}))}
                 onIdentifySpeakers={speakers.identify}

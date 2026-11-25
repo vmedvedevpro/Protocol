@@ -1,3 +1,4 @@
+import {EnhanceSheet} from './enhance/EnhanceSheet'
 import {ExportSheet} from './export/ExportSheet'
 import {DropOverlay} from './import/DropOverlay'
 import {ImportSheet} from './import/ImportSheet'
@@ -14,6 +15,7 @@ export function DialogHost() {
         <>
             <ImportSheet/>
             <ExportSheet/>
+            <EnhanceSheet/>
             <DropOverlay/>
         </>
     )

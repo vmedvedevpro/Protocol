@@ -1,6 +1,7 @@
-import {act, screen, waitFor, within} from '@testing-library/react'
+import {act, renderHook, screen, waitFor, within} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import {beforeEach, describe, expect, it, vi} from 'vitest'
+import {useDialog} from '@/lib/dialogs'
 import {handlers, type MockArgs} from '@/mocks/handlers'
 import {mockState} from '@/mocks/state'
 import {renderRoute} from '../testing'
@@ -124,6 +125,19 @@ describe('MeetingScreen', () => {
         await userEvent.click(screen.getByRole('menuitem', {name: 'Move to folder'}))
         await userEvent.click(await screen.findByRole('menuitemradio', {name: 'Design Team'}))
         await waitFor(() => expect(screen.getByText(/· Design Team$/)).toBeInTheDocument())
+    })
+
+    it('opens Export and Improve the transcript from the menu', async () => {
+        renderMeeting('meeting-acme-review')
+        const exportDialog = renderHook(() => useDialog('export'))
+        const enhanceDialog = renderHook(() => useDialog('enhance'))
+        await userEvent.click(await screen.findByRole('button', {name: /More actions/}))
+        await userEvent.click(screen.getByRole('menuitem', {name: 'Export…'}))
+        expect(exportDialog.result.current.request).toMatchObject({meetingId: 'meeting-acme-review'})
+
+        await userEvent.click(screen.getByRole('button', {name: /More actions/}))
+        await userEvent.click(await screen.findByRole('menuitem', {name: 'Improve the transcript…'}))
+        expect(enhanceDialog.result.current).toMatchObject({open: true, request: {meetingId: 'meeting-acme-review'}})
     })
 
     it('identifies the speakers again with a count', async () => {

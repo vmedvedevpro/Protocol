@@ -110,6 +110,12 @@ export function dialogsHandlers(state: MockState): Record<string, MockHandler> {
             state.dialogs.writtenFiles.push(body as unknown as Uint8Array)
             return null
         },
+        // api/api.rs: a meeting's own words (Enhance transcript clears them).
+        api_save_meeting_vocabulary: ({meetingId, vocabulary}: MockArgs) => {
+            const list = String(vocabulary ?? '').split(/[,\n\r]/).map((term) => term.trim()).filter(Boolean).join('\n')
+            state.speech.vocabulary.meetings[String(meetingId)] = list
+            return list
+        },
         select_and_validate_audio_command: () => state.dialogs.pickedFile,
         validate_audio_file_command: ({path}: MockArgs) => {
             const file = String(path)
