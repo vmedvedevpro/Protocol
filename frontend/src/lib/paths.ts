@@ -31,7 +31,7 @@ export const paths = {
      */
     settings: (section?: string) => (section ? `/settings?${new URLSearchParams({section})}` : '/settings'),
     /** A page inside Settings, such as the summary model's (#117 builds them). */
-    settingsPage: (page: 'summary-model' | 'chosen-apps') => `/settings/${page}`,
+    settingsPage: (page: 'summary-model' | 'chosen-apps' | 'speech-models') => `/settings/${page}`,
     /** The minibar window's whole UI. */
     minibar: '/minibar',
 } as const

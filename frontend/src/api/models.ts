@@ -10,8 +10,9 @@
  * so `useModelDownloadSync` (`modelDownloadSync.ts`, mounted once by the
  * shell) keeps `downloadsQuery` from the events and refreshes a list when
  * its download ends; `modelState` folds the two into what a screen shows.
- * Cancel, delete and the models chosen for each task belong to Settings
- * (#117).
+ * Settings › Speech models (#117) cancels and removes them; the models chosen
+ * for each task are in `speech.ts`. The Intel GPU version and Intel's
+ * libraries are in `intel.ts`, the speaker engine in `diarization.ts`.
  */
 import {queryOptions} from '@tanstack/react-query'
 import {command} from './core'
@@ -112,6 +113,36 @@ export async function downloadWhisperModel(modelName: string, {enablePostCall = 
     return command<null>('whisper_download_model', {modelName, enablePostCall})
 }
 
+/** Cancels a Parakeet download; resolves once native let go of its partial files, so a retry is safe. */
+export const cancelParakeetDownload = (modelName: string) => command<boolean>('parakeet_cancel_download', {modelName})
+
+/** Cancels a Whisper download; native then sends its error event with "cancelled by user". */
+export const cancelWhisperDownload = (modelName: string) => command<null>('whisper_cancel_download', {modelName})
+
+/**
+ * Removes a Parakeet model's files, whole or broken (the old UI's Remove
+ * used the same command). The live model, if it was this one, is not
+ * changed: a start then reports it missing.
+ */
+export const removeParakeetModel = (modelName: string) => command<string>('parakeet_delete_corrupted_model', {modelName})
+
+/**
+ * Removes a Whisper model's files, whole or broken. `POST_CALL_WHISPER_MODEL`
+ * goes through `uninstallOptionalModel('whisper')` instead, which also puts
+ * back the models that used it.
+ */
+export const removeWhisperModel = (modelName: string) => command<string>('whisper_delete_corrupted_model', {modelName})
+
+/** The models native code activates after their download and removes with their choices (optional_models.rs). */
+export type OptionalModel = 'whisper' | 'nemotron'
+
+/**
+ * Removes Whisper Large V3 Turbo or Nemotron natively: their choices go back
+ * first (the live and after-meeting models, the speaker engine), then the
+ * files. Refused while a recording or a post-call pass runs.
+ */
+export const uninstallOptionalModel = (model: OptionalModel) => command<null>('uninstall_optional_model', {model})
+
 // --- Built-in summary models -----------------------------------------------
 
 /** Serde's internal tagging (`type`), snake_case. Sizes in bytes; 0 when none is on record. */
@@ -190,6 +221,9 @@ export const WHISPER_DOWNLOAD_COMPLETE_EVENT = 'model-download-complete' as Nati
 /** Also a cancel, as "Download cancelled by user". */
 export const WHISPER_DOWNLOAD_ERROR_EVENT = 'model-download-error' as NativeEvent<{modelName: string, error: string, postCallManaged: boolean}>
 
+/** `uninstall_optional_model` removed one (also the Intel GPU version's removal, as `whisper`). */
+export const OPTIONAL_MODEL_REMOVED_EVENT = 'optional-model-removed' as NativeEvent<OptionalModel>
+
 /**
  * Every step of a built-in download comes in this one event: `completed`
  * only after the file is verified, `error` with its message, `cancelled`
@@ -209,7 +243,12 @@ export const BUILTIN_AI_DOWNLOAD_PROGRESS_EVENT = 'builtin-ai-download-progress'
 
 // --- Queries ---------------------------------------------------------------
 
-export type ModelEngine = 'parakeet' | 'whisper' | 'builtIn'
+/**
+ * What downloads: the two speech engines, the built-in summary models,
+ * Nemotron (`diarization.ts`), and on Windows the Intel GPU version and
+ * Intel's libraries alone (`intel.ts`).
+ */
+export type ModelEngine = 'parakeet' | 'whisper' | 'builtIn' | 'nemotron' | 'intelGpu' | 'intelLibraries'
 
 /** A download as the events last told it. A download with no entry runs nowhere, or ran before the listener. */
 export type DownloadState =
@@ -222,6 +261,22 @@ export type DownloadState =
 export type Downloads = Record<string, DownloadState>
 
 export const downloadKey = (engine: ModelEngine, model: string) => `${engine}:${model}`
+
+/** What a download is called where only its key is known, such as the footer's line. */
+const DOWNLOAD_LABELS: Record<ModelEngine, string> = {
+    parakeet: 'Parakeet',
+    whisper: 'Whisper',
+    builtIn: 'the summary model',
+    nemotron: 'NVIDIA Nemotron',
+    intelGpu: 'Whisper for the Intel GPU',
+    intelLibraries: "Intel's libraries",
+}
+
+/** A download's name by its `downloadKey`; a key of no known engine is "a model". */
+export function downloadLabel(key: string): string {
+    const engine = key.slice(0, key.indexOf(':'))
+    return Object.hasOwn(DOWNLOAD_LABELS, engine) ? DOWNLOAD_LABELS[engine as ModelEngine] : 'a model'
+}
 
 export const modelKeys = {
     all: ['models'] as const,

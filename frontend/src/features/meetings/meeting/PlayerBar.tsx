@@ -1,13 +1,15 @@
-import {type KeyboardEvent, useEffect, useRef} from 'react'
+import {type KeyboardEvent, useEffect, useMemo, useRef, useState} from 'react'
 import {PauseIcon, PlayIcon, SpeakerSlashIcon} from '@phosphor-icons/react'
-import styled from 'styled-components'
+import * as m from 'motion/react-m'
+import styled, {css} from 'styled-components'
 import {formatClock} from '@/components/transcript/turns'
 import {Spinner} from '@/components/ui/Spinner'
 import {colorTransition, focusRing} from '@/components/ui/styles'
 import {Tooltip} from '@/components/ui/Tooltip'
 import {useHotkey} from '@/lib/hotkeys'
-import {MOTION_OK, SCALE_FROM} from '@/styles/motion'
-import {type MeetingPlayer, type PlayerStatus, SKIP_SECONDS} from './player'
+import {MOTION_OK, SCALE_FROM, tween} from '@/styles/motion'
+import {waveformBars, waveformPath} from '../lib/waveform'
+import {type MeetingPlayer, PLAYBACK_RATES, type PlayerStatus, SKIP_SECONDS} from './player'
 
 const Bar = styled.div`
     display: flex;
@@ -59,9 +61,58 @@ const Clock = styled.span<{ $muted?: boolean }>`
     color: ${({theme, $muted}) => ($muted ? theme.colors.muted : theme.colors.text)};
 `
 
-// The track fills up to --progress, a CSS variable the clock writes on every
-// frame (never a styled prop: each value would make a new class).
-const Scrubber = styled.input`
+// The track fills up to --progress, a CSS variable the clock writes on the
+// track on every frame (never a styled prop: each value would make a new
+// class); the input and the waveform inherit it.
+const Track = styled.div`
+    position: relative;
+    display: flex;
+    flex: 1;
+    align-items: center;
+    min-width: 0;
+`
+
+const WAVE_HEIGHT = 24
+
+const Wave = styled(m.div)`
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    pointer-events: none;
+
+    svg {
+        position: absolute;
+        left: 0;
+        display: block;
+    }
+`
+
+const Dim = styled.svg`
+    fill: ${({theme}) => theme.colors.border};
+`
+
+// The played part is the same bars clipped at the playhead, so playback moves one clip edge.
+const Played = styled.svg`
+    fill: ${({theme}) => theme.colors.text};
+    clip-path: inset(0 calc(100% - var(--progress, 0%)) 0 0);
+`
+
+const waveTrack = css`
+    &::-webkit-slider-runnable-track {
+        height: ${WAVE_HEIGHT}px;
+        background: transparent;
+    }
+
+    &::-webkit-slider-thumb {
+        width: 2px;
+        height: ${WAVE_HEIGHT}px;
+        margin-top: 0;
+        border-radius: 1px;
+    }
+`
+
+const Scrubber = styled.input<{ $wave: boolean }>`
     flex: 1;
     min-width: 0;
     height: ${({theme}) => theme.space[5]};
@@ -99,7 +150,36 @@ const Scrubber = styled.input`
     &:disabled {
         cursor: default;
     }
+
+    ${({$wave}) => $wave && waveTrack};
 `
+
+/** The recording's loudness behind the scrubber (Labs › Waveform scrubbing), its bars fitted to the width. */
+function Waveform({peaks}: { peaks: readonly number[] }) {
+    const box = useRef<HTMLDivElement>(null)
+    const [width, setWidth] = useState(0)
+    useEffect(() => {
+        const element = box.current
+        if (!element || typeof ResizeObserver === 'undefined') return
+        const observer = new ResizeObserver(([entry]) => setWidth(Math.round(entry.contentRect.width)))
+        observer.observe(element)
+        return () => observer.disconnect()
+    }, [])
+    // A 2 px bar and a 1 px gap.
+    const path = useMemo(() => waveformPath(waveformBars(peaks, Math.floor(width / 3)), width, WAVE_HEIGHT), [peaks, width])
+    const svg = {width, height: WAVE_HEIGHT, viewBox: `0 0 ${width} ${WAVE_HEIGHT}`, 'aria-hidden': true}
+    return (
+        <Wave ref={box} initial={{opacity: 0}} animate={{opacity: 1}} transition={tween('base')}>
+            {width > 0 && (
+                <>
+                    <Dim {...svg}><path d={path}/></Dim>
+                    <Played {...svg}><path d={path}/></Played>
+                </>
+            )}
+        </Wave>
+    )
+}
+
 
 const Speed = styled.button`
     flex: none;
@@ -146,6 +226,10 @@ interface PlayerBarProps {
     playing: boolean
     duration: number
     rate: number
+    /** Labs › Waveform scrubbing: the recording's peaks, drawn behind the scrubber once read. */
+    peaks?: readonly number[] | null
+    /** The speeds the speed button steps through (`SLOW_PLAYBACK_RATES` with the waveform on). */
+    rates?: readonly number[]
 }
 
 /**
@@ -155,10 +239,12 @@ interface PlayerBarProps {
  * speed. The position and the scrubber follow the player's clock through
  * refs, so playback renders nothing.
  */
-export function PlayerBar({player, status, playing, duration, rate}: PlayerBarProps) {
+export function PlayerBar({player, status, playing, duration, rate, peaks, rates = PLAYBACK_RATES}: PlayerBarProps) {
     const position = useRef<HTMLSpanElement>(null)
     const scrubber = useRef<HTMLInputElement>(null)
+    const track = useRef<HTMLDivElement>(null)
     const ready = status === 'ready'
+    const wave = ready && !!peaks && peaks.length > 0
 
     useHotkey({code: 'Space'}, () => player.toggle(), {enabled: ready})
 
@@ -168,7 +254,7 @@ export function PlayerBar({player, status, playing, duration, rate}: PlayerBarPr
         if (!input) return
         input.value = String(seconds)
         input.setAttribute('aria-valuetext', `${formatClock(seconds)} of ${formatClock(duration)}`)
-        input.style.setProperty('--progress', duration > 0 ? `${Math.min(100, (seconds / duration) * 100)}%` : '0%')
+        track.current?.style.setProperty('--progress', duration > 0 ? `${Math.min(100, (seconds / duration) * 100)}%` : '0%')
     }), [player, duration])
 
     if (status === 'unavailable' || status === 'error') {
@@ -205,8 +291,11 @@ export function PlayerBar({player, status, playing, duration, rate}: PlayerBarPr
                 </PlayButton>
             </Tooltip>
             <Clock ref={position}>{formatClock(player.position)}</Clock>
-            <Scrubber
+            <Track ref={track}>
+                {wave && <Waveform peaks={peaks}/>}
+                <Scrubber
                 ref={scrubber}
+                $wave={wave}
                 type="range"
                 aria-label="Playback position"
                 min={0}
@@ -216,10 +305,11 @@ export function PlayerBar({player, status, playing, duration, rate}: PlayerBarPr
                 disabled={!ready}
                 onChange={(event) => player.seek(Number(event.target.value))}
                 onKeyDown={onKeyDown}
-            />
+                />
+            </Track>
             <Clock $muted>{formatClock(duration)}</Clock>
             <Tooltip content="Playback speed">
-                <Speed type="button" disabled={!ready} aria-label={`Playback speed ${rateLabel(rate)}`} onClick={player.nextRate}>
+                <Speed type="button" disabled={!ready} aria-label={`Playback speed ${rateLabel(rate)}`} onClick={() => player.nextRate(rates)}>
                     {rateLabel(rate)}
                 </Speed>
             </Tooltip>

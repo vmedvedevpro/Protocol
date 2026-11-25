@@ -1,6 +1,7 @@
 import {act, renderHook, screen, waitFor, within} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import {beforeEach, describe, expect, it, vi} from 'vitest'
+import {setLab} from '@/api/labs'
 import {useDialog} from '@/lib/dialogs'
 import {handlers, type MockArgs} from '@/mocks/handlers'
 import {mockState} from '@/mocks/state'
@@ -103,6 +104,20 @@ describe('MeetingScreen', () => {
         const options = renderHook(() => useDialog())
         await userEvent.click(await screen.findByRole('button', {name: 'Write the summary again'}))
         expect(options.result.current).toMatchObject({open: true, request: {meetingId: 'meeting-roadmap'}})
+    })
+
+    it('shows the clean transcript with Labs, and every word under Verbatim', async () => {
+        const [first] = mockState.meetings.transcripts['meeting-acme-review']
+        first.text = 'Um, we we start with the pilot.'
+        setLab('cleanTranscript', true)
+        renderMeeting('meeting-acme-review', '?tab=transcript')
+        const transcript = await screen.findByRole('region', {name: 'Transcript'})
+        expect(await within(transcript).findByText('We start with the pilot.')).toBeInTheDocument()
+
+        // The radio is invisible to the pointer; a user clicks its label.
+        await userEvent.click(screen.getByRole('radio', {name: 'Verbatim'}).closest('label') as HTMLElement)
+
+        expect(await within(transcript).findByText('Um, we we start with the pilot.')).toBeInTheDocument()
     })
 
     it('copies the transcript with times and speakers', async () => {

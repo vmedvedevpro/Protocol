@@ -1,5 +1,5 @@
 import {type ReactNode, useState} from 'react'
-import {FileTextIcon, TextAlignLeftIcon, WaveformIcon} from '@phosphor-icons/react'
+import {CpuIcon, FileTextIcon, TextAlignLeftIcon, WaveformIcon} from '@phosphor-icons/react'
 import {AnimatePresence} from 'motion/react'
 import * as m from 'motion/react-m'
 import styled from 'styled-components'
@@ -15,6 +15,7 @@ import type {DownloadRow, RowState} from '../hooks/useFirstLaunchDownloads'
 
 const ICONS: Record<string, ReactNode> = {
     live: <WaveformIcon size={16}/>,
+    npu: <CpuIcon size={16}/>,
     afterMeetings: <FileTextIcon size={16}/>,
     summaries: <TextAlignLeftIcon size={16}/>,
 }

@@ -6,6 +6,9 @@ import type {PlaybackClock} from '@/components/transcript/TranscriptList'
 /** The speeds the speed button steps through, as the design draws them. */
 export const PLAYBACK_RATES = [1, 1.25, 1.5, 2] as const
 
+/** With Labs › Waveform scrubbing on: 0.5× and 0.75× before them. */
+export const SLOW_PLAYBACK_RATES = [0.5, 0.75, ...PLAYBACK_RATES] as const
+
 /** How far ← and → move while the scrubber has focus. */
 export const SKIP_SECONDS = 5
 
@@ -111,9 +114,9 @@ export class MeetingPlayer {
         this.play()
     }
 
-    nextRate = () => {
-        const at = PLAYBACK_RATES.indexOf(this.state.rate as (typeof PLAYBACK_RATES)[number])
-        this.audio.playbackRate = PLAYBACK_RATES[(at + 1) % PLAYBACK_RATES.length]
+    /** The speed after this one; a speed the list lacks (0.5× once Labs is off) goes back to its first. */
+    nextRate = (rates: readonly number[] = PLAYBACK_RATES) => {
+        this.audio.playbackRate = rates[(rates.indexOf(this.state.rate) + 1) % rates.length]
     }
 
     dispose() {

@@ -77,3 +77,50 @@ export const catalogStatusQuery = queryOptions({
  * the same status arrives as `model-catalog-changed`.
  */
 export const checkForModelUpdates = () => command<CatalogStatus>('model_catalog_check_now')
+
+// --- Per-model updates (Settings › Speech models) ----------------------------
+
+/**
+ * Starts the update of an installed model; native downloads it, waits for
+ * work that must not be interrupted, tests it, then swaps it in. Answers the
+ * status, which also arrives as `model-catalog-changed`.
+ */
+export const startModelUpdate = (engine: CatalogEngine, id: string) => command<CatalogStatus>('model_update_start', {engine, id})
+
+/** Cancels an update before it installs. */
+export const cancelModelUpdate = (engine: CatalogEngine, id: string) => command<CatalogStatus>('model_update_cancel', {engine, id})
+
+/**
+ * Asks native to read the sizes a shown list lacks from Hugging Face, in the
+ * background; `sizesVersion` changes when they arrive, and the lists are read
+ * again then.
+ */
+export const requestModelSizes = (engine: CatalogEngine, ids?: string[]) =>
+    command<null>('model_catalog_request_sizes', {engine, ids: ids ?? null})
+
+const same = (engine: CatalogEngine, id: string) => (item: {engine: CatalogEngine, id: string}) =>
+    item.engine === engine && item.id === id
+
+/** What a model's row shows about its update: the running one, the offer, the last failure, a failed check. */
+export function modelUpdateState(status: CatalogStatus | null | undefined, engine: CatalogEngine, id: string) {
+    return {
+        operation: status?.operations.find(same(engine, id)) ?? null,
+        update: status?.updates.find(same(engine, id)) ?? null,
+        failure: status?.updateFailures.find(same(engine, id)) ?? null,
+        checkFailure: status?.checkFailures.find(same(engine, id)) ?? null,
+    }
+}
+
+/** A running update in words, its percent while it downloads. */
+export function updatePhaseLine(operation: ModelUpdateOperation): string {
+    switch (operation.phase) {
+        case 'downloading':
+            return 'Downloading the update'
+        case 'waiting':
+            return 'Downloaded. It installs once recordings, imports and summaries have finished'
+        case 'testing':
+            return 'Checking that the new version loads'
+        case 'installing':
+            return 'Installing the update'
+    }
+}

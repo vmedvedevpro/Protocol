@@ -8,6 +8,7 @@ import {errorMessage} from '@/api/core'
 import {
     foldersQuery,
     isSummaryRunning,
+    meetingAudioQuery,
     meetingFolderQuery,
     meetingQuery,
     meetingsQuery,
@@ -16,17 +17,19 @@ import {
     setMeetingFolderMutation,
     summaryQuery,
 } from '@/api/meetings'
+import {useLab, waveformQuery} from '@/api/labs'
 import {usePostCallJob} from '@/api/postCall'
 import {useUserName} from '@/api/preferences'
 import {Screen} from '@/components/screen/Screen'
 import {useWriteSummary} from '@/components/summary/writeSummary'
 import {meetingDocument, summaryMarkdown, transcriptMarkdown} from '@/components/transcript/meetingText'
 import {Button, IconButton} from '@/components/ui/Button'
-import {TabList, TabPanels, Tabs} from '@/components/ui/SegmentedControl'
+import {SegmentedControl, TabList, TabPanels, Tabs} from '@/components/ui/SegmentedControl'
 import {Spinner} from '@/components/ui/Spinner'
 import {toast} from '@/components/ui/toastStore'
 import {openDialog} from '@/lib/dialogs'
 import {useHotkey} from '@/lib/hotkeys'
+import {cleanTranscriptText} from '@/lib/cleanTranscript'
 import {paths} from '@/lib/paths'
 import {completeSummaryMarkdown, parseSummaryData} from '@/lib/summaryMarkdown'
 import {FolderNameSheet} from '../components/FolderSheets'
@@ -36,7 +39,7 @@ import {parseDate} from '@/lib/dates'
 import {MeetingHeader} from './MeetingHeader'
 import {DeleteMeetingSheet} from './MeetingSheets'
 import {NotesPanel} from './NotesPanel'
-import {useMeetingPlayer} from './player'
+import {SLOW_PLAYBACK_RATES, useMeetingPlayer} from './player'
 import {PlayerBar} from './PlayerBar'
 import {useIdentifySpeakers} from './identifySpeakers'
 import {SpeakerCount} from './SpeakerCount'
@@ -44,6 +47,14 @@ import {SummaryPanel} from './SummaryPanel'
 import {TranscriptPanel} from './TranscriptPanel'
 
 type MeetingTab = 'notes' | 'transcript' | 'summary'
+
+type TextMode = 'clean' | 'verbatim'
+
+/** Labs › Clean transcript: the text as shown; the saved one never changes. */
+const TEXT_MODES: { value: TextMode, label: string }[] = [
+    {value: 'clean', label: 'Clean'},
+    {value: 'verbatim', label: 'Verbatim'},
+]
 
 const TABS: { value: MeetingTab, label: string }[] = [
     {value: 'notes', label: 'Notes'},
@@ -135,6 +146,12 @@ export function MeetingScreen({meetingId}: { meetingId: string }) {
     })
     const {player, state: playback} = useMeetingPlayer(meetingId)
     const hasAudio = playback.status !== 'unavailable' && playback.status !== 'error'
+    // Labs: the waveform and slow speeds in the player, the clean text with its Clean/Verbatim switch.
+    const scrubbing = useLab('transcriptScrubbing')
+    const cleanLab = useLab('cleanTranscript')
+    const [textMode, setTextMode] = useState<TextMode>('clean')
+    const audioPath = useQuery(meetingAudioQuery(meetingId)).data?.path ?? null
+    const peaks = useQuery({...waveformQuery(audioPath ?? ''), enabled: scrubbing && !!audioPath}).data
     const speakers = useIdentifySpeakers(meetingId, hasAudio)
     const {write, starting} = useWriteSummary(meetingId)
 
@@ -212,7 +229,12 @@ export function MeetingScreen({meetingId}: { meetingId: string }) {
     }
 
     return (
-        <Screen bar={<PlayerBar player={player} {...playback}/>}>
+        <Screen bar={<PlayerBar
+            player={player}
+            {...playback}
+            peaks={scrubbing ? peaks : null}
+            rates={scrubbing ? SLOW_PLAYBACK_RATES : undefined}
+        />}>
             <MeetingHeader
                 title={title}
                 createdAt={createdAt}
@@ -240,6 +262,9 @@ export function MeetingScreen({meetingId}: { meetingId: string }) {
                 <Row>
                     <TabList/>
                     <Spacer/>
+                    {tab === 'transcript' && cleanLab && (
+                        <SegmentedControl label="Transcript text" options={TEXT_MODES} value={textMode} onChange={setTextMode}/>
+                    )}
                     {tab === 'transcript' && speakers.available && (
                         <SpeakerCount lines={lines} running={speakers.running} onPick={speakers.identify}/>
                     )}
@@ -266,6 +291,7 @@ export function MeetingScreen({meetingId}: { meetingId: string }) {
                                         playing={playback.playing}
                                         revealLine={line}
                                         onSeek={playback.status === 'ready' ? player.playFrom : undefined}
+                                        clean={cleanLab && textMode === 'clean' ? cleanTranscriptText : undefined}
                                     />
                                 )
                             }

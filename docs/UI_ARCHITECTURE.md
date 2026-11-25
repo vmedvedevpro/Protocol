@@ -132,9 +132,14 @@ minibar window has none of it.
   docks none. The recording bar shows on every screen while a recording
   starts, runs or is being saved, and idle (Record) only where the screen
   sets `recordBar`: Home and the recording screen. The status
-  line of model downloads (#117) goes in the same footer on every screen;
-  with nothing in it, the footer is `:empty` and hidden from the eye and
-  from screen readers.
+  line of model downloads (`DownloadLine`) goes in the same footer on
+  every screen the shell shows once ready (`DownloadLineContext`), not on
+  first launch, which lists its own: what downloads and how far, below
+  100 % until the completion event, or while several run only how many
+  (a mean percent would go back when one more starts); names come from
+  `downloadLabel` (`src/api/models.ts`), and a click opens Settings ›
+  Speech models. With nothing in it, the footer is `:empty` and hidden from the
+  eye and from screen readers.
 - A screen arrives with a fade and a 4 px rise over `base`; the screen it
   replaces leaves at once, so a click never waits for an exit.
 - A screen opened by a navigation focuses its `<main>` (`tabIndex={-1}`,
@@ -179,8 +184,12 @@ minibar window has none of it.
   (`enablePostCall`) and the summary model
   `builtin_ai_get_recommended_model` picks, skipping an installed one; a
   failure moves on to the next, and its row offers Retry. The list is data
-  (`firstLaunchDownloads`): #117 swaps in Whisper's Intel GPU version and
-  adds Intel's NPU libraries there. The run belongs to the app's
+  (`firstLaunchDownloads`): on an Intel GPU (`gpuOffered`) the
+  after-meeting row is Whisper's Intel GPU version (`openvino_download`
+  with `choose`, which native makes the after-meeting model), and on an
+  Intel NPU without that path a row downloads Intel's libraries after
+  Parakeet; both rest on facts that hold for the run, so a finished row
+  stays. Intel downloads go through `trackIntelDownload`. The run belongs to the app's
   `QueryClient`, not the screen, so it goes on after Done, and a failure
   after Done shows as a toast; a download still queued when the window
   reloads is not started, and Settings offers it. Done calls
@@ -715,11 +724,33 @@ levels) skip Query and React state; see Styling and the next section.
   post-call pass and Enhance transcript read it there.
   `src/api/labs.ts` is Labs: Waveform scrubbing and Clean transcript live
   only in `meetily-labs-v1` (`useLab`, `setLab`), which keeps every field
-  the old app wrote; the Whisper silence guard and Parakeet on the GPU are
-  native switches read as queries. Voice profiles, the third native
-  switch, is in `src/api/people.ts` (#118). `lib/cleanTranscript.ts` is
-  what Clean transcript shows. `storedValue` (`lib/storage.ts`) keeps a
+  the old app wrote; the Whisper silence guard, Parakeet on the GPU and
+  voice profiles are native switches read as queries. `lib/cleanTranscript.ts` is
+  what Clean transcript shows, and `summaryCleaner()` what a new summary,
+  manual or automatic, is written from. `waveformQuery` reads a
+  recording's peaks (`get_waveform_peaks`, one file at a time natively, so
+  a refusal is tried again). `storedValue` (`lib/storage.ts`) keeps a
   value under an old key in its old format, for these and the preferences.
+- The rest of the speech models, for Settings (#117): `src/api/models.ts`
+  also cancels and removes models (`*_delete_corrupted_model` for any
+  model; Whisper Large V3 Turbo and Nemotron through
+  `uninstall_optional_model`, which first puts back the choices that used
+  them), and `src/api/modelCatalog.ts` starts and cancels a model's update.
+  What a picker offers and how a model is named (Parakeet v2 not offered,
+  the Intel GPU version, damaged copies, a saved model that is gone) is
+  `src/lib/speechModels.ts`, shared by Settings and the dialogs.
+  `src/api/intel.ts` is Whisper's Intel GPU version, Intel's libraries and
+  Parakeet on the Intel NPU (Windows only; elsewhere the queries answer
+  null), with the offer and its Not now (`meetily-intel-offer-dismissed`,
+  a bare list of devices). Native sends Intel progress by event but no
+  failure event, so `trackIntelDownload` runs an Intel download and keeps
+  its record in `downloadsQuery`, removed only once the statuses say
+  installed. `src/api/diarization.ts` is the speaker engine (Pyannote or
+  Nemotron, downloaded on demand and chosen natively once verified) and
+  `src/api/localStack.ts` what is loaded and the unloads. The sync also
+  follows Nemotron's progress, `openvino-companion-changed`,
+  `openvino-runtime-progress`, `parakeet-npu-status` and
+  `model-catalog-changed`.
 - `src/api/permissions.ts` asks for the microphone and, on macOS, Audio
   Capture, reads the Audio Capture record and opens the privacy panes (macOS
   only). A microphone is usable when the device list has an input. The
@@ -1058,6 +1089,21 @@ recording and hides the main window: minimizing the main window does it
   `model-catalog-changed`); each model's own update is offered on the
   models' pages (#117). Links open with `openLink` (`src/api/links.ts`),
   which logs a failure.
+- The speech half of #117 is `components/speech/`: in AI, the Intel offer,
+  Transcription (the installed models during and after the meeting; a
+  saved model that is gone shows as such), Vocabulary (Save, the 1000
+  characters native keeps), Speakers (a radio group; choosing Nemotron
+  downloads it, its threshold saves 250 ms after the slider rests) and the
+  row to Speech models; in Advanced, Local AI (read every 5 s while shown;
+  both unloads refused during a recording) and Labs (Parakeet on the GPU
+  on Windows only, hidden while the NPU runs Parakeet). Speech models
+  (`SpeechModels`, the `View` of its `PAGES` entry) shows the pair for this
+  computer with its Intel paths, then every Parakeet and Whisper model with
+  its download, Cancel, Retry, Remove after a sheet, a damaged copy's
+  Download again and the catalog's update; every download row there,
+  Nemotron's and the Intel ones included, is a `ModelRow`; native reads missing sizes
+  (`model_catalog_request_sizes`). Tests: `components/speech/*.test.tsx`;
+  stories: `Settings/Speech`.
 - #117 adds the AI and Advanced panels in `SectionView`
   (`pages/SettingsPage.tsx`), the search beside the tabs, and the pages in
   `pages/SettingsSubpage.tsx` (`PAGES`, `paths.settingsPage`) and in
@@ -1152,8 +1198,13 @@ another meeting starts from fresh state).
   Stories: `Meetings/HomeScreen`, `Meetings/PermissionBanner` and
   `Meetings/MeetingScreen`; the screens' stories share `storyRoutes.ts`, so
   a row opens its meeting.
-- Not carried over: the player's waveform, Labs' clean transcript, the
-  Ollama model check before a run (native's error shows), and the speaker
+- Labs (#117): with Waveform scrubbing on, the player draws the
+  recording's loudness behind the scrubber (two copies of the bars, the
+  played one clipped at `--progress`) and adds 0.5× and 0.75×; with Clean
+  transcript on, a Clean/Verbatim switch beside the tabs shows the
+  transcript through `cleanTranscriptText`, and new summaries are written
+  from it. The saved transcript never changes.
+- Not carried over: the Ollama model check before a run (native's error shows), and the speaker
   dialog's engine-specific wording (`diarization_get_status` is #117's;
   Nemotron ignores the count natively).
 

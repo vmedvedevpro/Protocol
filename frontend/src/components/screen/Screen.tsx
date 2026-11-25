@@ -4,6 +4,8 @@ import {useLocation} from 'react-router-dom'
 import styled from 'styled-components'
 import {Veil} from '@/components/ui/Veil'
 import {tween} from '@/styles/motion'
+import {DownloadLine} from './DownloadLine'
+import {DownloadLineContext} from './downloadLineContext'
 import {RecordBarContext} from './recordBar'
 
 // A screen arrives with a 4 px rise under a veil (Veil); the screen it
@@ -53,8 +55,9 @@ export interface ScreenProps {
  * One screen of the main window: its `<main>` and the `<footer>` under it,
  * siblings of the title bar's `<header>`. Every route of the shell renders
  * one, so each screen has the banner, main and contentinfo landmarks and its
- * own h1. The footer is also where the download status line goes on every
- * screen (#117), and where the recording bar docks (`recordBar`).
+ * own h1. The footer is also where the status line of model downloads shows
+ * on every screen once the shell turns it on (`DownloadLineContext`), and
+ * where the recording bar docks (`recordBar`).
  *
  * A screen opened by a navigation takes focus on its `<main>`: the control
  * that navigated (Settings, Back to meetings) leaves with the old screen, and
@@ -63,6 +66,7 @@ export interface ScreenProps {
  */
 export function Screen({bar, recordBar = false, children}: ScreenProps) {
     const renderRecordBar = use(RecordBarContext)
+    const downloads = use(DownloadLineContext)
     const main = useRef<HTMLElement>(null)
     const {key} = useLocation()
     // Read on mount only: a screen that changes its own search params keeps focus.
@@ -85,6 +89,7 @@ export function Screen({bar, recordBar = false, children}: ScreenProps) {
                 <Veil/>
             </Main>
             <Footer>
+                {downloads && <DownloadLine/>}
                 {renderRecordBar?.(recordBar)}
                 {bar}
             </Footer>

@@ -9,6 +9,10 @@ import {Tooltip} from '@/components/ui/Tooltip'
 import {GeneralSection} from '../components/GeneralSection'
 import {RecordingSection} from '../components/RecordingSection'
 import {SimpleSettings} from '../components/SimpleSettings'
+import {IntelOfferBanner} from '../components/speech/IntelOfferBanner'
+import {LabsGroup} from '../components/speech/LabsGroup'
+import {LocalAiGroup} from '../components/speech/LocalAiGroup'
+import {SpeechModelsGroup, TranscriptionGroups} from '../components/speech/TranscriptionGroups'
 import {sectionFromParam, SETTINGS_SECTIONS, type SettingsSection} from '../sections'
 import {useAdvancedSettingsStore} from '../store/advanced'
 
@@ -77,9 +81,22 @@ function SectionView({section}: {section: SettingsSection}) {
         case 'recording':
             return <RecordingSection/>
         case 'ai':
-            return <Note>Transcription, speakers, summaries and speech models are coming soon.</Note>
+            return (
+                <>
+                    <IntelOfferBanner/>
+                    <TranscriptionGroups/>
+                    {/* The summary groups (#117's AI half) go here. */}
+                    <SpeechModelsGroup/>
+                </>
+            )
         case 'advanced':
-            return <Note>Local AI, AI agents and Labs are coming soon.</Note>
+            return (
+                <>
+                    <LocalAiGroup/>
+                    {/* AI agents and Disk (#117's AI half) go here. */}
+                    <LabsGroup/>
+                </>
+            )
     }
 }
 

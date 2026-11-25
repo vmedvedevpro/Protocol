@@ -1,4 +1,5 @@
 import type {Meta, StoryObj} from '@storybook/react-vite'
+import {DEFAULT_LABS, useLabsStore} from '@/api/labs'
 import {postCallJobs} from '@/api/postCall'
 import {StoryWindow} from '@/components/screen/StoryWindow'
 import {mockState} from '@/mocks/state'
@@ -28,6 +29,17 @@ export const Dark: Story = {globals: {theme: 'dark'}}
 export const Transcript: Story = {args: {tab: 'transcript'}}
 
 export const Notes: Story = {args: {tab: 'notes'}}
+
+/** Labs on: the waveform behind the scrubber, 0.5× and 0.75×, and Clean or Verbatim text. */
+export const WithLabs: Story = {
+    args: {tab: 'transcript'},
+    beforeEach: () => {
+        useLabsStore.setState({value: {...DEFAULT_LABS, transcriptScrubbing: true, cleanTranscript: true}})
+        return () => useLabsStore.setState({value: DEFAULT_LABS})
+    },
+}
+
+export const WithLabsDark: Story = {...WithLabs, globals: {theme: 'dark'}}
 
 /** No summary yet: Generate summary writes one (about 2.5 s on the mock). */
 export const NoSummary: Story = {args: {meetingId: 'meeting-untitled'}}

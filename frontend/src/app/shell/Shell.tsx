@@ -4,6 +4,7 @@ import {useNativeEvent} from '@/api/events'
 import {useModelDownloadSync} from '@/api/modelDownloadSync'
 import {useSpeechConfigSync} from '@/api/speech'
 import {TRAY_NAVIGATE_EVENT, TRAY_START_RECORDING_EVENT} from '@/api/tray'
+import {DownloadLineContext} from '@/components/screen/downloadLineContext'
 import {RecordBarContext} from '@/components/screen/recordBar'
 import {DialogHost} from '@/features/dialogs/DialogHost'
 import {UpdateToasts} from '@/features/meetings/home/UpdateToasts'
@@ -93,13 +94,13 @@ export function Shell() {
                     onTopChange={setOnTop}
                 />
                 {phase === 'ready' && (
-                    <>
+                    <DownloadLineContext value>
                         <ShellCommands/>
                         <Outlet/>
                         <CrashReportSheet/>
                         <UpdateToasts/>
                         <DialogHost/>
-                    </>
+                    </DownloadLineContext>
                 )}
                 {phase === 'firstLaunch' && <FirstLaunch/>}
                 {phase !== 'ready' && phase !== 'firstLaunch' && <StartupScreen phase={phase} onRetry={retry}/>}

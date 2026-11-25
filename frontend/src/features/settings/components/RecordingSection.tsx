@@ -4,7 +4,7 @@
  * of the native recording preferences, changed through
  * `useRecordingPreferences` so the fields no row shows are written back.
  */
-import {useEffect, useEffectEvent, useRef, useState} from 'react'
+import {useState} from 'react'
 import {useMutation} from '@tanstack/react-query'
 import {XIcon} from '@phosphor-icons/react'
 import {AnimatePresence} from 'motion/react'
@@ -29,6 +29,8 @@ import {platform as currentPlatform, type Platform} from '@/lib/platform'
 import {tween} from '@/styles/motion'
 import {openRecordingsFolder, pickRecordingsFolder} from '../api/recordingsFolder'
 import {DeviceRow} from './PreferenceRows'
+import {Range, SliderLine, SliderValue} from './styles'
+import {useDebouncedSave} from '../hooks/useDebouncedSave'
 import {useRecordingPreferences} from '../hooks/useRecordingPreferences'
 import {Warning} from './styles'
 
@@ -102,35 +104,6 @@ function SavingGroup() {
     )
 }
 
-const SliderLine = styled.div`
-    display: flex;
-    align-items: center;
-    gap: ${({theme}) => theme.space[3]};
-`
-
-const Range = styled.input`
-    flex: 1;
-    min-width: 0;
-    height: ${({theme}) => theme.sizes.control.sm};
-    margin: 0;
-    background: transparent;
-    accent-color: ${({theme}) => theme.colors.text};
-    cursor: pointer;
-    ${focusRing};
-`
-
-const Times = styled.span`
-    flex: none;
-    min-width: 4ch;
-    ${({theme}) => theme.text.small};
-    font-variant-numeric: tabular-nums;
-    color: ${({theme}) => theme.colors.muted};
-    text-align: right;
-`
-
-// A drag writes the preferences once it rests this long, not on every step.
-const GAIN_SAVE_MS = 250
-
 const times = (gain: number) => `${gain.toFixed(1)}×`
 
 /**
@@ -143,32 +116,8 @@ function GainRow({label, field, meter}: {
     meter?: (gain: number) => LevelFeed | null
 }) {
     const {preferences, save} = useRecordingPreferences()
-    const [draft, setDraft] = useState<number | null>(null)
+    const {draft, change} = useDebouncedSave((value: number) => save({[field]: value}))
     const gain = draft ?? preferences?.[field] ?? 1
-
-    // The last value not yet written, written when the drag rests or the row
-    // goes away, so leaving the page mid-drag keeps it.
-    const pending = useRef<number | null>(null)
-    const timer = useRef<ReturnType<typeof setTimeout>>(undefined)
-    const flush = () => {
-        clearTimeout(timer.current)
-        if (pending.current === null) return
-        save({[field]: pending.current})
-        pending.current = null
-    }
-    const flushOnLeave = useEffectEvent(flush)
-    useEffect(() => () => flushOnLeave(), [])
-
-    const change = (value: number) => {
-        setDraft(value)
-        pending.current = value
-        clearTimeout(timer.current)
-        timer.current = setTimeout(() => {
-            flush()
-            // The mutation has put the value in the query already.
-            setDraft(null)
-        }, GAIN_SAVE_MS)
-    }
 
     const feed = meter?.(gain) ?? null
     return (
@@ -185,7 +134,7 @@ function GainRow({label, field, meter}: {
                     disabled={!preferences}
                     onChange={(event) => change(Number(event.target.value))}
                 />
-                <Times>{times(gain)}</Times>
+                <SliderValue>{times(gain)}</SliderValue>
                 {meter && <LevelMeter level={feed}/>}
             </SliderLine>
         </SettingsRow>

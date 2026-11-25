@@ -1,14 +1,18 @@
 import {createElement, type ReactElement, type ReactNode} from 'react'
 import {QueryClientProvider} from '@tanstack/react-query'
 import {createMemoryRouter, RouterProvider} from 'react-router-dom'
+import {useModelDownloadSync} from '@/api/modelDownloadSync'
+import {useSpeechConfigSync} from '@/api/speech'
 import {useUpdaterStatusSync} from '@/api/updater'
 import {renderUi} from '@/test/renderUi'
 import {createTestQueryClient} from '@/test/queryClient'
 import {settingsRoutes} from './stories/settingsRoutes'
 
-/** What App mounts for Settings: the updater snapshot kept current from its event. */
+/** What App mounts for Settings: the updater snapshot, the downloads and the speech config kept current from their events. */
 function AppSync({children}: {children: ReactNode}) {
     useUpdaterStatusSync()
+    useModelDownloadSync()
+    useSpeechConfigSync()
     return children
 }
 

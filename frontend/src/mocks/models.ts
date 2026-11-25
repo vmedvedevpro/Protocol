@@ -16,8 +16,14 @@ import {
     WHISPER_DOWNLOAD_ERROR_EVENT,
     WHISPER_DOWNLOAD_PROGRESS_EVENT,
     type WhisperModelInfo,
+    OPTIONAL_MODEL_REMOVED_EVENT,
 } from '@/api/models'
+import {DIARIZATION_ENGINE_CHANGED_EVENT} from '@/api/diarization'
+import {POST_CALL_TRANSCRIPT_CONFIG_CHANGED_EVENT, TRANSCRIPT_CONFIG_CHANGED_EVENT} from '@/api/speech'
+import type {MockDiarization} from './diarization'
 import type {MockHandler} from './handlers'
+import {gpuVersionRow, type MockIntel} from './intel'
+import type {MockSpeech} from './speech'
 
 /**
  * Speech and summary models, ported from the old browser preview
@@ -92,8 +98,6 @@ export function createMockModels({fresh = false}: { fresh?: boolean } = {}) {
             (installed && name === RECOMMENDED_SUMMARY_MODEL ? {type: 'available'} : {type: 'not_downloaded'}) as BuiltInModelStatus,
         ])),
         recommendedSummary: RECOMMENDED_SUMMARY_MODEL,
-        /** The after-meeting model a completed `enablePostCall` download saved, as native does in the database. */
-        postCallModel: (installed ? POST_CALL_WHISPER_MODEL : null) as string | null,
         /** Percent a fake download gains each tick; a test raises it to finish in a tick or two. */
         downloadStep: 4,
         /** Downloads (`downloadKey`, such as `parakeet:parakeet-tdt-0.6b-v3-int8`) that fail halfway; a retry succeeds. */
@@ -117,18 +121,32 @@ function send<T>(event: NativeEvent<T>, payload: T) {
     emit(event, payload).catch(() => undefined)
 }
 
+/** A cancelled fake download rejects with this. */
+const CANCELLED = new Error('cancelled')
+
+// Running downloads by `downloadKey`, to cancel them.
+const cancels = new Map<string, () => void>()
+
 /**
  * Steps `progress` from 0 to 100, calling `onTick` with each value below
- * 100; resolves at 100, or rejects halfway when `fails`.
+ * 100; resolves at 100, or rejects halfway when `fails`, and with
+ * `CANCELLED` once `cancels` stops it.
  */
-function fakeDownload(models: MockModels, fails: boolean, onTick: (progress: number) => void): Promise<void> {
+function fakeDownload(models: MockModels, fails: boolean, onTick: (progress: number) => void, key = ''): Promise<void> {
     return new Promise((resolve, reject) => {
         let progress = 0
+        cancels.set(key, () => {
+            clearInterval(timer)
+            running.delete(timer)
+            cancels.delete(key)
+            reject(CANCELLED)
+        })
         const timer = setInterval(() => {
             progress = Math.min(100, progress + models.downloadStep)
             if (fails && progress >= 50) {
                 clearInterval(timer)
                 running.delete(timer)
+                cancels.delete(key)
                 reject(new Error('Network error: connection reset while downloading'))
                 return
             }
@@ -138,6 +156,7 @@ function fakeDownload(models: MockModels, fails: boolean, onTick: (progress: num
             }
             clearInterval(timer)
             running.delete(timer)
+            cancels.delete(key)
             resolve()
         }, TICK_MS)
         running.add(timer)
@@ -160,7 +179,7 @@ const isDownloading = (status: SpeechModelStatus | BuiltInModelStatus | undefine
  * code changes the disk, looking it up on each call, since a reset puts a
  * new one there.
  */
-export function modelsHandlers(state: {models: MockModels}): Record<string, MockHandler> {
+export function modelsHandlers(state: {models: MockModels, speech: MockSpeech, intel: MockIntel, diarization: MockDiarization}): Record<string, MockHandler> {
     const parakeetDownload = async (modelName: string) => {
         const models = state.models
         if (modelName !== PARAKEET_MODEL) throw `Model not found: ${modelName}`
@@ -182,9 +201,14 @@ export function modelsHandlers(state: {models: MockModels}): Record<string, Mock
                     speed_mbps: 12.4,
                     status: 'downloading',
                 })
-            })
+            }, `parakeet:${modelName}`)
         } catch (error) {
             models.parakeet = 'Missing'
+            // Native resolves after a cancel, and says so in a progress event.
+            if (error === CANCELLED) {
+                send(PARAKEET_DOWNLOAD_PROGRESS_EVENT, {modelName, progress: 0, status: 'cancelled'})
+                return null
+            }
             const message = (error as Error).message
             send(PARAKEET_DOWNLOAD_ERROR_EVENT, {modelName, error: message})
             throw `Failed to download Parakeet model: ${message}`
@@ -212,18 +236,20 @@ export function modelsHandlers(state: {models: MockModels}): Record<string, Mock
                 await fakeDownload(models, fails, (progress) => {
                     models.whisper[modelName] = {Downloading: {progress}}
                     send(WHISPER_DOWNLOAD_PROGRESS_EVENT, {modelName, progress})
-                })
+                }, `whisper:${modelName}`)
             } catch (error) {
                 models.whisper[modelName] = 'Missing'
-                const message = (error as Error).message
+                const message = error === CANCELLED ? 'Download cancelled by user' : (error as Error).message
                 send(WHISPER_DOWNLOAD_ERROR_EVENT, {modelName, error: message, postCallManaged: enablePostCall})
                 throw `Failed to download model: ${message}`
             }
             models.whisper[modelName] = 'Available'
         }
         if (enablePostCall) {
+            // Native saves the after-meeting model before it answers; the live one stays.
             send(WHISPER_DOWNLOAD_ACTIVATING_EVENT, {modelName})
-            models.postCallModel = modelName
+            state.speech.postCallConfig = {provider: 'whisper', model: modelName}
+            send(POST_CALL_TRANSCRIPT_CONFIG_CHANGED_EVENT, null)
         }
         send(WHISPER_DOWNLOAD_COMPLETE_EVENT, {modelName, postCallManaged: enablePostCall})
         return null
@@ -247,13 +273,61 @@ export function modelsHandlers(state: {models: MockModels}): Record<string, Mock
 
         // src-tauri/src/whisper_engine/commands.rs
         whisper_init: () => null,
-        whisper_get_available_models: (): WhisperModelInfo[] => WHISPER.map((entry) => ({
-            ...entry,
-            path: `${MODELS_DIR}/ggml-${entry.name}.bin`,
-            status: state.models.whisper[entry.name] ?? 'Missing',
-            languages: ['*'],
-        })),
+        whisper_get_available_models: (): WhisperModelInfo[] => {
+            const list: WhisperModelInfo[] = WHISPER.map((entry) => ({
+                ...entry,
+                path: `${MODELS_DIR}/ggml-${entry.name}.bin`,
+                status: state.models.whisper[entry.name] ?? 'Missing',
+                languages: ['*'],
+            }))
+            const gpuVersion = gpuVersionRow(state.intel)
+            return gpuVersion ? [...list, gpuVersion] : list
+        },
         whisper_download_model: ({modelName, enablePostCall}) => whisperDownload(String(modelName), enablePostCall === true),
+        whisper_cancel_download: ({modelName}) => {
+            cancels.get(`whisper:${String(modelName)}`)?.()
+            return null
+        },
+        whisper_delete_corrupted_model: ({modelName}) => {
+            const name = String(modelName)
+            if (!(name in state.models.whisper)) throw `Failed to delete model: ${name} not found`
+            state.models.whisper[name] = 'Missing'
+            return `Deleted ${name}`
+        },
+        parakeet_cancel_download: ({modelName}) => {
+            cancels.get(`parakeet:${String(modelName)}`)?.()
+            return true
+        },
+        parakeet_delete_corrupted_model: () => {
+            state.models.parakeet = 'Missing'
+            return 'Deleted'
+        },
+
+        // src-tauri/src/optional_models.rs: choices go back first, then the files.
+        uninstall_optional_model: ({model}) => {
+            if (model === 'nemotron') {
+                if (state.diarization.engine === 'nemotron') {
+                    state.diarization.engine = 'pyannote'
+                    send(DIARIZATION_ENGINE_CHANGED_EVENT, 'pyannote')
+                }
+                state.diarization.nemotronInstalled = false
+            } else if (model === 'whisper') {
+                const {speech} = state
+                if (speech.postCallConfig.provider === 'whisper' && speech.postCallConfig.model === POST_CALL_WHISPER_MODEL) {
+                    speech.postCallConfig = {provider: 'live', model: ''}
+                }
+                if (/whisper/i.test(speech.transcriptConfig.provider) && speech.transcriptConfig.model === POST_CALL_WHISPER_MODEL) {
+                    speech.transcriptConfig = {provider: 'parakeet', model: PARAKEET_MODEL}
+                }
+                send(TRANSCRIPT_CONFIG_CHANGED_EVENT, null)
+                send(POST_CALL_TRANSCRIPT_CONFIG_CHANGED_EVENT, null)
+                state.models.whisper[POST_CALL_WHISPER_MODEL] = 'Missing'
+            } else {
+                throw 'Unknown optional model'
+            }
+            send(OPTIONAL_MODEL_REMOVED_EVENT, model)
+            return null
+        },
 
         // src-tauri/src/summary/summary_engine/commands.rs
         builtin_ai_list_models: () => BUILT_IN.map(builtInInfo),

@@ -8,6 +8,7 @@ import {downloadKey, PARAKEET_MODEL, POST_CALL_WHISPER_MODEL} from '@/api/models
 import {onboardingStatusQuery} from '@/api/onboarding'
 import {USER_NAME_KEY} from '@/api/preferences'
 import {handlers} from '@/mocks/handlers'
+import {GPU_VERSION_ID} from '@/mocks/intel'
 import {createMockModels} from '@/mocks/models'
 import {completedOnboarding} from '@/mocks/onboarding'
 import {mockState} from '@/mocks/state'
@@ -74,7 +75,7 @@ describe('First launch', () => {
         await ready('Transcript after meetings')
         await ready('Summaries')
         // Native made Whisper the after-meeting model once it was verified.
-        expect(mockState.models.postCallModel).toBe(POST_CALL_WHISPER_MODEL)
+        expect(mockState.speech.postCallConfig).toEqual({provider: 'whisper', model: POST_CALL_WHISPER_MODEL})
 
         await userEvent.click(screen.getByRole('button', {name: 'Done'}))
 
@@ -84,6 +85,36 @@ describe('First launch', () => {
             model_status: {parakeet: 'downloaded', summary: 'downloaded', selected_summary_model: 'qwen3.5:4b'},
         })
         expect(notification('Downloads continue in the background')).not.toBeInTheDocument()
+    }, 10_000)
+
+    it('downloads Whisper’s Intel GPU version on an Intel GPU, which native makes the after-meeting model', async () => {
+        newInstall()
+        mockState.platform = 'windows'
+        mockState.intel.gpu = true
+        mockState.intel.downloadStep = 50
+        await renderFirstLaunch()
+        await heading('Welcome to Protocol')
+        await userEvent.type(screen.getByRole('textbox', {name: 'What should we call you?'}), 'Ada{Enter}')
+
+        expect(await screen.findByText('Whisper Large V3 Turbo · on the Intel GPU')).toBeInTheDocument()
+        await ready('Transcript after meetings')
+
+        expect(mockState.speech.postCallConfig).toEqual({provider: 'whisper', model: GPU_VERSION_ID})
+        expect(mockState.models.whisper[POST_CALL_WHISPER_MODEL]).toBe('Missing')
+    }, 10_000)
+
+    it('downloads Intel’s libraries for Parakeet on an Intel NPU', async () => {
+        newInstall()
+        mockState.platform = 'windows'
+        mockState.intel.npu = true
+        mockState.intel.downloadStep = 50
+        await renderFirstLaunch()
+        await heading('Welcome to Protocol')
+        await userEvent.type(screen.getByRole('textbox', {name: 'What should we call you?'}), 'Ada{Enter}')
+
+        expect(await screen.findByText('Parakeet · on the Intel NPU')).toBeInTheDocument()
+        await ready('Live text on the Intel NPU')
+        expect(mockState.intel.runtimeInstalled).toBe(true)
     }, 10_000)
 
     it('goes on after a failed download, and Retry downloads it again', async () => {

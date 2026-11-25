@@ -1,5 +1,5 @@
 import {emit} from '@tauri-apps/api/event'
-import {type CatalogStatus, MODEL_CATALOG_CHANGED_EVENT} from '@/api/modelCatalog'
+import {type CatalogEngine, type CatalogStatus, MODEL_CATALOG_CHANGED_EVENT} from '@/api/modelCatalog'
 import type {MockHandler} from './handlers'
 
 // How long a check takes, so "Checking…" shows in pnpm dev; tests skip it.
@@ -44,5 +44,25 @@ export function modelCatalogHandlers(state: {catalog: CatalogStatus}): Record<st
             const now = Date.now()
             return publish({checking: false, source: 'remote', fetchedAt: now, lastCheckedAt: now})
         },
+        // A model update (Settings › Speech models): downloads in five steps, then installs.
+        model_update_start: ({engine, id}) => {
+            const update = state.catalog.updates.find((item) => item.engine === engine && item.id === id)
+            if (!update) throw `No update for ${String(id)}`
+            const totalBytes = update.downloadBytes
+            const step = (doneBytes: number) => publish({
+                operations: [{engine: engine as CatalogEngine, id: String(id), phase: 'downloading', doneBytes, totalBytes}],
+            })
+            let done = 0
+            const timer = setInterval(() => {
+                if (!state.catalog.operations.some((item) => item.id === id)) return clearInterval(timer)
+                done += totalBytes / 5
+                if (done < totalBytes) return void step(done)
+                clearInterval(timer)
+                publish({operations: [], updates: state.catalog.updates.filter((item) => item !== update)})
+            }, 250)
+            return step(0)
+        },
+        model_update_cancel: ({id}) => publish({operations: state.catalog.operations.filter((item) => item.id !== id)}),
+        model_catalog_request_sizes: () => null,
     }
 }
