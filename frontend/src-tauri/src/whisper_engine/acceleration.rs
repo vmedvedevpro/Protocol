@@ -46,6 +46,9 @@ pub struct WhisperContextAcceleration {
 
 impl WhisperContextAcceleration {
     pub fn status_label(self) -> &'static str {
+        if !self.use_gpu {
+            return "CPU processing only";
+        }
         match (self.compiled_backend, self.flash_attn) {
             (WhisperCompiledBackend::Metal, true) => "Metal GPU with Flash Attention (Ultra-Fast)",
             (WhisperCompiledBackend::Metal, false) => "Metal GPU acceleration",
@@ -103,6 +106,24 @@ pub fn first_discrete_gpu_device(kinds: &[GgmlDeviceKind]) -> i32 {
         .unwrap_or(0) as i32
 }
 
+/// Whether ggml registered a device whisper.cpp counts as a GPU.
+pub fn any_gpu_device(kinds: &[GgmlDeviceKind]) -> bool {
+    kinds.iter().any(|kind| *kind != GgmlDeviceKind::Other)
+}
+
+/// Whether a context of `compiled_backend` gets a GPU here. A Vulkan build
+/// without a hardware Vulkan device (no driver, no loader on Linux, only
+/// llvmpipe, which ggml-vulkan skips, or the Linux crash guard keeping the GPU
+/// off) runs on the CPU, and `use_gpu` then says so.
+pub fn whisper_has_gpu(compiled_backend: WhisperCompiledBackend) -> bool {
+    match compiled_backend {
+        #[cfg(feature = "vulkan")]
+        WhisperCompiledBackend::Vulkan => any_gpu_device(&ggml_device_kinds()),
+        WhisperCompiledBackend::Cpu => false,
+        _ => true,
+    }
+}
+
 /// The `gpu_device` for a context of `compiled_backend`. A Vulkan build reads ggml's device
 /// registry, which also initializes the Vulkan instance whisper.cpp then reuses.
 pub fn whisper_gpu_device(compiled_backend: WhisperCompiledBackend) -> i32 {
@@ -139,6 +160,7 @@ pub fn whisper_gpu(compiled_backend: WhisperCompiledBackend) -> Option<WhisperGp
 #[cfg(feature = "vulkan")]
 fn ggml_gpu(gpu_device: i32) -> Option<WhisperGpu> {
     use whisper_rs::whisper_rs_sys as sys;
+    super::vulkan::look_for_devices();
     let text = |pointer: *const std::os::raw::c_char| {
         // SAFETY: the registry's strings live as long as its devices; copied here.
         (!pointer.is_null()).then(|| unsafe { std::ffi::CStr::from_ptr(pointer) }.to_string_lossy().into_owned())
@@ -167,6 +189,7 @@ fn ggml_gpu(gpu_device: i32) -> Option<WhisperGpu> {
 #[cfg(feature = "vulkan")]
 fn ggml_device_kinds() -> Vec<GgmlDeviceKind> {
     use whisper_rs::whisper_rs_sys as sys;
+    super::vulkan::look_for_devices();
     // SAFETY: these registry calls take no pointers except the device handles the registry
     // itself returns, for indices below the count it reports.
     unsafe {
@@ -240,6 +263,25 @@ mod tests {
         assert_eq!(first_discrete_gpu_device(&[Other, IntegratedGpu]), 0);
         assert_eq!(first_discrete_gpu_device(&[Other]), 0);
         assert_eq!(first_discrete_gpu_device(&[]), 0);
+    }
+
+    #[test]
+    fn a_registry_without_gpus_has_no_gpu_device() {
+        use GgmlDeviceKind::{Gpu, IntegratedGpu, Other};
+
+        // ggml-vulkan registers no llvmpipe; the CPU (and BLAS) devices are `Other`.
+        assert!(!any_gpu_device(&[]));
+        assert!(!any_gpu_device(&[Other, Other]));
+        assert!(any_gpu_device(&[Other, IntegratedGpu]));
+        assert!(any_gpu_device(&[Gpu, Other]));
+    }
+
+    #[test]
+    fn a_context_without_the_gpu_reads_as_cpu() {
+        let mut params = whisper_context_acceleration_for(WhisperCompiledBackend::Vulkan, GpuType::None, PerformanceTier::High);
+        assert_eq!(params.status_label(), "Vulkan GPU acceleration");
+        params.use_gpu = false;
+        assert_eq!(params.status_label(), "CPU processing only");
     }
 
     #[test]

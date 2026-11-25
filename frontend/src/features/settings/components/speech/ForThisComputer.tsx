@@ -17,11 +17,11 @@ import {
     retryIntelGpu,
     retryNpu,
 } from '@/api/intel'
-import {gpuFallbackReason, localStackQuery} from '@/api/localStack'
+import {gpuFallbackReason, localStackKeys, localStackQuery, retryWhisperGpu} from '@/api/localStack'
 import {trackIntelDownload} from '@/api/modelDownloadSync'
 import {PARAKEET_MODEL, POST_CALL_WHISPER_MODEL} from '@/api/models'
 import {Button} from '@/components/ui/Button'
-import {SettingsGroup} from '@/components/ui/SettingsRow'
+import {SettingsGroup, SettingsRow} from '@/components/ui/SettingsRow'
 import {StatusLine} from '@/components/ui/StatusLine'
 import {toast} from '@/components/ui/toastStore'
 import {formatModelSize} from '@/lib/sizes'
@@ -78,6 +78,11 @@ export function ForThisComputer() {
     const cancelIntel = (id: string) => void cancelIntelDownload(id).catch(() => undefined)
     const retry = (action: () => Promise<unknown>) => () =>
         void action().catch((error) => toast.error('That didn’t work', {description: intelError(error)})).finally(refresh)
+    // The GPU's devices are read once per process, so the retry waits for the next start.
+    const retryGpu = () => void retryWhisperGpu()
+        .then(() => toast.success('Whisper tries the graphics card again', {description: 'From the next start of Protocol on.'}))
+        .catch((error) => toast.error('That didn’t work', {description: intelError(error)}))
+        .finally(() => void queryClient.invalidateQueries({queryKey: localStackKeys.all}))
 
     const parakeetRow = live && (
         <ModelRow
@@ -155,10 +160,20 @@ export function ForThisComputer() {
         />
     )
 
+    // Linux: a row of its own, so it shows whichever Whisper row this computer has, or none.
+    const gpuStoppedRow = stack?.whisper.gpuStopped && (
+        <SettingsRow
+            label="Graphics card"
+            description={<Warning role="status" title={stack.whisper.gpuStopped}>It didn’t start last time, so Whisper runs on the processor</Warning>}
+            control={<Button size="sm" variant="ghost" onClick={retryGpu}>Try again</Button>}
+        />
+    )
+
     return (
         <SettingsGroup title="For this computer">
             {parakeetRow}
             {whisperRow}
+            {gpuStoppedRow}
             {librariesRow}
             {offered && !offered.installed && (
                 <ModelRow

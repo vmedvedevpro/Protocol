@@ -6,6 +6,13 @@
 use log;
 use env_logger;
 
+// ggml-vulkan's direct Vulkan calls, answered here so the executable does not
+// link `libvulkan.so.1` and starts without it (whisper_engine/vulkan.rs). In
+// the binary, not the library: the linker takes them from an object file
+// before it reaches `-lvulkan`, which `--as-needed` then drops.
+#[cfg(all(target_os = "linux", feature = "vulkan"))]
+app_lib::export_vulkan_symbols!();
+
 fn main() {
     // A short-lived copy of the app reports TCC's uncached Audio Capture status
     // (see audio/permissions.rs). Exit before logging or Tauri start.

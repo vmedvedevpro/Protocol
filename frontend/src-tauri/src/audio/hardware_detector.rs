@@ -165,7 +165,8 @@ impl HardwareProfile {
     fn has_vulkan_support() -> bool {
         if std::env::var("VULKAN_SDK").is_ok() ||
             std::path::Path::new("/usr/lib/x86_64-linux-gnu/libvulkan.so").exists() ||
-            std::path::Path::new("/usr/lib/libvulkan.so").exists()
+            std::path::Path::new("/usr/lib/libvulkan.so").exists() ||
+            std::path::Path::new("/usr/lib/x86_64-linux-gnu/libvulkan.so.1").exists() || std::path::Path::new("/usr/lib/libvulkan.so.1").exists()
         {
             return true;
         }

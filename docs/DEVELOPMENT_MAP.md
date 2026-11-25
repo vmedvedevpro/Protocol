@@ -973,6 +973,93 @@ installed and the GPU whisper.cpp would use is an Intel GPU OpenVINO lists
   decides whether the download is offered and, once the runtime is
   installed, names the device or the mismatch.
 
+### Whisper on Vulkan in the Linux app
+
+The Linux AppImage and deb are one build with `--features vulkan` (#176).
+Whisper runs on a hardware Vulkan GPU (Mesa on Intel and AMD, NVIDIA's
+driver) and otherwise on the CPU; Windows instead installs a CPU or a Vulkan
+executable after its probe (below). `whisper_engine/vulkan.rs` holds both
+parts:
+
+- The loader. ggml-vulkan calls three Vulkan functions by symbol
+  (`vkGetInstanceProcAddr`, `vkGetPhysicalDeviceFeatures2`,
+  `vkCmdCopyBuffer`) and the rest through vulkan.hpp's dynamic dispatcher.
+  `main.rs` defines the three (`export_vulkan_symbols!`) and forwards them
+  to the system loader, so the executable, linked with
+  `--as-needed`, has no `DT_NEEDED` on `libvulkan.so.1`: it starts without a
+  Vulkan loader, and linuxdeploy, which follows `DT_NEEDED`, bundles none (the
+  AppImage excludelist does not list `libvulkan.so.1`, so a linked loader
+  would be bundled). The forwarder opens the system's `libvulkan.so.1` on its
+  first call. Without one, or while the guard keeps the GPU off, it answers
+  `vkEnumerateInstanceVersion` with `VK_ERROR_INITIALIZATION_FAILED` and
+  everything else with `NULL`: `ggml_backend_vk_reg` catches the
+  `vk::SystemError`, no Vulkan backend registers, and no driver code runs.
+  The lib's test binary defines the same symbols (`cfg(test)` in
+  `vulkan.rs`), so the tests and the measurement kit take this path too.
+- The device. ggml-vulkan registers discrete and integrated GPUs and skips
+  `VK_PHYSICAL_DEVICE_TYPE_CPU` devices (llvmpipe); with no GPU it registers
+  none. `context_parameters` then turns `use_gpu` off
+  (`acceleration::whisper_has_gpu`), the log says "CPU processing only" and
+  `get_local_stack_status` reports `sttBackend` `CPU` for a loaded model, so
+  Settings says "processor". `GGML_VK_VISIBLE_DEVICES=` (empty) keeps every
+  device from ggml: the way to stay on the processor with a driver that
+  works but misbehaves.
+- The crash guard, `parakeet_engine::npu::guard`'s pattern with its own
+  marker `<data>/runtimes/whisper-vulkan.attempt`, around the steps where a
+  broken driver crashes the process: `look_for_devices` (the first
+  `ggml_backend_dev_count`, which creates the instance and loads the
+  drivers; called before every whisper.cpp context, also the model check's in
+  `model_catalog/service.rs`), `load` (a GPU context: device, buffers,
+  weights) and `first_run` (the first inference of each model loaded on the
+  GPU, which compiles the shaders ggml needs for its operations and weight
+  type on demand; `load` rearms it; live, post-meeting, `transcribe_audio`,
+  language detection). A marker found at start keeps the loader closed: Whisper runs on
+  the processor and `whisper.gpuStopped` carries the reason; For this computer
+  shows it on the Whisper row with Try again (`whisper_gpu_retry`), which
+  removes the marker and takes effect at the next start, since ggml lists its
+  devices once per process. `RunEvent::Exit` and the updater's exit remove a
+  marker a clean quit leaves (`set_closing`).
+- Build and packaging (`release-build-linux.yml`): the LunarG SDK 1.4.309.0
+  that Windows builds with (headers and `glslc`; Ubuntu 22.04's are 1.3.204),
+  and `-lvulkan` against its loader through `LIBRARY_PATH`. `tauri.deb.conf.json` adds `libvulkan1` to
+  `Depends`. The leg fails if the deb does not depend on it, if the executable
+  links `libvulkan`, if it lacks ggml-vulkan, or if the AppImage carries a
+  Vulkan loader.
+
+Tests: `whisper_engine::vulkan::tests` (the marker, a retry, a clean quit, a
+panicking step, the answers without a loader),
+`whisper_engine::vulkan::linux::tests::the_first_inference_of_each_gpu_model_is_guarded`,
+`acceleration::tests::a_registry_without_gpus_has_no_gpu_device` and
+`a_context_without_the_gpu_reads_as_cpu`, and the For this computer test in
+`SpeechSettings.test.tsx`. On this laptop both binaries have no `DT_NEEDED`
+on `libvulkan.so.1` (`readelf -d`), and a driver that crashes when the loader
+first calls it (a fake ICD through `VK_DRIVER_FILES`) took the measurement
+kit down once with SIGSEGV in "looking for the graphics card"; the next run,
+with the same driver, kept the loader closed and transcribed on the CPU.
+
+Measured on this laptop (Core Ultra X7 358H, Intel Arc B390 with Mesa 26.2
+Vulkan, Kubuntu 26.10; the owner was using it, load average 2–5.5) with
+`measure::transcribe_settings` on `fleurs-ru` (`ru`, `post-meeting,live`,
+the order swapped every second run), three runs per build, main's CPU build
+against this branch's Vulkan build; medians with the range, in seconds:
+
+| Model | Setting | CPU | Vulkan | WER CPU → Vulkan |
+| --- | --- | ---: | ---: | --- |
+| Large V3 Turbo q5_0 | post-meeting | 222.1 (216.4–249.8) | 18.5 (17.8–18.6) | 0.064 → 0.064 (26/1/1 both) |
+| Large V3 Turbo q5_0 | live | 619.3 (610.0–624.4) | 33.0 (32.8–33.8) | 0.108 → 0.108 (27/10/10 both) |
+| Small | post-meeting | 66.6 (66.5–67.0) | 16.9 (16.8–17.4) | 0.145 → 0.143 (31/32/0 → 30/32/0) |
+| Small | live | 135.4 (132.3–136.3) | 12.6 (12.5–12.8) | 0.228 → 0.228 (40/45/14 both) |
+
+Each build gave the same text in all three runs; the one word Small's
+post-meeting pass gets right on Vulkan is the backends' different float
+arithmetic, not a change in decoding. The CPU build uses whisper.cpp's
+default of 4 threads (the app's `max_threads` is not applied, see above).
+Remaining limits: the
+Linux release leg builds the packages only on `main`, and its runner has no
+GPU, so the GPU path is verified on this laptop only (Intel Arc B390, Mesa);
+no AMD or NVIDIA machine, no hybrid laptop; the guard covers each GPU
+model's first inference, not later ones.
+
 ### Parakeet on the Intel NPU
 
 On Windows with an Intel NPU, Parakeet v3's encoder runs on the NPU through
@@ -1165,7 +1252,8 @@ the deb carries `usr/bin/ffmpeg` or does not depend on `ffmpeg`, or if the
 AppImage lacks its own. The config is compiled into the binary, so the two
 packages hold separate builds of the same commit. A local
 `tauri build --bundles deb` without that `--config` still packs the pinned
-ffmpeg.
+ffmpeg. Both builds take `--features vulkan`, and the deb also depends on
+`libvulkan1` ([Whisper on Vulkan in the Linux app](#whisper-on-vulkan-in-the-linux-app)).
 
 **Migration checksums.** sqlx stores a SHA-384 per applied migration and refuses
 a binary whose embedded bytes differ. The ten historical migrations
@@ -1197,8 +1285,9 @@ are unsigned (SmartScreen and Gatekeeper warnings); Linux packages are built and
 started in CI only, and their native tests do not block; a release run with cold
 caches takes about 40 minutes (the Windows leg about 35), and whether tag runs
 restore the caches `main` runs save is not yet observed; `llama-helper` is
-CPU-only on Windows and Linux; the Vulkan/CPU choice happens at install and
-update time, not at launch.
+CPU-only on Windows and Linux; on Windows the Vulkan/CPU choice happens at
+install and update time, not at launch (Linux decides at launch, see
+[Whisper on Vulkan in the Linux app](#whisper-on-vulkan-in-the-linux-app)).
 
 ### Fork identity and updates
 

@@ -531,6 +531,7 @@ pub fn run() {
             whisper_engine::commands::force_unload_stt_models,
             whisper_engine::commands::force_unload_all_models,
             whisper_engine::commands::get_local_stack_status,
+            whisper_engine::commands::whisper_gpu_retry,
             whisper_engine::commands::get_openvino_availability,
             whisper_engine::commands::get_cuda_reconfiguration_status,
             whisper_engine::commands::whisper_has_available_models,
@@ -786,6 +787,7 @@ pub fn run() {
                     whisper_engine::openvino::set_closing(true);
                     #[cfg(windows)]
                     parakeet_engine::npu::guard::set_closing(true);
+                    whisper_engine::vulkan::set_closing(true);
                     tauri::async_runtime::block_on(async {
                         // Clean up database connection and checkpoint WAL
                         if let Some(app_state) = _app_handle.try_state::<state::AppState>() {

@@ -15,7 +15,7 @@ or Apple certificate yet).
 | `release.yml` | tag `v*`; pushes to `main` and manual runs as **dry runs** | Validates, runs the checks, builds all three platforms, creates the draft from Windows and Linux and adds macOS when its leg finishes (tag), or the same as dry-run artifacts |
 | `release-build-windows.yml` | called by `release.yml` | `windows-2022`: CPU + Vulkan installer, native tests, payload check, install/start/uninstall on the runner |
 | `release-build-macos.yml` | called by `release.yml` | `macos-15`: Apple Silicon DMG and updater bundle, native tests, bundle checks, two launches; nothing waits for it |
-| `release-build-linux.yml` | called by `release.yml` | `ubuntu-22.04`: AppImage and deb as two builds (the deb uses the distribution's ffmpeg), package checks, start under Xvfb; native tests do not block yet |
+| `release-build-linux.yml` | called by `release.yml` | `ubuntu-22.04`: AppImage and deb as two builds with Whisper on Vulkan (the deb uses the distribution's ffmpeg and depends on `libvulkan1`), package checks, start under Xvfb; native tests do not block yet |
 | `updater-e2e.yml` | manual runs, before a release (macOS only with `-f macos=true`) | On each platform, an old build under a test identity updates itself to a new one from a localhost feed ([AUTO_UPDATE.md](../../docs/AUTO_UPDATE.md)); the macOS job gates no tag |
 | `release-published.yml` | release published | Downloads the public assets anonymously and checks checksums, `latest.json`, signatures and `/releases/latest`, for the platforms the release has by then |
 
@@ -303,7 +303,8 @@ version. No other secrets are used.
   `macos-15` (arm64), `ubuntu-22.04` for the Linux packages (oldest supported
   glibc), `ubuntu-24.04` for the rest. Rust 1.99.1 in every leg.
 - Caches: Rust per leg (`swatinem/rust-cache`), the pnpm store, the LLVM 18
-  archive (Windows). The Vulkan SDK installer is downloaded on every run: the
+  archive (Windows). The Vulkan SDK (1.4.309.0, for the Windows Vulkan build
+  and the Linux packages) is downloaded on every run in both legs: the
   cache of `humbletim/install-vulkan-sdk` is off because it uses
   `actions/cache@v4`, which targets Node.js 20. Caches saved by a `main` run
   are visible to later `main` runs, to pull requests and, by GitHub's rule

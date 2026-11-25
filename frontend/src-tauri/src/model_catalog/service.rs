@@ -478,7 +478,9 @@ fn hooks<R: Runtime>(app: AppHandle<R>, entry: &Entry) -> Hooks {
                     Engine::Whisper => {
                         let path = dir.join(file);
                         tokio::task::spawn_blocking(move || {
-                            // On the CPU, so the GPU stays with the loaded model.
+                            // On the CPU, so the GPU stays with the loaded model;
+                            // whisper.cpp still lists ggml's devices first.
+                            crate::whisper_engine::vulkan::look_for_devices();
                             let params = whisper_rs::WhisperContextParameters { use_gpu: false, ..Default::default() };
                             whisper_rs::WhisperContext::new_with_params(&path, params)
                                 .map(drop)
