@@ -163,8 +163,9 @@ interface MeetingListProps {
  * The meetings, newest first, in sections by date (Today, Yesterday, This
  * week, Earlier this month, then by month). A row opens its meeting; F2
  * renames it. Its second line is the post-call pass while one runs, else
- * its folder while all meetings show. A meeting that arrives while the list is open (a recording
- * just saved) fades in; filtering shows and hides rows at once.
+ * its folder while all meetings show. A meeting that arrives while the
+ * list is open (a recording just saved) fades in; filtering shows and
+ * hides rows at once.
  */
 export function MeetingList({meetings, shows, folderNames, onRename, empty}: MeetingListProps) {
     const shown = useMemo(() => meetings.filter(shows), [meetings, shows])

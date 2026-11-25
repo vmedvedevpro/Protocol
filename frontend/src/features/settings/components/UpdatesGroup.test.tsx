@@ -19,23 +19,13 @@ const offered = (patch: Partial<UpdaterSnapshot['offer'] & object> = {}): Update
     offer: {release: createMockUpdateRelease(), downloaded: false, manualOnly: false, waitingForRecording: false, ...patch},
 })
 
-// The app's row and Model updates each have a Check button, in that order.
-const ROWS = {app: 0, models: 1}
-const checkButton = (row: keyof typeof ROWS) => screen.getAllByRole('button', {name: 'Check'})[ROWS[row]]
-// Each row shows once its own status has loaded, so wait for both.
-const findCheckButton = (row: keyof typeof ROWS) => waitFor(() => {
-    const buttons = screen.getAllByRole('button', {name: 'Check'})
-    expect(buttons).toHaveLength(2)
-    return buttons[ROWS[row]]
-})
-
 describe('Updates', () => {
     it('checks, downloads on a click and restarts on another', async () => {
         renderUpdates()
         expect(await screen.findByText(`Protocol ${mockState.updater.currentVersion}`)).toBeInTheDocument()
         expect(screen.getByText('Not checked yet', LIVE)).toBeInTheDocument()
 
-        await userEvent.click(checkButton('app'))
+        await userEvent.click(screen.getByRole('button', {name: 'Check for app updates'}))
         expect(await screen.findByText('0.7.0 is available', LIVE)).toBeInTheDocument()
         expect(mockState.updater.activity.state).toBe('idle')
 
@@ -51,7 +41,7 @@ describe('Updates', () => {
         mockState.updateRelease = null
         renderUpdates()
 
-        await userEvent.click(await findCheckButton('app'))
+        await userEvent.click(await screen.findByRole('button', {name: 'Check for app updates'}))
 
         expect(await screen.findByText('Up to date, checked', LIVE)).toBeInTheDocument()
         expect(screen.getByText('just now')).toBeInTheDocument()
@@ -109,7 +99,7 @@ describe('Updates', () => {
     it('checks the model list', async () => {
         renderUpdates()
 
-        await userEvent.click(await findCheckButton('models'))
+        await userEvent.click(await screen.findByRole('button', {name: 'Check for model updates'}))
 
         // The app's own row still says it has not checked.
         expect(await screen.findByText('Up to date, checked', LIVE)).toBeInTheDocument()

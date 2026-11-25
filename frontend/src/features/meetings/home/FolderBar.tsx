@@ -181,7 +181,7 @@ export function FolderBar({folders, selected, onSelect, onNew, onRename, onDelet
                     <PlusIcon size={12} aria-hidden/>
                 </NewChip>
             </Tooltip>
-            <ActionsSlot data-testid="folder-actions">
+            <ActionsSlot>
                 <AnimatePresence initial={false}>
                     {current && (
                         <Appear key="actions" {...appear}>

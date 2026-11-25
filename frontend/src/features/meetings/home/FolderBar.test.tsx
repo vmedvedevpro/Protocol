@@ -65,29 +65,19 @@ describe('FolderBar', () => {
         expect(widths.slice(0, -1).every((width) => width > 40 && width < 120)).toBe(true)
     })
 
-    it('keeps the row’s height and the chips’ places when a folder is chosen', async () => {
+    it('holds the folder actions button’s place while All is selected', async () => {
         renderUi(<Bar/>)
-        const bar = screen.getByRole('group', {name: 'Folders'})
-        // jsdom lays nothing out, so this reads what decides the layout: the
-        // boxes in the row's flow and the size of the actions button's slot.
-        const layout = () => {
-            const slot = getComputedStyle(screen.getByTestId('folder-actions'))
-            return {
-                flow: Array.from(bar.children).filter((child) => child !== screen.queryByTestId('folder-thumb')),
-                slot: {width: slot.width, height: slot.height, flexShrink: slot.flexShrink, flexGrow: slot.flexGrow},
-            }
-        }
-        const before = layout()
+        // The place after New folder; its size, and the row's height with
+        // the button in it, are checked in Storybook (Meetings/FolderBar).
+        const slot = screen.getByRole('button', {name: 'New folder'}).nextElementSibling
+        expect(slot).not.toBeNull()
         expect(screen.queryByRole('button', {name: /^Folder actions/})).toBeNull()
-        // The slot is held empty at a chip's height, so the row is as tall
-        // with the button as without it.
-        expect(before.slot).toEqual({width: '26px', height: '26px', flexShrink: '0', flexGrow: '0'})
-        expect(getComputedStyle(screen.getByRole('button', {name: 'All'})).height).toBe(before.slot.height)
 
         await userEvent.click(screen.getByRole('button', {name: 'Acme Corp'}))
 
         const actions = await screen.findByRole('button', {name: 'Folder actions: Acme Corp'})
-        expect(screen.getByTestId('folder-actions')).toContainElement(actions)
-        expect(layout()).toEqual(before)
+        // The same node, now holding the button: nothing was added to the row.
+        expect(screen.getByRole('button', {name: 'New folder'}).nextElementSibling).toBe(slot)
+        expect(slot).toContainElement(actions)
     })
 })
