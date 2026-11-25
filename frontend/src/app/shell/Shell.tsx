@@ -67,7 +67,7 @@ function ShellCommands() {
 export function Shell() {
     const navigate = useNavigate()
     const matches = useMatches()
-    const {phase, retry} = useStartupPhase()
+    const {phase, reason, retry} = useStartupPhase()
     const ready = phase === 'ready'
     const handle: ShellRouteHandle = (ready ? matches.at(-1)?.handle : undefined) ?? {}
     const onTop = useKeepOnTopStore((state) => state.onTop)
@@ -103,7 +103,7 @@ export function Shell() {
                     </DownloadLineContext>
                 )}
                 {phase === 'firstLaunch' && <FirstLaunch/>}
-                {phase !== 'ready' && phase !== 'firstLaunch' && <StartupScreen phase={phase} onRetry={retry}/>}
+                {phase !== 'ready' && phase !== 'firstLaunch' && <StartupScreen phase={phase} reason={reason} onRetry={retry}/>}
             </Window>
         </RecordBarContext>
     )

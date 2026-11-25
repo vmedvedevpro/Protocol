@@ -1162,6 +1162,15 @@ both columns; `check-migration-checksums.mjs` recomputes them from git blobs in
 after setting `core.autocrlf` explicitly. The authoritative check is the Rust test
 `embedded_migrations_match_released_checksums` (`database/manager.rs`) over the
 embedded `MIGRATOR`. The Windows column matches the owner's two real databases.
+A database carried to the other platform opens there (#121):
+`DatabaseManager::run_migrations` answers a mismatch in a historical migration
+by rewriting each stored checksum that is exactly the other platform's released
+one to this build's (`accept_other_platform_checksums`, tests
+`opens_a_database_made_by_the_other_platform` and the two after it), as it
+already repairs the people migration; any other mismatch stays an error. A
+database that still does not open no longer ends the process at startup: native
+logs it and leaves the database unset, and the window's startup screen shows
+native's reason with Retry. Verified with the owner's Windows database on Linux.
 A new migration needs an `eol=lf` line in `.gitattributes` and
 `check-migration-checksums.mjs --add-new`, run after `git add`: it hashes the
 staged blob and refuses an untracked migration or one with unstaged changes.

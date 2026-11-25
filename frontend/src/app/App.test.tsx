@@ -96,6 +96,8 @@ describe('App startup', () => {
         renderApp()
 
         expect(await screen.findByText('Unable to set up the meetings database. Please retry.', LIVE)).toBeInTheDocument()
+        // The reason is native's, so a database that does not open says why.
+        expect(screen.getByText(/migration 20251110000001 was previously applied but is missing/)).toBeInTheDocument()
         // Native still holds no database: Retry fails again rather than opening the app.
         await userEvent.click(screen.getByRole('button', {name: 'Retry'}))
         await waitFor(() => expect(fresh).toHaveBeenCalledTimes(2))

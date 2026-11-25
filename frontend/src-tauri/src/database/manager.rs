@@ -18,6 +18,39 @@ const PEOPLE_MIGRATION_CRLF_CHECKSUM: &str =
 const PEOPLE_WORKSPACE_COLUMNS: &str = ", email TEXT, company TEXT, role TEXT, phone TEXT, \
      is_manual INTEGER NOT NULL DEFAULT 0 CHECK (is_manual IN (0, 1))";
 
+/// What released builds recorded for the migrations whose checksum depends
+/// on the platform (`released-migration-checksums.json`).
+struct ReleasedChecksums {
+    platform_specific_through: i64,
+    /// version -> the other platform's checksum, lowercase hex
+    other_platform: std::collections::HashMap<i64, String>,
+}
+
+fn released_checksums() -> &'static ReleasedChecksums {
+    static RELEASED: std::sync::OnceLock<ReleasedChecksums> = std::sync::OnceLock::new();
+    RELEASED.get_or_init(|| {
+        let table: serde_json::Value =
+            serde_json::from_str(include_str!("../../released-migration-checksums.json"))
+                .expect("released-migration-checksums.json is valid JSON");
+        let platform_specific_through = table["platformSpecificThrough"]
+            .as_str()
+            .and_then(|version| version.parse().ok())
+            .expect("released-migration-checksums.json names platformSpecificThrough");
+        let other_column = if cfg!(windows) { "unix" } else { "windows" };
+        let other_platform = table["migrations"]
+            .as_object()
+            .into_iter()
+            .flatten()
+            .filter_map(|(version, entry)| {
+                let version: i64 = version.parse().ok()?;
+                let checksum = entry[other_column].as_str()?;
+                (version <= platform_specific_through).then(|| (version, checksum.to_lowercase()))
+            })
+            .collect();
+        ReleasedChecksums { platform_specific_through, other_platform }
+    })
+}
+
 #[derive(Clone)]
 pub struct DatabaseManager {
     pool: SqlitePool,
@@ -62,14 +95,55 @@ impl DatabaseManager {
     }
 
     async fn run_migrations(pool: &SqlitePool) -> Result<()> {
-        match MIGRATOR.run(pool).await {
-            Ok(()) => Ok(()),
-            Err(MigrateError::VersionMismatch(PEOPLE_MIGRATION_VERSION)) => {
-                Self::repair_people_migration_checksum(pool).await?;
-                MIGRATOR.run(pool).await.map_err(Into::into)
+        // sqlx stops at the first mismatch, so a database can need both repairs
+        // (a Windows database from before the people fix): each runs once.
+        let (mut people_repaired, mut platform_accepted) = (false, false);
+        loop {
+            match MIGRATOR.run(pool).await {
+                Ok(()) => return Ok(()),
+                Err(MigrateError::VersionMismatch(PEOPLE_MIGRATION_VERSION)) if !people_repaired => {
+                    Self::repair_people_migration_checksum(pool).await?;
+                    people_repaired = true;
+                }
+                Err(MigrateError::VersionMismatch(version))
+                    if !platform_accepted && version <= released_checksums().platform_specific_through =>
+                {
+                    Self::accept_other_platform_checksums(pool).await?;
+                    platform_accepted = true;
+                }
+                Err(error) => return Err(error.into()),
             }
-            Err(error) => Err(error.into()),
         }
+    }
+
+    /// A database made by the other platform's build opens here. The released
+    /// migrations up to `platformSpecificThrough` were embedded with the
+    /// checkout's line endings, CRLF on Windows and LF elsewhere, so their
+    /// checksums differ by platform although the SQL that ran is the same.
+    /// A stored checksum that is exactly the other platform's released one is
+    /// rewritten to this build's; any other mismatch stays an error.
+    async fn accept_other_platform_checksums(pool: &SqlitePool) -> Result<()> {
+        let released = released_checksums();
+        let mut transaction = pool.begin().await?;
+        let mut accepted = 0;
+        for migration in MIGRATOR.iter() {
+            let Some(other) = released.other_platform.get(&migration.version) else { continue };
+            let result = sqlx::query(
+                "UPDATE _sqlx_migrations SET checksum = ? WHERE version = ? AND success = 1 AND lower(hex(checksum)) = ?",
+            )
+            .bind(migration.checksum.as_ref())
+            .bind(migration.version)
+            .bind(other)
+            .execute(&mut *transaction)
+            .await?;
+            accepted += result.rows_affected();
+        }
+        transaction.commit().await?;
+        log::warn!(
+            "Accepted {} migration checksums recorded by the other platform's build (CRLF/LF)",
+            accepted
+        );
+        Ok(())
     }
 
     async fn repair_people_migration_checksum(pool: &SqlitePool) -> Result<()> {
@@ -414,6 +488,78 @@ mod tests {
                 migration.version
             );
         }
+    }
+
+    /// Stores the other platform's released checksum for every historical
+    /// migration, as a database made by that platform's build has them.
+    async fn record_other_platform_checksums(pool: &SqlitePool) {
+        for (version, checksum) in &released_checksums().other_platform {
+            sqlx::query(&format!("UPDATE _sqlx_migrations SET checksum = X'{checksum}' WHERE version = ?"))
+                .bind(version)
+                .execute(pool)
+                .await
+                .unwrap();
+        }
+    }
+
+    fn embedded_checksum(version: i64) -> String {
+        MIGRATOR
+            .iter()
+            .find(|migration| migration.version == version)
+            .unwrap()
+            .checksum
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn opens_a_database_made_by_the_other_platform() {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        MIGRATOR.run(&pool).await.unwrap();
+        record_other_platform_checksums(&pool).await;
+        assert!(MIGRATOR.run(&pool).await.is_err(), "sqlx alone refuses it");
+
+        DatabaseManager::run_migrations(&pool).await.unwrap();
+
+        assert!(!released_checksums().other_platform.is_empty());
+        for version in released_checksums().other_platform.keys() {
+            let stored: String = sqlx::query_scalar("SELECT lower(hex(checksum)) FROM _sqlx_migrations WHERE version = ?")
+                .bind(version)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+            assert_eq!(stored, embedded_checksum(*version), "migration {version}");
+        }
+    }
+
+    #[tokio::test]
+    async fn opens_another_platform_database_that_also_needs_the_people_repair() {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        MIGRATOR.run(&pool).await.unwrap();
+        record_other_platform_checksums(&pool).await;
+        sqlx::query(&format!("UPDATE _sqlx_migrations SET checksum = X'{PEOPLE_MIGRATION_CRLF_CHECKSUM}' WHERE version = ?"))
+            .bind(PEOPLE_MIGRATION_VERSION)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        DatabaseManager::run_migrations(&pool).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn still_rejects_an_unknown_checksum_on_a_historical_migration() {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        MIGRATOR.run(&pool).await.unwrap();
+        let first = MIGRATOR.iter().next().unwrap().version;
+        sqlx::query("UPDATE _sqlx_migrations SET checksum = X'00' WHERE version = ?")
+            .bind(first)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let error = DatabaseManager::run_migrations(&pool).await.unwrap_err();
+        assert!(error.to_string().contains("previously applied but has been modified"));
     }
 
     #[tokio::test]
