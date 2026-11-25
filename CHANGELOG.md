@@ -7,7 +7,10 @@ is inherited from the project Protocol forked from; Protocol did not release it.
 
 ## Protocol — unreleased
 
-## Protocol 1.0.0 — 2026-11-25
+## Protocol 1.0.0-rc.1 — 2026-11-26
+
+A release candidate of Protocol 1.0, for trying it before the release: install
+it by hand; installed apps are not offered it.
 
 Protocol 1.0 has a new interface. Version 0.6.0 was never released; its
 changes are included here.
