@@ -17,6 +17,7 @@ import {
     modelState,
     type ModelState,
     type SpeechModelStatus,
+    stoppedDownloadShare,
 } from '@/api/models'
 import {Button} from '@/components/ui/Button'
 import {ProgressBar} from '@/components/ui/ProgressBar'
@@ -28,9 +29,9 @@ import {isCorrupted} from '@/lib/speechModels'
 import {RemoveSheet} from './speech/RemoveSheet'
 import {RowControls, RowValue, Warning} from './styles'
 
-/** A copy on disk to download again: a speech model's `Corrupted`, a built-in model's corrupted or incomplete file. */
+/** A copy on disk to download again: a speech model's `Corrupted`, a built-in model's corrupted file. */
 function damagedCopy(status: SpeechModelStatus | BuiltInModelStatus | undefined) {
-    if (typeof status === 'object' && 'type' in status) return status.type === 'corrupted' || status.type === 'incomplete'
+    if (typeof status === 'object' && 'type' in status) return status.type === 'corrupted'
     return isCorrupted(status)
 }
 
@@ -67,14 +68,15 @@ export interface ModelRowProps {
  * One downloadable model in Settings: a speech model, Nemotron, the Intel
  * GPU version or Intel's libraries, a built-in summary model or an Ollama
  * server's. Installed (and what for), downloading
- * below 100 % until native has verified it, failed with Retry, damaged with
- * Download again, or missing with its size. An installed model the catalog
+ * below 100 % until native has verified it, failed with Retry, stopped part
+ * way with Resume, damaged with Download again, or missing with its size. An installed model the catalog
  * has a newer revision of offers its update.
  */
 export function ModelRow({name, engine, model, use, description, downloads, state, onDownload, downloadLabel = 'Download', onCancel, onUse, onRemove, removeDetail, catalog, children}: ModelRowProps) {
     const [removing, setRemoving] = useState(false)
     const shown = state ?? modelState(model.status, engine && downloads?.[downloadKey(engine, model.name)])
     const damaged = shown.kind === 'missing' && damagedCopy(model.status)
+    const stopped = shown.kind === 'missing' ? stoppedDownloadShare(model.status) : null
     const size = formatModelSize(model.size_bytes)
 
     let status: Status | null = null
@@ -95,6 +97,8 @@ export function ModelRow({name, engine, model, use, description, downloads, stat
         control = onCancel && <Button size="sm" variant="ghost" aria-label={`Cancel downloading ${name}`} onClick={onCancel}>Cancel</Button>
     } else if (shown.kind === 'failed') {
         control = onDownload && <Button size="sm" aria-label={`Retry downloading ${name}`} onClick={onDownload}>Retry</Button>
+    } else if (shown.kind === 'missing' && stopped !== null) {
+        control = onDownload && <Button size="sm" aria-label={`Resume downloading ${name}`} onClick={onDownload}>Resume</Button>
     } else if (shown.kind === 'missing') {
         const verb = damaged ? 'Download again' : downloadLabel
         control = onDownload && (
@@ -107,7 +111,10 @@ export function ModelRow({name, engine, model, use, description, downloads, stat
     return (
         <SettingsRow
             label={name}
-            description={status ? <StatusLine status={status}/> : shown.kind === 'ready' && use ? use : damaged ? 'The copy on disk is damaged' : description}
+            description={status ? <StatusLine status={status}/>
+                : shown.kind === 'ready' && use ? use
+                    : stopped !== null ? `Download stopped at ${stopped}%`
+                        : damaged ? 'The copy on disk is damaged' : description}
             control={control}
         >
             {shown.kind === 'downloading' && <ProgressBar label={`Downloading ${name}`} value={shown.progress}/>}

@@ -1,6 +1,7 @@
 import {renderHook, screen, waitFor, within} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import {describe, expect, it} from 'vitest'
+import {useModelDownloadSync} from '@/api/modelDownloadSync'
 import {useDialog} from '@/lib/dialogs'
 import {useSearchLauncher} from '@/lib/searchLauncher'
 import {mockState} from '@/mocks/state'
@@ -9,6 +10,12 @@ import {renderRoute} from '../testing'
 import {HomeScreen} from './HomeScreen'
 
 const renderHome = (url = '/') => renderRoute(url, [{path: '/', element: <HomeScreen/>}])
+
+/** Home with the downloads kept current from their events, as the shell does. */
+function HomeWithDownloads() {
+    useModelDownloadSync()
+    return <HomeScreen/>
+}
 
 const rowTitles = () => screen.queryAllByRole('link').map((link) => link.querySelector('span')?.textContent)
 
@@ -181,5 +188,21 @@ describe('HomeScreen', () => {
         renderHome()
         await screen.findByRole('region', {name: 'Today'})
         expect(screen.queryByText('Update ready')).not.toBeInTheDocument()
+    })
+
+    it('says the summary model is missing after its first download was cut, and resumes it', async () => {
+        mockState.models.builtIn['qwen3.5:4b'] = {type: 'incomplete', file_size: 687_748_972, expected_size: 2_740_937_888}
+        renderRoute('/', [{path: '/', element: <HomeWithDownloads/>}])
+
+        expect(await screen.findByText('The summary model isn’t downloaded')).toBeInTheDocument()
+        expect(screen.getByText(/stopped downloading at 25%/)).toBeInTheDocument()
+        await userEvent.click(screen.getByRole('button', {name: 'Resume download'}))
+        await waitFor(() => expect(screen.queryByText('The summary model isn’t downloaded')).not.toBeInTheDocument())
+    })
+
+    it('shows no summary model banner while the model is installed or another provider writes summaries', async () => {
+        renderHome()
+        await screen.findByRole('region', {name: 'Today'})
+        expect(screen.queryByText('The summary model isn’t downloaded')).not.toBeInTheDocument()
     })
 })

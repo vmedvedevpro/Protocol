@@ -116,7 +116,10 @@ export async function downloadWhisperModel(modelName: string, {enablePostCall = 
 /** Cancels a Parakeet download; resolves once native let go of its partial files, so a retry is safe. */
 export const cancelParakeetDownload = (modelName: string) => command<boolean>('parakeet_cancel_download', {modelName})
 
-/** Cancels a Whisper download; native then sends its error event with "cancelled by user". */
+/**
+ * Cancels a Whisper download; native then sends its error event with
+ * "cancelled by user", and resolves after it removed the partial file.
+ */
 export const cancelWhisperDownload = (modelName: string) => command<null>('whisper_cancel_download', {modelName})
 
 /**
@@ -169,6 +172,17 @@ export interface BuiltInModelInfo {
 }
 
 export const listBuiltInModels = () => command<BuiltInModelInfo[]>('builtin_ai_list_models')
+
+/**
+ * How much of a built-in model a stopped download left, in percent, or null
+ * for any other status: native keeps the partial file (`incomplete`) and the
+ * next download resumes from it with a Range request
+ * (summary_engine/model_manager.rs).
+ */
+export function stoppedDownloadShare(status: SpeechModelStatus | BuiltInModelStatus | undefined): number | null {
+    if (typeof status !== 'object' || !('type' in status) || status.type !== 'incomplete') return null
+    return status.expected_size > 0 ? Math.floor((status.file_size / status.expected_size) * 100) : 0
+}
 
 /** Whether the file is there and whole; `refresh` scans the disk first instead of trusting the last scan. */
 export const isBuiltInModelReady = (modelName: string, {refresh = false} = {}) =>

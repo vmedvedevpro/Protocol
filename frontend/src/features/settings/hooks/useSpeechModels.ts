@@ -78,9 +78,15 @@ export function useSpeechModels() {
         void run().catch(quiet).finally(refresh)
     }
 
+    /**
+     * The download's own call rejects as soon as its loop sees the cancel,
+     * and its refresh can read the partial file as damaged; native removes
+     * that file only before the cancel resolves (`cancel_download` in
+     * whisper_engine.rs), so the list is read again then.
+     */
     const cancel = (model: SpeechModel) => {
         const stop = model.engine === 'parakeet' ? cancelParakeetDownload(model.name) : cancelWhisperDownload(model.name)
-        void stop.catch((error) => toast.error('Couldn’t cancel the download', {description: errorMessage(error)}))
+        void stop.catch((error) => toast.error('Couldn’t cancel the download', {description: errorMessage(error)})).finally(refresh)
     }
 
     /**

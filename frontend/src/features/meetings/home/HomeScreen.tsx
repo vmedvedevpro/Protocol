@@ -29,6 +29,8 @@ import {needsPermissionBanner, useAudioAccess} from './audioAccess'
 import {PermissionBanner} from './PermissionBanner'
 import {readyOffer} from '../lib/updates'
 import {UpdateBanner} from './UpdateBanner'
+import {useMissingSummaryModel} from './missingSummaryModel'
+import {SummaryModelBanner} from './SummaryModelBanner'
 
 const Head = styled.div`
     display: flex;
@@ -130,8 +132,9 @@ const matches = (text: string | undefined, query: string) => !!text && text.toLo
  * (⌘K), which looks in transcripts, summaries, action items and people
  * too. The folder chips filter it
  * by folder, kept in the URL (`?folder=`), so Back from a meeting returns
- * to the same folder. Banners say when an update waits for a restart and
- * when Protocol cannot hear the microphone or the computer audio. The
+ * to the same folder. Banners say when an update waits for a restart,
+ * when Protocol cannot hear the microphone or the computer audio, and when
+ * the built-in summary model is not downloaded. The
  * recording bar docks below (`recordBar`).
  */
 export function HomeScreen() {
@@ -181,6 +184,7 @@ export function HomeScreen() {
 
     const offer = readyOffer(updater.data)
     const showPermission = needsPermissionBanner(access)
+    const missingSummaryModel = useMissingSummaryModel()
     const none = meetings.isSuccess && meetings.data.length === 0
 
     return (
@@ -220,6 +224,9 @@ export function HomeScreen() {
             </Collapse>
             <Collapse open={showPermission && !!access}>
                 {showPermission && access ? <PermissionBanner access={access}/> : null}
+            </Collapse>
+            <Collapse open={!!missingSummaryModel}>
+                {missingSummaryModel ? <SummaryModelBanner model={missingSummaryModel}/> : null}
             </Collapse>
             {meetings.isPending && <Empty aria-busy="true"><Spinner delayed/></Empty>}
             {meetings.isError && (
