@@ -194,7 +194,9 @@ describe('summaries', () => {
 
         expect(start).toEqual({processId: expect.any(String), languageTie: false})
         const args = process.mock.calls[0][0]
-        expect(args).toMatchObject({model: 'builtin-ai', modelName: 'gemma3:1b', templateId: 'standard_meeting', summaryLanguage: 'en'})
+        expect(args).toMatchObject({model: 'builtin-ai', modelName: 'gemma3:1b', summaryLanguage: 'en'})
+        // No template: native takes the stored default.
+        expect(args.templateId).toBeUndefined()
         expect(String(args.text).split('\n')[0]).toBe('[00:04] You: Quick round of updates. What is everyone working on?')
         // Detected once, then kept for the meeting.
         expect(mockState.meetings.detectedLanguages['meeting-untitled']).toBe('en')

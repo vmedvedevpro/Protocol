@@ -13,6 +13,7 @@ import {postCallHandlers} from './postCall'
 import {preferencesHandlers} from './preferences'
 import {shellHandlers} from './shell'
 import {speechHandlers} from './speech'
+import {templatesHandlers} from './templates'
 import {updaterHandlers} from './updater'
 import {mockState} from './state'
 
@@ -87,6 +88,9 @@ export const handlers: Record<string, MockHandler> = {
 
     // The native Labs switches (src/mocks/labs.ts)
     ...labsHandlers(mockState),
+
+    // Summary templates and the stored default: summary/template_commands.rs, template_settings.rs
+    ...templatesHandlers(mockState),
 }
 
 /**

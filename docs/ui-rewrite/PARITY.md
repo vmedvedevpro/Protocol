@@ -215,9 +215,9 @@ such a command only on its platform
 | `api_get_meeting_detected_summary_language` | command | `lib/summary-language-preferences.ts` | #113 | Cached detected language for Auto. |
 | `api_get_meeting_summary_language` | command | `lib/summary-language-preferences.ts` | #119 | Per-meeting summary language (Summary options). |
 | `api_get_summary` | command | `app/meeting-details/page.tsx`, `components/Sidebar/SidebarProvider.tsx`, `components/groups/GroupDetailView.tsx` +3 | #113 | Summary status and content; also list preview and export. |
-| `api_is_custom_template` | command | `hooks/meeting-details/useTemplates.ts` | #119 | Template editor: built-in or custom. |
+| `api_is_custom_template` | command | `hooks/meeting-details/useTemplates.ts` | #119 | Template editor: built-in or custom; since #117 also the templates list (`src/api/templates.ts`), which offers Delete for custom ones. |
 | `api_list_templates` | command | `hooks/meeting-details/useTemplates.ts` | #117 | Templates subpage; also Summary options (#119). |
-| `api_process_transcript` | command | `hooks/meeting-details/useSummaryGeneration.ts` | #113 | Generate/regenerate; also the automatic summary after Stop (#112). Without a template native falls back to `daily_standup`; #117 makes it use the stored default (owner decision 2026-11-24). |
+| `api_process_transcript` | command | `hooks/meeting-details/useSummaryGeneration.ts` | #113 | Generate/regenerate; also the automatic summary after Stop (#112). Without a template native fell back to `daily_standup`; since #117 it uses the stored default (owner decision 2026-11-24), `standard_meeting` while none is stored, and `startSummary` names a template only for a run that picks one. |
 | `api_save_custom_template` | command | `hooks/meeting-details/useTemplates.ts` | #119 | Template editor. |
 | `api_save_meeting_detected_summary_language` | command | `lib/summary-language-preferences.ts` | #113 | Caches the detected language for Auto; returns `local_fallback` like `api_save_meeting_summary_language`. |
 | `api_save_meeting_summary` | command | `components/meeting/MeetingDocument.tsx`, `lib/action-item-sync.ts` | #113 | Edited summary; action-item sync writes it too. |
