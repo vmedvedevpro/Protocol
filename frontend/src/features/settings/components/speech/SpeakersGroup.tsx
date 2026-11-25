@@ -86,9 +86,9 @@ function ThresholdRow({threshold}: {threshold: number}) {
  * Who said what: Pyannote, built in, or NVIDIA Nemotron, installed on
  * demand. Nemotron is a choice only once it is installed, so choosing never
  * downloads anything (owner decision 2026-11-25); until then its `ModelRow`
- * offers Install with its size, its progress and Cancel. Native chooses
- * Nemotron once the download is verified, as the user asked for it; a
- * removal goes back to Pyannote first (`uninstall_optional_model`).
+ * offers Install with its size, its progress and Cancel. Installing does
+ * not choose it: its radio row appears and the user picks it. A removal
+ * goes back to Pyannote first (`uninstall_optional_model`).
  */
 export function SpeakersGroup() {
     const status = useQuery(diarizationStatusQuery)
@@ -102,11 +102,11 @@ export function SpeakersGroup() {
 
     const getNemotron = () => {
         void downloadNemotron()
-            .then(() => toast.success('Speakers are now identified with NVIDIA Nemotron'))
+            .then(() => toast.success('Nemotron installed'))
             .catch((error) => {
                 const message = errorMessage(error)
                 if (message === DIARIZATION_DOWNLOAD_CANCELLED) return
-                toast.error(message.startsWith('Model downloaded') ? 'Nemotron installed, but couldn’t be turned on' : 'Nemotron didn’t install', {description: message})
+                toast.error('Nemotron didn’t install', {description: message})
             })
     }
     const cancel = () => void cancelNemotronDownload().catch((error) => toast.error('Couldn’t cancel the download', {description: errorMessage(error)}))
@@ -131,7 +131,7 @@ export function SpeakersGroup() {
                     engine="nemotron"
                     model={{name: NEMOTRON, status: installed ? 'Available' : 'Missing', size_bytes: size}}
                     use={engine === 'nemotron' && installed ? 'Identifies speakers in new meetings' : null}
-                    description={installed ? '' : BETTER}
+                    description={installed ? undefined : BETTER}
                     downloads={downloads}
                     onDownload={getNemotron}
                     onCancel={cancel}

@@ -1153,8 +1153,11 @@ recording and hides the main window: minimizing the main window does it
   trimmed, blanks and repeats in any case dropped, a comma splits, 1000
   characters), Speakers (a radio group of the installed engines; Nemotron
   until installed is a `ModelRow` with Install, its progress and Cancel
-  (`cancel_diarization_download`), native chooses it once verified, and
-  its threshold saves 250 ms after the slider rests) and the
+  (`cancel_diarization_download`, checked between chunks, so a stalled
+  stream ignores it until its next chunk or the one-hour timeout);
+  installing does not choose it, its
+  radio row appears and the user picks it; its threshold saves 250 ms
+  after the slider rests) and the
   row to Speech models; in Advanced, Local AI (read every 5 s while shown;
   both unloads refused during a recording) and Labs (Parakeet on the GPU
   on Windows only, hidden while the NPU runs Parakeet). Speech models

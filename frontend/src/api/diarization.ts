@@ -53,9 +53,8 @@ export const setNemotronThreshold = (status: DiarizationStatus, nemotronThreshol
     })
 
 /**
- * Downloads Nemotron and resolves once it is verified and chosen. Rejects
- * with "Model downloaded, but could not enable it: …" when the choice could
- * not be saved, and while another speaker download runs.
+ * Installs Nemotron and resolves once it is verified; it does not choose it,
+ * the user does (#123). Rejects while another speaker download runs.
  */
 export const downloadNemotron = () => command<null>('download_diarization_models', {engine: 'nemotron'})
 
@@ -67,10 +66,12 @@ export const cancelNemotronDownload = () => command<null>('cancel_diarization_do
 
 export const openSpeakerModelFolder = () => command<null>('open_diarization_model_directory')
 
-/** Native chose an engine itself: Nemotron after its download, Pyannote after its removal. */
+/** Native chose an engine itself: Pyannote after Nemotron's removal. */
 export const DIARIZATION_ENGINE_CHANGED_EVENT = 'diarization-engine-changed' as NativeEvent<SpeakerEngine>
 
 export interface DiarizationDownloadProgress {
+    /** Whose files: Nemotron's install, or a Pyannote repair. */
+    engine: SpeakerEngine
     file: string
     file_index: number
     file_count: number

@@ -54,7 +54,7 @@ describe('Settings › AI, speech', () => {
         await waitFor(() => expect(within(vocabulary).queryByRole('button', {name: 'Remove Priya Shah'})).not.toBeInTheDocument())
     })
 
-    it('offers Nemotron to install instead of as a choice, and native chooses it once it is there', async () => {
+    it('offers Nemotron to install instead of as a choice, and makes it a choice once installed', async () => {
         mockState.diarization.downloadStep = 100
         renderSection('ai')
         await waitFor(() => expect(screen.getByRole('radio', {name: /Pyannote/})).toBeChecked())
@@ -62,9 +62,14 @@ describe('Settings › AI, speech', () => {
 
         await userEvent.click(await screen.findByRole('button', {name: 'Install NVIDIA Nemotron'}))
 
+        // Installing is not choosing: the radio appears, and Pyannote stays chosen until it is picked.
         const nemotron = await screen.findByRole('radio', {name: /NVIDIA Nemotron/})
+        expect(nemotron).not.toBeChecked()
+        expect(mockState.diarization).toMatchObject({engine: 'pyannote', nemotronInstalled: true})
+
+        await userEvent.click(nemotron)
         await waitFor(() => expect(nemotron).toBeChecked())
-        expect(mockState.diarization).toMatchObject({engine: 'nemotron', nemotronInstalled: true})
+        expect(mockState.diarization.engine).toBe('nemotron')
         expect(await screen.findByRole('slider', {name: 'Speech threshold'})).toBeInTheDocument()
     })
 

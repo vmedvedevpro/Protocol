@@ -45,7 +45,7 @@ export interface ModelRowProps {
     /** What it is used for now ("In use during meetings"), shown strong while installed. */
     use?: string | null
     /** The facts shown while nothing happens to it. */
-    description: string
+    description?: string
     downloads?: Record<string, DownloadState>
     /** Its state instead of the one its status and download give (the Intel GPU version's). */
     state?: ModelState

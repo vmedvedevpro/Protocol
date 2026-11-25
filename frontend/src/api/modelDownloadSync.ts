@@ -137,8 +137,9 @@ export function useModelDownloadSync() {
         refresh(modelKeys.builtIn())
     })
 
-    // Nemotron: native activates it after its download and says so.
-    useNativeEvent(DIARIZATION_DOWNLOAD_PROGRESS_EVENT, ({percent, status, message}) => {
+    // Nemotron's install; a Pyannote repair sends the same event and is not a model row.
+    useNativeEvent(DIARIZATION_DOWNLOAD_PROGRESS_EVENT, ({engine, percent, status, message}) => {
+        if (engine !== 'nemotron') return
         const key = downloadKey('nemotron', NEMOTRON)
         if (status === 'done' || status === 'cancelled') return end(key, diarizationKeys.status())
         if (status === 'error') {
