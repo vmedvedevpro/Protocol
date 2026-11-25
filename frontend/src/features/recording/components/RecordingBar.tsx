@@ -4,7 +4,7 @@ import {AnimatePresence} from 'motion/react'
 import * as m from 'motion/react-m'
 import {useNavigate} from 'react-router-dom'
 import styled from 'styled-components'
-import {recordingPreferencesQuery} from '@/api/devices'
+import {audioDevicesQuery, recordingPreferencesQuery} from '@/api/devices'
 import {useSystemAudioWarning} from '@/components/ring/levelAdvice'
 import {Ring} from '@/components/ring/Ring'
 import {SourceMeter} from '@/components/ring/SourceMeter'
@@ -17,7 +17,7 @@ import {focusRing} from '@/components/ui/styles'
 import {Tooltip} from '@/components/ui/Tooltip'
 import {paths} from '@/lib/paths'
 import {formatShortcut} from '@/lib/platform'
-import {inputsSummary} from '../lib/inputs'
+import {inputsSummary, missingInputs} from '../lib/inputs'
 import {ShrinkButton} from '../minibar/ShrinkButton'
 import {setSourceMuted, togglePause} from '../store/runtime'
 import {useSessionStore} from '../store/session'
@@ -125,6 +125,9 @@ export function RecordingBar({idle = false}: RecordingBarProps) {
     const muted = useSessionStore((state) => state.muted)
     const unavailable = useSessionStore((state) => state.unavailable)
     const preferences = useQuery(recordingPreferencesQuery)
+    const devices = useQuery(audioDevicesQuery)
+    const inputs = inputsSummary(preferences.data, devices.data)
+    const missing = missingInputs(preferences.data, devices.data)
     const warning = useSystemAudioWarning(phase === 'recording' && !muted.system)
     const shortcut = formatShortcut('R')
     const openSettings = () => void navigate(paths.settings('recording'))
@@ -161,8 +164,8 @@ export function RecordingBar({idle = false}: RecordingBarProps) {
                         <InputsMenu
                             onOpenSettings={openSettings}
                             trigger={(
-                                <Inputs type="button" aria-label={`Inputs: ${inputsSummary(preferences.data)}. Change`}>
-                                    <span>{inputsSummary(preferences.data)}</span>
+                                <Inputs type="button" aria-label={`Inputs: ${inputs}.${missing ? ` ${missing}.` : ''} Change`}>
+                                    <span>{missing ? `${inputs} · ${missing}` : inputs}</span>
                                     <CaretDownIcon size={11} aria-hidden="true"/>
                                 </Inputs>
                             )}

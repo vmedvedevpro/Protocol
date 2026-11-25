@@ -331,7 +331,9 @@ theme; the motion from the Motion section.
 - Settings search needs no list of settings: under a `SettingsSearchScope`
   each `SettingsRow`, `SettingsNavRow` and `SettingsRadioRow` checks its own
   label, string description, badge and value against every word of the
-  query (`settingsSearch.ts`). A row that does not match renders nothing,
+  query (`settingsSearch.ts`): each word must start a word of that text, so
+  "model" finds "Model updates" and "models" but no text that only contains
+  it inside a word (#121). A row that does not match renders nothing,
   so its control remounts when it shows again; a group with no row left
   (`[data-settings-row]`) hides by CSS `:has()`, titled with the scope
   before its own title ("AI · Summaries") and without its note. The card's

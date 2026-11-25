@@ -19,8 +19,9 @@ export const appVersionQuery = queryOptions({
 
 /**
  * The app's data folder (`paths::install_data_root`, database/commands.rs):
- * the database, the models and, by default, the recordings. Recording builds
- * the stop's save path from it; Settings shows it.
+ * the meetings database and the models. Recordings are not here: they go to
+ * the recordings folder (`audio/recording_preferences.rs`, Settings ›
+ * Recording). Recording builds the stop's save path from it; Settings shows it.
  */
 export const getDatabaseDirectory = () => command<string>('get_database_directory')
 

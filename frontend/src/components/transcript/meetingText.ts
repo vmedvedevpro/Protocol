@@ -7,10 +7,12 @@ import {displaySpeaker, formatClock} from './turns'
  * A meeting as Markdown, for Copy transcript and Copy summary and for
  * Export (#119): the title and date over its sections, as the old UI's copy
  * and export did (`162e8be:frontend/src/hooks/meeting-details/useCopyOperations.ts`).
+ * The date is a plain line: the old `_date_` italics came out as literal
+ * underscores in the PDF, Word and text exports, which render no italics.
  */
 export function meetingDocument(title: string, createdAt: Date | null, sections: [string, string][]): string {
     const date = createdAt?.toLocaleDateString(undefined, {weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'})
-    return [`# ${title}`, ...(date ? [`_${date}_`] : []), ...sections.map(([heading, body]) => `## ${heading}\n\n${body}`)].join('\n\n')
+    return [`# ${title}`, ...(date ? [date] : []), ...sections.map(([heading, body]) => `## ${heading}\n\n${body}`)].join('\n\n')
 }
 
 /**

@@ -5,13 +5,13 @@
  * `useRecordingPreferences` so the fields no row shows are written back.
  */
 import {useState} from 'react'
-import {useMutation} from '@tanstack/react-query'
+import {useMutation, useQuery} from '@tanstack/react-query'
 import {XIcon} from '@phosphor-icons/react'
 import {AnimatePresence} from 'motion/react'
 import {useNavigate} from 'react-router-dom'
 import styled from 'styled-components'
 import {type LevelFeed, useAudioLevelMonitoring} from '@/api/audio'
-import {deviceLabel, MAX_GAIN, MIN_GAIN, type PerAppTarget, type RecordingPreferences} from '@/api/devices'
+import {audioDevicesQuery, deviceInUse, deviceLabel, MAX_GAIN, MIN_GAIN, type PerAppTarget, type RecordingPreferences} from '@/api/devices'
 import {type RecordingPhase, useRecordingPhase} from '@/api/recordingPhase'
 import {LevelMeter} from '@/components/ring/LevelMeter'
 import {Button} from '@/components/ui/Button'
@@ -236,7 +236,9 @@ export function RecordingSection({platform = currentPlatform}: RecordingSectionP
     const {preferences} = useRecordingPreferences()
     const phase = useRecordingPhase()
     const idle = phase === 'idle'
-    const chosen = preferences?.preferred_mic_device ?? null
+    // A saved microphone that is not connected is tested as the default, which a recording opens.
+    const devices = useQuery(audioDevicesQuery)
+    const chosen = deviceInUse(preferences?.preferred_mic_device, devices.data).device
     const mic = chosen ? deviceLabel(chosen) : null
 
     // Only Test opens the microphone. A test belongs to the device it was

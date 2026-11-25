@@ -24,6 +24,17 @@ describe('RecordingBar', () => {
         expect(screen.queryByRole('group', {name: 'Record'})).not.toBeInTheDocument()
     })
 
+    it('names the default for a saved microphone that is not on this computer, and says it is missing', async () => {
+        mockState.devices.recordingPreferences = {...mockState.devices.recordingPreferences, preferred_mic_device: 'Intel Smart Sound Microphone (input)'}
+        renderBar(true)
+        const bar = screen.getByRole('group', {name: 'Record'})
+        const inputs = await within(bar).findByRole('button', {name: 'Inputs: Default microphone + all apps. Intel Smart Sound Microphone isn’t connected. Change'})
+        expect(inputs).toHaveTextContent('Default microphone + all apps · Intel Smart Sound Microphone isn’t connected')
+
+        await userEvent.click(inputs)
+        expect(await screen.findByRole('menuitemradio', {name: 'System default (Intel Smart Sound Microphone isn’t connected)'})).toBeChecked()
+    })
+
     it('records from Record, then shows the timer, both sources and Stop on any screen', async () => {
         renderBar(true)
         await userEvent.click(await screen.findByRole('button', {name: /Record/}))

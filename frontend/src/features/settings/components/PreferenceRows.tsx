@@ -6,7 +6,7 @@ import type {ReactNode} from 'react'
 import {useQuery} from '@tanstack/react-query'
 import {useNavigate} from 'react-router-dom'
 import styled from 'styled-components'
-import {audioDevicesQuery, deviceLabel, deviceValue} from '@/api/devices'
+import {audioDevicesQuery, deviceInUse, deviceValue} from '@/api/devices'
 import {builtInModelsQuery} from '@/api/models'
 import {
     pinSummaryLanguage,
@@ -78,12 +78,6 @@ export function ThemeRow({description}: {description?: string}) {
 
 const DEFAULT_DEVICE = 'default'
 
-/**
- * A microphone or an output to record, from the devices native can open now.
- * A saved device that is not connected stays chosen and is shown as such: it
- * is used again once it is back, and only a choice the user makes writes
- * the preference.
- */
 const DeviceControls = styled.div`
     display: flex;
     flex: none;
@@ -98,31 +92,35 @@ interface DeviceRowProps {
     action?: ReactNode
 }
 
+/**
+ * A microphone or an output to record, from the devices native can open now.
+ * A saved device that is not connected shows the default chosen, which a
+ * recording opens (`deviceInUse`), and the row says the saved one is
+ * missing; the preference keeps it, so it is used again once it is back, and
+ * only a choice the user makes writes the preference.
+ */
 export function DeviceRow({type, description, action}: DeviceRowProps) {
     const devices = useQuery(audioDevicesQuery)
     const {preferences, save} = useRecordingPreferences()
     const field = type === 'Input' ? 'preferred_mic_device' : 'preferred_system_device'
-    const saved = preferences?.[field] ?? null
+    const {device, missing} = deviceInUse(preferences?.[field], devices.data?.filter((each) => each.device_type === type))
 
     const options: SelectOption<string>[] = [
         {value: DEFAULT_DEVICE, label: type === 'Input' ? 'Default microphone' : 'Default output'},
         ...(devices.data ?? [])
-            .filter((device) => device.device_type === type)
-            .map((device) => ({value: deviceValue(device), label: device.name})),
+            .filter((each) => each.device_type === type)
+            .map((each) => ({value: deviceValue(each), label: each.name})),
     ]
-    if (saved && devices.data && !options.some((option) => option.value === saved)) {
-        options.push({value: saved, label: `${deviceLabel(saved)} (not connected)`})
-    }
 
     return (
         <SettingsRow
             label={type === 'Input' ? 'Microphone' : 'System audio'}
-            description={description}
+            description={missing ? `${missing} isn’t connected, so the default is used` : description}
             control={(
                 <DeviceControls>
                     <Select
                         options={options}
-                        value={preferences ? saved ?? DEFAULT_DEVICE : undefined}
+                        value={preferences ? device ?? DEFAULT_DEVICE : undefined}
                         disabled={!preferences}
                         onValueChange={(value) => save({[field]: value === DEFAULT_DEVICE ? null : value})}
                     />
