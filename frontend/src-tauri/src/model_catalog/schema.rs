@@ -80,10 +80,22 @@ const RUNTIMES: [KnownRuntime; 1] = [KnownRuntime {
     platforms: &[
         KnownPlatform {
             name: "windows-x86_64",
-            // Every compile asks for the auto-batching plugin, and OpenVINO looks
-            // for a plugin it lacks in the current directory (`get_plugin_path`):
-            // with it in the folder, that lookup never happens.
-            files: &["openvino_genai_c.dll", "openvino_c.dll", "openvino_auto_batch_plugin.dll"],
+            // The C APIs the binding opens; every file each Whisper call loads
+            // (the GPU plugin, the CPU plugin GenAI compiles the tokenizer on,
+            // the IR frontend that reads the model, the tokenizers extension),
+            // since an entry without one would pass and fail at the first call,
+            // and a shipped app cannot be tightened; and the auto-batching
+            // plugin, which every compile asks for and OpenVINO would otherwise
+            // look for in the current directory (`get_plugin_path`).
+            files: &[
+                "openvino_genai_c.dll",
+                "openvino_c.dll",
+                "openvino_intel_gpu_plugin.dll",
+                "openvino_intel_cpu_plugin.dll",
+                "openvino_ir_frontend.dll",
+                "openvino_tokenizers.dll",
+                "openvino_auto_batch_plugin.dll",
+            ],
             archive: ".zip",
         },
         KnownPlatform {
@@ -94,13 +106,20 @@ const RUNTIMES: [KnownRuntime; 1] = [KnownRuntime {
             // the already loaded SONAME. The names are the archive's links
             // without a version (`libopenvino.so`), so a new version of the same
             // API level needs no app release; the auto-batching plugin as on
-            // Windows. Intel ships the Linux archives as .tar.gz only.
+            // Windows, and every file each Whisper call loads as on Windows but
+            // the IR frontend, whose name carries the library version
+            // (`libopenvino_ir_frontend.so.2641`, the pattern OpenVINO looks
+            // for), which a rule of this build cannot name for later versions.
+            // Intel ships the Linux archives as .tar.gz only.
             files: &[
                 "libopenvino_genai_c.so",
                 "libopenvino_genai.so",
                 "libopenvino_c.so",
                 "libopenvino.so",
                 "libtbb.so",
+                "libopenvino_intel_gpu_plugin.so",
+                "libopenvino_intel_cpu_plugin.so",
+                "libopenvino_tokenizers.so",
                 "libopenvino_auto_batch_plugin.so",
             ],
             archive: ".tar.gz",

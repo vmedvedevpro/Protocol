@@ -51,9 +51,18 @@ pub const OPENVINO_C_LIBRARY: &str = "libopenvino_c.so";
 /// The libraries opened before [`GENAI_C_LIBRARY`], each after what it
 /// needs: TBB, OpenVINO, its C API, GenAI. `libOpenCL.so.1`, which GenAI and
 /// the GPU plugin need too, is the system's OpenCL loader and is found on the
-/// system's path (`ocl-icd-libopencl1`; see `openvino::driver`).
+/// system's path (`ocl-icd-libopencl1`; see `device::has_intel_driver`).
 #[cfg(not(windows))]
 pub const PRELOAD: [&str; 4] = ["libtbb.so", "libopenvino.so", OPENVINO_C_LIBRARY, "libopenvino_genai.so"];
+
+/// Opened first when the runtime has it: hwloc, which TBB's NUMA and
+/// core-type binding (`libtbbbind_2_5.so.3`) needs as `libhwloc.so.15`. TBB
+/// opens that binding itself, from its own folder, when a CPU plugin arena
+/// starts; with hwloc not yet loaded it would look on the system's path and,
+/// failing, run without the binding. The catalog may leave both out (TBB then
+/// runs without them), so this one is not required.
+#[cfg(not(windows))]
+const PRELOAD_IF_PRESENT: [&str; 1] = ["libhwloc.so"];
 
 #[derive(Debug, thiserror::Error)]
 pub enum GenAiError {
@@ -262,9 +271,15 @@ fn use_tokenizers_in(folder: &Path) -> Result<(), GenAiError> {
     }
 }
 
-/// On Linux GenAI reads the variable with `getenv` and sets it itself with
-/// `setenv` when it is not set (`ScopedVar`), so setting it here through
-/// the same C environment adds no new kind of access.
+/// On Linux GenAI would find the library beside `libopenvino_genai.so`
+/// without the variable, but it reads it with `getenv` and, when it is not
+/// set, sets it with `setenv` and removes it with `unsetenv` around every
+/// tokenizer it creates (`ScopedVar`, `tokenizers_path.hpp`; the library
+/// imports all three). Setting it once here, before GenAI loads, makes GenAI
+/// keep the value and skip those writes (`tokenizer.cpp`, `tokenizer_impl.cpp`
+/// in 2026.4.1), which would race `getenv` on other
+/// threads at every model load, and keeps an inherited value from bringing
+/// in another copy.
 #[cfg(not(windows))]
 fn use_tokenizers_in(folder: &Path) -> Result<(), GenAiError> {
     std::env::set_var(TOKENIZERS_VARIABLE, folder.join(TOKENIZERS_LIBRARY));
@@ -384,7 +399,12 @@ impl GenAi {
         }
         use_tokenizers_in(folder)?;
         #[cfg(not(windows))]
-        let preloaded = PRELOAD.iter().map(|name| open(name)).collect::<Result<Vec<_>, _>>()?;
+        let preloaded = PRELOAD_IF_PRESENT
+            .iter()
+            .filter(|name| folder.join(name).is_file())
+            .chain(&PRELOAD)
+            .map(|name| open(name))
+            .collect::<Result<Vec<_>, _>>()?;
         let genai_c = open(GENAI_C_LIBRARY)?;
         let openvino_c = open(OPENVINO_C_LIBRARY)?;
         let load_error = |source| GenAiError::Load { path: folder.to_path_buf(), source };

@@ -115,10 +115,15 @@ fn redirect_policy(host: &'static str) -> reqwest::redirect::Policy {
 /// Runs `operation` until it does not fail on a lock, for up to
 /// [`LOCK_PATIENCE`].
 async fn patiently<T>(mut operation: impl FnMut() -> std::io::Result<T>) -> std::io::Result<T> {
-    // ERROR_ACCESS_DENIED, ERROR_SHARING_VIOLATION, ERROR_LOCK_VIOLATION.
+    // ERROR_ACCESS_DENIED, ERROR_SHARING_VIOLATION, ERROR_LOCK_VIOLATION: a
+    // file another process holds open. Linux renames and deletes open files,
+    // so there EACCES or EIO is a real failure, reported at once.
+    #[cfg(windows)]
     let locked = |error: &std::io::Error| {
         error.kind() == std::io::ErrorKind::PermissionDenied || matches!(error.raw_os_error(), Some(5 | 32 | 33))
     };
+    #[cfg(not(windows))]
+    let locked = |_: &std::io::Error| false;
     let started = std::time::Instant::now();
     let mut pause = Duration::from_millis(100);
     loop {
@@ -432,7 +437,11 @@ fn extract(
 ) -> Result<()> {
     let is_tar = archive.file_name().is_some_and(|file| file.to_string_lossy().ends_with(".tar.gz"));
     if is_tar {
+        // Only Linux runtimes come as .tar.gz (`schema::RUNTIMES`).
+        #[cfg(target_os = "linux")]
         extract_tar(archive, into, files, name, cancelled)?;
+        #[cfg(not(target_os = "linux"))]
+        bail!("The {name} archive is a .tar.gz, which only the Linux app unpacks");
     } else {
         let mut zip = zip::ZipArchive::new(std::fs::File::open(archive)?)
             .map_err(|error| anyhow!("The {name} archive cannot be read: {error}"))?;
@@ -458,6 +467,7 @@ fn extract(
     Ok(())
 }
 
+#[cfg(target_os = "linux")]
 /// The pinned files of a gzip-compressed tar, in one pass (a tar has no
 /// index). Only a regular file at a pinned path counts: Intel's archives
 /// carry each library once as a file and again as version links
@@ -605,6 +615,7 @@ pub(crate) mod testing {
         (bytes, entry)
     }
 
+    #[cfg(target_os = "linux")]
     /// A gzip-compressed tar of `files` as regular files, then `links`
     /// (path, target) as symbolic links, like Intel's Linux archives.
     pub fn tar_gz(files: &[(&str, &str, &[u8])], links: &[(&str, &str)]) -> Vec<u8> {
@@ -1006,6 +1017,7 @@ mod tests {
 
     /// Intel's Linux archive is a .tar.gz that holds each library once as a
     /// file and again as version links (#178).
+    #[cfg(target_os = "linux")]
     #[tokio::test]
     async fn an_install_from_a_tar_gz_takes_only_the_pinned_regular_files() {
         let data = tempfile::tempdir().unwrap();
@@ -1031,6 +1043,7 @@ mod tests {
         assert_eq!(installed_in(&root)[0].record, RuntimeRecord::from_entry(&entry));
     }
 
+    #[cfg(target_os = "linux")]
     #[tokio::test]
     async fn a_pinned_path_that_is_a_link_in_the_tar_installs_nothing() {
         let data = tempfile::tempdir().unwrap();
@@ -1053,6 +1066,7 @@ mod tests {
         assert!(leftovers(&root).is_empty(), "{:?}", leftovers(&root));
     }
 
+    #[cfg(target_os = "linux")]
     #[tokio::test]
     async fn a_tar_file_that_differs_from_its_pin_installs_nothing() {
         let data = tempfile::tempdir().unwrap();
@@ -1068,5 +1082,44 @@ mod tests {
         entry.archive.url = format!("{}/runtime.tar.gz", serve(archive).await);
         assert!(install_into(&Fetch::Local(reqwest::Client::new()), &root, &entry, &CancellationToken::new(), |_, _| {}).await.is_err());
         assert!(leftovers(&root).is_empty(), "{:?}", leftovers(&root));
+    }
+
+    /// A catalog that pins more files of an installed version tops it up from
+    /// the .tar.gz too, leaving the files it has alone (#178).
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn a_completion_from_a_tar_gz_adds_only_the_missing_files() {
+        let data = tempfile::tempdir().unwrap();
+        let root = root_in(data.path(), "openvino-genai");
+        let tar_entry = |files: &[(&str, &str, Vec<u8>)]| {
+            let borrowed: Vec<(&str, &str, &[u8])> = files.iter().map(|(path, name, content)| (*path, *name, content.as_slice())).collect();
+            let (_, mut entry) = archive_and_entry("2026.4.1.0", &borrowed, "https://example.com/runtime.tar.gz");
+            let bytes = tar_gz(&borrowed, &[]);
+            entry.archive.size = bytes.len() as u64;
+            entry.archive.sha256 = sha256(&bytes);
+            (bytes, entry)
+        };
+        let files = openvino_files(8);
+        let (bytes, mut old) = tar_entry(&files);
+        old.archive.url = format!("{}/runtime.tar.gz", serve(bytes).await);
+        let dir = install_into(&Fetch::Local(reqwest::Client::new()), &root, &old, &CancellationToken::new(), |_, _| {}).await.unwrap();
+        let before = std::fs::metadata(dir.join("openvino_c.dll")).unwrap().modified().unwrap();
+
+        let mut more_files = files.clone();
+        more_files.push(("root/runtime/lib/libopenvino_intel_npu_plugin.so", "libopenvino_intel_npu_plugin.so", vec![8; 90]));
+        let (bytes, mut more) = tar_entry(&more_files);
+        more.archive.url = format!("{}/runtime.tar.gz", serve(bytes).await);
+        assert_eq!(missing_files(&dir, &more).unwrap().len(), 1);
+        // Linux lets a folder whose libraries are open gain files.
+        let held = std::fs::File::open(dir.join("openvino_c.dll")).unwrap();
+        let completed = complete_into(&Fetch::Local(reqwest::Client::new()), &root, &more, &CancellationToken::new(), |_, _| {})
+            .await
+            .unwrap();
+        drop(held);
+        assert_eq!(completed, dir);
+        assert_eq!(std::fs::read(dir.join("libopenvino_intel_npu_plugin.so")).unwrap(), vec![8u8; 90]);
+        assert_eq!(std::fs::metadata(dir.join("openvino_c.dll")).unwrap().modified().unwrap(), before);
+        assert_eq!(leftovers(&root), ["2026.4.1.0"]);
+        assert_eq!(installed_in(&root)[0].record, RuntimeRecord::from_entry(&more));
     }
 }

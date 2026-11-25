@@ -632,7 +632,7 @@ pub struct Availability {
     pub mismatch: Option<String>,
     /// Linux: the package of Intel's OpenCL driver to install, as a
     /// sentence, when the GPU is offered but the driver is not registered
-    /// ([`device::missing_driver`]). Read once per process, as the OpenCL
+    /// ([`device::has_intel_driver`]). Read once per process, as the OpenCL
     /// loader reads its drivers once, so the sentence asks for a restart.
     pub driver: Option<String>,
 }
@@ -646,22 +646,11 @@ fn offered_here(chosen: Option<device::ChosenGpu<'_>>) -> bool {
     device::offer_by_address(chosen, |address| device::sysfs_vendor(std::path::Path::new("/sys/bus/pci/devices"), address))
 }
 
-/// The contents of the `.icd` files the OpenCL loader (ocl-icd) reads: those
-/// in `OCL_ICD_VENDORS` when it names a folder or a file, else in
-/// `/etc/OpenCL/vendors`.
+/// What the OpenCL loader would load here, from its variables
+/// ([`device::icd_entries`]).
 #[cfg(target_os = "linux")]
-fn icd_files() -> Vec<String> {
-    let place = std::env::var_os("OCL_ICD_VENDORS").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/etc/OpenCL/vendors"));
-    if place.is_file() {
-        return std::fs::read_to_string(&place).into_iter().collect();
-    }
-    std::fs::read_dir(&place)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .filter(|item| item.path().extension().is_some_and(|extension| extension == "icd"))
-        .filter_map(|item| std::fs::read_to_string(item.path()).ok())
-        .collect()
+fn icd_entries() -> Vec<String> {
+    device::icd_entries(std::env::var_os("OCL_ICD_VENDORS").as_deref(), std::env::var_os("OCL_ICD_FILENAMES").as_deref())
 }
 
 /// The offer half of [`Availability`], decided once per process: the build
@@ -688,7 +677,7 @@ async fn offer() -> Availability {
                 });
                 let offered = offered_here(chosen);
                 #[cfg(target_os = "linux")]
-                let driver = offered.then(|| device::missing_driver(&icd_files())).flatten().map(device::driver_message);
+                let driver = (offered && !device::has_intel_driver(&icd_entries())).then(device::driver_message);
                 #[cfg(not(target_os = "linux"))]
                 let driver = None;
                 (offered, gpu.map(|gpu| gpu.name), driver)
@@ -745,7 +734,7 @@ pub async fn availability() -> Availability {
             availability.mismatch = Some(format!("OpenVINO lists no Intel GPU that is {gpu}, so Whisper stays on Vulkan"))
         }
         Err(error) if device::names_missing_loader(&error) => {
-            availability.mismatch = Some(device::driver_message(device::OPENCL_LOADER_PACKAGE))
+            availability.mismatch = Some(device::loader_message())
         }
         Err(error) => availability.mismatch = Some(error),
     }

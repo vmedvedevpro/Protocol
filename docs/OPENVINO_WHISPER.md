@@ -125,18 +125,24 @@ audio and model, the slowest under the heaviest load. No energy harness ran:
   GCC 12), and the `ubuntu24` libraries need `GLIBC_2.38`, while the
   `ubuntu22` ones need `GLIBC_2.34` and `GLIBCXX_3.4.30`. The app takes the
   GPU, CPU and auto-batching plugins, the IR frontend, the tokenizers
-  extension, GenAI and its C API, OpenVINO and its C API, `libtbb` and the
-  licence files, 132 MB on disk. As on Windows, none of oneTBB's optional
-  libraries (`tbbmalloc`, `tbbbind` and its `hwloc`): TBB falls back to the
-  system allocator and to no NUMA binding. The NPU plugin and the ONNX
-  frontend stay in the archive: Parakeet on the NPU is Windows-only.
+  extension, GenAI and its C API, OpenVINO and its C API, oneTBB's three as
+  on Windows (`libtbb`, `libtbbmalloc.so.2`, `libtbbbind_2_5.so.3`, the names
+  TBB opens them by from its own folder) plus the `libhwloc` the binding
+  needs, and the licence files, 132 MB on disk. The NPU plugin and the ONNX
+  frontend stay in the archive: Parakeet on the NPU is Windows-only. Both
+  platforms must list every file a Whisper call loads (the GPU and CPU
+  plugins, the tokenizers extension, on Windows the IR frontend, whose Linux
+  name carries the library version), so a catalog commit that dropped one
+  is hidden instead of failing at the first call.
 - **Names and loading.** Intel's libraries carry no RUNPATH (only the
   tokenizers extension has `$ORIGIN`), so a `dlopen` of GenAI's C API by
   path would look its `NEEDED` libraries (`libopenvino.so.2641`,
   `libtbb.so.12`) up on the system's path. The binding opens them first by
   absolute path, dependencies first (`genai::PRELOAD`: `libtbb.so`,
   `libopenvino.so`, `libopenvino_c.so`, `libopenvino_genai.so`, then
-  `libopenvino_genai_c.so`, `RTLD_NOW | RTLD_LOCAL`), and glibc satisfies each
+  `libopenvino_genai_c.so`, `RTLD_NOW | RTLD_LOCAL`; `libhwloc.so` before
+  them when the runtime has it, since TBB opens its binding, which needs
+  `libhwloc.so.15`, on its own), and glibc satisfies each
   later `NEEDED` entry with the object already loaded under that SONAME,
   whatever its file is called. So the files are named like the archive's
   unversioned links, and a later version of the same API level needs no app
@@ -145,10 +151,16 @@ audio and model, the slowest under the heaviest load. No energy harness ran:
   manager looks for. OpenVINO finds its plugins beside `libopenvino.so`
   (`dladdr`), as beside `openvino.dll`. A pinned path must be a regular file
   of the tar; the archive's links are never followed.
-- **Tokenizers.** GenAI reads `OPENVINO_TOKENIZERS_PATH_GENAI` with `getenv`
-  and sets it itself with `setenv` when unset (`ScopedVar`), so the binding
-  sets it to the folder's `libopenvino_tokenizers.so` with `std::env::set_var`
-  before the load: the same C environment, no new kind of access.
+- **Tokenizers.** GenAI would find `libopenvino_tokenizers.so` beside its own
+  library without `OPENVINO_TOKENIZERS_PATH_GENAI`, but when the variable is
+  unset it sets it with `setenv` and removes it with `unsetenv` around every
+  tokenizer it creates (`ScopedVar`, `tokenizers_path.hpp`, 2026.4.1), writes
+  that race `getenv` on other threads at each model load. The binding sets
+  it once before the load (`std::env::set_var`), so GenAI keeps it and never
+  writes; it also keeps an inherited value from bringing in another copy.
+- **File locks.** The install's wait for a held file (`patiently`) is
+  Windows-only: Linux renames and deletes open files, so a permission or I/O
+  error there is reported at once.
 - **Paths.** GCC's `std::filesystem::path` keeps a narrow path's bytes, so a
   path goes to GenAI as its bytes; none of the Windows code page handling
   applies.
@@ -168,14 +180,18 @@ audio and model, the slowest under the heaviest load. No energy harness ran:
   Intel's OpenCL driver, the compute runtime (`intel-opencl-icd` on Debian and
   Ubuntu, `intel-compute-runtime` on Fedora and Arch), which registers itself
   as an `.icd` file in `/etc/OpenCL/vendors` (or `OCL_ICD_VENDORS`) naming
-  `libigdrcl.so`. Without it the plugin lists no GPU and Whisper would stay
-  on Vulkan with nothing said. So the offer reads those files once per
+  `libigdrcl.so`; the loader also takes libraries from `OCL_ICD_FILENAMES`
+  and an `OCL_ICD_VENDORS` that names a library, and the check reads all of
+  them (`device::icd_entries`). Without it the plugin lists no GPU and Whisper
+  would stay on Vulkan with nothing said. So the offer reads those once per
   process (the OpenCL loader reads them once too), and when no Intel driver
   is registered `availability.driver` names the package; For this computer
   shows it under the Intel GPU row, and once the runtime is installed the
   mismatch says the same. A missing loader fails GenAI's load
   (`libOpenCL.so.1: cannot open shared object file`), which the row turns
-  into the loader's package. The driver's package depends on the loader's.
+  into a sentence of its own naming the loader's package
+  (`ocl-icd-libopencl1`, `ocl-icd` on Fedora and Arch). The driver's package
+  depends on the loader's.
   The device nodes (`/dev/dri/renderD*`) need the user's seat access or the
   `render` group, as for Vulkan.
 
@@ -464,16 +480,17 @@ It is a separate download because GenAI cannot read ggml files.
   loading a runtime replacing an inherited tokenizer path with its own
   (`genai.rs`).
 - Linux (#178): the offer by the GPU's PCI vendor in sysfs, the vendor read
-  from sysfs, and the OpenCL piece named for a missing driver or loader
-  (`device.rs`); a folder whose files are no libraries refused by the first
+  from sysfs, the OpenCL piece named for a missing driver or loader, and the
+  loader's variables honoured (`device.rs`); a folder whose files are no libraries refused by the first
   one the binding opens, and a Cyrillic path handed over as its bytes
   (`genai.rs`, `linux_tests`); the libraries the binding opens among the
   built-in entry's files (`model_catalog/openvino.rs`); an install from a
   `.tar.gz` taking only the pinned regular files, a pinned path that is a
-  link in the tar and a file off its pin installing nothing
-  (`runtime.rs`); the Linux entry's rules in the shared cases (a zip, a
-  Windows file list, a missing `libtbb.so`, another host, a file named like
-  the tar archive); the driver line in Settings
+  link in the tar and a file off its pin installing nothing, a version
+  topped up from a `.tar.gz` (`runtime.rs`); the Linux entry's rules in the
+  shared cases (a zip, a Windows file list, a missing `libtbb.so`, GPU plugin
+  or tokenizers extension, another host, a file named like the tar
+  archive), and the Windows entry without its GPU plugin or tokenizers; the driver line in Settings
   (`settingsPages.test.tsx`).
 - The catalog: the `runtimes` rules in the shared cases
   (`entry-cases.json`: `runtime_cases`, among them another host, a host that

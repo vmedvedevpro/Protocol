@@ -50,7 +50,15 @@ export const RUNTIMES = {
   'openvino-genai': {
     platforms: {
       'windows-x86_64': {
-        files: ['openvino_genai_c.dll', 'openvino_c.dll', 'openvino_auto_batch_plugin.dll'],
+        files: [
+          'openvino_genai_c.dll',
+          'openvino_c.dll',
+          'openvino_intel_gpu_plugin.dll',
+          'openvino_intel_cpu_plugin.dll',
+          'openvino_ir_frontend.dll',
+          'openvino_tokenizers.dll',
+          'openvino_auto_batch_plugin.dll',
+        ],
         archive: '.zip',
       },
       'linux-x86_64': {
@@ -60,6 +68,9 @@ export const RUNTIMES = {
           'libopenvino_c.so',
           'libopenvino.so',
           'libtbb.so',
+          'libopenvino_intel_gpu_plugin.so',
+          'libopenvino_intel_cpu_plugin.so',
+          'libopenvino_tokenizers.so',
           'libopenvino_auto_batch_plugin.so',
         ],
         archive: '.tar.gz',

@@ -141,11 +141,6 @@ realfft = "3.4.0"
 regex = "1.11.0"
 ndarray = "0.17"  # the version ort rc.15 takes
 zip = "2.2"           # Reading .npz (zip of .npy) diarization transforms
-# Unpacking Intel's OpenVINO GenAI archive for Linux, a .tar.gz
-# (model_catalog/runtime.rs, #178). Both are in the tree already, through zip,
-# ureq and tauri-plugin-updater, so naming them adds no crate.
-flate2 = "1"
-tar = "0.4"
 sha2 = "0.10"         # SHA-256 verification for downloaded models
 sha1 = "0.10"         # Git blob ids of small files in Hugging Face listings
 bytes = { version = "1.9.0", features = ["serde"] }
@@ -251,6 +246,11 @@ ort = { version = "=2.0.0-rc.15", default-features = false, features = ["load-dy
 libloading = "0.8.9"
 # Already in the tree through tao/gtk; names the app for the tray (src/tray.rs).
 glib = "0.18"
+# Unpacking Intel's OpenVINO GenAI archive for Linux, a .tar.gz
+# (model_catalog/runtime.rs, #178). Both are in the tree already, through zip,
+# ureq and tauri-plugin-updater, so naming them adds no crate.
+flate2 = "1"
+tar = "0.4"
 
 [dev-dependencies]
 tempfile = "3.3.0"
