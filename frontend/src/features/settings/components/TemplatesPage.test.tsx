@@ -4,7 +4,8 @@ import userEvent from '@testing-library/user-event'
 import {describe, expect, it} from 'vitest'
 import {mockState} from '@/mocks/state'
 import {SettingsPage} from '../pages/SettingsPage'
-import {renderSettings} from '../testing'
+import {indexedLabels} from '../pages/settingsPages'
+import {renderedRowLabels, renderSettings} from '../testing'
 
 const open = () => renderSettings(createElement(SettingsPage), '/settings/templates')
 
@@ -31,5 +32,15 @@ describe('Summary templates page', () => {
         await userEvent.click(await screen.findByRole('button', {name: 'Delete'}))
         await waitFor(() => expect(within(templates).queryByRole('radio', {name: /Board review/})).not.toBeInTheDocument())
         expect(await within(templates).findByRole('radio', {name: 'Standard Meeting Notes'})).toBeChecked()
+    })
+
+    it('shows the rows its search index lists', async () => {
+        mockState.templates.custom.board = {...mockState.templates.builtIn.standard_meeting, name: 'Board review'}
+        mockState.templates.defaultId = 'board'
+        open()
+        await screen.findByRole('button', {name: 'Delete'})
+        const templates = [...Object.values(mockState.templates.builtIn), ...Object.values(mockState.templates.custom)]
+        const data = templates.flatMap(({name, sections}) => [name, ...sections.map(({title}) => title)])
+        expect(renderedRowLabels(data)).toEqual([...indexedLabels('templates')].sort())
     })
 })

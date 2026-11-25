@@ -1,5 +1,5 @@
 import {useState} from 'react'
-import {useMutation, useQuery} from '@tanstack/react-query'
+import {useMutation, useQuery, useQueryClient} from '@tanstack/react-query'
 import {errorMessage} from '@/api/core'
 import {builtInModelsQuery, modelState, recommendedSummaryModelQuery} from '@/api/models'
 import {
@@ -15,7 +15,7 @@ import {Button} from '@/components/ui/Button'
 import {SettingsRadioGroup, SettingsRadioRow} from '@/components/ui/SettingsRow'
 import {Spinner} from '@/components/ui/Spinner'
 import {toast} from '@/components/ui/toastStore'
-import {isCloudProvider, useProviderModelMapStore} from '../../api/summaryProviders'
+import {isCloudProvider, readLegacyModelMap, summaryProviderKeys} from '../../api/summaryProviders'
 import {SubpageFooter, type SubpageProps, SubpageGroups, SubpageScroll} from '../subpage'
 import {Warning} from '../styles'
 import {SUMMARY_PROVIDERS} from '../summaryModel'
@@ -36,9 +36,8 @@ interface FormProps extends SubpageProps {
 }
 
 function SummaryModelForm({config, customServer, back}: FormProps) {
-    const modelMap = useProviderModelMapStore((state) => state.value)
-    const setModelMap = useProviderModelMapStore((state) => state.set)
-    const [draft, setDraft] = useState(() => initialDraft(config, customServer, modelMap))
+    const client = useQueryClient()
+    const [draft, setDraft] = useState(() => initialDraft(config, customServer, readLegacyModelMap()))
     const change = (patch: Partial<SummaryModelDraft>) => setDraft((current) => ({...current, ...patch}))
     const {provider} = draft
 
@@ -63,9 +62,9 @@ function SummaryModelForm({config, customServer, back}: FormProps) {
 
     const save = useMutation({
         ...saveSummaryModelMutation,
-        onSuccess: (_reply, {choice: saved}) => {
-            // The model of each provider, so switching back finds it again.
-            setModelMap({...modelMap, [saved.provider]: saved.model})
+        onSuccess: () => {
+            // A list asked with a key typed here is asked again with the saved one.
+            void client.invalidateQueries({queryKey: summaryProviderKeys.all})
             back()
         },
         onError: (error) => toast.error('Couldn’t save the summary model', {description: errorMessage(error)}),
@@ -85,7 +84,8 @@ function SummaryModelForm({config, customServer, back}: FormProps) {
                         ))}
                     </SettingsRadioGroup>
                     {provider === 'builtin-ai' && <BuiltInModelsGroup model={model} onChoose={chooseModel}/>}
-                    {cloud && (
+                    {cloud && !savedKey.isSuccess && <Spinner delayed/>}
+                    {cloud && savedKey.isSuccess && (
                         <CloudGroup
                             key={cloud}
                             provider={cloud}
@@ -101,8 +101,6 @@ function SummaryModelForm({config, customServer, back}: FormProps) {
                         <OllamaGroup
                             endpoint={draft.ollamaEndpoint}
                             onEndpoint={(ollamaEndpoint) => change({ollamaEndpoint})}
-                            fetched={draft.ollamaFetched}
-                            onFetch={() => change({ollamaFetched: draft.ollamaEndpoint})}
                             model={model}
                             onModel={chooseModel}
                         />

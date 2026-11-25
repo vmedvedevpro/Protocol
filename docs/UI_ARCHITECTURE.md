@@ -1101,38 +1101,47 @@ recording and hides the main window: minimizing the main window does it
   computer with its Intel paths, then every Parakeet and Whisper model with
   its download, Cancel, Retry, Remove after a sheet, a damaged copy's
   Download again and the catalog's update; every download row there,
-  Nemotron's and the Intel ones included, is a `ModelRow`; native reads missing sizes
+  Nemotron's and the Intel ones included, is a `ModelRow` (shared with
+  the summary models since #117's AI half); native reads missing sizes
   (`model_catalog_request_sizes`). Tests: `components/speech/*.test.tsx`;
   stories: `Settings/Speech`.
 - The pages inside Settings are `SETTINGS_PAGES` (`pages/settingsPages.ts`):
-  each names its title, the section Back returns to with Advanced on, and
-  the component below its head; `SettingsSubpage` draws the head and Back,
-  `paths.settingsPage` lists the ids. A page opened from the simple page
-  goes back to it.
+  each names its title, the section Back returns to with Advanced on, the
+  component below its head, and its search index (`rows`: the labels and
+  descriptions of every row it can show, data rows such as models or apps
+  left out). `SettingsSubpage` draws the head and Back, `paths.settingsPage`
+  lists the ids. A page opened from the simple page goes back to it.
 - Search sits beside the tabs; its query is `?q=`, and picking a tab or
   turning Advanced off drops it. Results render every section under a
-  `SettingsSearchScope` named after it, then a "Pages" group: each page
-  renders out of sight (`hidden`) under its own scope, and a page with
-  matching rows gets a row that opens it. So a new row or page is found
-  without a list kept by hand; a page's rows that only show after a choice
-  (another provider's) are found once chosen. Section notes stay out of
-  search. "Nothing matches" counts the sections' and pages' matches.
+  `SettingsSearchScope` named after it, so a section's rows match by their
+  own text with no list kept by hand. Pages are looked up in their index
+  without rendering, so a search loads nothing of theirs (running apps,
+  model lists, an Ollama probe); a page whose title or indexed rows match
+  gets a row in "Pages" that opens it. Each page has a test that the rows
+  it renders are its index (`renderedRowLabels`, which reads
+  `data-settings-row`), so the index cannot drift. Section notes and the
+  Intel offer stay out of search; "Nothing matches" counts both.
 - AI › Summaries is the simple page's summary rows in full: the recent
   summary languages as chips (pin, remove, "+ Add language", under the old
   keys), the summary model, and Templates with the stored default's name.
   Advanced holds Disk (the data folder, `src/api/app.ts`) and AI agents.
 - Summary model keeps a draft until Save (`summaryModel/draft.ts`), which
   stores the custom server first when it is the provider, then the choice
-  (`saveSummaryModelMutation`), and remembers each provider's model under
-  the old `providerModelMap` key; Cancel leaves without it. Save waits for a
-  provider's key, a downloaded built-in model, Ollama's models fetched from
-  the endpoint typed, and a valid length or custom server, as the old
-  settings did; native checks the length again. Built-in downloads show the
-  `downloadsQuery` progress that `useModelDownloadSync` keeps (Settings'
-  tests mount it), so they outlive the page; Ollama's pull holds the busy
-  reason natively and has no cancel. The old UI's `model-config-updated`
-  event is gone: the only reader of the model in another window was the
-  main window itself, which invalidates its own query.
+  (`saveSummaryModelMutation`); Cancel leaves without it. A provider switched
+  to starts with the model the old settings saved for it (`providerModelMap`,
+  read once, no longer written). Save waits for a provider's key, a
+  downloaded built-in model, and a valid length or custom server; native
+  checks the length again. A cloud provider's list is asked with the key
+  once typing it has rested (`useDebouncedSave`, a spinner meanwhile) and is
+  keyed by the provider alone, so no key is in a query hash; Ollama's list is
+  keyed by its endpoint, also once typing rests, and Fetch models asks again.
+  Built-in and Ollama models are `ModelRow`s, the speech half's download row
+  (`components/ModelRow.tsx`): built-in downloads show the `downloadsQuery`
+  progress that `useModelDownloadSync` keeps, so they outlive the page;
+  Ollama's pull has no cancel, as native has none, and holds the updater's
+  busy reason natively for its whole run (`pull_ollama_model`). The old UI's
+  `model-config-updated` event is gone: the only reader of the model in
+  another window was the main window itself, which invalidates its own query.
 - Summary templates chooses the default at once (`setDefaultTemplateMutation`)
   and shows its sections; Delete removes the user's own template. Editing and
   new templates are the template editor's (#119). Chosen apps lists the open

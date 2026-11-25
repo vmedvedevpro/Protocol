@@ -4,7 +4,8 @@ import userEvent from '@testing-library/user-event'
 import {describe, expect, it} from 'vitest'
 import {mockState} from '@/mocks/state'
 import {SettingsPage} from '../pages/SettingsPage'
-import {renderSettings} from '../testing'
+import {indexedLabels} from '../pages/settingsPages'
+import {renderedRowLabels, renderSettings} from '../testing'
 
 const open = () => renderSettings(createElement(SettingsPage), '/settings/chosen-apps')
 const group = (name: string) => screen.findByRole('region', {name})
@@ -43,5 +44,13 @@ describe('Chosen apps page', () => {
         open()
         await userEvent.click(await screen.findByRole('button', {name: 'Browse…'}))
         await waitFor(() => expect(targets()).toEqual([expect.objectContaining({name: 'Webex', executable: 'CiscoCollabHost.exe'})]))
+    })
+
+    it('shows the rows its search index lists', async () => {
+        mockState.devices.recordingPreferences.per_app_targets = [{id: 'Zoom.exe', name: 'Zoom Workplace', executable: 'Zoom.exe'}]
+        open()
+        await group('Open apps')
+        const data = mockState.settings.runningApps.map(({name}) => name)
+        expect(renderedRowLabels(data)).toEqual([...indexedLabels('chosen-apps')].sort())
     })
 })

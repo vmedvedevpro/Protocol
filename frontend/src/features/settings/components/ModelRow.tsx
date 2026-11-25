@@ -9,7 +9,15 @@ import {
     startModelUpdate,
     updatePhaseLine,
 } from '@/api/modelCatalog'
-import {downloadKey, type DownloadState, type ModelEngine, modelState, type ModelState, type SpeechModelStatus} from '@/api/models'
+import {
+    type BuiltInModelStatus,
+    downloadKey,
+    type DownloadState,
+    type ModelEngine,
+    modelState,
+    type ModelState,
+    type SpeechModelStatus,
+} from '@/api/models'
 import {Button} from '@/components/ui/Button'
 import {ProgressBar} from '@/components/ui/ProgressBar'
 import {SettingsRow} from '@/components/ui/SettingsRow'
@@ -17,27 +25,35 @@ import {StatusLine, type Status} from '@/components/ui/StatusLine'
 import {toast} from '@/components/ui/toastStore'
 import {formatModelSize, withSize} from '@/lib/sizes'
 import {isCorrupted} from '@/lib/speechModels'
-import {RowControls, RowValue, Warning} from '../styles'
-import {RemoveSheet} from './RemoveSheet'
+import {RemoveSheet} from './speech/RemoveSheet'
+import {RowControls, RowValue, Warning} from './styles'
+
+/** A copy on disk to download again: a speech model's `Corrupted`, a built-in model's corrupted or incomplete file. */
+function damagedCopy(status: SpeechModelStatus | BuiltInModelStatus | undefined) {
+    if (typeof status === 'object' && 'type' in status) return status.type === 'corrupted' || status.type === 'incomplete'
+    return isCorrupted(status)
+}
 
 export interface ModelRowProps {
     /** "Parakeet Lightning", "Whisper Large V3 Turbo", "NVIDIA Nemotron". */
     name: string
-    /** The download it has in `downloadsQuery`, by its engine. */
-    engine: ModelEngine
+    /** The download it has in `downloadsQuery`, by its engine; none with `state` (an Ollama pull). */
+    engine?: ModelEngine
     /** The model as its list says; a download without a list (Nemotron, Intel's) passes `Available` or `Missing`. */
-    model: {name: string, status?: SpeechModelStatus, size_bytes?: number | null}
+    model: {name: string, status?: SpeechModelStatus | BuiltInModelStatus, size_bytes?: number | null}
     /** What it is used for now ("In use during meetings"), shown strong while installed. */
     use?: string | null
     /** The facts shown while nothing happens to it. */
     description: string
-    downloads: Record<string, DownloadState>
+    downloads?: Record<string, DownloadState>
     /** Its state instead of the one its status and download give (the Intel GPU version's). */
     state?: ModelState
     onDownload?: () => void
     /** The download button's word while missing: Download, or Switch for the Intel GPU version. */
     downloadLabel?: string
     onCancel?: () => void
+    /** Installed and not in use: make it the one in use (a summary model). */
+    onUse?: () => void
     onRemove?: () => Promise<unknown>
     /** What removing it frees or changes, for the sheet. */
     removeDetail?: string
@@ -49,15 +65,16 @@ export interface ModelRowProps {
 
 /**
  * One downloadable model in Settings: a speech model, Nemotron, the Intel
- * GPU version or Intel's libraries. Installed (and what for), downloading
+ * GPU version or Intel's libraries, a built-in summary model or an Ollama
+ * server's. Installed (and what for), downloading
  * below 100 % until native has verified it, failed with Retry, damaged with
  * Download again, or missing with its size. An installed model the catalog
  * has a newer revision of offers its update.
  */
-export function ModelRow({name, engine, model, use, description, downloads, state, onDownload, downloadLabel = 'Download', onCancel, onRemove, removeDetail, catalog, children}: ModelRowProps) {
+export function ModelRow({name, engine, model, use, description, downloads, state, onDownload, downloadLabel = 'Download', onCancel, onUse, onRemove, removeDetail, catalog, children}: ModelRowProps) {
     const [removing, setRemoving] = useState(false)
-    const shown = state ?? modelState(model.status, downloads[downloadKey(engine, model.name)])
-    const damaged = shown.kind === 'missing' && isCorrupted(model.status)
+    const shown = state ?? modelState(model.status, engine && downloads?.[downloadKey(engine, model.name)])
+    const damaged = shown.kind === 'missing' && damagedCopy(model.status)
     const size = formatModelSize(model.size_bytes)
 
     let status: Status | null = null
@@ -68,7 +85,9 @@ export function ModelRow({name, engine, model, use, description, downloads, stat
     if (shown.kind === 'ready') {
         control = (
             <RowControls>
-                <RowValue $strong={!!use}>{use ? 'In use' : 'Installed'}</RowValue>
+                {use || !onUse
+                    ? <RowValue $strong={!!use}>{use ? 'In use' : 'Installed'}</RowValue>
+                    : <Button size="sm" aria-label={`Use ${name}`} onClick={onUse}>Use</Button>}
                 {onRemove && <Button size="sm" variant="ghost" aria-label={`Remove ${name}`} onClick={() => setRemoving(true)}>Remove</Button>}
             </RowControls>
         )

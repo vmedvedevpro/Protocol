@@ -1,9 +1,5 @@
 import type {CustomServerConfig, SummaryModelChoice, SummaryModelConfig, SummaryProvider} from '@/api/preferences'
-import {
-    claudeOutputMaximum,
-    isCloudProvider,
-    parseSummaryLength,
-} from '../../api/summaryProviders'
+import {claudeOutputMaximum, isCloudProvider} from '../../api/summaryProviders'
 
 /**
  * What the summary model page holds until Save: the fields as typed. A
@@ -19,16 +15,18 @@ export interface SummaryModelDraft {
     /** Claude's maximum summary length as typed; empty for the model's default. */
     maxLength: string
     ollamaEndpoint: string
-    /** The endpoint whose models are listed: Fetch models takes the typed one. */
-    ollamaFetched: string
     custom: Record<'endpoint' | 'model' | 'apiKey' | 'maxTokens' | 'temperature' | 'topP', string>
 }
+
+/** A key or an endpoint typed is asked about once typing has rested this long. */
+export const TYPING_SETTLE_MS = 500
 
 const text = (value: number | string | null | undefined) => (value === null || value === undefined ? '' : String(value))
 
 /**
  * The page's starting point: the saved choice, and for every other
- * provider the model last saved with it (`providerModelMap`).
+ * provider the model the old settings last saved with it
+ * (`readLegacyModelMap`).
  */
 export function initialDraft(
     config: SummaryModelConfig | null,
@@ -37,14 +35,12 @@ export function initialDraft(
 ): SummaryModelDraft {
     const models: SummaryModelDraft['models'] = {...modelMap}
     if (config?.provider && config.model) models[config.provider] = config.model
-    const endpoint = config?.ollamaEndpoint ?? ''
     return {
         provider: config?.provider ?? '',
         models,
         apiKeys: {},
         maxLength: config?.provider === 'claude' ? text(config.summaryMaxTokens) : '',
-        ollamaEndpoint: endpoint,
-        ollamaFetched: endpoint,
+        ollamaEndpoint: config?.ollamaEndpoint ?? '',
         custom: {
             endpoint: customServer?.endpoint ?? '',
             model: customServer?.model ?? '',
@@ -104,8 +100,8 @@ export interface SaveContext {
 
 /**
  * What Save stores, or undefined while something is missing: a provider,
- * a model, a cloud provider's key, a downloaded built-in model, Ollama's
- * models fetched from the endpoint typed, a valid length or custom server.
+ * a model, a cloud provider's key, a downloaded built-in model, a valid
+ * length or custom server.
  */
 export function choiceOf(draft: SummaryModelDraft, context: SaveContext): {choice: SummaryModelChoice, customServer?: CustomServerConfig} | undefined {
     const {provider} = draft
@@ -119,16 +115,12 @@ export function choiceOf(draft: SummaryModelDraft, context: SaveContext): {choic
     }
     if (!model) return undefined
     if (provider === 'builtin-ai') return context.builtInReady ? {choice: {...base, model}} : undefined
-    if (provider === 'ollama') {
-        const endpoint = draft.ollamaEndpoint.trim()
-        if (endpoint !== draft.ollamaFetched.trim()) return undefined
-        return {choice: {...base, model, ollamaEndpoint: endpoint || null}}
-    }
+    if (provider === 'ollama') return {choice: {...base, model, ollamaEndpoint: draft.ollamaEndpoint.trim() || null}}
     if (isCloudProvider(provider)) {
         const apiKey = context.apiKey.trim()
         if (!apiKey) return undefined
         if (provider !== 'claude') return {choice: {...base, model, apiKey}}
-        const tokens = parseSummaryLength(draft.maxLength, claudeOutputMaximum(model))
+        const tokens = parseNumber(draft.maxLength, 1, claudeOutputMaximum(model), {whole: true})
         return tokens === undefined ? undefined : {choice: {...base, model, apiKey, summaryMaxTokens: tokens}}
     }
     return undefined

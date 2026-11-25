@@ -6,6 +6,7 @@ import {Screen} from '@/components/screen/Screen'
 import {Crossfade, CrossfadeView} from '@/components/ui/Crossfade'
 import {TabList, TabPanels, Tabs} from '@/components/ui/SegmentedControl'
 import {SettingsGroup, SettingsNavRow, SettingsSearchScope} from '@/components/ui/SettingsRow'
+import {matchesTerms, searchTerms} from '@/components/ui/settingsSearch'
 import {Switch} from '@/components/ui/Switch'
 import {TextField} from '@/components/ui/TextField'
 import {Tooltip} from '@/components/ui/Tooltip'
@@ -128,24 +129,27 @@ function SectionView({section, searching = false}: {section: SettingsSection, se
 
 const PAGE_IDS = Object.keys(SETTINGS_PAGES) as SettingsPageId[]
 
-const noop = () => undefined
+/** How many of a page's indexed rows match; its title counts as one. */
+function pageMatches(id: SettingsPageId, terms: string[]) {
+    const {title, rows} = SETTINGS_PAGES[id]
+    const matched = rows.filter(({label, description}) => matchesTerms(terms, label, description)).length
+    return matched + (matchesTerms(terms, title) ? 1 : 0)
+}
 
 /**
  * Settings search: every section's rows that match, under the section's
- * name, then the pages whose rows match. Nothing is listed by hand: each
- * section and page renders under its own scope and reports how many of its
- * rows match; a page renders out of sight, and its row opens it.
+ * name, then the pages whose rows match. A section's rows check their own
+ * text as they render; a page is looked up in its index
+ * (`SETTINGS_PAGES[…].rows`), so nothing on a page loads for a search.
  */
 function SearchResults({query}: {query: string}) {
     const navigate = useNavigate()
-    const [counts, setCounts] = useState<Record<string, number>>({})
-    const reporters = useMemo(() => {
-        const keys = [...SETTINGS_SECTIONS.map(({value}) => value), ...PAGE_IDS.map((id) => `page:${id}`)]
-        return Object.fromEntries(keys.map((key) => [key, (count: number) =>
-            setCounts((current) => (current[key] === count ? current : {...current, [key]: count}))]))
-    }, [])
-    const pages = PAGE_IDS.filter((id) => (counts[`page:${id}`] ?? 0) > 0)
-    const total = Object.values(counts).reduce((sum, count) => sum + count, 0)
+    const [counts, setCounts] = useState<Partial<Record<SettingsSection, number>>>({})
+    const reporters = useMemo(() => Object.fromEntries(SETTINGS_SECTIONS.map(({value}) => [value, (count: number) =>
+        setCounts((current) => (current[value] === count ? current : {...current, [value]: count}))])), [])
+    const terms = searchTerms(query)
+    const pages = PAGE_IDS.map((id) => ({id, count: pageMatches(id, terms)})).filter(({count}) => count > 0)
+    const total = Object.values(counts).reduce((sum, count) => sum + count, 0) + pages.length
     const sectionLabel = (section: SettingsSection) => SETTINGS_SECTIONS.find(({value}) => value === section)?.label
 
     return (
@@ -157,26 +161,16 @@ function SearchResults({query}: {query: string}) {
             ))}
             {pages.length > 0 && (
                 <SettingsGroup title="Pages">
-                    {pages.map((id) => (
+                    {pages.map(({id, count}) => (
                         <SettingsNavRow
                             key={id}
                             label={SETTINGS_PAGES[id].title}
-                            description={`${sectionLabel(SETTINGS_PAGES[id].section)} · ${counts[`page:${id}`]} matching`}
+                            description={`${sectionLabel(SETTINGS_PAGES[id].section)} · ${count} matching`}
                             onClick={() => void navigate(paths.settingsPage(id))}
                         />
                     ))}
                 </SettingsGroup>
             )}
-            <div hidden>
-                {PAGE_IDS.map((id) => {
-                    const {Page} = SETTINGS_PAGES[id]
-                    return (
-                        <SettingsSearchScope key={id} query={query} onMatches={reporters[`page:${id}`]}>
-                            <Page back={noop}/>
-                        </SettingsSearchScope>
-                    )
-                })}
-            </div>
             {total === 0 && <Note>Nothing matches “{query.trim()}”.</Note>}
         </Groups>
     )

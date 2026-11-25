@@ -1,10 +1,6 @@
 import {emit} from '@tauri-apps/api/event'
 import type {NativeEvent} from '@/api/events'
-import {
-    OLLAMA_PULL_COMPLETE_EVENT,
-    OLLAMA_PULL_PROGRESS_EVENT,
-    type OllamaModel,
-} from '@/features/settings/api/summaryProviders'
+import {OLLAMA_PULL_PROGRESS_EVENT, type OllamaModel} from '@/features/settings/api/summaryProviders'
 import type {MockHandler} from './handlers'
 
 /**
@@ -51,6 +47,9 @@ const OPENROUTER_MODELS = [
 ]
 
 const UNREACHABLE = 'Network error: error sending request for url (http://localhost:11434/api/tags). Please check your connection and endpoint URL.'
+
+/** Native sends it at the end of a pull too; the page waits for the pull's own call instead. */
+const OLLAMA_PULL_COMPLETE_EVENT = 'ollama-model-download-complete' as NativeEvent<{modelName: string}>
 
 function send<T>(event: NativeEvent<T>, payload: T) {
     emit(event, payload).catch(() => undefined)

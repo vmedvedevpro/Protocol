@@ -1,19 +1,18 @@
 import {createElement} from 'react'
 import {screen, waitFor, within} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import {beforeEach, describe, expect, it} from 'vitest'
+import {describe, expect, it} from 'vitest'
+import {listBuiltInModels} from '@/api/models'
 import {mockState} from '@/mocks/state'
-import {PROVIDER_MODEL_MAP_KEY, useProviderModelMapStore} from '../../api/summaryProviders'
+import {PROVIDER_MODEL_MAP_KEY} from '../../api/summaryProviders'
 import {SettingsPage} from '../../pages/SettingsPage'
-import {renderSettings} from '../../testing'
+import {indexedLabels} from '../../pages/settingsPages'
+import {renderedRowLabels, renderSettings} from '../../testing'
+import {shortModelName, SUMMARY_PROVIDERS} from '../summaryModel'
 
 const open = () => renderSettings(createElement(SettingsPage), '/settings/summary-model')
 const group = (name: string) => screen.getByRole('region', {name})
 const save = () => screen.getByRole('button', {name: 'Save'})
-
-beforeEach(() => {
-    void useProviderModelMapStore.persist.rehydrate()
-})
 
 describe('Summary model page', () => {
     it('starts at the saved provider and its model', async () => {
@@ -26,7 +25,7 @@ describe('Summary model page', () => {
         expect(save()).toBeEnabled()
     })
 
-    it('saves a cloud provider with its key and model, and remembers the model', async () => {
+    it('saves a cloud provider with its key and model', async () => {
         const {router} = open()
         await userEvent.click(await screen.findByRole('radio', {name: /Claude/}))
         expect(save()).toBeDisabled()
@@ -41,7 +40,13 @@ describe('Summary model page', () => {
         await waitFor(() => expect(router.state.location.pathname).toBe('/settings'))
         expect(mockState.preferences.summaryModel).toMatchObject({provider: 'claude', model: 'claude-sonnet-4-5-20250929', summaryMaxTokens: null})
         expect(mockState.preferences.apiKeys.claude).toBe('sk-ant-test')
-        expect(JSON.parse(localStorage.getItem(PROVIDER_MODEL_MAP_KEY)!)).toEqual({claude: 'claude-sonnet-4-5-20250929'})
+    })
+
+    it('picks the model the old settings saved for a provider switched to', async () => {
+        localStorage.setItem(PROVIDER_MODEL_MAP_KEY, JSON.stringify({groq: 'gemma2-9b-it'}))
+        open()
+        await userEvent.click(await screen.findByRole('radio', {name: /Groq/}))
+        expect(await screen.findByRole('combobox', {name: 'Model'})).toHaveTextContent('gemma2-9b-it')
     })
 
     it('checks Claude’s maximum summary length against the model', async () => {
@@ -83,7 +88,7 @@ describe('Summary model page', () => {
         expect(mockState.preferences.summaryModel).toMatchObject({provider: 'builtin-ai', model: 'gemma3:4b'})
     })
 
-    it('lists an Ollama server’s models, gets the starter model and waits for a fetch of a new endpoint', async () => {
+    it('lists an Ollama server’s models and gets the starter model', async () => {
         mockState.summaryProviders.pullStep = 50
         open()
         await userEvent.click(await screen.findByRole('radio', {name: /Ollama/}))
@@ -93,11 +98,16 @@ describe('Summary model page', () => {
         expect(await screen.findByText('In use')).toBeInTheDocument()
         expect(screen.getByText('gemma3:1b')).toBeInTheDocument()
         expect(save()).toBeEnabled()
+    })
 
+    it('lists another server’s models once its endpoint is typed', async () => {
+        open()
+        await userEvent.click(await screen.findByRole('radio', {name: /Ollama/}))
+        await screen.findByText('llama3.2:3b')
+
+        mockState.summaryProviders.ollamaModels = [{name: 'mistral:7b', id: 'f974a74358d6', size: '4.1 GB', modified: 'Yesterday'}]
         await userEvent.type(screen.getByRole('textbox', {name: 'Endpoint'}), 'http://studio:11434')
-        expect(save()).toBeDisabled()
-        await userEvent.click(screen.getByRole('button', {name: 'Fetch models'}))
-        await waitFor(() => expect(save()).toBeEnabled())
+        expect(await screen.findByText('mistral:7b')).toBeInTheDocument()
     })
 
     it('says when Ollama isn’t running', async () => {
@@ -143,5 +153,20 @@ describe('Summary model page', () => {
 
         await waitFor(() => expect(router.state.location.pathname).toBe('/settings'))
         expect(mockState.preferences.summaryModel?.provider).toBe('builtin-ai')
+    })
+
+    it('shows the rows its search index lists, across every provider', async () => {
+        open()
+        const builtIn = (await listBuiltInModels()).map(({display_name}) => shortModelName(display_name))
+        const data = [...builtIn, ...mockState.summaryProviders.ollamaModels.map(({name}) => name)]
+        const seen = new Set<string>()
+        for (const {label} of Object.values(SUMMARY_PROVIDERS)) {
+            await userEvent.click(await screen.findByRole('radio', {name: new RegExp(`^${label}`)}))
+            if (label === 'Ollama') await screen.findByText('gemma3:1b')
+            if (label === 'Custom server') await userEvent.click(screen.getByRole('button', {name: 'Show'}))
+            if (label === 'Custom server') await screen.findByText('Top P')
+            for (const shown of renderedRowLabels(data)) seen.add(shown)
+        }
+        expect([...seen].sort()).toEqual([...indexedLabels('summary-model')].sort())
     })
 })

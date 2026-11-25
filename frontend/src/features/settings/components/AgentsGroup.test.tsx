@@ -5,7 +5,8 @@ import {describe, expect, it, vi} from 'vitest'
 import type {Platform} from '@/lib/platform'
 import {mockState} from '@/mocks/state'
 import {SettingsPage} from '../pages/SettingsPage'
-import {renderSettings} from '../testing'
+import {indexedLabels} from '../pages/settingsPages'
+import {renderedRowLabels, renderSettings} from '../testing'
 
 const openAdvanced = () => renderSettings(createElement(SettingsPage), '/settings?section=advanced')
 const openPage = (platform: Platform = 'windows') => {
@@ -75,5 +76,12 @@ describe('Connect an agent', () => {
         renderSettings(createElement(SettingsPage), '/settings/agents')
         await userEvent.click(await screen.findByRole('button', {name: 'Turn on'}))
         expect(await screen.findByLabelText('Claude Code command')).toBeInTheDocument()
+    })
+
+    it('shows the rows its search index lists', async () => {
+        openPage('windows')
+        await userEvent.click(await screen.findByRole('button', {name: 'Show'}))
+        await screen.findByLabelText('Claude Desktop configuration')
+        expect(renderedRowLabels()).toEqual([...indexedLabels('agents')].sort())
     })
 })

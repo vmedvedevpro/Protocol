@@ -4,11 +4,9 @@ import {errorMessage} from '@/api/core'
 import {useNativeEvent} from '@/api/events'
 import {openLink} from '@/api/links'
 import {Button} from '@/components/ui/Button'
-import {ProgressBar} from '@/components/ui/ProgressBar'
 import {SettingsGroup, SettingsRow} from '@/components/ui/SettingsRow'
 import {Spinner} from '@/components/ui/Spinner'
 import {TextField} from '@/components/ui/TextField'
-import {toast} from '@/components/ui/toastStore'
 import {
     deleteOllamaModel,
     isOllamaUnreachable,
@@ -20,14 +18,14 @@ import {
     pullOllamaModel,
     summaryProviderKeys,
 } from '../../api/summaryProviders'
-import {Actions, InUse} from './styles'
+import {useDebouncedSave} from '../../hooks/useDebouncedSave'
+import {ModelRow} from '../ModelRow'
+import {TYPING_SETTLE_MS} from './draft'
+import {Actions} from './styles'
 
 interface OllamaGroupProps {
     endpoint: string
     onEndpoint: (endpoint: string) => void
-    /** The endpoint whose models are listed. */
-    fetched: string
-    onFetch: () => void
     model: string | undefined
     onModel: (model: string) => void
 }
@@ -35,15 +33,19 @@ interface OllamaGroupProps {
 /**
  * An Ollama server: its endpoint, the models on it to choose or remove, and
  * the small starter model to get. Its models are listed for the endpoint
- * last fetched; Save waits until that is the one typed.
+ * once typing it has rested (a server that is not there takes 5 s to say
+ * so); Fetch models asks again at once.
  */
-export function OllamaGroup({endpoint, onEndpoint, fetched, onFetch, model, onModel}: OllamaGroupProps) {
+export function OllamaGroup({endpoint, onEndpoint, model, onModel}: OllamaGroupProps) {
     const client = useQueryClient()
-    const server = fetched.trim() || null
+    const [settled, setSettled] = useState(endpoint.trim())
+    const typing = useDebouncedSave(setSettled, TYPING_SETTLE_MS)
+    const server = settled || null
     const models = useQuery(ollamaModelsQuery(server))
     const refresh = () => client.invalidateQueries({queryKey: summaryProviderKeys.ollama(server)})
+    const fetchNow = () => (endpoint.trim() === settled ? void models.refetch() : setSettled(endpoint.trim()))
 
-    // Native sends a pull's percent; the pull's own call ends it.
+    // Native sends a pull's percent; the pull's own call ends it. There is no cancel.
     const [pulled, setPulled] = useState<number | null>(null)
     useNativeEvent(OLLAMA_PULL_PROGRESS_EVENT, ({modelName, progress}) => {
         if (modelName === OLLAMA_STARTER_MODEL.name) setPulled(progress)
@@ -52,33 +54,33 @@ export function OllamaGroup({endpoint, onEndpoint, fetched, onFetch, model, onMo
         mutationFn: () => pullOllamaModel(OLLAMA_STARTER_MODEL.name, server),
         onMutate: () => setPulled(0),
         onSuccess: () => onModel(OLLAMA_STARTER_MODEL.name),
-        onError: (error) => toast.error(`Couldn’t get ${OLLAMA_STARTER_MODEL.name}`, {description: errorMessage(error)}),
         onSettled: () => {
             setPulled(null)
             return refresh()
         },
     })
-    const remove = useMutation({
-        mutationFn: (name: string) => deleteOllamaModel(name, server),
-        onError: (error, name) => toast.error(`Couldn’t remove ${name}`, {description: errorMessage(error)}),
-        onSettled: refresh,
-    })
+    const remove = (name: string) => deleteOllamaModel(name, server).finally(refresh)
 
     const unreachable = models.isError && isOllamaUnreachable(models.error)
     const hasStarter = models.data?.some(({name}) => name === OLLAMA_STARTER_MODEL.name)
-    const changed = endpoint.trim() !== fetched.trim()
+    const starterState = pulled !== null
+        ? {kind: 'downloading' as const, progress: Math.min(pulled, 99)}
+        : pull.isError ? {kind: 'failed' as const, error: errorMessage(pull.error)} : {kind: 'missing' as const}
 
     return (
         <SettingsGroup title="Ollama">
-            <SettingsRow label="Endpoint" description={changed ? 'Fetch the models of this server before saving' : 'Optional'}>
+            <SettingsRow label="Endpoint" description="Optional">
                 <Actions>
                     <TextField
                         placeholder={OLLAMA_DEFAULT_ENDPOINT}
                         spellCheck={false}
                         value={endpoint}
-                        onChange={(event) => onEndpoint(event.target.value)}
+                        onChange={(event) => {
+                            onEndpoint(event.target.value)
+                            typing.change(event.target.value.trim())
+                        }}
                     />
-                    <Button size="sm" pending={models.isFetching} onClick={() => (changed ? onFetch() : void refresh())}>Fetch models</Button>
+                    <Button size="sm" pending={models.isFetching || typing.draft !== null} onClick={fetchNow}>Fetch models</Button>
                 </Actions>
             </SettingsRow>
             {models.isPending && <SettingsRow label="Models" description="Looking for models…" control={<Spinner/>}/>}
@@ -92,40 +94,25 @@ export function OllamaGroup({endpoint, onEndpoint, fetched, onFetch, model, onMo
             {models.isError && !unreachable && <SettingsRow label="Couldn’t list the models" description={errorMessage(models.error)}/>}
             {models.data?.length === 0 && <SettingsRow label="Models" description="None found on this server yet"/>}
             {models.data?.map(({name, size}) => (
-                <SettingsRow
+                <ModelRow
                     key={name}
-                    label={name}
+                    name={name}
+                    model={{name}}
+                    state={{kind: 'ready'}}
+                    use={name === model ? 'Writes your summaries' : null}
                     description={size}
-                    control={name === model ? <InUse>In use</InUse> : (
-                        <Actions>
-                            <Button size="sm" aria-label={`Use ${name}`} onClick={() => onModel(name)}>Use</Button>
-                            <Button
-                                size="sm"
-                                variant="ghost"
-                                aria-label={`Remove ${name}`}
-                                pending={remove.isPending && remove.variables === name}
-                                onClick={() => remove.mutate(name)}
-                            >
-                                Remove
-                            </Button>
-                        </Actions>
-                    )}
+                    onUse={() => onModel(name)}
+                    onRemove={name === model ? undefined : () => remove(name)}
                 />
             ))}
             {models.isSuccess && !hasStarter && (
-                <SettingsRow
-                    label="Get a model"
-                    description={pulled === null
-                        ? `${OLLAMA_STARTER_MODEL.name}, ${OLLAMA_STARTER_MODEL.size}`
-                        : `Downloading ${OLLAMA_STARTER_MODEL.name} · ${pulled}%`}
-                    control={(
-                        <Button size="sm" aria-label={`Download ${OLLAMA_STARTER_MODEL.name}`} pending={pull.isPending} onClick={() => pull.mutate()}>
-                            Download
-                        </Button>
-                    )}
-                >
-                    {pulled !== null && <ProgressBar label={`Downloading ${OLLAMA_STARTER_MODEL.name}`} value={pulled}/>}
-                </SettingsRow>
+                <ModelRow
+                    name={OLLAMA_STARTER_MODEL.name}
+                    model={{name: OLLAMA_STARTER_MODEL.name, size_bytes: OLLAMA_STARTER_MODEL.bytes}}
+                    state={starterState}
+                    description={OLLAMA_STARTER_MODEL.description}
+                    onDownload={() => pull.mutate()}
+                />
             )}
         </SettingsGroup>
     )

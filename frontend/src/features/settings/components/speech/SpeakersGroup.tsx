@@ -24,7 +24,7 @@ import {toast} from '@/components/ui/toastStore'
 import {formatModelSize} from '@/lib/sizes'
 import {useDebouncedSave} from '../../hooks/useDebouncedSave'
 import {Disclosure, Range, SliderLine, SliderValue, Warning} from '../styles'
-import {ModelRow} from './ModelRow'
+import {ModelRow} from '../ModelRow'
 
 const Credits = styled.p`
     padding-top: ${({theme}) => theme.space[2]};

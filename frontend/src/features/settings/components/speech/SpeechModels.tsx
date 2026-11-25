@@ -10,7 +10,7 @@ import {formatModelSize} from '@/lib/sizes'
 import {type SpeechModel, useModelUse, useSpeechModels} from '../../hooks/useSpeechModels'
 import {Warning} from '../styles'
 import {ForThisComputer} from './ForThisComputer'
-import {ModelRow} from './ModelRow'
+import {ModelRow} from '../ModelRow'
 import {catalogLine, facts, languagesLine} from './modelText'
 
 const Groups = styled.div`

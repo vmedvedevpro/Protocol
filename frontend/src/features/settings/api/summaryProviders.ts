@@ -10,7 +10,7 @@ import {command} from '@/api/core'
 import type {NativeEvent} from '@/api/events'
 import type {SummaryProvider} from '@/api/preferences'
 import claudeLimits from '@/lib/claude-output-limits.json'
-import {safely, storedValue} from '@/lib/storage'
+import {safely} from '@/lib/storage'
 
 /** The providers that need the user's own key. */
 export type CloudProvider = Extract<SummaryProvider, 'claude' | 'openai' | 'groq' | 'openrouter'>
@@ -48,14 +48,18 @@ export async function getProviderModels(provider: CloudProvider, apiKey: string 
 
 export const summaryProviderKeys = {
     all: ['summaryProviders'] as const,
-    models: (provider: CloudProvider, apiKey: string | null) => [...summaryProviderKeys.all, 'models', provider, apiKey ?? ''] as const,
+    models: (provider: CloudProvider) => [...summaryProviderKeys.all, 'models', provider] as const,
     ollama: (endpoint: string | null) => [...summaryProviderKeys.all, 'ollama', endpoint ?? ''] as const,
 }
 
-/** Kept a few minutes: a provider's list changes rarely, and native caches it too. */
+/**
+ * A provider's models, asked with `apiKey`. Keyed by the provider alone, so
+ * no key is part of a query hash: the page refetches when the key it asks
+ * with changes. Kept a few minutes, since a list changes rarely.
+ */
 export const providerModelsQuery = (provider: CloudProvider, apiKey: string | null) =>
     queryOptions({
-        queryKey: summaryProviderKeys.models(provider, apiKey),
+        queryKey: summaryProviderKeys.models(provider),
         queryFn: () => getProviderModels(provider, apiKey),
         staleTime: 5 * 60_000,
         retry: false,
@@ -66,8 +70,8 @@ export const providerModelsQuery = (provider: CloudProvider, apiKey: string | nu
 /** The server native uses when no endpoint is saved. */
 export const OLLAMA_DEFAULT_ENDPOINT = 'http://localhost:11434'
 
-/** The small model the old settings offered to get, and its download. */
-export const OLLAMA_STARTER_MODEL = {name: 'gemma3:1b', size: 'about 800 MB'} as const
+/** The small model the old settings offered to get. */
+export const OLLAMA_STARTER_MODEL = {name: 'gemma3:1b', description: 'A small model to start with', bytes: 815_000_000} as const
 
 /** Mirrors `OllamaModel` in ollama/ollama.rs; `size` is already readable ("815 MB"). */
 export interface OllamaModel {
@@ -110,8 +114,6 @@ export const deleteOllamaModel = (modelName: string, endpoint: string | null) =>
 
 /** A pull's percent, whole numbers as native sends them. */
 export const OLLAMA_PULL_PROGRESS_EVENT = 'ollama-model-download-progress' as NativeEvent<{modelName: string, progress: number}>
-export const OLLAMA_PULL_COMPLETE_EVENT = 'ollama-model-download-complete' as NativeEvent<{modelName: string}>
-export const OLLAMA_PULL_ERROR_EVENT = 'ollama-model-download-error' as NativeEvent<{modelName: string, error: string}>
 
 /** Ollama is not installed or not running here (the old settings' check). */
 export function isOllamaUnreachable(error: unknown) {
@@ -133,17 +135,18 @@ export const testCustomServer = ({endpoint, apiKey, model}: {endpoint: string, a
 /** The old settings' key and format: `{"claude": "claude-sonnet-4-5", …}`. Keep reading. */
 export const PROVIDER_MODEL_MAP_KEY = 'providerModelMap'
 
-function readModelMap(stored: string | null): Record<string, string> {
+/**
+ * The model the old settings last saved for each provider, read once when
+ * the summary model page opens, so a provider switched to finds its model
+ * again. Nothing writes it any more: within the page the draft keeps each
+ * provider's model, and the saved provider's model is in the database.
+ */
+export function readLegacyModelMap(): Record<string, string> {
+    const stored = safely(() => localStorage.getItem(PROVIDER_MODEL_MAP_KEY)) ?? null
     const parsed: unknown = stored ? safely(() => JSON.parse(stored)) : null
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
     return Object.fromEntries(Object.entries(parsed).filter((entry): entry is [string, string] => typeof entry[1] === 'string'))
 }
-
-/**
- * The model last saved for each provider, so switching back to a provider
- * picks its model again. Written on Save, as the old settings did.
- */
-export const useProviderModelMapStore = storedValue(PROVIDER_MODEL_MAP_KEY, readModelMap, (map) => JSON.stringify(map))
 
 // ---- Claude's output limits --------------------------------------------------------------
 
@@ -156,20 +159,4 @@ export function claudeOutputMaximum(model: string): number {
     const name = model.toLowerCase()
     const known = claudeLimits.models.find(({prefix}) => name === prefix || name.startsWith(prefix.endsWith('-') ? prefix : `${prefix}-`))
     return Math.min(claudeLimits.applicationLimit, known?.limit ?? claudeLimits.fallbackLimit)
-}
-
-/** What native accepts for any other provider. */
-export const MAX_SUMMARY_TOKENS = 64_000
-
-/**
- * The maximum summary length typed in a field: null when it is empty (the
- * model's default), the number when it is a whole number within `maximum`,
- * else undefined.
- */
-export function parseSummaryLength(text: string, maximum: number): number | null | undefined {
-    const trimmed = text.trim()
-    if (!trimmed) return null
-    if (!/^\d+$/.test(trimmed)) return undefined
-    const tokens = Number(trimmed)
-    return Number.isSafeInteger(tokens) && tokens >= 1 && tokens <= maximum ? tokens : undefined
 }
