@@ -473,7 +473,8 @@ enter and exit, indicators and springs.
   - `Button`'s `pending` disables the button and sets `aria-busy` at once;
     if what the click started runs past `spinner.delay`, the label turns
     transparent in one step (never fading), keeping the button's width, and
-    a delayed spinner fades in over it until the action ends. So Ignore,
+    the spinner takes its place over it in the same step, so no frame shows
+    an empty button, until the action ends. So Ignore,
     which usually ends at once, keeps its label. The crash report sheet's
     Send Report, Save ZIP and Ignore use it.
 - What animates and how:

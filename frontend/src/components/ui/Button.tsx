@@ -117,9 +117,19 @@ const hide = keyframes`
     }
 `
 
+const show = keyframes`
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
+`
+
 // The label and what goes with it, laid out as the button lays out its
-// children. While pending it turns transparent when the delayed spinner
-// arrives, in one step and never by fading (text ending an opacity animation
+// children. While pending it turns transparent when the spinner arrives
+// after spinner.delay, in one step and never by fading (text ending an opacity animation
 // blinks), so an action that ends at once never swaps the label out. It
 // keeps the button's width and stays in the accessibility tree, so the
 // button keeps its name.
@@ -133,12 +143,15 @@ const Content = styled.span<{ $pending: boolean }>`
     `};
 `
 
+// The spinner shows in the same step as the label goes, on the same delay:
+// a spinner fading in after it would leave the button empty for a moment.
 const Pending = styled.span`
     position: absolute;
     inset: 0;
     display: flex;
     align-items: center;
     justify-content: center;
+    animation: ${show} 0s ${({theme}) => theme.motion.spinner.delay} both;
 `
 
 /** Children are the label, after an icon if it has one. */
@@ -180,7 +193,7 @@ export function Button({
                 {children}
                 {trailing}
             </Content>
-            {pending && <Pending><Spinner delayed size={ICON_DEFAULTS.size}/></Pending>}
+            {pending && <Pending><Spinner size={ICON_DEFAULTS.size}/></Pending>}
         </StyledButton>
     )
 }

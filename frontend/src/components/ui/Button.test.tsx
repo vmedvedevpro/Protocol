@@ -34,6 +34,20 @@ describe('Button', () => {
         expect(button).not.toHaveAttribute('aria-busy')
     })
 
+    it('swaps its label for the spinner in one step once the wait runs past the delay', () => {
+        renderUi(<Button pending>Save ZIP</Button>)
+        const button = screen.getByRole('button', {name: 'Save ZIP'})
+        const label = getComputedStyle(button.querySelector('span:not([aria-busy])') as HTMLElement)
+        const spinner = getComputedStyle(button.querySelector('svg')?.parentElement as HTMLElement)
+
+        // Both are steps on one delay; a spinner fading in after the label went
+        // would leave the button empty for a moment.
+        for (const step of [label, spinner]) expect(step.animationDuration).toBe('0s')
+        expect(spinner.animationDelay).toBe(label.animationDelay)
+        expect(spinner.animationDelay).not.toMatch(/^0s?$/)
+        expect(getComputedStyle(button.querySelector('svg') as SVGElement).animationName.split(',')).toHaveLength(1)
+    })
+
     it('ignores a disabled click', async () => {
         const onClick = vi.fn()
         renderUi(<Button onClick={onClick} disabled>Export</Button>)
