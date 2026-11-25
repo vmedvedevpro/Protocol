@@ -30,23 +30,23 @@
 //!   before the copy, so the rule fires once, and a crash in between leaves
 //!   the copy rather than a marker.
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 use std::path::{Path, PathBuf};
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 use anyhow::{anyhow, Result};
 use tauri::{AppHandle, Runtime};
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 use tauri::{Emitter, Manager};
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 use crate::database::repositories::setting::SettingsRepository;
 use crate::model_catalog;
 use crate::model_catalog::schema::{Engine, Entry};
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 use crate::model_catalog::{installed, sizes};
 use crate::whisper_engine::ModelInfo;
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 use crate::whisper_engine::ModelStatus;
 
 /// The regular copy the Intel GPU version replaces: Large V3 Turbo
@@ -60,20 +60,20 @@ pub const COMPRESSED_COPY: &str = crate::optional_models::WHISPER_MODEL;
 pub const CHOSEN_MARKER: &str = ".replaces-compressed";
 /// Where [`write_marker`] writes [`CHOSEN_MARKER`] before renaming it into
 /// place. Never read: a crash can leave it, and the next write replaces it.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 const PARTIAL_MARKER: &str = ".replaces-compressed.partial";
 
 /// The file of a copy as a marker names it: its size and modification time.
 /// A download writes a new file, so a copy removed and downloaded again has
 /// another; a crash or a restore that keeps the old file keeps its name.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct CopyFile {
     len: u64,
     modified_ns: u128,
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 pub(crate) fn copy_file(path: &Path) -> Option<CopyFile> {
     let metadata = std::fs::metadata(path).ok().filter(std::fs::Metadata::is_file)?;
     let modified_ns = metadata.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?.as_nanos();
@@ -81,7 +81,7 @@ pub(crate) fn copy_file(path: &Path) -> Option<CopyFile> {
 }
 
 /// What [`CHOSEN_MARKER`] holds for the copy `file`.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 pub(crate) fn marker_text(file: &CopyFile) -> String {
     format!("{COMPRESSED_COPY}\n{}\n{}\n", file.len, file.modified_ns)
 }
@@ -91,13 +91,13 @@ pub fn gpu_version(id: &str) -> Option<Entry> {
     model_catalog::companions().into_iter().find(|entry| entry.id == id)
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 fn companion_dir(entry: &Entry) -> PathBuf {
     model_catalog::openvino::dir_in(&crate::paths::models_dir(), entry)
 }
 
 /// The installed companion `entry`, verified, or `None`.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 pub fn installed(entry: &Entry) -> Option<model_catalog::openvino::InstalledCompanion> {
     let first = entry.companion_of.first()?;
     model_catalog::openvino::installed_companion(first).filter(|companion| companion.dir == companion_dir(entry))
@@ -147,7 +147,7 @@ pub fn no_copy_message(version: &Entry) -> String {
 /// the companion is installed, else Missing (a saved choice of it still loads
 /// a regular copy). Named after the model they serve ("Large V3 Turbo"); the
 /// UI adds the "Intel GPU" badge.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 pub fn listed() -> Vec<ModelInfo> {
     model_catalog::companions()
         .into_iter()
@@ -177,13 +177,13 @@ pub fn listed() -> Vec<ModelInfo> {
         .collect()
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "linux")))]
 pub fn listed() -> Vec<ModelInfo> {
     Vec::new()
 }
 
 /// The file of the Compressed copy when the model list has it installed.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 async fn installed_copy() -> Option<PathBuf> {
     crate::whisper_engine::commands::whisper_get_available_models()
         .await
@@ -196,7 +196,7 @@ async fn installed_copy() -> Option<PathBuf> {
 /// After `openvino_download` with `choose` installed the companion `entry`:
 /// makes it the after-meeting model and, when the Compressed copy is on disk,
 /// leaves [`CHOSEN_MARKER`] naming it so it retires after the first pass.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 pub async fn chosen<R: Runtime>(app: &AppHandle<R>, entry: &Entry) -> Result<(), String> {
     let state = app.state::<crate::state::AppState>();
     let copy = if entry.companion_of.iter().any(|id| id == COMPRESSED_COPY) { installed_copy().await } else { None };
@@ -208,7 +208,7 @@ pub async fn chosen<R: Runtime>(app: &AppHandle<R>, entry: &Entry) -> Result<(),
 
 /// [`chosen`] apart from the app: saves the choice in `pool` and, with the
 /// Compressed copy installed at `copy`, leaves the marker in `dir`.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 async fn choose_in(pool: &sqlx::SqlitePool, entry: &Entry, dir: &Path, copy: Option<&Path>) -> Result<(), String> {
     SettingsRepository::save_post_call_transcript_config(pool, "whisper", &entry.id)
         .await
@@ -273,7 +273,7 @@ pub fn retires_copy(copy: &str, facts: &CopyUse) -> bool {
 /// Whether the Whisper engine runs on OpenVINO now: asked at the end of a
 /// post-meeting pass, before the batch unload.
 pub async fn runs_on_gpu() -> bool {
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     {
         let engine = crate::whisper_engine::commands::WHISPER_ENGINE
             .lock()
@@ -292,9 +292,9 @@ pub async fn runs_on_gpu() -> bool {
 /// `requested` the Whisper model the pass was asked for. The check and the
 /// removal run on their own task, after the pass has released the engine.
 pub fn after_post_meeting_pass<R: Runtime>(app: AppHandle<R>, ran_on_gpu: bool, requested: Option<String>) {
-    #[cfg(not(windows))]
+    #[cfg(not(any(windows, target_os = "linux")))]
     let _ = (app, ran_on_gpu, requested);
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     if ran_on_gpu {
         tauri::async_runtime::spawn(async move {
             match retire_copy(&app, requested).await {
@@ -312,7 +312,7 @@ pub fn after_post_meeting_pass<R: Runtime>(app: AppHandle<R>, ran_on_gpu: bool, 
 /// runs after the download announced the companion, and the card refreshes
 /// on that), and must find no marker or a whole one, never a part of the
 /// text that would read as a marker for another copy.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 fn write_marker(dir: &Path, copy: &Path) -> std::io::Result<()> {
     let file = copy_file(copy).ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "the copy is not on disk"))?;
     let partial = dir.join(PARTIAL_MARKER);
@@ -323,7 +323,7 @@ fn write_marker(dir: &Path, copy: &Path) -> std::io::Result<()> {
 /// For Settings: whether the Compressed copy waits to retire after the
 /// Intel GPU version's first meeting. It only reads; a marker that outlived
 /// its copy is removed by the next pass ([`retire`]).
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 #[tauri::command]
 pub fn speech_choice_copy_retires() -> bool {
     let copy = model_catalog::entry(Engine::Whisper, COMPRESSED_COPY)
@@ -334,7 +334,7 @@ pub fn speech_choice_copy_retires() -> bool {
 
 /// The folders of the companions that serve the Compressed copy, where
 /// [`CHOSEN_MARKER`] may be.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 fn marker_dirs() -> Vec<PathBuf> {
     model_catalog::companions()
         .iter()
@@ -345,7 +345,7 @@ fn marker_dirs() -> Vec<PathBuf> {
 
 /// The markers in some companion folders, sorted by what they say about the
 /// installed copy.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 #[derive(Debug, Default)]
 struct Markers {
     /// Name the copy as it is now.
@@ -358,7 +358,7 @@ struct Markers {
 
 /// Reads the markers in `dirs` against the copy at `copy`. One that cannot
 /// be read is neither: it does not retire the copy, and it is not removed.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 fn read_markers(dirs: &[PathBuf], copy: Option<&Path>) -> Markers {
     let expected = copy.and_then(copy_file).map(|file| marker_text(&file));
     let mut markers = Markers::default();
@@ -373,7 +373,7 @@ fn read_markers(dirs: &[PathBuf], copy: Option<&Path>) -> Markers {
 }
 
 /// What [`retire`] cannot read from disk or from the settings.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 #[derive(Debug, Clone, Default)]
 pub(crate) struct PassFacts<'a> {
     pub recording: bool,
@@ -388,7 +388,7 @@ pub(crate) struct PassFacts<'a> {
 /// `delete` removes the copy; it runs only after the markers are gone, so a
 /// failed marker removal or a crash leaves the copy, never a marker that
 /// could later remove another one.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 async fn retire<F, Fut>(marker_dirs: &[PathBuf], copy: Option<&Path>, pool: &sqlx::SqlitePool, pass: &PassFacts<'_>, delete: F) -> Result<bool>
 where
     F: FnOnce() -> Fut,
@@ -430,7 +430,7 @@ where
     Ok(true)
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 async fn retire_copy<R: Runtime>(app: &AppHandle<R>, requested: Option<String>) -> Result<bool> {
     let dirs = marker_dirs();
     if !dirs.iter().any(|dir| dir.join(CHOSEN_MARKER).is_file()) {
@@ -481,7 +481,7 @@ async fn retire_copy<R: Runtime>(app: &AppHandle<R>, requested: Option<String>) 
 /// Whether something uses the speech engines: `openvino_remove` refuses
 /// then. The same rule as its own (`model_catalog::openvino`), asked first
 /// so that a refused removal leaves the choices alone.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 fn engines_busy() -> bool {
     use crate::updater::busy::BusyReason;
     crate::updater::busy::current()
@@ -494,7 +494,7 @@ fn engines_busy() -> bool {
 /// during the meeting"; live: the copy, else Parakeet), as removing a ggml
 /// model does, then `openvino_remove`. When that refuses (a download or a
 /// transcription started meanwhile), the choices it moved go back.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 #[tauri::command]
 pub async fn speech_choice_remove_gpu_version<R: Runtime>(app: AppHandle<R>, id: String) -> Result<(), String> {
     let entry = gpu_version(&id).ok_or_else(|| format!("{id} is not in the model list"))?;
@@ -523,7 +523,7 @@ pub async fn speech_choice_remove_gpu_version<R: Runtime>(app: AppHandle<R>, id:
 }
 
 /// Which choices [`move_choices`] moved, to put them back.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 #[derive(Debug, Default, PartialEq, Eq)]
 struct Moved {
     post_call: bool,
@@ -531,14 +531,14 @@ struct Moved {
     live_provider: Option<String>,
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 fn moved_to(copy: Option<&str>) -> ((&str, &str), (&str, &str)) {
     let post_call = copy.map_or(("live", ""), |copy| ("whisper", copy));
     let live = copy.map_or(("parakeet", crate::config::DEFAULT_PARAKEET_MODEL), |copy| ("localWhisper", copy));
     (post_call, live)
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 async fn move_choices(pool: &sqlx::SqlitePool, id: &str, copy: Option<&str>) -> std::result::Result<Moved, sqlx::Error> {
     let ((post_provider, post_model), (live_provider, live_model)) = moved_to(copy);
     let mut transaction = pool.begin().await?;
@@ -567,7 +567,7 @@ async fn move_choices(pool: &sqlx::SqlitePool, id: &str, copy: Option<&str>) -> 
 
 /// Puts back what [`move_choices`] moved, where the choice is still what it
 /// wrote: one the person made meanwhile stays.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 async fn restore_choices(pool: &sqlx::SqlitePool, id: &str, copy: Option<&str>, moved: &Moved) -> std::result::Result<(), sqlx::Error> {
     let ((post_provider, post_model), (live_provider, live_model)) = moved_to(copy);
     let mut transaction = pool.begin().await?;
@@ -693,7 +693,7 @@ mod tests {
         assert_eq!(engine.get_current_model().await, None);
     }
 
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     #[tokio::test]
     async fn removing_the_gpu_version_moves_its_choices_to_the_copy_or_the_defaults() {
         let pool = sqlx::sqlite::SqlitePoolOptions::new().max_connections(1).connect("sqlite::memory:").await.unwrap();
@@ -739,7 +739,7 @@ mod tests {
 
     /// A companion folder and a models folder with a stand-in for the copy:
     /// the retirement reads only its file's identity.
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     struct Disk {
         _root: tempfile::TempDir,
         companion: PathBuf,
@@ -747,7 +747,7 @@ mod tests {
         downloads: std::cell::Cell<u64>,
     }
 
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     impl Disk {
         fn new() -> Self {
             let root = tempfile::tempdir().unwrap();
@@ -796,7 +796,7 @@ mod tests {
     }
 
     /// The settings database with the live and after-meeting choices.
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     async fn choices(live: (&str, &str), post_call: (&str, &str)) -> sqlx::SqlitePool {
         let pool = sqlx::sqlite::SqlitePoolOptions::new().max_connections(1).connect("sqlite::memory:").await.unwrap();
         sqlx::migrate!("./migrations").run(&pool).await.unwrap();
@@ -805,10 +805,10 @@ mod tests {
         pool
     }
 
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     const PARAKEET: (&str, &str) = ("parakeet", "parakeet-tdt-0.6b-v3-int8");
 
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     #[tokio::test]
     async fn choosing_saves_it_after_meetings_and_names_the_copy_on_disk() {
         let disk = Disk::new();
@@ -827,7 +827,7 @@ mod tests {
         assert!(!disk.marker().exists());
     }
 
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     #[tokio::test]
     async fn the_copy_retires_once_and_a_copy_downloaded_later_stays() {
         let disk = Disk::new();
@@ -841,7 +841,7 @@ mod tests {
         assert!(disk.copy.exists());
     }
 
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     #[tokio::test]
     async fn a_marker_never_removes_a_copy_other_than_its_own() {
         let pool = choices(PARAKEET, ("whisper", GPU)).await;
@@ -935,7 +935,7 @@ mod tests {
         assert!(!disk.copy.exists());
     }
 
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     #[tokio::test]
     async fn the_copy_stays_while_anything_could_load_it() {
         let disk = Disk::new();

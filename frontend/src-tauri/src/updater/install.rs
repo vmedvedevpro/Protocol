@@ -182,7 +182,7 @@ fn platform_install(update: tauri_plugin_updater::Update, bytes: Vec<u8>, mode: 
 /// the install folder), and close the crash session so the next launch does
 /// not report a crash, nor OpenVINO's crash guard one inside OpenVINO.
 async fn prepare_exit<R: Runtime>(app: &AppHandle<R>) {
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     crate::whisper_engine::openvino::set_closing(true);
     #[cfg(windows)]
     crate::parakeet_engine::npu::guard::set_closing(true);
@@ -204,7 +204,7 @@ async fn prepare_exit<R: Runtime>(app: &AppHandle<R>) {
 }
 
 fn resume_after_failed_install() {
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     crate::whisper_engine::openvino::set_closing(false);
     #[cfg(windows)]
     crate::parakeet_engine::npu::guard::set_closing(false);

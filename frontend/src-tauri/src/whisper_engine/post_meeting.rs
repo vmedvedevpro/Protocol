@@ -107,7 +107,7 @@ impl<'a> PostMeetingWhisper<'a> {
     #[cfg(test)]
     pub(crate) fn decoding(&self) -> WhisperDecoding {
         // OpenVINO decodes every piece greedily (`openvino::piece_segments`).
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "linux"))]
         if self.engine.loaded_openvino().is_some() {
             return WhisperDecoding::Greedy;
         }
@@ -124,7 +124,7 @@ impl<'a> PostMeetingWhisper<'a> {
         initial_prompt: Option<&str>,
     ) -> Result<Vec<TimedText>> {
         let Self { engine, decoding } = self;
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "linux"))]
         if let Some(openvino) = engine.loaded_openvino() {
             return super::openvino::piece_call(openvino, samples, language, initial_prompt).await;
         }
@@ -138,7 +138,7 @@ impl WhisperEngine {
     /// The language whisper.cpp detects in the first 30 s of `samples`, with
     /// its probability: one encoder pass, no decoding.
     pub async fn detect_language_with_probability(&self, samples: &[f32]) -> Result<Option<(String, f32)>> {
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "linux"))]
         if self.loaded_openvino().is_some() {
             return Err(anyhow!("GenAI's C API does not report the language it detects (#79)"));
         }

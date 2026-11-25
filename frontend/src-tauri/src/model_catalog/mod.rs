@@ -18,10 +18,10 @@ pub mod authenticode;
 pub mod commands;
 pub mod huggingface;
 pub mod installed;
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 pub mod openvino;
 pub mod remote;
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 pub mod runtime;
 pub mod schema;
 pub mod service;

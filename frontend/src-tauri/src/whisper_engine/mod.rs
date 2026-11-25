@@ -5,7 +5,7 @@ pub mod labs;
 pub mod acceleration;
 pub mod vulkan;
 pub mod commands;
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 pub mod openvino;
 // pub mod stderr_suppressor;
 

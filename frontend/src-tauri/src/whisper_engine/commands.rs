@@ -462,12 +462,12 @@ pub async fn get_local_stack_status() -> Result<serde_json::Value, String> {
             None => None,
         }
     };
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     let whisper_openvino = {
         let engine = WHISPER_ENGINE.lock().unwrap().as_ref().cloned();
         super::openvino::stack_status(engine.as_deref())
     };
-    #[cfg(not(windows))]
+    #[cfg(not(any(windows, target_os = "linux")))]
     let whisper_openvino = serde_json::Value::Null;
 
     let (parakeet_loaded, parakeet_model) = {
@@ -559,10 +559,10 @@ pub async fn whisper_gpu_retry() -> Result<(), String> {
 /// that offers a model's OpenVINO companion shows only when it can.
 #[command]
 pub async fn get_openvino_availability() -> Result<serde_json::Value, String> {
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     return Ok(serde_json::to_value(super::openvino::availability().await).map_err(|error| error.to_string())?);
-    #[cfg(not(windows))]
-    Ok(serde_json::json!({ "available": false, "device": null, "reason": "OpenVINO runs only in the Windows app" }))
+    #[cfg(not(any(windows, target_os = "linux")))]
+    Ok(serde_json::json!({ "available": false, "device": null, "reason": "OpenVINO runs only in the Windows and Linux apps" }))
 }
 
 /// Recheck whether a Windows NVIDIA driver now supports the CUDA build selected
