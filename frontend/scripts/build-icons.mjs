@@ -250,50 +250,20 @@ const u32be = (value) => {
     return buffer
 }
 
-function paeth(left, up, corner) {
-    const p = left + up - corner
-    const [dl, du, dc] = [Math.abs(p - left), Math.abs(p - up), Math.abs(p - corner)]
-    return dl <= du && dl <= dc ? left : du <= dc ? up : corner
-}
-
 function png(size, rgba) {
     const chunk = (type, data) => {
         const body = Buffer.concat([Buffer.from(type, 'ascii'), data])
         return Buffer.concat([u32be(data.length), body, u32be(crc32(body))])
     }
     const header = Buffer.concat([u32be(size), u32be(size), Buffer.from([8, 6, 0, 0, 0])])
+    // Every row unfiltered (filter byte 0): simple, and the size does not matter here.
     const stride = size * 4
     const rows = Buffer.alloc((stride + 1) * size)
-    // Each row takes the PNG filter whose output sums smallest (the usual
-    // heuristic), which shrinks the glow's smooth gradients by a third; tiny
-    // tray marks deflate better unfiltered, so the smaller result is kept.
-    const plain = Buffer.alloc((stride + 1) * size)
-    for (let y = 0; y < size; y++) rgba.copy(plain, y * (stride + 1) + 1, y * stride, (y + 1) * stride)
-    for (let y = 0; y < size; y++) {
-        const row = rgba.subarray(y * stride, (y + 1) * stride)
-        const above = y > 0 ? rgba.subarray((y - 1) * stride, y * stride) : Buffer.alloc(stride)
-        let best = null
-        for (let filter = 0; filter < 5; filter++) {
-            const out = Buffer.alloc(stride + 1)
-            out[0] = filter
-            let cost = 0
-            for (let k = 0; k < stride; k++) {
-                const left = k >= 4 ? row[k - 4] : 0
-                const up = above[k]
-                const corner = k >= 4 ? above[k - 4] : 0
-                const predicted = [0, left, up, (left + up) >> 1, paeth(left, up, corner)][filter]
-                out[k + 1] = (row[k] - predicted) & 0xff
-                cost += out[k + 1] < 128 ? out[k + 1] : 256 - out[k + 1]
-            }
-            if (!best || cost < best.cost) best = {out, cost}
-        }
-        best.out.copy(rows, y * (stride + 1))
-    }
-    const [filtered, unfiltered] = [rows, plain].map((data) => deflateSync(data, {level: 9}))
+    for (let y = 0; y < size; y++) rgba.copy(rows, y * (stride + 1) + 1, y * stride, (y + 1) * stride)
     return Buffer.concat([
         Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
         chunk('IHDR', header),
-        chunk('IDAT', filtered.length <= unfiltered.length ? filtered : unfiltered),
+        chunk('IDAT', deflateSync(rows, {level: 9})),
         chunk('IEND', Buffer.alloc(0)),
     ])
 }
@@ -357,24 +327,14 @@ function write(name, data) {
     console.log(`${name.padEnd(40)} ${data.length} bytes`)
 }
 
-// Windows and Linux: the PNG family Tauri's bundle config lists for the Linux
-// packages (and the Store logos `tauri icon` makes), and the Windows .ico.
+// Windows and Linux: the PNG family Tauri's bundle config lists (the Linux
+// packages' hicolor sizes and the default window icon), and the Windows .ico.
 const FULL = {
     '32x32.png': 32,
     '64x64.png': 64,
     '128x128.png': 128,
     '128x128@2x.png': 256,
     'icon.png': 512,
-    'Square30x30Logo.png': 30,
-    'Square44x44Logo.png': 44,
-    'Square71x71Logo.png': 71,
-    'Square89x89Logo.png': 89,
-    'Square107x107Logo.png': 107,
-    'Square142x142Logo.png': 142,
-    'Square150x150Logo.png': 150,
-    'Square284x284Logo.png': 284,
-    'Square310x310Logo.png': 310,
-    'StoreLogo.png': 50,
 }
 for (const [name, size] of Object.entries(FULL)) write(name, png(size, appBytes(size, false)))
 

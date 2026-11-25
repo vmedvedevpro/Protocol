@@ -3,7 +3,7 @@
 //! `frontend/scripts/build-icons.mjs` draws the images in `icons/tray/`; this
 //! module picks one for the platform and the panel it sits on.
 
-use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicU8, Ordering};
 
 use tauri::{image::Image, AppHandle, Runtime};
 
@@ -12,12 +12,10 @@ use super::{RecordingState, TRAY_ID};
 /// On macOS every image is a template: the system tints it for the menu bar.
 const TEMPLATE: bool = cfg!(target_os = "macos");
 
-/// Whether the last state shown has a recording on, for a repaint after the
-/// panel's colour changes.
-static RECORDING: AtomicBool = AtomicBool::new(false);
-/// The image on the tray, so a menu update that changes neither the state nor
-/// the panel does not hand the same image over again (on Linux each hand-over
-/// writes a file the panel reloads). 0: none yet.
+/// The image on the tray (`key`), so a menu update that changes neither the
+/// state nor the panel does not hand the same image over again (on Linux each
+/// hand-over writes a file the panel reloads), and so a repaint after the
+/// panel's colour changes knows whether a recording is on. 0: none yet.
 static SHOWN: AtomicU8 = AtomicU8::new(0);
 
 /// The dot means a recording is open, paused or not, until it has stopped.
@@ -32,21 +30,29 @@ pub(super) fn initial() -> (Image<'static>, bool) {
     (image(false, light), TEMPLATE)
 }
 
-/// Shows `recording` on the tray, and says so in its tooltip.
+/// Shows `recording` on the tray, and says so in its tooltip. Every tray menu
+/// update calls it, so the panel's colour is read again then too: that catches
+/// a change the window's theme does not report (a Plasma colour scheme, or
+/// Windows' taskbar mode set apart from the apps' mode).
 pub(super) fn show<R: Runtime>(app: &AppHandle<R>, recording: bool) {
-    RECORDING.store(recording, Ordering::Relaxed);
-    let light = light_panel();
-    if SHOWN.swap(key(recording, light), Ordering::Relaxed) == key(recording, light) {
+    let shown = key(recording, light_panel());
+    if SHOWN.swap(shown, Ordering::Relaxed) == shown {
         return;
     }
     let Some(tray) = app.tray_by_id(TRAY_ID) else {
         return;
     };
     // A plain set_icon drops the template flag on macOS.
-    if let Err(error) = tray.set_icon_with_as_template(Some(image(recording, light)), TEMPLATE) {
+    if let Err(error) =
+        tray.set_icon_with_as_template(Some(image(recording, is_light(shown))), TEMPLATE)
+    {
         log::warn!("Tray: could not change the icon: {error}");
     }
-    let tooltip = if recording { "Protocol — Recording" } else { "Protocol" };
+    let tooltip = if recording {
+        "Protocol — Recording"
+    } else {
+        "Protocol"
+    };
     if let Err(error) = tray.set_tooltip(Some(tooltip)) {
         log::warn!("Tray: could not change the tooltip: {error}");
     }
@@ -54,11 +60,21 @@ pub(super) fn show<R: Runtime>(app: &AppHandle<R>, recording: bool) {
 
 /// Repaints the current state, for when the panel may have changed colour.
 pub(super) fn refresh<R: Runtime>(app: &AppHandle<R>) {
-    show(app, RECORDING.load(Ordering::Relaxed));
+    show(app, is_recording(SHOWN.load(Ordering::Relaxed)));
 }
 
+/// Packs what the tray shows into one byte: bit 0 set once anything is shown,
+/// bit 1 the recording dot, bit 2 the light panel.
 fn key(recording: bool, light: bool) -> u8 {
-    1 + u8::from(recording) + 2 * u8::from(light)
+    1 | (u8::from(recording) << 1) | (u8::from(light) << 2)
+}
+
+fn is_recording(key: u8) -> bool {
+    key & 0b010 != 0
+}
+
+fn is_light(key: u8) -> bool {
+    key & 0b100 != 0
 }
 
 #[cfg(target_os = "macos")]
@@ -114,8 +130,11 @@ fn light_panel() -> bool {
 /// light), so `kdeglobals` is read.
 #[cfg(target_os = "linux")]
 fn light_panel() -> bool {
-    let plasma = std::env::var("XDG_CURRENT_DESKTOP")
-        .is_ok_and(|desktops| desktops.split(':').any(|name| name.eq_ignore_ascii_case("KDE")));
+    let plasma = std::env::var("XDG_CURRENT_DESKTOP").is_ok_and(|desktops| {
+        desktops
+            .split(':')
+            .any(|name| name.eq_ignore_ascii_case("KDE"))
+    });
     // A scheme never changed from the default is Breeze Light.
     plasma && plasma_window_is_light().unwrap_or(true)
 }
@@ -124,7 +143,9 @@ fn light_panel() -> bool {
 fn plasma_window_is_light() -> Option<bool> {
     let config = std::env::var_os("XDG_CONFIG_HOME")
         .map(std::path::PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|home| std::path::Path::new(&home).join(".config")))?;
+        .or_else(|| {
+            std::env::var_os("HOME").map(|home| std::path::Path::new(&home).join(".config"))
+        })?;
     window_is_light(&std::fs::read_to_string(config.join("kdeglobals")).ok()?)
 }
 
@@ -137,7 +158,10 @@ fn window_is_light(kdeglobals: &str) -> Option<bool> {
         if line.starts_with('[') {
             in_window = line == "[Colors:Window]";
         } else if let Some(value) = line.strip_prefix("BackgroundNormal=").filter(|_| in_window) {
-            let rgb: Vec<f32> = value.split(',').filter_map(|part| part.trim().parse().ok()).collect();
+            let rgb: Vec<f32> = value
+                .split(',')
+                .filter_map(|part| part.trim().parse().ok())
+                .collect();
             if let [r, g, b, ..] = rgb[..] {
                 return Some(0.299 * r + 0.587 * g + 0.114 * b > 127.5);
             }
@@ -166,13 +190,27 @@ mod tests {
     }
 
     #[test]
+    fn the_shown_key_keeps_both_bits() {
+        for recording in [false, true] {
+            for light in [false, true] {
+                let shown = key(recording, light);
+                assert_ne!(shown, 0);
+                assert_eq!((is_recording(shown), is_light(shown)), (recording, light));
+            }
+        }
+    }
+
+    #[test]
     fn plasma_panel_colour_comes_from_the_window_background() {
         let breeze_dark = "[Colors:Button]\nBackgroundNormal=252,252,252\n\n[Colors:Window]\nBackgroundAlternate=49,54,59\nBackgroundNormal=32,35,38\n";
         assert_eq!(window_is_light(breeze_dark), Some(false));
         let breeze_light = "[Colors:Window]\nBackgroundNormal=239,240,241\n";
         assert_eq!(window_is_light(breeze_light), Some(true));
         // Another section's background, or none at all, says nothing.
-        assert_eq!(window_is_light("[Colors:View]\nBackgroundNormal=20,20,20\n"), None);
+        assert_eq!(
+            window_is_light("[Colors:View]\nBackgroundNormal=20,20,20\n"),
+            None
+        );
         assert_eq!(window_is_light(""), None);
     }
 }

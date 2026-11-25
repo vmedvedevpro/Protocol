@@ -1064,7 +1064,6 @@ ring. After changing a number there, run `node scripts/build-icons.mjs` from
 | `icon.icns` (16–1024 px) | Apple's grid: plate 824 of 1024, drop shadow | macOS bundle (`release-build-macos.yml` checks it) |
 | `icon.png` (512) | full plate | default window icon on Linux and macOS (the first PNG of `bundle.icon`), Linux packages |
 | `32x32.png`, `64x64.png`, `128x128.png`, `128x128@2x.png` | full plate | Linux packages' hicolor sizes; `128x128@2x.png` is also the Claude Desktop extension's icon (`claude_desktop_extension.rs`) |
-| `Square*Logo.png`, `StoreLogo.png` | full plate | nothing yet; the Windows Store set `tauri icon` makes |
 | `tray/macos-template*.png` (36 px) | black ring, template | macOS menu bar, tinted by the system |
 | `tray/windows-{white,black}*.png` (32 px) | white or black ring | Windows tray, by the taskbar's colour (`SystemUsesLightTheme`) |
 | `tray/linux-{white,black}*.png` (64 px) | white or black ring | Linux tray: black only on a light Plasma panel (`kdeglobals`), white on GNOME's and other dark panels |
@@ -1073,10 +1072,13 @@ Each tray image has a `-recording` twin with the dot. `src-tauri/src/tray/icon.r
 embeds them with `tauri::include_image!` and switches them when the tray's
 menu changes state (Stopped and Starting show no dot; Recording, Paused and the
 steps between show it), with the tooltip "Protocol — Recording". The panel's
-colour is read again on every such change and when the main window's theme
-changes. Limits: on Windows a change of "Windows mode" alone, with the apps'
-mode left as it was, shows at the next state change; on Linux a Plasma style
-with its own panel colours is taken for the colour scheme's.
+colour is read again on every tray menu update (a recording state change, a
+transcription model or an update becoming ready) and when the main window's theme changes; nothing
+polls. Limits: a change the window's theme does not report (a Plasma colour
+scheme, or Windows' taskbar mode set apart from the apps' mode) shows at the
+next menu update; on Linux a Plasma style with its own panel colours is taken
+for the colour scheme's. No Store or MSIX build is made, so the
+`Square*Logo.png` set `tauri icon` writes for one is not drawn.
 
 `tauri.conf.json` (`bundle.icon` and `bundle.windows.nsis.installerIcon`)
 references the generated `icon.*` family. Do not introduce a second
