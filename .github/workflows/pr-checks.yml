@@ -32,6 +32,15 @@ jobs:
           node-version: '24'
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
+      # Windows and macOS resolve imports without regard to case, so two
+      # modules whose paths differ only in case (ReleaseNotes.tsx beside
+      # releaseNotes.ts) break their builds while Linux, which runs these
+      # checks, builds fine.
+      - name: No module paths that differ only in case
+        working-directory: .
+        run: |
+          clashes=$(git ls-files | awk '{ k = tolower($0); sub(/\.(d\.ts|tsx|ts|jsx|js|mjs|cjs)$/, "", k); if (k in seen) print seen[k] " / " $0; else seen[k] = $0 }')
+          if [ -n "$clashes" ]; then echo "$clashes"; exit 1; fi
       - run: pnpm install --frozen-lockfile
       - run: pnpm run lint
       - run: pnpm test
