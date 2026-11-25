@@ -1268,10 +1268,8 @@ impl WhisperEngine {
                 return Err(self.fail_download(model_name, error).await);
             }
         } else if !response.status().is_success() {
-            // Remove from active downloads on error
-            let mut active = self.active_downloads.write().await;
-            active.remove(model_name);
-            return Err(anyhow!("Download failed with status: {}", response.status()));
+            let error = anyhow!("Download failed with status: {}", response.status());
+            return Err(self.fail_download(model_name, error).await);
         }
         
         // A resumed response carries the rest; progress counts the whole file.
@@ -1290,6 +1288,20 @@ impl WhisperEngine {
             return Err(self.fail_download(model_name, error).await);
         }
         
+        // The share already on disk shows at once: a resumed transfer first
+        // reads back the bytes it keeps, which takes a while on a large file.
+        let initial_progress = if resuming && total_size > 0 {
+            ((existing_size as f64 / total_size as f64) * 100.0).min(99.0) as u8
+        } else {
+            0
+        };
+        if let Some(model_info) = self.available_models.write().await.get_mut(model_name) {
+            model_info.status = ModelStatus::Downloading { progress: initial_progress };
+        }
+        if let Some(ref callback) = progress_callback {
+            callback(initial_progress);
+        }
+
         // The hash covers the whole file, so a resumed transfer first reads
         // back the bytes it keeps.
         let mut integrity = if resuming {
@@ -1315,12 +1327,15 @@ impl WhisperEngine {
                 return Err(self.fail_download(model_name, error).await);
             }
         }
-        let mut file = if resuming {
+        let opened = if resuming {
             fs::OpenOptions::new().append(true).open(&file_path).await
         } else {
             fs::File::create(&file_path).await
-        }
-        .map_err(|e| anyhow!("Failed to open file: {}", e))?;
+        };
+        let mut file = match opened {
+            Ok(file) => file,
+            Err(e) => return Err(self.fail_download(model_name, anyhow!("Failed to open file: {}", e)).await),
+        };
         
         log::info!("File opened at: {}", file_path.display());
         
@@ -1331,13 +1346,8 @@ impl WhisperEngine {
         use futures_util::StreamExt;
         let mut stream = response.bytes_stream();
         let mut downloaded = if resuming { existing_size } else { 0 };
-        let mut last_progress_report = 0u8;
+        let mut last_progress_report = initial_progress;
         let mut last_report_time = std::time::Instant::now();
-
-        // Emit initial 0% progress immediately
-        if let Some(ref callback) = progress_callback {
-            callback(0);
-        }
 
         while let Some(chunk_result) = stream.next().await {
             // Check for cancellation before processing chunk
@@ -1352,16 +1362,25 @@ impl WhisperEngine {
                 }
             }
 
-            let chunk = chunk_result
-                .map_err(|e| anyhow!("Failed to read chunk: {}", e))?;
+            // A lost connection or a full disk ends the download as failed:
+            // the partial file stays, and Retry resumes from it. Its bytes are
+            // flushed first, so the resume starts after the last one written.
+            let chunk = match chunk_result {
+                Ok(chunk) => chunk,
+                Err(e) => {
+                    let _ = file.flush().await;
+                    return Err(self.fail_download(model_name, anyhow!("Failed to read chunk: {}", e)).await);
+                }
+            };
 
             if let Err(error) = integrity.update(&chunk) {
                 drop(file);
                 let _ = fs::remove_file(&file_path).await;
                 return Err(self.fail_download(model_name, error).await);
             }
-            file.write_all(&chunk).await
-                .map_err(|e| anyhow!("Failed to write chunk to file: {}", e))?;
+            if let Err(e) = file.write_all(&chunk).await {
+                return Err(self.fail_download(model_name, anyhow!("Failed to write chunk to file: {}", e)).await);
+            }
 
             downloaded += chunk.len() as u64;
 
@@ -1567,9 +1586,41 @@ mod tests {
 
         let (url, range) = model_integrity::testing::serve_range_once(body.clone()).await;
         let client = Client::builder().no_proxy().build().unwrap();
-        engine.download_pinned("test", pinned, &url, client, Download { record: None, resume: true }, None).await.unwrap();
+        let reports = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let callback: Box<dyn Fn(u8) + Send> = {
+            let reports = reports.clone();
+            Box::new(move |progress| reports.lock().unwrap().push(progress))
+        };
+        engine.download_pinned("test", pinned, &url, client, Download { record: None, resume: true }, Some(callback)).await.unwrap();
 
         assert_eq!(range.await.unwrap().as_deref(), Some("bytes=120000-"));
+        assert_eq!(std::fs::read(dir.path().join(pinned.file)).unwrap(), body);
+        // The kept 40 % shows before its bytes are read back into the check.
+        assert_eq!(reports.lock().unwrap().first(), Some(&40));
+    }
+
+    #[tokio::test]
+    async fn a_lost_connection_fails_the_download_and_retry_resumes() {
+        let dir = tempfile::tempdir().unwrap();
+        let engine = WhisperEngine::new_with_models_dir(Some(dir.path().to_path_buf())).unwrap();
+        let body: Vec<u8> = (0..300_000u32).map(|i| (i % 251) as u8).collect();
+        let pinned = model_integrity::testing::pin_of("ggml-cut.bin", &body);
+        let client = Client::builder().no_proxy().build().unwrap();
+
+        let url = model_integrity::testing::serve_cut_once(body.clone(), 100_000).await;
+        let error = engine
+            .download_pinned("test", pinned, &url, client.clone(), Download { record: None, resume: true }, None)
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("Failed to read chunk"), "{error}");
+        assert!(engine.active_downloads.read().await.is_empty(), "the download is no longer in progress");
+        let kept = std::fs::metadata(dir.path().join(pinned.file)).unwrap().len();
+        assert!(kept > 0 && kept < body.len() as u64, "{kept}");
+
+        let (url, range) = model_integrity::testing::serve_range_once(body.clone()).await;
+        engine.download_pinned("test", pinned, &url, client, Download { record: None, resume: true }, None).await.unwrap();
+        assert_eq!(range.await.unwrap(), Some(format!("bytes={kept}-")));
         assert_eq!(std::fs::read(dir.path().join(pinned.file)).unwrap(), body);
     }
 

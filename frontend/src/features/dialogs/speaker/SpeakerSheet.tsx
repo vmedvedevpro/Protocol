@@ -141,6 +141,8 @@ function SpeakerForm({request, onSaving}: { request: Extract<OpenedDialog, { kin
     const submit = async (event: FormEvent) => {
         event.preventDefault()
         if (!to || to === from) return void toast.info('Pick who said it')
+        // The warning is not shown yet; a save now could delete what it names.
+        if (emptied?.loading) return
         onSaving(true)
         try {
             if (live) {
@@ -217,6 +219,10 @@ interface EmptiedContact {
     person: Person
     notes: boolean
     voice: boolean
+    /** Its notes and voice are still being read: Save waits, so the warning names them first. */
+    loading: boolean
+    /** They could not be read, so the warning cannot name them. */
+    unknown: boolean
 }
 
 /**
@@ -235,19 +241,28 @@ function useEmptiedContact(people: readonly Person[] | undefined, from: string, 
         person: emptied,
         notes: !!profile.data?.notes,
         voice: !!voices.data?.some((voice) => voice.person_id === emptied.id),
+        loading: profile.isPending || voices.isPending,
+        unknown: profile.isError || voices.isError,
     }
 }
 
-/** "Tom has no other meetings, so the contact is merged into Thomas…", or what is deleted with it. */
-function removalNote({person, notes, voice}: EmptiedContact, people: readonly Person[], to: string, toName: string): string {
+/**
+ * "Tom isn’t in any other meeting, so the contact is merged into Thomas…",
+ * or what is deleted with it; nothing while its notes and voice load.
+ * A merge appends the notes and fills only the details the kept contact
+ * lacks (PeopleRepository::merge_in).
+ */
+function removalNote({person, notes, voice, loading, unknown}: EmptiedContact, people: readonly Person[], to: string, toName: string): string | null {
+    if (loading) return null
     const lead = `${person.displayName} isn’t in any other meeting, so the contact`
     // A contact name merges (a new name becomes a contact first); You and a voice are no contact.
     if (isPersonLabel(to)) {
         const into = personForSpeaker(people, to) ? toName : `the new contact ${toName}`
-        return `${lead} is merged into ${into}: its notes, details, action items and voice move there.`
+        return `${lead} is merged into ${into}. Its notes are added to ${toName}’s, its details fill in only what ${toName} has none of, and its action items and voice move there.`
     }
     const details = !!(person.email || person.company || person.role || person.phone)
     const lost = [notes && 'private notes', details && 'details', voice && 'voice profile'].filter(Boolean) as string[]
+    if (unknown) return `${lead} is deleted, with everything it keeps. Its action items stay, without the contact.`
     const what = lost.length ? `, with its ${lost.length > 1 ? `${lost.slice(0, -1).join(', ')} and ${lost[lost.length - 1]}` : lost[0]}` : ''
     return `${lead} is deleted${what}. Its action items stay, without the contact.`
 }
