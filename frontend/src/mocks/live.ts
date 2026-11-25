@@ -60,6 +60,8 @@ export function createMockLive() {
         /** The next start rejects with it, as native does for a device it cannot open. */
         startError: null as string | null,
         loaded: {parakeet: false, whisper: false},
+        /** Why Whisper stays off the graphics card (Linux crash guard); `whisper_gpu_retry` clears it. */
+        gpuStopped: null as string | null,
         /** What `get_transcription_status` answers after a Stop. */
         transcription: {chunks_in_queue: 0, is_processing: false, last_activity_ms: 60_000} as TranscriptionStatus,
         /** Native says the app quits after the save (`recording_save_finished`). */

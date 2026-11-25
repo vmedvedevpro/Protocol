@@ -17,7 +17,7 @@ import {
     retryIntelGpu,
     retryNpu,
 } from '@/api/intel'
-import {gpuFallbackReason, localStackQuery} from '@/api/localStack'
+import {gpuFallbackReason, localStackKeys, localStackQuery, retryWhisperGpu} from '@/api/localStack'
 import {trackIntelDownload} from '@/api/modelDownloadSync'
 import {PARAKEET_MODEL, POST_CALL_WHISPER_MODEL} from '@/api/models'
 import {Button} from '@/components/ui/Button'
@@ -78,6 +78,11 @@ export function ForThisComputer() {
     const cancelIntel = (id: string) => void cancelIntelDownload(id).catch(() => undefined)
     const retry = (action: () => Promise<unknown>) => () =>
         void action().catch((error) => toast.error('That didn’t work', {description: intelError(error)})).finally(refresh)
+    // The GPU's devices are read once per process, so the retry waits for the next start.
+    const retryGpu = () => void retryWhisperGpu()
+        .then(() => toast.success('Whisper tries the graphics card again', {description: 'From the next start of Protocol on.'}))
+        .catch((error) => toast.error('That didn’t work', {description: intelError(error)}))
+        .finally(() => void queryClient.invalidateQueries({queryKey: localStackKeys.all}))
 
     const parakeetRow = live && (
         <ModelRow
@@ -152,7 +157,14 @@ export function ForThisComputer() {
             onCancel={() => cancel(copy)}
             onRemove={() => remove(copy)}
             removeDetail={facts(formatModelSize(copy.size_bytes) && `This frees ${formatModelSize(copy.size_bytes)}`, 'Transcripts after meetings then use the live model') + '.'}
-        />
+        >
+            {stack?.whisper.gpuStopped && (
+                <RowControls>
+                    <Warning role="status" title={stack.whisper.gpuStopped}>The graphics card didn’t start last time, so Whisper runs on the processor</Warning>
+                    <Button size="sm" variant="ghost" onClick={retryGpu}>Try again</Button>
+                </RowControls>
+            )}
+        </ModelRow>
     )
 
     return (

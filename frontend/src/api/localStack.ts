@@ -15,6 +15,8 @@ export interface LocalStackStatus {
         model: string | null
         /** Windows: the device the Intel GPU version runs on, or why its last load fell back. */
         openvino?: {device: string | null, fallbackReason: string | null} | null
+        /** Linux: why Whisper stays on the processor after Protocol closed while starting the graphics card. */
+        gpuStopped?: string | null
     }
     parakeet: {loaded: boolean, model: string | null, backend: 'CPU' | 'DirectML'}
     sttIdleUnloadSecs: number
@@ -34,6 +36,9 @@ export interface LocalStackStatus {
 }
 
 export const getLocalStackStatus = () => command<LocalStackStatus>('get_local_stack_status')
+
+/** Lets the next start run Whisper on the graphics card again (whisper_engine/vulkan.rs). */
+export const retryWhisperGpu = () => command<null>('whisper_gpu_retry')
 
 /** Unloads Parakeet and Whisper; refused during a recording. */
 export const unloadSpeechModels = () => command<null>('force_unload_stt_models')

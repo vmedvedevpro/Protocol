@@ -141,6 +141,19 @@ describe('Settings › Speech models', () => {
         expect(within(pair).queryByText('Use your Intel GPU')).not.toBeInTheDocument()
     })
 
+    it('says Whisper stays on the processor after the graphics card crashed, and retries from the next start', async () => {
+        mockState.live.gpuStopped = 'Protocol closed unexpectedly the last time it was looking for the graphics card, so Whisper runs on the processor.'
+        renderPage()
+        const pair = await screen.findByRole('region', {name: 'For this computer'})
+        expect(await within(pair).findByText('The graphics card didn’t start last time, so Whisper runs on the processor')).toBeInTheDocument()
+
+        await userEvent.click(within(pair).getByRole('button', {name: 'Try again'}))
+
+        await waitFor(() => expect(mockState.live.gpuStopped).toBeNull())
+        expect(await screen.findByText('Whisper tries the graphics card again')).toBeInTheDocument()
+        await waitFor(() => expect(within(pair).queryByText(/didn’t start last time/)).not.toBeInTheDocument())
+    })
+
     it('removes Whisper Large V3 Turbo through the optional removal', async () => {
         renderPage()
         const pair = await screen.findByRole('region', {name: 'For this computer'})

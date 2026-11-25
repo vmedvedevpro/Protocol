@@ -14,7 +14,7 @@ export function localStackHandlers(state: {live: MockLive}): Record<string, Mock
     return {
         get_local_stack_status: (): LocalStackStatus => ({
             recording: !!state.live.recording,
-            whisper: {loaded: state.live.loaded.whisper, model: state.live.loaded.whisper ? 'large-v3-turbo-q5_0' : null, openvino: null},
+            whisper: {loaded: state.live.loaded.whisper, model: state.live.loaded.whisper ? 'large-v3-turbo-q5_0' : null, openvino: null, gpuStopped: state.live.gpuStopped},
             parakeet: {loaded: state.live.loaded.parakeet, model: state.live.loaded.parakeet ? 'parakeet-tdt-0.6b-v3-int8' : null, backend: 'CPU'},
             sttIdleUnloadSecs: 120,
             llmIdleUnloadSecs: 300,
@@ -30,6 +30,10 @@ export function localStackHandlers(state: {live: MockLive}): Record<string, Mock
             networkPolicy: 'local-first',
             networkNote: 'No telemetry. Cloud LLM only if you add an API key and select that provider.',
         }),
+        whisper_gpu_retry: () => {
+            state.live.gpuStopped = null
+            return null
+        },
         force_unload_stt_models: () => {
             refuseWhileRecording()
             state.live.loaded = {parakeet: false, whisper: false}
