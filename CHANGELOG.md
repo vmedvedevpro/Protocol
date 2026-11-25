@@ -78,7 +78,10 @@ changes are included here.
 ### Fixed
 
 - **Recordings play on Linux**
-  ([#121](https://github.com/vmedvedevpro/Protocol/issues/121)).
+  ([#121](https://github.com/vmedvedevpro/Protocol/issues/121),
+  [#176](https://github.com/vmedvedevpro/Protocol/issues/176)). The AppImage
+  brings the GStreamer plugins its player needs; without them the window
+  went blank as soon as a meeting opened.
 - **A library from another computer opens**
   ([#121](https://github.com/vmedvedevpro/Protocol/issues/121)). The Linux
   version opens a database made on Windows, and a meeting whose folder

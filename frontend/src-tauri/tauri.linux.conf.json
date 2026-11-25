@@ -15,6 +15,11 @@
       "templates/*.json",
       "resources/diarization/*",
       "binaries/onnxruntime/*"
-    ]
+    ],
+    "linux": {
+      "appimage": {
+        "bundleMediaFramework": true
+      }
+    }
   }
 }
