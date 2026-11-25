@@ -19,26 +19,27 @@ import {
 import {usePostCallJob} from '@/api/postCall'
 import {useUserName} from '@/api/preferences'
 import {Screen} from '@/components/screen/Screen'
+import {useWriteSummary} from '@/components/summary/writeSummary'
+import {meetingDocument, summaryMarkdown, transcriptMarkdown} from '@/components/transcript/meetingText'
 import {Button, IconButton} from '@/components/ui/Button'
 import {TabList, TabPanels, Tabs} from '@/components/ui/SegmentedControl'
 import {Spinner} from '@/components/ui/Spinner'
 import {toast} from '@/components/ui/toastStore'
+import {openDialog} from '@/lib/dialogs'
 import {useHotkey} from '@/lib/hotkeys'
 import {paths} from '@/lib/paths'
+import {completeSummaryMarkdown, parseSummaryData} from '@/lib/summaryMarkdown'
 import {FolderNameSheet} from '../components/FolderSheets'
 import {ProcessingStatus} from '../components/processing/ProcessingStatus'
 import {RenameMeetingSheet} from '../components/RenameMeetingSheet'
-import {meetingDocument, summaryMarkdown, transcriptMarkdown} from '../lib/copyText'
 import {parseDate} from '../lib/dates'
-import {completeSummaryMarkdown, parseSummaryData} from '../lib/summaryMarkdown'
 import {MeetingHeader} from './MeetingHeader'
-import {DeleteMeetingSheet, WriteAgainSheet} from './MeetingSheets'
+import {DeleteMeetingSheet} from './MeetingSheets'
 import {NotesPanel} from './NotesPanel'
 import {useMeetingPlayer} from './player'
 import {PlayerBar} from './PlayerBar'
 import {useIdentifySpeakers} from './identifySpeakers'
 import {SpeakerCount} from './SpeakerCount'
-import {useWriteSummary} from './summaryRun'
 import {SummaryPanel} from './SummaryPanel'
 import {TranscriptPanel} from './TranscriptPanel'
 
@@ -140,7 +141,6 @@ export function MeetingScreen({meetingId}: { meetingId: string }) {
     const [renaming, setRenaming] = useState(false)
     const [deleting, setDeleting] = useState(false)
     const [naming, setNaming] = useState(false)
-    const [confirmingWrite, setConfirmingWrite] = useState(false)
 
     const requested = params.get('tab')
     const tab: MeetingTab = isTab(requested) ? requested : 'summary'
@@ -182,11 +182,6 @@ export function MeetingScreen({meetingId}: { meetingId: string }) {
         }
     }
 
-    const writeAgain = () => {
-        if (summary.data?.userEdited) setConfirmingWrite(true)
-        else void write({again: true})
-    }
-
     if (meeting.isError) {
         return (
             <Screen>
@@ -213,11 +208,14 @@ export function MeetingScreen({meetingId}: { meetingId: string }) {
                 hasRecordingFolder={!!meeting.data.folder_path}
                 hasSummary={!!summaryText}
                 canIdentifySpeakers={speakers.available && !speakers.running}
+                canImprove={hasAudio && !!meeting.data.folder_path && !job && !speakers.running}
                 onRename={() => setRenaming(true)}
                 onMove={(folderId) => move.mutate(folderId)}
                 onNewFolder={() => setNaming(true)}
                 onCopyTranscript={() => void copy('transcript')}
                 onCopySummary={() => void copy('summary')}
+                onExport={() => openDialog({kind: 'export', meetingId})}
+                onImprove={() => openDialog({kind: 'enhance', meetingId})}
                 onOpenRecordingFolder={() => void openMeetingFolder(meetingId).catch((error: unknown) =>
                     toast.error('Couldn’t open the recording folder', {description: errorMessage(error)}))}
                 onIdentifySpeakers={speakers.identify}
@@ -236,7 +234,7 @@ export function MeetingScreen({meetingId}: { meetingId: string }) {
                             <IconButton label="Copy summary" onClick={() => void copy('summary')}>
                                 <CopyIcon size={15} aria-hidden/>
                             </IconButton>
-                            <IconButton label="Write the summary again" onClick={writeAgain}>
+                            <IconButton label="Write the summary again" onClick={() => openDialog({kind: 'summary', meetingId})}>
                                 <ArrowClockwiseIcon size={15} aria-hidden/>
                             </IconButton>
                         </Actions>
@@ -276,7 +274,6 @@ export function MeetingScreen({meetingId}: { meetingId: string }) {
                 onOpenChange={setNaming}
                 onCreated={(created) => move.mutate(created.id)}
             />
-            <WriteAgainSheet open={confirmingWrite} onOpenChange={setConfirmingWrite} onConfirm={() => void write({again: true})}/>
         </Screen>
     )
 }

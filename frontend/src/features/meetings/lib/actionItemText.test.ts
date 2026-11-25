@@ -165,3 +165,20 @@ describe('fingerprint and locateInTranscript', () => {
         assert.strictEqual(locateInTranscript('order new laptops for the design team', segments), null)
     })
 })
+
+describe('action items stored as a table', () => {
+    // The table as blocksToMarkdown writes it (src/lib/summaryMarkdown.test.ts).
+    test('reads each row, an escaped pipe included', () => {
+        const result = extractActionItems(
+            '## Action items\n| Owner | Task |\n| --- | --- |\n| Priya Shah | Send the terms |\n| You | Book a \\| check-in |',
+        )
+        assert.strictEqual(result.hadActionSection, true)
+        assert.deepEqual(
+            result.drafts.map((draft) => [draft.ownerLabel, draft.text]),
+            [
+                ['Priya Shah', 'Send the terms'],
+                ['You', 'Book a | check-in'],
+            ],
+        )
+    })
+})

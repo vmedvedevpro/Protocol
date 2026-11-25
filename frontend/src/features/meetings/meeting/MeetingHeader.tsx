@@ -1,8 +1,10 @@
 import {
     CopyIcon,
     DotsThreeIcon,
+    ExportIcon,
     FolderOpenIcon,
     FolderSimpleIcon,
+    MagicWandIcon,
     PencilSimpleIcon,
     TrashIcon,
     UsersIcon,
@@ -76,11 +78,15 @@ export interface MeetingHeaderProps {
     hasSummary: boolean
     /** Identify speakers again is offered (an engine, audio, no pass running). */
     canIdentifySpeakers: boolean
+    /** Improve the transcript is offered (audio, no pass running). */
+    canImprove: boolean
     onRename: () => void
     onMove: (folderId: string | null) => void
     onNewFolder: () => void
     onCopyTranscript: () => void
     onCopySummary: () => void
+    onExport: () => void
+    onImprove: () => void
     onOpenRecordingFolder: () => void
     onIdentifySpeakers: (count: number | null) => void
     onDelete: () => void
@@ -88,8 +94,8 @@ export interface MeetingHeaderProps {
 
 /**
  * The meeting's title, when it was and how long, its folder, and the
- * meeting menu. Export, Enhance transcript and the summary's options are
- * #119's and join the menu there.
+ * meeting menu. The dialogs it opens (Export…, Improve the transcript…)
+ * are features/dialogs' (#119).
  */
 export function MeetingHeader(props: MeetingHeaderProps) {
     const {title, createdAt, durationSeconds, folder, folders} = props
@@ -107,7 +113,7 @@ export function MeetingHeader(props: MeetingHeaderProps) {
             </Text>
             <Menu
                 trigger={(
-                    <IconButton label="More actions: rename, move to folder, copy, delete">
+                    <IconButton label="More actions: rename, move to folder, copy, export, delete">
                         <DotsThreeIcon size={17} aria-hidden/>
                     </IconButton>
                 )}
@@ -124,12 +130,16 @@ export function MeetingHeader(props: MeetingHeaderProps) {
                 <MenuSeparator/>
                 <MenuItem icon={<CopyIcon aria-hidden/>} onSelect={props.onCopyTranscript}>Copy transcript</MenuItem>
                 <MenuItem icon={<CopyIcon aria-hidden/>} disabled={!props.hasSummary} onSelect={props.onCopySummary}>Copy summary</MenuItem>
+                <MenuItem icon={<ExportIcon aria-hidden/>} onSelect={props.onExport}>Export…</MenuItem>
                 {props.hasRecordingFolder && (
                     <MenuItem icon={<FolderOpenIcon aria-hidden/>} onSelect={props.onOpenRecordingFolder}>Open recording folder</MenuItem>
                 )}
+                {(props.canImprove || props.canIdentifySpeakers) && <MenuSeparator/>}
+                {props.canImprove && (
+                    <MenuItem icon={<MagicWandIcon aria-hidden/>} onSelect={props.onImprove}>Improve the transcript…</MenuItem>
+                )}
                 {props.canIdentifySpeakers && (
                     <>
-                        <MenuSeparator/>
                         <MenuSub label="Identify speakers again" icon={<UsersIcon aria-hidden/>}>
                             <SpeakerCountItems onPick={props.onIdentifySpeakers}/>
                         </MenuSub>

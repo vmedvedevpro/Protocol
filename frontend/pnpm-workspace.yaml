@@ -2,6 +2,8 @@ packages:
   - '.'
 
 # esbuild (through Storybook) finds its binary in the @esbuild/<platform>
-# package without its install script.
+# package without its install script; core-js (through jspdf) only prints
+# a banner from its own.
 allowBuilds:
+  core-js: false
   esbuild: false

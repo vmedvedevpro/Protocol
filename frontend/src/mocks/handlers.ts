@@ -1,6 +1,7 @@
 import type {Platform} from '@/lib/platform'
 import {audioHandlers} from './audio'
 import {devicesHandlers} from './devices'
+import {dialogsHandlers} from './dialogs'
 import {labsHandlers} from './labs'
 import {liveHandlers} from './live'
 import {meetingsHandlers} from './meetings'
@@ -99,6 +100,8 @@ export const handlers: Record<string, MockHandler> = {
 
     // The minibar window and its Stop (src/mocks/minibar.ts)
     ...minibarHandlers(mockState),
+    // What the dialogs over a screen write and import (src/mocks/dialogs.ts)
+    ...dialogsHandlers(mockState),
 }
 
 /**

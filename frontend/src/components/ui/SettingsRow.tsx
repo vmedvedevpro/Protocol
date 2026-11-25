@@ -388,9 +388,63 @@ const Dot = styled(RadixRadio.Indicator)`
     }
 `
 
+// Tiles three to a row, the chosen one outlined (Export's format, a
+// transcript's voices); the same Radix item as a row.
+const RadioGrid = styled.div`
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: ${({theme}) => theme.space[1.5]};
+`
+
+const RadioTile = styled(RadixRadio.Item)`
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: ${({theme}) => theme.space[0.5]};
+    min-width: 0;
+    margin: 0;
+    padding: ${({theme}) => theme.space[2]} ${({theme}) => theme.space[2.5]};
+    border: 1px solid ${({theme}) => theme.colors.border};
+    border-radius: ${({theme}) => theme.radii.md};
+    background: ${({theme}) => theme.colors.raised};
+    color: ${({theme}) => theme.colors.text};
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    ${colorTransition};
+    ${fieldFocusRing};
+
+    &:hover:not(:disabled) {
+        background: ${({theme}) => theme.colors.surface};
+    }
+
+    &[data-state='checked'] {
+        border-color: ${({theme}) => theme.colors.text};
+        background: ${({theme}) => theme.colors.surface};
+    }
+
+    &:disabled {
+        cursor: default;
+        opacity: 0.5;
+    }
+
+    > span {
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+`
+
+/** `card`: rows on a settings card; `grid`: tiles three to a row. */
+export type RadioLayout = 'card' | 'grid'
+
+const RadioLayoutContext = createContext<RadioLayout>('card')
+
 interface SettingsRadioGroupProps<T extends string> {
     /** The heading over the card, which also names the choice. */
     title: string
+    layout?: RadioLayout
     note?: string
     /** The chosen value; none is chosen while it is undefined or matches no row. */
     value: T | undefined
@@ -405,7 +459,8 @@ interface SettingsRadioGroupProps<T extends string> {
  * group whose card is a radio group. Arrow keys move between the rows and
  * choose as they go; Tab enters at the chosen row.
  */
-export function SettingsRadioGroup<T extends string>({title, note, value, onValueChange, disabled, children}: SettingsRadioGroupProps<T>) {
+export function SettingsRadioGroup<T extends string>({title, layout = 'card', note, value, onValueChange, disabled, children}: SettingsRadioGroupProps<T>) {
+    const Frame = layout === 'grid' ? RadioGrid : Card
     return (
         <GroupFrame
             title={title}
@@ -419,7 +474,9 @@ export function SettingsRadioGroup<T extends string>({title, note, value, onValu
                     disabled={disabled}
                     aria-labelledby={titleId}
                 >
-                    <Card>{children}</Card>
+                    <Frame>
+                        <RadioLayoutContext.Provider value={layout}>{children}</RadioLayoutContext.Provider>
+                    </Frame>
                 </RadixRadio.Root>
             )}
         />
@@ -435,11 +492,20 @@ interface SettingsRadioRowProps {
     disabled?: boolean
 }
 
-/** One option of a `SettingsRadioGroup`. */
+/** One option of a `SettingsRadioGroup`: a row, or a tile in the grid layout. */
 export function SettingsRadioRow({value, label, description, badge, disabled}: SettingsRadioRowProps) {
     const labelId = useId()
     const descriptionId = useId()
+    const layout = useContext(RadioLayoutContext)
     if (!useSearchMatch(label, description, badge)) return null
+    if (layout === 'grid') {
+        return (
+            <RadioTile value={value} disabled={disabled} aria-labelledby={labelId} aria-describedby={description ? descriptionId : undefined}>
+                <Label id={labelId}>{label}</Label>
+                {description && <Description id={descriptionId}>{description}</Description>}
+            </RadioTile>
+        )
+    }
     return (
         <RadioButton
             value={value}

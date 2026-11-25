@@ -23,6 +23,7 @@ import {SettingsGroup, SettingsRow} from '@/components/ui/SettingsRow'
 import {focusRing} from '@/components/ui/styles'
 import {Switch} from '@/components/ui/Switch'
 import {toast} from '@/components/ui/toastStore'
+import {openDialog} from '@/lib/dialogs'
 import {paths} from '@/lib/paths'
 import {platform as currentPlatform, type Platform} from '@/lib/platform'
 import {tween} from '@/styles/motion'
@@ -373,8 +374,7 @@ export function RecordingSection({platform = currentPlatform}: RecordingSectionP
                 <SettingsRow
                     label="Import a recording"
                     description="Transcribe an audio or video file"
-                    // Import itself is #119's; it wires this button.
-                    control={<Button size="sm" disabled>Choose a file</Button>}
+                    control={<Button size="sm" onClick={() => openDialog({kind: 'import'})}>Choose a file</Button>}
                 />
             </SettingsGroup>
         </>

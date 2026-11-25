@@ -1,6 +1,7 @@
-import {act, screen, waitFor, within} from '@testing-library/react'
+import {act, renderHook, screen, waitFor, within} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import {beforeEach, describe, expect, it, vi} from 'vitest'
+import {useDialog} from '@/lib/dialogs'
 import {handlers, type MockArgs} from '@/mocks/handlers'
 import {mockState} from '@/mocks/state'
 import {renderRoute} from '../testing'
@@ -97,15 +98,11 @@ describe('MeetingScreen', () => {
         expect(mockState.meetings.summaries['meeting-untitled']).toBeUndefined()
     })
 
-    it('asks before writing again over the user’s edits', async () => {
-        mockState.meetings.summaries['meeting-roadmap'].userEdited = true
+    it('opens Summary options to write the summary again', async () => {
         renderMeeting('meeting-roadmap')
+        const options = renderHook(() => useDialog())
         await userEvent.click(await screen.findByRole('button', {name: 'Write the summary again'}))
-        const confirm = screen.getByRole('dialog', {name: 'Write the summary again?'})
-        expect(confirm).toHaveTextContent('replaces your edits')
-        await userEvent.click(within(confirm).getByRole('button', {name: 'Write again'}))
-        // The new run replaced the edited summary: a state that stays, unlike the run's status.
-        await waitFor(() => expect(mockState.meetings.summaries['meeting-roadmap'].userEdited).toBe(false))
+        expect(options.result.current).toMatchObject({open: true, request: {meetingId: 'meeting-roadmap'}})
     })
 
     it('copies the transcript with times and speakers', async () => {
@@ -124,6 +121,27 @@ describe('MeetingScreen', () => {
         await userEvent.click(screen.getByRole('menuitem', {name: 'Move to folder'}))
         await userEvent.click(await screen.findByRole('menuitemradio', {name: 'Design Team'}))
         await waitFor(() => expect(screen.getByText(/· Design Team$/)).toBeInTheDocument())
+    })
+
+    it('opens Export and Improve the transcript from the menu', async () => {
+        renderMeeting('meeting-acme-review')
+        const exportDialog = renderHook(() => useDialog())
+        const enhanceDialog = renderHook(() => useDialog())
+        await userEvent.click(await screen.findByRole('button', {name: /More actions/}))
+        await userEvent.click(screen.getByRole('menuitem', {name: 'Export…'}))
+        expect(exportDialog.result.current.request).toMatchObject({meetingId: 'meeting-acme-review'})
+
+        await userEvent.click(screen.getByRole('button', {name: /More actions/}))
+        await userEvent.click(await screen.findByRole('menuitem', {name: 'Improve the transcript…'}))
+        expect(enhanceDialog.result.current).toMatchObject({open: true, request: {meetingId: 'meeting-acme-review'}})
+    })
+
+    it('opens Who said this from a speaker’s menu', async () => {
+        renderMeeting('meeting-untitled', '?tab=transcript')
+        const speaker = renderHook(() => useDialog())
+        await userEvent.click((await screen.findAllByRole('button', {name: 'Speaker 1'}))[0])
+        await userEvent.click(await screen.findByRole('menuitem', {name: 'Who said this…'}))
+        expect(speaker.result.current.request).toMatchObject({meetingId: 'meeting-untitled', speaker: 'Speaker 1', lineIds: [expect.any(String)]})
     })
 
     it('identifies the speakers again with a count', async () => {

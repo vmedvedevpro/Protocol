@@ -27,6 +27,15 @@ function builtInProblem(model: string, status: BuiltInModelStatus | undefined): 
     }
 }
 
+export interface WriteOptions {
+    /** Writing over a summary there is; only the error toast differs. */
+    again?: boolean
+    /** Summary options (#119): a template for this run; left out, the stored default. */
+    templateId?: string
+    /** Summary options' "Write it again": what to focus on, for this run only. */
+    customPrompt?: string
+}
+
 /**
  * Writes the meeting's summary, or writes it again: checks the summary
  * model first (a provider chosen; a built-in model downloaded and whole),
@@ -35,7 +44,10 @@ function builtInProblem(model: string, status: BuiltInModelStatus | undefined): 
  * run itself goes on natively; each `summary-progress` of this meeting
  * reads the summary again, and the summary's poll catches a run that ends
  * without one. A bilingual transcript gets a note on the language Auto
- * picked.
+ * picked. `write` answers whether the run started.
+ *
+ * The meeting screen writes with it, and Summary options (features/dialogs)
+ * writes again with a template and instructions.
  */
 export function useWriteSummary(meetingId: string) {
     const client = useQueryClient()
@@ -47,8 +59,8 @@ export function useWriteSummary(meetingId: string) {
         if (progress.meetingId === meetingId) void client.invalidateQueries({queryKey: meetingKeys.summary(meetingId)})
     })
 
-    const write = async ({again = false} = {}) => {
-        if (starting) return
+    const write = async ({again = false, templateId, customPrompt}: WriteOptions = {}): Promise<boolean> => {
+        if (starting) return false
         setStarting(true)
         try {
             const config = await client.fetchQuery(summaryModelQuery).catch(() => null)
@@ -60,23 +72,25 @@ export function useWriteSummary(meetingId: string) {
                         : 'Pick one in Settings.',
                     action: toSettings,
                 })
-                return
+                return false
             }
             if (config.provider === 'builtin-ai' && !(await isBuiltInModelReady(config.model, {refresh: true}).catch(() => false))) {
                 const info = (await listBuiltInModels().catch(() => [])).find((model) => model.name === config.model)
                 const problem = builtInProblem(info?.display_name ?? config.model, info?.status)
                     ?? {title: 'The summary model isn’t ready', description: 'Check it in Settings.'}
                 toast.error(problem.title, {description: problem.description, action: toSettings})
-                return
+                return false
             }
-            const start = await startSummary({meetingId, provider: config.provider, model: config.model})
+            const start = await startSummary({meetingId, provider: config.provider, model: config.model, templateId, customPrompt})
             if (start.languageTie) {
                 toast.warning('Bilingual transcript detected', {
                     description: 'Two languages were spoken about equally; the summary uses one of them.',
                 })
             }
+            return true
         } catch (error) {
             toast.error(again ? 'Couldn’t write the summary again' : 'Couldn’t write the summary', {description: errorMessage(error)})
+            return false
         } finally {
             setStarting(false)
             await client.invalidateQueries({queryKey: meetingKeys.summary(meetingId)})

@@ -1,15 +1,17 @@
-import {useMemo} from 'react'
+import {useCallback, useMemo} from 'react'
+import {UserSwitchIcon} from '@phosphor-icons/react'
 import {useMutation, useQuery} from '@tanstack/react-query'
 import styled from 'styled-components'
 import {errorMessage} from '@/api/core'
 import {meetingTranscriptsQuery, renameSpeakerMutation} from '@/api/meetings'
 import {usePostCallJob} from '@/api/postCall'
 import {useUserName} from '@/api/preferences'
-import {type PlaybackClock, TranscriptList} from '@/components/transcript/TranscriptList'
+import {type PlaybackClock, type SpeakerTarget, TranscriptList} from '@/components/transcript/TranscriptList'
 import {lineFromSegment} from '@/components/transcript/turns'
 import {Button} from '@/components/ui/Button'
 import {Spinner} from '@/components/ui/Spinner'
 import {toast} from '@/components/ui/toastStore'
+import {openDialog} from '@/lib/dialogs'
 
 const Column = styled.div`
     display: flex;
@@ -60,6 +62,13 @@ export function TranscriptPanel({meetingId, playback, playing, onSeek}: Transcri
     const job = usePostCallJob(meetingId)
     const userName = useUserName()
     const lines = useMemo(() => (transcript.data ?? []).map(lineFromSegment), [transcript.data])
+    // Who said this… (features/dialogs, #119); stable, so the turns keep their memo.
+    const speakerActions = useCallback((target: SpeakerTarget) => job ? [] : [{
+        id: 'who-said-this',
+        label: 'Who said this…',
+        icon: <UserSwitchIcon aria-hidden/>,
+        onSelect: () => openDialog({kind: 'speaker', meetingId, ...target}),
+    }], [meetingId, job])
 
     if (transcript.isPending) return <Column><Centered aria-busy="true"><Spinner delayed/></Centered></Column>
     if (transcript.isError) {
@@ -87,6 +96,7 @@ export function TranscriptPanel({meetingId, playback, playing, onSeek}: Transcri
                     toast.error('Couldn’t rename the speaker', {description: errorMessage(error)})
                     throw error
                 })}
+                speakerActions={speakerActions}
                 before={job ? <Note>This is the live text. A cleaner transcript with speakers replaces it in a moment.</Note> : undefined}
                 empty={<Centered><Muted>Nothing was transcribed in this meeting.</Muted></Centered>}
             />

@@ -5,6 +5,7 @@ import type {Release} from '@/api/updater'
 import {platform} from '@/lib/platform'
 import packageJson from '../../package.json'
 import {createMockDevices} from './devices'
+import {createMockDialogs} from './dialogs'
 import {createMockLabs} from './labs'
 import {createMockLive} from './live'
 import {createMockMeetings} from './meetings'
@@ -101,6 +102,8 @@ function createMockState() {
         templates: createMockTemplates(),
         // The minibar window (src/mocks/minibar.ts).
         minibar: createMockMinibar(),
+        // Export's written files, the import's file and run (src/mocks/dialogs.ts).
+        dialogs: createMockDialogs(),
     }
 }
 
