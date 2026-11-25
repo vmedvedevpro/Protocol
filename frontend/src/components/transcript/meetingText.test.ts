@@ -1,7 +1,7 @@
 import {describe, expect, it} from 'vitest'
 import type {ActionItem} from '@/api/actionItems'
 import type {TranscriptSegment} from '@/api/meetings'
-import {meetingDocument, summaryMarkdown, transcriptMarkdown} from './copyText'
+import {meetingDocument, summaryMarkdown, transcriptMarkdown} from './meetingText'
 
 const line = (text: string, start: number | undefined, speaker?: string): TranscriptSegment =>
     ({id: text, text, timestamp: '', audio_start_time: start, speaker})

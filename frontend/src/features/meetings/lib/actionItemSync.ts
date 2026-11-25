@@ -15,7 +15,7 @@ import {
 } from '@/api/actionItems'
 import {getAllTranscripts, getSummary, type TranscriptSegment} from '@/api/meetings'
 import {extractActionItems, fingerprint, locateInTranscript} from './actionItemText'
-import {completeSummaryMarkdown, parseSummaryData} from './summaryMarkdown'
+import {completeSummaryMarkdown, parseSummaryData} from '@/lib/summaryMarkdown'
 
 export interface SyncOutcome {
     changed: boolean

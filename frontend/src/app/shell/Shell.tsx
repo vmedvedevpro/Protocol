@@ -5,6 +5,7 @@ import {useModelDownloadSync} from '@/api/modelDownloadSync'
 import {useSpeechConfigSync} from '@/api/speech'
 import {TRAY_NAVIGATE_EVENT, TRAY_START_RECORDING_EVENT} from '@/api/tray'
 import {RecordBarContext} from '@/components/screen/recordBar'
+import {DialogHost} from '@/features/dialogs/DialogHost'
 import {UpdateToasts} from '@/features/meetings/home/UpdateToasts'
 import {FirstLaunch} from '@/features/onboarding/pages/FirstLaunch'
 import {RecordingBar} from '@/features/recording/components/RecordingBar'
@@ -95,6 +96,7 @@ export function Shell() {
                         <Outlet/>
                         <CrashReportSheet/>
                         <UpdateToasts/>
+                        <DialogHost/>
                     </>
                 )}
                 {phase === 'firstLaunch' && <FirstLaunch/>}

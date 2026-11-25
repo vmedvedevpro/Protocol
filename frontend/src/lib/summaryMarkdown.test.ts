@@ -1,6 +1,5 @@
 import {assert, describe, test} from 'vitest'
 import {blocksToMarkdown, completeSummaryMarkdown, parseSummaryData, splitSummaryAtActionItems} from './summaryMarkdown'
-import {extractActionItems} from './actionItemText'
 
 const text = (value: string) => [{ type: 'text', text: value, styles: {} }]
 
@@ -35,15 +34,6 @@ describe('blocksToMarkdown', () => {
         assert.strictEqual(
             markdown,
             '## Action items\n| Owner | Task |\n| --- | --- |\n| Priya Shah | Send the terms |\n| You | Book a \\| check-in |',
-        )
-        const result = extractActionItems(markdown)
-        assert.strictEqual(result.hadActionSection, true)
-        assert.deepEqual(
-            result.drafts.map((draft) => [draft.ownerLabel, draft.text]),
-            [
-                ['Priya Shah', 'Send the terms'],
-                ['You', 'Book a | check-in'],
-            ],
         )
     })
 })

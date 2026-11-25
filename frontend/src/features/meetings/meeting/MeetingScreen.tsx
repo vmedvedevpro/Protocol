@@ -23,14 +23,15 @@ import {Button, IconButton} from '@/components/ui/Button'
 import {TabList, TabPanels, Tabs} from '@/components/ui/SegmentedControl'
 import {Spinner} from '@/components/ui/Spinner'
 import {toast} from '@/components/ui/toastStore'
+import {openDialog} from '@/lib/dialogs'
 import {useHotkey} from '@/lib/hotkeys'
 import {paths} from '@/lib/paths'
 import {FolderNameSheet} from '../components/FolderSheets'
 import {ProcessingStatus} from '../components/processing/ProcessingStatus'
 import {RenameMeetingSheet} from '../components/RenameMeetingSheet'
-import {meetingDocument, summaryMarkdown, transcriptMarkdown} from '../lib/copyText'
+import {meetingDocument, summaryMarkdown, transcriptMarkdown} from '@/components/transcript/meetingText'
 import {parseDate} from '../lib/dates'
-import {completeSummaryMarkdown, parseSummaryData} from '../lib/summaryMarkdown'
+import {completeSummaryMarkdown, parseSummaryData} from '@/lib/summaryMarkdown'
 import {MeetingHeader} from './MeetingHeader'
 import {DeleteMeetingSheet, WriteAgainSheet} from './MeetingSheets'
 import {NotesPanel} from './NotesPanel'
@@ -218,6 +219,7 @@ export function MeetingScreen({meetingId}: { meetingId: string }) {
                 onNewFolder={() => setNaming(true)}
                 onCopyTranscript={() => void copy('transcript')}
                 onCopySummary={() => void copy('summary')}
+                onExport={() => openDialog({kind: 'export', meetingId})}
                 onOpenRecordingFolder={() => void openMeetingFolder(meetingId).catch((error: unknown) =>
                     toast.error('Couldn’t open the recording folder', {description: errorMessage(error)}))}
                 onIdentifySpeakers={speakers.identify}

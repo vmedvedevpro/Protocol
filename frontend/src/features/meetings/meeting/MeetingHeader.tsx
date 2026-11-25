@@ -1,6 +1,7 @@
 import {
     CopyIcon,
     DotsThreeIcon,
+    ExportIcon,
     FolderOpenIcon,
     FolderSimpleIcon,
     PencilSimpleIcon,
@@ -81,6 +82,7 @@ export interface MeetingHeaderProps {
     onNewFolder: () => void
     onCopyTranscript: () => void
     onCopySummary: () => void
+    onExport: () => void
     onOpenRecordingFolder: () => void
     onIdentifySpeakers: (count: number | null) => void
     onDelete: () => void
@@ -88,8 +90,7 @@ export interface MeetingHeaderProps {
 
 /**
  * The meeting's title, when it was and how long, its folder, and the
- * meeting menu. Export, Enhance transcript and the summary's options are
- * #119's and join the menu there.
+ * meeting menu. The dialogs it opens (Export…) are features/dialogs' (#119).
  */
 export function MeetingHeader(props: MeetingHeaderProps) {
     const {title, createdAt, durationSeconds, folder, folders} = props
@@ -107,7 +108,7 @@ export function MeetingHeader(props: MeetingHeaderProps) {
             </Text>
             <Menu
                 trigger={(
-                    <IconButton label="More actions: rename, move to folder, copy, delete">
+                    <IconButton label="More actions: rename, move to folder, copy, export, delete">
                         <DotsThreeIcon size={17} aria-hidden/>
                     </IconButton>
                 )}
@@ -124,6 +125,7 @@ export function MeetingHeader(props: MeetingHeaderProps) {
                 <MenuSeparator/>
                 <MenuItem icon={<CopyIcon aria-hidden/>} onSelect={props.onCopyTranscript}>Copy transcript</MenuItem>
                 <MenuItem icon={<CopyIcon aria-hidden/>} disabled={!props.hasSummary} onSelect={props.onCopySummary}>Copy summary</MenuItem>
+                <MenuItem icon={<ExportIcon aria-hidden/>} onSelect={props.onExport}>Export…</MenuItem>
                 {props.hasRecordingFolder && (
                     <MenuItem icon={<FolderOpenIcon aria-hidden/>} onSelect={props.onOpenRecordingFolder}>Open recording folder</MenuItem>
                 )}

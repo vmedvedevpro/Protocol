@@ -199,6 +199,8 @@ const sizes = {
     radio: {size: '16px', ring: '1.5px', dot: '8px'},
     /** A progress bar's thickness. */
     progress: '3px',
+    /** A radio's ring, its stroke and the dot inside when chosen (the dialogs' choices). */
+    radio: {ring: '16px', stroke: '1.5px', dot: '8px'},
     /** A menu or a select's list is at least `minWidth`; a select's button at most `triggerMaxWidth`. */
     popover: {minWidth: '128px', triggerMaxWidth: '190px'},
     /** The compact desktop window the design is drawn for. */
