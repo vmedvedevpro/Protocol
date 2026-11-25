@@ -19,7 +19,9 @@ import {completedOnboarding, createMockDatabase} from './onboarding'
 import {createMockPeople} from './people'
 import {createMockPostCall} from './postCall'
 import {createMockPreferences} from './preferences'
+import {createMockSettings} from './settings'
 import {createMockSpeech} from './speech'
+import {createMockSummaryProviders} from './summaryProviders'
 import {createMockTemplates} from './templates'
 import {createMockUpdater, createMockUpdateRelease} from './updater'
 
@@ -110,6 +112,10 @@ function createMockState() {
         intel: createMockIntel(),
         // The speaker engine (src/mocks/diarization.ts).
         diarization: createMockDiarization(),
+        // AI agents, running apps and the data folder (src/mocks/settings.ts).
+        settings: createMockSettings(),
+        // Provider model lists, Ollama and the custom server (src/mocks/summaryProviders.ts).
+        summaryProviders: createMockSummaryProviders(),
     }
 }
 

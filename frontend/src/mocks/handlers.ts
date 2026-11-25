@@ -19,8 +19,10 @@ import {macosPermissionsHandlers, permissionsHandlers} from './permissions'
 import {postCallHandlers} from './postCall'
 import {preferencesHandlers} from './preferences'
 import {searchHandlers} from './search'
+import {settingsHandlers} from './settings'
 import {shellHandlers} from './shell'
 import {speechHandlers} from './speech'
+import {summaryProvidersHandlers} from './summaryProviders'
 import {templatesHandlers} from './templates'
 import {updaterHandlers} from './updater'
 import {mockState} from './state'
@@ -120,6 +122,11 @@ export const handlers: Record<string, MockHandler> = {
 
     // Whether the GPU is an Intel GPU (src/mocks/intel.ts)
     ...intelHandlers(mockState),
+    // What only Settings asks: AI agents, Claude Desktop, running apps, the data folder (src/mocks/settings.ts)
+    ...settingsHandlers(mockState),
+
+    // The summary providers' model lists, Ollama and the custom server test (src/mocks/summaryProviders.ts)
+    ...summaryProvidersHandlers(mockState),
 }
 
 /**

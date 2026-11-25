@@ -5,6 +5,7 @@
  * with a `stop_id`; the save below answers it with `recording_save_finished`.
  * A quit waits up to 120 s for that answer.
  */
+import {getDatabaseDirectory} from '@/api/app'
 import {errorMessage} from '@/api/core'
 import {folderKeys, meetingKeys, saveTranscript, setMeetingFolder} from '@/api/meetings'
 import {saveMeetingNotes} from '@/api/notes'
@@ -12,7 +13,6 @@ import {toast} from '@/components/ui/toastStore'
 import {queries} from './queries'
 import {
     discardRecordingFolder,
-    getDatabaseDirectory,
     getTranscriptionStatus,
     recordingSaveFinished,
     type RecordingStopComplete,
