@@ -12,7 +12,7 @@
  */
 import {mutationOptions, queryOptions} from '@tanstack/react-query'
 import {useEffect} from 'react'
-import {DETECT_LANGUAGE, normaliseSummaryLanguage} from '@/lib/languages'
+import {DETECT_AND_TRANSLATE, DETECT_LANGUAGE, MEETING_LANGUAGES, normaliseSummaryLanguage} from '@/lib/languages'
 import {safely, storedValue} from '@/lib/storage'
 import {command} from './core'
 import {summaryProviderKeys} from './summaryProviders'
@@ -54,6 +54,22 @@ export const useMeetingLanguageStore = storedValue(
     (stored) => stored || defaultMeetingLanguage(),
     (code) => code,
 )
+
+/**
+ * What first launch offers (#220, was #201): the choice saved before, as a
+ * reinstall that kept the app's storage has; else the system's language
+ * (its primary subtag) when Whisper's list has it, else detection. Unlike
+ * `defaultMeetingLanguage`, which decides for a user who never chose, a
+ * Russian system gets Russian here, since the user sees the choice and can
+ * change it before Done.
+ */
+export function firstLaunchMeetingLanguage(locale: string = navigator.language): string {
+    const stored = safely(() => localStorage.getItem(MEETING_LANGUAGE_KEY))
+    if (stored) return stored
+    const primary = (locale || '').toLowerCase().split(/[-_]/)[0]
+    const listed = primary !== DETECT_LANGUAGE && primary !== DETECT_AND_TRANSLATE && MEETING_LANGUAGES.some(({code}) => code === primary)
+    return listed ? primary : DETECT_LANGUAGE
+}
 
 /** Tells native code the language Whisper transcribes in (`LANGUAGE_PREFERENCE` in lib.rs). */
 export const setLanguagePreference = (language: string) => command<void>('set_language_preference', {language})

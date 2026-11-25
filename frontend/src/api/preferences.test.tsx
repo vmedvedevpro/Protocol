@@ -7,6 +7,7 @@ import {
     addRecentSummaryLanguage,
     AUTO_SUMMARY_KEY,
     defaultMeetingLanguage,
+    firstLaunchMeetingLanguage,
     MEETING_LANGUAGE_KEY,
     pinSummaryLanguage,
     removeRecentSummaryLanguage,
@@ -63,6 +64,19 @@ describe('stored preferences', () => {
         expect(defaultMeetingLanguage('en-US')).toBe('en')
         expect(defaultMeetingLanguage('ru-RU')).toBe('auto')
         expect(defaultMeetingLanguage('pt_BR')).toBe('auto')
+    })
+
+    it('offers the system’s language on first launch when Whisper lists it, else detection', () => {
+        expect(firstLaunchMeetingLanguage('ru-RU')).toBe('ru')
+        expect(firstLaunchMeetingLanguage('en-GB')).toBe('en')
+        expect(firstLaunchMeetingLanguage('zh_TW')).toBe('zh')
+        expect(firstLaunchMeetingLanguage('fil-PH')).toBe('auto')
+        expect(firstLaunchMeetingLanguage('')).toBe('auto')
+    })
+
+    it('offers a choice saved before on first launch', () => {
+        localStorage.setItem(MEETING_LANGUAGE_KEY, 'de')
+        expect(firstLaunchMeetingLanguage('ru-RU')).toBe('de')
     })
 
     it('writes each value back in the old format', () => {

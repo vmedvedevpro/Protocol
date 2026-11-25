@@ -4,7 +4,7 @@ import {AnimatePresence} from 'motion/react'
 import * as m from 'motion/react-m'
 import styled from 'styled-components'
 import {completeOnboarding, onboardingKeys, onboardingStatusQuery, saveOnboardingStep} from '@/api/onboarding'
-import {saveSummaryModelMutation} from '@/api/preferences'
+import {firstLaunchMeetingLanguage, saveSummaryModelMutation, useMeetingLanguageStore} from '@/api/preferences'
 import {Screen} from '@/components/screen/Screen'
 import {Button} from '@/components/ui/Button'
 import {toast} from '@/components/ui/toastStore'
@@ -75,9 +75,10 @@ function summaryBlocker({way, builtIn, finish}: SummaryChoiceState): string | nu
 
 /**
  * First launch, in place of the app until it is done: the name, then the
- * speech downloads, the summary choice and the microphone check. The
- * downloads start when it opens and go on after Done. A restart comes back
- * to the step saved last. Done saves a provider's summary choice, records
+ * speech downloads, the meeting language, the summary choice and the
+ * microphone check. The downloads start when it opens and go on after Done.
+ * A restart comes back to the step saved last. Done saves a provider's
+ * summary choice and the meeting language, records
  * the choice and Parakeet (`complete_onboarding`) and invalidates the status
  * (`onboardingKeys.status()`), and the startup gate lets the app in.
  */
@@ -88,6 +89,7 @@ export function FirstLaunch({platform = appPlatform}: { platform?: Platform }) {
     const [moved, setMoved] = useState(false)
     const rows = useFirstLaunchDownloads()
     const summary = useSummaryChoice()
+    const [language, setLanguage] = useState(firstLaunchMeetingLanguage)
     const blocker = summaryBlocker(summary)
     const saveSummary = useMutation(saveSummaryModelMutation)
 
@@ -103,6 +105,8 @@ export function FirstLaunch({platform = appPlatform}: { platform?: Platform }) {
             const {finish} = summary
             if (!finish) throw new Error(blocker ?? 'Choose how summaries are written')
             if (finish.save) await saveSummary.mutateAsync(finish.save)
+            // Stored as Settings stores it; `usePreferencesSync` sends it to native.
+            useMeetingLanguageStore.getState().set(language)
             await completeOnboarding({summary: finish.summary, parakeetReady: isReady(rows, 'live')})
         },
         onSuccess: () => {
@@ -152,7 +156,7 @@ export function FirstLaunch({platform = appPlatform}: { platform?: Platform }) {
             <StepView key={step} initial={{y: 4}} animate={{y: 0}} transition={tween('base', 'enter')}>
                 {step === 1
                     ? <NameStep onContinue={() => goTo(2)}/>
-                    : <ModelsStep rows={rows} summary={summary} platform={platform} focusOnMount={moved}/>}
+                    : <ModelsStep rows={rows} summary={summary} language={language} onLanguage={setLanguage} platform={platform} focusOnMount={moved}/>}
                 <Veil/>
             </StepView>
         </Screen>

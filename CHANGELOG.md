@@ -13,6 +13,10 @@ is inherited from the project Protocol forked from; Protocol did not release it.
   them. A key the provider rejects, a provider that can't be reached, or
   another error now shows under the model select, instead of a built-in list
   of models that might not work.
+- **First launch asks the meeting language**
+  ([#220](https://github.com/vmedvedevpro/Protocol/issues/220)). It starts at
+  your system's language when the transcript after the meeting supports it,
+  otherwise at Detect automatically, and you can change it before Done.
 
 ## Protocol 1.0.0-rc.1 — 2026-11-26
 

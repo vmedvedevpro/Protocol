@@ -182,7 +182,14 @@ minibar window has none of it.
   so a restart comes back to it. The speech downloads start as first launch
   opens and run one after another, Parakeet then Whisper Large V3 Turbo
   (`enablePostCall`), skipping an installed one; a failure moves on to the
-  next, and its row offers Retry. Summaries are a choice on the same step
+  next, and its row offers Retry. Below them is the meeting language
+  (`MeetingLanguageChoice`, the list Settings offers), preselected by
+  `firstLaunchMeetingLanguage`: a choice saved before, else the system's
+  language (`navigator.language`, primary subtag) when Whisper's list has
+  it, else detection; Done stores it in `useMeetingLanguageStore`, which
+  `usePreferencesSync` sends to native, as a change in Settings is. The
+  default for a user who never chose stays `defaultMeetingLanguage`.
+  Summaries are a choice on the same step
   (`SummaryChoice`, `useSummaryChoice`), Later by default: the model
   `builtin_ai_get_recommended_model` picks, downloaded only on Install (its
   size, progress and Cancel, `summaryDownload`); a cloud provider with the
