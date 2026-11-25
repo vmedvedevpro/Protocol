@@ -544,9 +544,10 @@ It is a separate download because GenAI cannot read ggml files.
 
 ## Open
 
-- Linux needs the Vulkan build (#176): until the Linux release builds with
-  Vulkan, `availability` says the build runs Whisper on the CPU and nothing
-  is offered.
+- Linux rests on #176's Vulkan build: the device rule needs the GPU
+  ggml-vulkan lists. When #176's crash guard keeps Vulkan off after a crash,
+  ggml lists no GPU, so OpenVINO is not offered either ("Whisper runs on no
+  GPU here") until that guard's Try again.
 - Linux, untested elsewhere: measured only on an Arc B390 (Panther Lake)
   under Kubuntu 26.10 with Intel's compute runtime 26.27. Fedora's and Arch's
   package names are given from their repositories, not tried. A compute
