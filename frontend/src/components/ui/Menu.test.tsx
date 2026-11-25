@@ -171,14 +171,6 @@ describe('Menu', () => {
         expect(highlight()).toHaveAttribute('data-move', 'slide')
     })
 
-    it('draws its shadow on a surface that does not scroll; the rows scroll inside', async () => {
-        renderUi(<Actions/>)
-        await userEvent.click(screen.getByRole('button', {name: 'More actions'}))
-        const menu = await screen.findByRole('menu')
-        expect(getComputedStyle(menu).overflowY).not.toBe('auto')
-        expect(getComputedStyle(menu.firstElementChild!).overflowY).toBe('auto')
-    })
-
     it('hides the highlight over a disabled item, where Enter would do nothing', async () => {
         renderUi(
             <Menu trigger={<IconButton label="More actions" tooltip={false}><DotsThreeIcon/></IconButton>}>

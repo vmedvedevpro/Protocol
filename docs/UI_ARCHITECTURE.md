@@ -328,9 +328,11 @@ theme; the motion from the Motion section.
   `onMatches` gives the count, for "Nothing matches". Filtering does not
   animate, as on Home.
 - `VisuallyHidden` holds text only assistive technology reads.
-- Menu and select rows keep the design's faint highlight; the keyboard's row
-  also gets an inset `muted` ring on `:focus-visible` (`keyboardRowRing`),
-  which the pointer never shows. The notes editor's menus do the same.
+- Menu and select rows show only the design's faint sliding highlight, for
+  the pointer and the keyboard alike: Radix focuses a row under the pointer,
+  so a `:focus-visible` ring showed on hover as well. The notes editor's
+  menus, picked only by the keyboard, keep an inset `muted` ring
+  (`keyboardRowRing`).
 - `Menu` with `MenuItem`, `MenuCheckboxItem`, `MenuRadioGroup` and
   `MenuRadioItem`, `MenuGroup`, `MenuSub` and `MenuSeparator`.
 - `Sheet`: a dialog over the dimmed window, opened through `open`. On close
@@ -462,8 +464,6 @@ enter and exit, indicators and springs.
     over `base`; the one they replace goes at once.
   - Home's folder chips: the selected chip's outline is a thumb that
     slides to the chip chosen by transform on `springs.snappy`.
-  - Menus draw the border and shadow on a surface that never scrolls; the
-    rows scroll inside it.
   - Tabs and segmented controls: the thumb slides; the panel below swaps
     through the veil over `base` (`Crossfade`: the old view is covered, the
     new one revealed), without sliding. Other views that replace each other
