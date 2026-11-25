@@ -17,13 +17,15 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
-/** The sample library in sections by date; type to search, pick a folder to filter. */
+/** The sample library in sections by date, each row's folder under its title; type to search, pick a folder to filter. */
 export const Light: Story = {globals: {theme: 'light'}}
 
 export const Dark: Story = {globals: {theme: 'dark'}}
 
-/** One folder selected: its actions sit in the menu after the chips. */
+/** One folder selected: its actions sit in the menu after the chips, and the rows drop the folder line, at the same height. */
 export const InFolder: Story = {args: {url: '/?folder=group-acme'}}
+
+export const InFolderDark: Story = {args: {url: '/?folder=group-acme'}, globals: {theme: 'dark'}}
 
 /** No meetings yet: no search, no folders, nothing to import. */
 export const Empty: Story = {

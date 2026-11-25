@@ -182,8 +182,15 @@ function AppUpdateRow({snapshot}: {snapshot: UpdaterSnapshot}) {
         actions = {
             key: 'check',
             buttons: (
-                <Button size="sm" disabled={!idle} onClick={() => check.mutate()}>
-                    {foreground?.action === 'check' ? 'Try again' : 'Check now'}
+                // Model updates has a Check too: the names tell the two apart
+                // in a screen reader's list of buttons, and keep the visible text.
+                <Button
+                    size="sm"
+                    disabled={!idle}
+                    aria-label={foreground?.action === 'check' ? 'Try again: check for app updates' : 'Check for app updates'}
+                    onClick={() => check.mutate()}
+                >
+                    {foreground?.action === 'check' ? 'Try again' : 'Check'}
                 </Button>
             ),
         }
@@ -251,7 +258,11 @@ function ModelUpdatesRow() {
         <SettingsRow
             label="Model updates"
             description={<StatusLine status={status.data ? catalogStatus(status.data, now) : {key: 'loading', text: 'Speech and summary model files'}}/>}
-            control={<Button size="sm" disabled={!status.data || checking} onClick={() => check.mutate()}>Check</Button>}
+            control={(
+                <Button size="sm" disabled={!status.data || checking} aria-label="Check for model updates" onClick={() => check.mutate()}>
+                    Check
+                </Button>
+            )}
         >
             <Collapse open={failure !== null}>
                 <Warning role="alert">{failure}</Warning>

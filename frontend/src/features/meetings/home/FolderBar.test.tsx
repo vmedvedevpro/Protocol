@@ -64,4 +64,20 @@ describe('FolderBar', () => {
         expect(widths.length).toBeGreaterThan(2)
         expect(widths.slice(0, -1).every((width) => width > 40 && width < 120)).toBe(true)
     })
+
+    it('holds the folder actions button’s place while All is selected', async () => {
+        renderUi(<Bar/>)
+        // The place after New folder; its size, and the row's height with
+        // the button in it, are checked in Storybook (Meetings/FolderBar).
+        const slot = screen.getByRole('button', {name: 'New folder'}).nextElementSibling
+        expect(slot).not.toBeNull()
+        expect(screen.queryByRole('button', {name: /^Folder actions/})).toBeNull()
+
+        await userEvent.click(screen.getByRole('button', {name: 'Acme Corp'}))
+
+        const actions = await screen.findByRole('button', {name: 'Folder actions: Acme Corp'})
+        // The same node, now holding the button: nothing was added to the row.
+        expect(screen.getByRole('button', {name: 'New folder'}).nextElementSibling).toBe(slot)
+        expect(slot).toContainElement(actions)
+    })
 })

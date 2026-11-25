@@ -285,7 +285,7 @@ such a command only on its platform
 | `model_catalog_request_sizes` | command | `lib/model-catalog.ts` | #117 | Asks for sizes of the shown list. |
 | `model_update_cancel` | command | `lib/model-catalog.ts` | #117 | Cancel a model update. |
 | `model_update_start` | command | `lib/model-catalog.ts` | #117 | Per-model update in Speech models. |
-| `updater_check_now` | command | `lib/updater.ts` | #114 | Check now. |
+| `updater_check_now` | command | `lib/updater.ts` | #114 | Check. |
 | `updater_download_now` | command | `lib/updater.ts` | #114 | Download (only on click). |
 | `updater_get_status` | command | `lib/updater.ts` | #114 | General › Updates; also the Home banner (#113). |
 | `updater_install_now` | command | `lib/updater.ts` | #114 | Restart and update; also the Home banner (#113). |

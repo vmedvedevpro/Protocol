@@ -72,9 +72,16 @@ const RowLink = styled(Link)<{ $busy: boolean }>`
     }
 `
 
+// Every row is as tall as one with a second line, the title centred when it
+// has none (under a chosen folder, or a meeting in no folder), so rows with
+// and without the line sit at one rhythm in a section.
 const Main = styled.div`
+    display: flex;
     flex: 1;
+    flex-direction: column;
+    justify-content: center;
     min-width: 0;
+    min-height: calc(${({theme}) => theme.text.body.lineHeight} + ${({theme}) => theme.text.small.lineHeight});
 `
 
 const Title = styled.span`
@@ -142,8 +149,11 @@ interface MeetingListProps {
     meetings: readonly MeetingListItem[]
     /** Which of them the list shows (the folder and the search). */
     shows: (meeting: MeetingListItem) => boolean
-    /** Folder names by id, for a row's second line. */
-    folderNames: ReadonlyMap<string, string>
+    /**
+     * Folder names by id, for a row's second line. Left out under a chosen
+     * folder, where every row's would only repeat the chip.
+     */
+    folderNames?: ReadonlyMap<string, string>
     onRename: (meeting: MeetingListItem) => void
     /** Shown instead of the sections while no meeting matches. */
     empty: ReactNode
@@ -153,8 +163,9 @@ interface MeetingListProps {
  * The meetings, newest first, in sections by date (Today, Yesterday, This
  * week, Earlier this month, then by month). A row opens its meeting; F2
  * renames it. Its second line is the post-call pass while one runs, else
- * its folder. A meeting that arrives while the list is open (a recording
- * just saved) fades in; filtering shows and hides rows at once.
+ * its folder while all meetings show. A meeting that arrives while the
+ * list is open (a recording just saved) fades in; filtering shows and
+ * hides rows at once.
  */
 export function MeetingList({meetings, shows, folderNames, onRename, empty}: MeetingListProps) {
     const shown = useMemo(() => meetings.filter(shows), [meetings, shows])
@@ -186,7 +197,7 @@ export function MeetingList({meetings, shows, folderNames, onRename, empty}: Mee
                             <MeetingRow
                                 key={meeting.id}
                                 meeting={meeting}
-                                folderName={meeting.group_id ? folderNames.get(meeting.group_id) : undefined}
+                                folderName={meeting.group_id ? folderNames?.get(meeting.group_id) : undefined}
                                 arriving={arrived.has(meeting.id)}
                                 onRename={onRename}
                             />

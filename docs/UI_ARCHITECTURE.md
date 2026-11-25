@@ -1257,9 +1257,14 @@ another meeting starts from fresh state).
   The folder chips filter by folder, kept in the URL (`?folder=`) so Back
   from a meeting returns to it; a folder that no longer exists shows
   everything. The selected folder's menu renames or deletes it; its
-  meetings stay, in no folder. Rows are grouped by date (`src/lib/dates.ts`);
+  meetings stay, in no folder. The menu's button fades in after New
+  folder in a chip-sized place held while All is selected, so choosing a
+  folder moves only the thumb (`FolderBar.test.tsx`, Meetings/FolderBar
+  in Storybook). Rows are grouped by date (`src/lib/dates.ts`);
   a row's second line is the post-call pass while one runs
-  (`ProcessingLine`), else its folder. F2 on a row renames the meeting. A
+  (`ProcessingLine`), else its folder while All is chosen (under a folder
+  it would repeat the chip); every row keeps the height of one with a
+  second line. F2 on a row renames the meeting. A
   meeting added while Home is open (a recording just saved) rises in under a veil;
   filtering does not animate. Home docks the recording bar
   (`Screen recordBar`) and draws no recording controls of its own.

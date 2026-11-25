@@ -75,11 +75,16 @@ describe('HomeScreen', () => {
         const {router} = renderHome()
         await userEvent.click(await screen.findByRole('button', {name: 'Design Team'}))
         expect(rowTitles()).toEqual(['Onboarding flow critique', 'Design system sync'])
+        // Under a chosen folder no row repeats its name.
+        for (const row of screen.getAllByRole('link', {name: /Onboarding flow critique|Design system sync/})) {
+            expect(row).not.toHaveTextContent('Design Team')
+        }
         expect(router.state.location.search).toBe('?folder=group-design')
         expect(screen.getByRole('button', {name: 'Design Team'})).toHaveAttribute('aria-pressed', 'true')
 
         await userEvent.click(screen.getByRole('button', {name: 'All'}))
         expect(router.state.location.search).toBe('')
+        expect(screen.getByRole('link', {name: /Design system sync/})).toHaveTextContent('Design Team')
     })
 
     it('creates a folder and shows it', async () => {

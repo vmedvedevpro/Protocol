@@ -25,7 +25,7 @@ describe('Updates', () => {
         expect(await screen.findByText(`Protocol ${mockState.updater.currentVersion}`)).toBeInTheDocument()
         expect(screen.getByText('Not checked yet', LIVE)).toBeInTheDocument()
 
-        await userEvent.click(screen.getByRole('button', {name: 'Check now'}))
+        await userEvent.click(screen.getByRole('button', {name: 'Check for app updates'}))
         expect(await screen.findByText('0.7.0 is available', LIVE)).toBeInTheDocument()
         expect(mockState.updater.activity.state).toBe('idle')
 
@@ -41,7 +41,7 @@ describe('Updates', () => {
         mockState.updateRelease = null
         renderUpdates()
 
-        await userEvent.click(await screen.findByRole('button', {name: 'Check now'}))
+        await userEvent.click(await screen.findByRole('button', {name: 'Check for app updates'}))
 
         expect(await screen.findByText('Up to date, checked', LIVE)).toBeInTheDocument()
         expect(screen.getByText('just now')).toBeInTheDocument()
@@ -99,7 +99,7 @@ describe('Updates', () => {
     it('checks the model list', async () => {
         renderUpdates()
 
-        await userEvent.click(await screen.findByRole('button', {name: 'Check'}))
+        await userEvent.click(await screen.findByRole('button', {name: 'Check for model updates'}))
 
         // The app's own row still says it has not checked.
         expect(await screen.findByText('Up to date, checked', LIVE)).toBeInTheDocument()

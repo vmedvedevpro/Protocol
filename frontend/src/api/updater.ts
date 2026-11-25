@@ -125,7 +125,7 @@ export function installRefusal(error: unknown): InstallRefusal | null {
     return typeof detail === 'object' && detail !== null && 'kind' in detail ? detail as InstallRefusal : null
 }
 
-/** Asks GitHub for a newer release now (Check now). */
+/** Asks GitHub for a newer release now (the app row's Check). */
 export const checkForUpdates = () => command<UpdaterSnapshot>('updater_check_now')
 
 /** Downloads the offered release. Only a click calls it: nothing downloads on its own. */
