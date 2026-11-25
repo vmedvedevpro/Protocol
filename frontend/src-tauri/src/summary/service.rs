@@ -1,5 +1,5 @@
 use crate::database::repositories::{
-    meeting::MeetingsRepository, setting::SettingsRepository, summary::SummaryProcessesRepository,
+    meeting::{MeetingsRepository, TitleSource}, setting::SettingsRepository, summary::SummaryProcessesRepository,
 };
 use crate::summary::llm_client::LLMProvider;
 use crate::summary::language_detection::detect_summary_language;
@@ -662,14 +662,21 @@ impl SummaryService {
                         meeting_id
                     ),
                     Ok(true) => {
-                        // Commit the generated name before completion is emitted:
-                        // the UI refetches both the meeting and sidebar on that event.
-                        if let Some(title) = extract_meeting_name_from_markdown(&final_markdown) {
-                            if let Err(error) = MeetingsRepository::update_generated_meeting_title(
-                                &pool, &meeting_id, &title,
+                        // The title the same request asked for (the report's H1),
+                        // committed before completion is emitted: the UI reads the
+                        // meeting and its lists again on that event. It applies
+                        // only while the title is not the user's
+                        // (`title_is_manual`, #218); a reply without a usable
+                        // title leaves the title as it was.
+                        match extract_meeting_name_from_markdown(&final_markdown) {
+                            Some(title) => match crate::meeting_title::rename_meeting(
+                                &pool, &meeting_id, &title, TitleSource::Summary,
                             ).await {
-                                error!("Summary saved, but generated title update failed for {}: {}", meeting_id, error);
-                            }
+                                Ok(true) => info!("Named meeting {} from its summary", meeting_id),
+                                Ok(false) => info!("Meeting {} keeps the title the user gave it", meeting_id),
+                                Err(error) => error!("Summary saved, but naming meeting {} from it failed: {}", meeting_id, error),
+                            },
+                            None => info!("The summary of {} has no usable title; the meeting keeps its title", meeting_id),
                         }
                         info!(
                             "Summary saved successfully for meeting_id: {}",

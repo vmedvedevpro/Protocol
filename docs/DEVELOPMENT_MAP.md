@@ -360,8 +360,39 @@ without a sound server, Bluetooth headsets.
 
 ## 3. Post-call processing and model selection
 
-Summary-generated title ownership, placeholder rejection and completion refresh
-are documented in [SUMMARY_GENERATED_TITLES.md](SUMMARY_GENERATED_TITLES.md).
+**Meeting titles from the summary** (#218). The summary request already asks
+for a title: the template's `# <Add Title here>` H1, which
+`to_section_instructions` asks to fill with 3 to 8 words in the report's
+language (the translation pass carries it into the summary's language).
+`summary/service.rs` takes it from the final Markdown
+(`processor.rs::extract_meeting_name_from_markdown` rejects an empty,
+overlong or placeholder heading, so such a reply leaves the title as it was).
+Every pass's reply goes through `clean_llm_markdown_output` first, which also
+takes off an unclosed opening fence and the `<document>` tags the translation
+and normalisation prompts wrap their input in: Gemma 3 1B echoed both, so its
+Russian summaries showed as one code block and had no leading H1 to name the
+meeting from. Before it emits `completed`, the service renames the meeting
+through
+`meeting_title::rename_meeting` with `TitleSource::Summary`, the path
+`api_save_meeting_title` takes with `TitleSource::User`:
+`MeetingsRepository::set_title` (database and legacy chunk names, one
+transaction) and the folder's `metadata.json` `meeting_name` when the file
+exists; the folder itself keeps its name, as a manual rename always left it.
+Whose title it is lives in `meetings.title_is_manual`, an explicit record:
+`api_save_transcript` takes `title_is_manual` from the recording (the
+session's `titleManual`, also kept in the crash copy for recovery; absent
+means the user's), `start_import_audio_command` takes it from the import
+sheet (`titleIsManual`: the user changed the file name the sheet proposed;
+absent means the user's), and a rename sets it for good. The title's text is never
+read for it (the old `is_default_meeting_title` is gone), so the automatic
+format can change (#219). A summary's title applies only while the record
+says the app made the title (an SQL predicate, so a rename racing the run
+wins) and leaves the record as it was, so a summary written again names the
+meeting again until the user renames it. The shell's `useSummaryTitleSync`
+reads the list, the meeting, folders and search again on `completed`.
+Tests: `meeting_title::tests`, `meeting::tests`, `transcript::tests`
+(native); `summaryTitleSync.test.tsx`, `save.test.tsx` and `ImportSheet.test.tsx` (frontend).
+Older notes on the upstream behaviour: [SUMMARY_GENERATED_TITLES.md](SUMMARY_GENERATED_TITLES.md).
 
 A summary run's template is `api_process_transcript`'s `template_id`. Without
 one native takes the stored default (`summary/template_settings.rs`, #117): the

@@ -281,7 +281,19 @@ pub fn chunk_text(text: &str, chunk_size_tokens: usize, overlap_tokens: usize) -
     chunks
 }
 
-/// Cleans markdown output from LLM by removing thinking tags and code fences
+/// Cleans markdown output from LLM by removing thinking tags and the wrappers
+/// a model puts around the document.
+///
+/// Two wrappers come off, in any order and nesting, only at the very start
+/// and end of the reply:
+/// - a code fence (```` ``` ````, ```` ```markdown ````, any info string). Small
+///   models open one and often never close it, which left the whole summary
+///   showing as one code block, so the opening line goes even without a
+///   closing one;
+/// - the `<document>…</document>` tags the translation and normalisation
+///   prompts put around their input, which small models echo back (#218: Gemma
+///   3 1B did; the summary then showed the tags and had no leading H1 to name
+///   the meeting from). Either tag goes when it stands on its own line.
 ///
 /// # Arguments
 /// * `markdown` - Raw markdown output from LLM
@@ -292,22 +304,39 @@ pub fn clean_llm_markdown_output(markdown: &str) -> String {
     // Remove <think>...</think> or <thinking>...</thinking> blocks using cached regex
     let without_thinking = THINKING_TAG_REGEX.replace_all(markdown, "");
 
-    let trimmed = without_thinking.trim();
-
-    // List of possible language identifiers for code blocks
-    const PREFIXES: &[&str] = &["```markdown\n", "```\n"];
-    const SUFFIX: &str = "```";
-
-    for prefix in PREFIXES {
-        if trimmed.starts_with(prefix) && trimmed.ends_with(SUFFIX) {
-            // Extract content between the fences
-            let content = &trimmed[prefix.len()..trimmed.len() - SUFFIX.len()];
-            return content.trim().to_string();
-        }
+    fn without_first_line(text: &str) -> &str {
+        text.split_once('\n').map_or("", |(_, rest)| rest).trim()
+    }
+    fn without_last_line(text: &str) -> &str {
+        text.rsplit_once('\n').map_or("", |(rest, _)| rest).trim()
     }
 
-    // If no fences found, return the trimmed string
-    trimmed.to_string()
+    let mut text = without_thinking.trim();
+    loop {
+        let before = text;
+        let first = text.lines().next().unwrap_or("").trim();
+        let last = text.lines().last().unwrap_or("").trim();
+        // A fence line the summary's own code blocks do not pair: an even
+        // count with fences at both ends is a wrapper; an odd count has one
+        // fence too many, at whichever end has it.
+        let fences = text.lines().filter(|line| line.trim_start().starts_with("```")).count();
+        let fenced_first = first.starts_with("```");
+        let fenced_last = last == "```";
+        if first == "<document>" {
+            text = without_first_line(text);
+        } else if last == "</document>" {
+            text = without_last_line(text);
+        } else if fenced_first && fenced_last && fences % 2 == 0 && text.lines().count() > 1 {
+            text = without_last_line(without_first_line(text));
+        } else if fenced_first && fences % 2 == 1 {
+            text = without_first_line(text);
+        } else if fenced_last && fences % 2 == 1 {
+            text = without_last_line(text);
+        }
+        if text == before {
+            return text.to_string();
+        }
+    }
 }
 
 fn require_meaningful_summary(markdown: &str, stage: &str) -> Result<String, String> {
@@ -810,6 +839,30 @@ mod tests {
             .unwrap(),
             "# Meeting title\n\n- A decision was made."
         );
+    }
+
+    /// What Gemma 3 1B returned for a translation pass (#218): an unclosed
+    /// fence around the prompt's echoed `<document>` tags. The meeting is
+    /// named from the H1 under them.
+    #[test]
+    fn cleaning_unwraps_an_unclosed_fence_and_echoed_document_tags() {
+        let reply = "```markdown\n<document>\n# Отчет о переносе хранилища\n\n**Краткое изложение**\n\nТекст.\n</document>";
+        let cleaned = clean_llm_markdown_output(reply);
+        assert_eq!(cleaned, "# Отчет о переносе хранилища\n\n**Краткое изложение**\n\nТекст.");
+        assert_eq!(extract_meeting_name_from_markdown(&cleaned).as_deref(), Some("Отчет о переносе хранилища"));
+
+        for (reply, clean) in [
+            ("<document>\n```\n# Title\n\nBody.\n```\n</document>", "# Title\n\nBody."),
+            ("```md\n# Title\n\nBody.", "# Title\n\nBody."),
+            ("# Title\n\nBody.\n```", "# Title\n\nBody."),
+            // A code block inside the summary stays.
+            ("# Title\n\n```\nkubectl apply\n```\n\nBody.", "# Title\n\n```\nkubectl apply\n```\n\nBody."),
+            ("# Title\n\n```\nkubectl apply\n```", "# Title\n\n```\nkubectl apply\n```"),
+            ("```markdown\n# Title\n\n```\nkubectl apply\n```", "# Title\n\n```\nkubectl apply\n```"),
+            ("<think>plan</think>\n# Title\n\nBody.", "# Title\n\nBody."),
+        ] {
+            assert_eq!(clean_llm_markdown_output(reply), clean, "{reply}");
+        }
     }
 
     #[test]

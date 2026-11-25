@@ -127,6 +127,8 @@ async function saveRecovered(recoveryId: string): Promise<Recovered> {
     })
     const meetingId = await saveTranscript({
         title: meeting.title,
+        // A copy made before the record existed keeps its title.
+        titleIsManual: meeting.titleManual ?? true,
         transcripts: segments,
         folderPath: folder,
         recordingStartedAt: new Date(meeting.startTime).toISOString(),

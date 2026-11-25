@@ -181,6 +181,7 @@ export async function saveAfterStop(stop: RecordingStopComplete) {
         const start = new Date(startedAt ?? Date.now())
         const meetingId = await saveTranscript({
             title: titleManual ? title.trim() : finalTitle(title || stop.meeting_name || '', start, new Date()),
+            titleIsManual: titleManual,
             transcripts: lines.map(toSegment),
             folderPath: stop.folder_path ?? null,
             recordingStartedAt: startedAt ? start.toISOString() : null,

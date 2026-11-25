@@ -73,6 +73,17 @@ is inherited from the project Protocol forked from; Protocol did not release it.
   first time this version starts, with any items you added by hand. AI
   agents read them in the summary; the MCP server's `get_action_items`
   tool is gone.
+- **Meetings are named from their summary**
+  ([#218](https://github.com/vmedvedevpro/Protocol/issues/218)). While a
+  meeting has the title Protocol gave it (the date and time, the folder's
+  name or an imported file's name), its summary gives it a short title in
+  the summary's language. A title you typed or a rename is never replaced,
+  also when you write the summary again.
+- **Summaries from small built-in models show as text**
+  ([#218](https://github.com/vmedvedevpro/Protocol/issues/218)). A summary
+  the model wrapped in a code block it never closed, or in the tags of its
+  own instructions, showed as one block of code; those wrappers now come
+  off.
 
 ## Protocol 1.0.0-rc.1 — 2026-11-26
 

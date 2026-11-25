@@ -6,9 +6,10 @@
  *   "Meeting · Mon, Sep 28 · 2:30–3:15 PM"   once it ends
  *   "Weekly Standup — Sep 28"                filed in a folder
  *
- * Native saves a title starting with `AUTOMATIC_PREFIX` as automatic
- * (`is_default_meeting_title`), and only such a title gets the name the
- * summary writes. A folder's title, a typed one or a rename stays manual.
+ * The save says whether the user chose the title (`titleManual`, #218);
+ * native keeps that record and never reads the title's text for it. A
+ * title the app made (these, the folder's included) gets the title the
+ * summary writes; one the user typed, or a later rename, stays.
  */
 
 export const AUTOMATIC_PREFIX = 'Meeting · '

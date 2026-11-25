@@ -47,6 +47,8 @@ export interface MockMeeting {
     created_at: string
     group_id: string | null
     folder_path: string | null
+    /** `title_is_manual` (#218): false for a title the app made, which a summary replaces. */
+    titleIsManual?: boolean
 }
 
 /** A `summary_processes` row: the run's status and the stored summary. */
@@ -78,7 +80,7 @@ function sampleMeetings(): MockMeeting[] {
         {id: 'meeting-design-crit', title: 'Onboarding flow critique', created_at: at(2, 11, 0), group_id: 'group-design', folder_path: '/preview/design-crit'},
         standup(0, 2),
         standup(1, 1),
-        {id: 'meeting-untitled', title: `Meeting · ${long(at(9, 16, 40))}`, created_at: at(9, 16, 40), group_id: null, folder_path: '/preview/untitled'},
+        {id: 'meeting-untitled', title: `Meeting · ${long(at(9, 16, 40))}`, created_at: at(9, 16, 40), group_id: null, folder_path: '/preview/untitled', titleIsManual: false},
         {id: 'meeting-acme-kickoff', title: 'Acme pilot kickoff', created_at: at(11, 10, 0), group_id: 'group-acme', folder_path: '/preview/acme-kickoff'},
         standup(2, 3),
         {id: 'meeting-1on1', title: '1:1 with Priya', created_at: at(16, 14, 0), group_id: null, folder_path: '/preview/1on1'},
@@ -318,6 +320,12 @@ function meetingOf(db: MockMeetings, meetingId: unknown): MockMeeting {
     return meeting
 }
 
+/** The title the mock model gives a meeting: the first words said in it. */
+function summaryTitle(db: MockMeetings, meetingId: string): string {
+    const words = (db.transcripts[meetingId]?.[0]?.text ?? '').replace(/[.,!?]/g, '').split(/\s+/).filter(Boolean)
+    return words.length ? `About ${words.slice(0, 4).join(' ')}` : 'A short conversation'
+}
+
 /** A summary the mock writes for a run: the meeting's lines, owned by who said them. */
 function writtenSummary(db: MockMeetings, meetingId: string, customPrompt: string): string {
     const lines = db.transcripts[meetingId] ?? []
@@ -377,6 +385,10 @@ export function meetingsHandlers(state: { meetings: MockMeetings }): Record<stri
             if (run?.status !== 'summarizing') return
             const data = {markdown: writtenSummary(db, meetingId, customPrompt)}
             Object.assign(run, {status: 'completed', data, userEdited: false, end: now()})
+            // Native names a meeting whose title is not the user's from the
+            // summary's H1, before it says the run is done (#218).
+            const meeting = db.meetings.find((entry) => entry.id === meetingId)
+            if (meeting && meeting.titleIsManual === false) meeting.title = summaryTitle(db, meetingId)
             emitProgress('completed', 'Summary ready', data)
         }, db.summaryRunMs)
         return processId
@@ -408,7 +420,7 @@ export function meetingsHandlers(state: { meetings: MockMeetings }): Record<stri
             const page = count < 0 ? lines.slice(from) : lines.slice(from, from + count)
             return {transcripts: page, total_count: lines.length, has_more: from + page.length < lines.length}
         },
-        api_save_transcript: ({meetingTitle, transcripts, folderPath, recordingStartedAt}) => {
+        api_save_transcript: ({meetingTitle, titleIsManual, transcripts, folderPath, recordingStartedAt}) => {
             const id = newId('meeting')
             const lines = (required(transcripts, 'transcripts', 'api_save_transcript') as TranscriptSegment[]).map((line) => ({...line}))
             state.meetings.meetings.push({
@@ -417,6 +429,8 @@ export function meetingsHandlers(state: { meetings: MockMeetings }): Record<stri
                 created_at: typeof recordingStartedAt === 'string' ? new Date(recordingStartedAt).toISOString() : now(),
                 group_id: null,
                 folder_path: typeof folderPath === 'string' ? folderPath : null,
+                // Native: a caller that does not say keeps its title.
+                titleIsManual: titleIsManual !== false,
             })
             state.meetings.transcripts[id] = lines
             return {status: 'success', message: 'Transcript saved successfully', meeting_id: id}
@@ -425,6 +439,7 @@ export function meetingsHandlers(state: { meetings: MockMeetings }): Record<stri
             const meeting = state.meetings.meetings.find((entry) => entry.id === meetingId)
             if (!meeting) throw `No meeting found with id ${String(meetingId)}`
             meeting.title = String(required(title, 'title', 'api_save_meeting_title'))
+            meeting.titleIsManual = true
             return {message: 'Meeting title saved successfully'}
         },
         api_delete_meeting: ({meetingId}) => {

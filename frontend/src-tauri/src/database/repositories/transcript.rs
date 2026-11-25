@@ -10,9 +10,13 @@ impl TranscriptsRepository {
     /// Saves a new meeting and its associated transcript segments.
     /// This function uses a transaction to ensure that either both the meeting
     /// and all its transcripts are saved, or none of them are.
+    /// `title_is_manual` is the caller's record of whether the user chose the
+    /// title (#218): the title's text is never read for it, so the automatic
+    /// format can change (#219) without making a title look like the user's.
     pub async fn save_transcript(
         pool: &SqlitePool,
         meeting_title: &str,
+        title_is_manual: bool,
         transcripts: &[TranscriptSegment],
         folder_path: Option<String>,
         recording_started_at: Option<DateTime<Utc>>,
@@ -24,7 +28,6 @@ impl TranscriptsRepository {
 
         let now = Utc::now();
         let recording_started_at = recording_started_at.unwrap_or(now);
-        let title_is_manual = !is_default_meeting_title(meeting_title);
 
         // 1. Create the new meeting
         let result = sqlx::query(
@@ -131,43 +134,6 @@ pub(crate) fn timestamp_from_offset(
         .map(|timestamp| timestamp.to_rfc3339_opts(SecondsFormat::Millis, true))
 }
 
-pub(crate) fn is_default_meeting_title(title: &str) -> bool {
-    let title = title.trim();
-    if matches!(title, "+ New Call" | "New Meeting") {
-        return true;
-    }
-    // Current format: "Meeting · Mon, Sep 28 · 2:30 PM" (see lib/meeting-titles.ts).
-    if title.starts_with("Meeting · ") {
-        return true;
-    }
-
-    let Some(timestamp) = title.strip_prefix("Meeting ") else {
-        return false;
-    };
-    matches_timestamp_shape(timestamp, 17, &[2, 5, 8, 11, 14], b'_')
-        || (matches_timestamp_shape(timestamp, 19, &[4, 7, 13, 16], b'-')
-            && timestamp.as_bytes().get(10) == Some(&b'_'))
-}
-
-fn matches_timestamp_shape(
-    value: &str,
-    expected_len: usize,
-    separator_positions: &[usize],
-    separator: u8,
-) -> bool {
-    let bytes = value.as_bytes();
-    bytes.len() == expected_len
-        && bytes.iter().enumerate().all(|(index, byte)| {
-            if separator_positions.contains(&index) {
-                *byte == separator
-            } else if expected_len == 19 && index == 10 {
-                *byte == b'_'
-            } else {
-                byte.is_ascii_digit()
-            }
-        })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -186,11 +152,29 @@ mod tests {
             audio_start_time: Some(0.0), audio_end_time: Some(2.0), duration: Some(2.0),
             speaker: Some(speaker.into()),
         };
-        let meeting = TranscriptsRepository::save_transcript(&pool, "Test", &[make_turn("Alice"), make_turn("Speaker 2")], None, None)
+        let meeting = TranscriptsRepository::save_transcript(&pool, "Test", true, &[make_turn("Alice"), make_turn("Speaker 2")], None, None)
             .await.unwrap();
         let linked: Vec<String> = sqlx::query_scalar("SELECT speaker_label FROM person_speakers WHERE meeting_id = ?")
             .bind(meeting).fetch_all(&pool).await.unwrap();
         assert_eq!(linked, vec!["Alice"]);
+    }
+
+    /// The caller's record decides, never the title's text (#218): an
+    /// automatic-looking title the user typed stays theirs, and a title the
+    /// app made in any format is not.
+    #[tokio::test]
+    async fn save_keeps_the_callers_record_of_whose_title_it_is() {
+        let pool = SqlitePool::connect(":memory:").await.unwrap();
+        sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+        let typed = TranscriptsRepository::save_transcript(&pool, "Meeting · Mon, Sep 28 · 2:30 PM", true, &[], None, None)
+            .await.unwrap();
+        let made = TranscriptsRepository::save_transcript(&pool, "Weekly Standup — Sep 28", false, &[], None, None)
+            .await.unwrap();
+        for (id, manual) in [(typed, true), (made, false)] {
+            let stored: bool = sqlx::query_scalar("SELECT title_is_manual FROM meetings WHERE id = ?")
+                .bind(&id).fetch_one(&pool).await.unwrap();
+            assert_eq!(stored, manual, "{id}");
+        }
     }
 
     #[test]
@@ -210,14 +194,5 @@ mod tests {
         assert!(timestamp_from_offset(start, -1.0).is_err());
         assert!(timestamp_from_offset(start, f64::NAN).is_err());
         assert!(timestamp_from_offset(start, f64::INFINITY).is_err());
-    }
-
-    #[test]
-    fn default_title_detection_is_conservative() {
-        assert!(is_default_meeting_title("Meeting 30_08_26_12_34_56"));
-        assert!(is_default_meeting_title("Meeting 2026-08-30_12-34-56"));
-        assert!(is_default_meeting_title("New Meeting"));
-        assert!(!is_default_meeting_title("Meeting with Ada"));
-        assert!(!is_default_meeting_title("Quarterly Review"));
     }
 }

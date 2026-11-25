@@ -142,7 +142,7 @@ export async function syncWithNative() {
         recoveryId = copies.find((copy) => copy.title === title && copy.startTime <= now)?.meetingId ?? null
         if (!recoveryId) {
             recoveryId = `meeting-${now}`
-            await beginRecovery({meetingId: recoveryId, title, startTime: startedAt}).catch(() => undefined)
+            await beginRecovery({meetingId: recoveryId, title, titleManual: current.titleManual, startTime: startedAt}).catch(() => undefined)
             void noteRecoveryFolder(recoveryId)
         }
     }

@@ -59,6 +59,7 @@ pub mod openrouter;
 pub mod live_assistant;
 pub mod meeting_detection;
 mod meeting_folder;
+pub mod meeting_title;
 // Ignored test commands that measure transcription (#75); test builds only.
 #[cfg(test)]
 mod measure;

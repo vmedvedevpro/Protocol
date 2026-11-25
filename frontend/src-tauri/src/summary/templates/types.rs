@@ -84,7 +84,7 @@ impl Template {
     /// Generates section-specific instructions for the LLM
     pub fn to_section_instructions(&self) -> String {
         let mut instructions = String::from(
-            "- **For the main title (`# [AI-Generated Title]`):** Analyze the entire transcript and create a concise, descriptive title for the meeting.\n"
+            "- **For the main title (`# <Add Title here>`):** Replace the placeholder with a short title for the meeting (3 to 8 words) that names what it was about, written in the report's language. No date, time, quotes or the word \"meeting\" alone.\n"
         );
 
         for section in &self.sections {

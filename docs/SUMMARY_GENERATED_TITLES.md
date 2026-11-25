@@ -3,6 +3,11 @@
 > Written in Meetily – Actually Free before Protocol forked from it. The 0.2.x
 > versions and releases it mentions are that project's
 > ([TylerBuza/Meetily-ActuallyFree](https://github.com/TylerBuza/Meetily-ActuallyFree)).
+> Since #218 the rename goes through `meeting_title::rename_meeting` and
+> `MeetingsRepository::set_title` (which replace
+> `update_generated_meeting_title`), and whose title it is comes from the
+> caller's record rather than the title's text; the current flow is in
+> [DEVELOPMENT_MAP.md › Meeting titles from the summary](DEVELOPMENT_MAP.md#3-post-call-processing-and-model-selection).
 
 Upstream PR #39 removed the summary-to-meeting-title update; @ampersandru reported the
 regression. `summary/service.rs` now restores it after a successful, accepted

@@ -120,16 +120,21 @@ export async function getAllTranscripts(meetingId: string): Promise<TranscriptSe
 /**
  * Saves a recording's transcript as a new meeting and answers its id (#112,
  * after Stop). `recordingStartedAt` (RFC 3339) dates the meeting when the
- * folder has no metadata.json to read it from.
+ * folder has no metadata.json to read it from. `titleIsManual` records
+ * whether the user chose the title (#218): native keeps that record, never
+ * the title's text, and names only a meeting whose title is not the user's
+ * from its summary.
  */
 export async function saveTranscript(draft: {
     title: string
+    titleIsManual: boolean
     transcripts: TranscriptSegment[]
     folderPath: string | null
     recordingStartedAt?: string | null
 }): Promise<string> {
     const reply = await command<{ meeting_id: string }>('api_save_transcript', {
         meetingTitle: draft.title,
+        titleIsManual: draft.titleIsManual,
         transcripts: draft.transcripts,
         folderPath: draft.folderPath,
         recordingStartedAt: draft.recordingStartedAt ?? null,
@@ -138,8 +143,8 @@ export async function saveTranscript(draft: {
 }
 
 /**
- * A manual title. Native marks it manual, so a summary never renames the
- * meeting afterwards (see PARITY.md, Automatic meeting titles).
+ * A manual title. Native records it as the user's, so a summary never
+ * renames the meeting afterwards (#218).
  */
 export const renameMeeting = (meetingId: string, title: string) =>
     command<unknown>('api_save_meeting_title', {meetingId, title})
