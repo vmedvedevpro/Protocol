@@ -297,7 +297,8 @@ let nextId = 0
 const newId = (prefix: string) => `${prefix}-mock-${(nextId++).toString(36)}`
 const now = () => new Date().toISOString()
 
-function required<T>(value: T | undefined, name: string, command: string): T {
+/** Rejects a call without a required argument, in Tauri's words. */
+export function required<T>(value: T | undefined, name: string, command: string): T {
     if (value === undefined) throw `invalid args \`${name}\` for command \`${command}\`: command ${command} missing required key ${name}`
     return value
 }
@@ -671,20 +672,27 @@ export function meetingsHandlers(state: { meetings: MockMeetings }): Record<stri
             const lines = state.meetings.transcripts[String(meetingId)] ?? []
             const source = String(required(from, 'from', 'rename_meeting_speaker')).trim()
             const target = String(to ?? '').trim()
-            const others = new Set(lines.flatMap((line) => (line.speaker ?? '').split(' + ')).filter((label) => /^Speaker \d+$/.test(label)))
-            // An empty name gives the voice back a free "Speaker N" label.
-            let label = target
-            for (let n = 1; !label; n++) if (!others.has(`Speaker ${n}`)) label = `Speaker ${n}`
-            let count = 0
-            for (const line of lines) {
-                const parts = (line.speaker ?? '').split(' + ')
-                if (!parts.includes(source)) continue
-                line.speaker = [...new Set(parts.map((part) => (part === source ? label : part)))].join(' + ')
-                count += 1
-            }
-            return {speaker: label, count, removedName: !target}
+            return {...relabelSpeaker(lines, source, target), removedName: !target}
         },
     }
+}
+
+/**
+ * Relabels one voice on a meeting's lines, joining it with a voice it
+ * overlapped; an empty name gives it back the lowest free `Speaker N`.
+ */
+export function relabelSpeaker(lines: TranscriptSegment[], from: string, to: string): { speaker: string, count: number } {
+    const others = new Set(lines.flatMap((line) => (line.speaker ?? '').split(' + ')).filter((label) => /^Speaker \d+$/.test(label)))
+    let speaker = to
+    for (let n = 1; !speaker; n++) if (!others.has(`Speaker ${n}`)) speaker = `Speaker ${n}`
+    let count = 0
+    for (const line of lines) {
+        const parts = (line.speaker ?? '').split(' + ')
+        if (!parts.includes(from)) continue
+        line.speaker = [...new Set(parts.map((part) => (part === from ? speaker : part)))].join(' + ')
+        count += 1
+    }
+    return {speaker, count}
 }
 
 // ---- Playback ----------------------------------------------------------------------

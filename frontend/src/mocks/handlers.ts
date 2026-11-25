@@ -7,6 +7,7 @@ import {meetingsHandlers} from './meetings'
 import {modelCatalogHandlers} from './modelCatalog'
 import {modelsHandlers} from './models'
 import {notesHandlers} from './notes'
+import {peopleHandlers} from './people'
 import {onboardingHandlers} from './onboarding'
 import {macosPermissionsHandlers, permissionsHandlers} from './permissions'
 import {postCallHandlers} from './postCall'
@@ -76,6 +77,9 @@ export const handlers: Record<string, MockHandler> = {
 
     // Meetings, transcripts, folders, summaries, action items, speaker labels (src/mocks/meetings.ts)
     ...meetingsHandlers(mockState),
+
+    // Contacts and their voices (src/mocks/people.ts); after the meetings, whose action item list it wraps
+    ...peopleHandlers(mockState),
 
     // First launch and its database: onboarding.rs, database/commands.rs
     ...onboardingHandlers(mockState),

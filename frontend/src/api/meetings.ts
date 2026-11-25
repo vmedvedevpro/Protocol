@@ -13,6 +13,8 @@ import {mutationOptions, type QueryClient, queryOptions} from '@tanstack/react-q
 import {convertFileSrc} from '@tauri-apps/api/core'
 import {command} from './core'
 import type {NativeEvent} from './events'
+// Used only inside callbacks, so the import cycle with people.ts is harmless.
+import {peopleKeys} from './people'
 
 // ---- Meetings ---------------------------------------------------------------
 
@@ -627,10 +629,17 @@ export const diarizationAvailableQuery = queryOptions({
     queryFn: diarizationAvailable,
 })
 
+/**
+ * Names a voice for the meeting. Native links a name to the contact who has
+ * it, or makes a new contact (person.rs, `ensure_label_identity`), so the
+ * people are read again with the transcript.
+ */
 export const renameSpeakerMutation = (meetingId: string) =>
     mutationOptions({
         mutationFn: ({from, to}: { from: string, to: string }) => renameMeetingSpeaker(meetingId, from, to),
-        onSuccess: (_rename, _variables, _result, {client}) =>
+        onSuccess: (_rename, _variables, _result, {client}) => Promise.all([
             client.invalidateQueries({queryKey: meetingKeys.transcripts(meetingId)}),
+            client.invalidateQueries({queryKey: peopleKeys.all}),
+        ]),
     })
 

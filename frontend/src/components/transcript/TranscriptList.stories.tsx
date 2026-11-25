@@ -2,7 +2,8 @@ import {useEffect, useMemo, useState} from 'react'
 import type {Meta, StoryObj} from '@storybook/react-vite'
 import styled from 'styled-components'
 import {sampleTranscript} from '@/mocks/meetings'
-import {type PlaybackClock, TranscriptList} from './TranscriptList'
+import {UserIcon} from '@phosphor-icons/react'
+import {type PlaybackClock, type SpeakerTarget, TranscriptList} from './TranscriptList'
 import {lineFromSegment, type TranscriptLine} from './turns'
 
 // The meeting screen's panel: the list scrolls inside it.
@@ -65,6 +66,25 @@ function Saved() {
     return (
         <Frame>
             <TranscriptList label="Transcript" lines={lines} onSeek={seek} onRenameSpeaker={rename} playback={clock} followPlayback/>
+        </Frame>
+    )
+}
+
+// A voice's menu: its contact (#118) and Who said this (#119) from the
+// caller, then Rename speaker; a voice with only the rename names in place.
+const storyActions = (target: SpeakerTarget) =>
+    target.speaker === 'Tom Becker'
+        ? [{id: 'open', label: 'Open Tom Becker', icon: <UserIcon/>, onSelect: () => undefined}]
+        : []
+
+function WithMenus() {
+    const [lines, setLines] = useState(() => sampleTranscript('meeting-acme-kickoff').map(lineFromSegment))
+    const rename = async (from: string, to: string) => {
+        setLines((current) => current.map((line) => (line.speaker === from ? {...line, speaker: to} : line)))
+    }
+    return (
+        <Frame>
+            <TranscriptList label="Transcript" lines={lines} onRenameSpeaker={rename} speakerActions={storyActions}/>
         </Frame>
     )
 }
@@ -142,3 +162,5 @@ export const Dark: Story = {globals: {theme: 'dark'}}
 export const LiveTranscript: Story = {render: () => <Live/>}
 
 export const ThreeHours: Story = {render: () => <Long/>}
+
+export const SpeakerMenu: Story = {render: () => <WithMenus/>}
