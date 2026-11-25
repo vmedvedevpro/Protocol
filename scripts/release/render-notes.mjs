@@ -35,7 +35,7 @@ ${notes.trim()}
 | --- | --- | --- |
 | Windows 10/11 x64 | ${link(windows)} | Picks the Vulkan (GPU) or CPU build automatically |
 | macOS 14.2+ (Apple Silicon) | ${macos} | |
-| Linux x64 — **experimental** | ${link(appImage)} or ${link(deb)} | Built in CI, not tested on real hardware |
+| Linux x64 | ${link(appImage)} or ${link(deb)} | |
 
 The \`.app.tar.gz\` and \`.sig\` files and \`latest.json\` are used by Protocol's built-in updater; you don't need to
 download them.
@@ -56,10 +56,9 @@ that Protocol is free of malware. Click **Done**, open **System Settings → Pri
 about Protocol and click **Open Anyway**, then confirm. You only do this once. (Terminal alternative:
 \`xattr -dr com.apple.quarantine /Applications/Protocol.app\`.) Allow microphone and system-audio access when asked.
 
-**Linux (experimental).** AppImage: \`chmod +x ${appImage} && ./${appImage}\`
+**Linux.** AppImage: \`chmod +x ${appImage} && ./${appImage}\`
 (Ubuntu 22.04 needs \`libfuse2\`, 24.04 \`libfuse2t64\`). Debian/Ubuntu package:
-\`sudo apt install ./${deb}\`. Linux builds compile and start in CI but have not been tested with real
-meetings; system-audio capture may not work on your desktop. Reports are welcome.
+\`sudo apt install ./${deb}\`.
 
 ## Updates
 
