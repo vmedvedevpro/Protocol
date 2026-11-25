@@ -2,8 +2,12 @@ import type {Platform} from '@/lib/platform'
 import {audioHandlers} from './audio'
 import {devicesHandlers} from './devices'
 import {dialogsHandlers} from './dialogs'
+
+import {diarizationHandlers} from './diarization'
+import {intelHandlers, windowsIntelHandlers} from './intel'
 import {labsHandlers} from './labs'
 import {liveHandlers} from './live'
+import {localStackHandlers} from './localStack'
 import {meetingsHandlers} from './meetings'
 import {minibarHandlers} from './minibar'
 import {modelCatalogHandlers} from './modelCatalog'
@@ -106,6 +110,16 @@ export const handlers: Record<string, MockHandler> = {
     ...minibarHandlers(mockState),
     // What the dialogs over a screen write and import (src/mocks/dialogs.ts)
     ...dialogsHandlers(mockState),
+
+
+    // The speaker engine (src/mocks/diarization.ts)
+    ...diarizationHandlers(mockState),
+
+    // What is loaded, and the unloads (src/mocks/localStack.ts)
+    ...localStackHandlers(mockState),
+
+    // Whether the GPU is an Intel GPU (src/mocks/intel.ts)
+    ...intelHandlers(mockState),
 }
 
 /**
@@ -118,7 +132,9 @@ export const handlers: Record<string, MockHandler> = {
  * both; ipc.ts refuses to load otherwise.
  */
 export const platformHandlers: Record<Platform, Record<string, MockHandler>> = {
-    windows: {},
+    windows: {
+        ...windowsIntelHandlers(mockState),
+    },
     macos: {
         ...macosPermissionsHandlers,
     },

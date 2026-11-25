@@ -6,6 +6,8 @@ import {platform} from '@/lib/platform'
 import packageJson from '../../package.json'
 import {createMockDevices} from './devices'
 import {createMockDialogs} from './dialogs'
+import {createMockDiarization} from './diarization'
+import {createMockIntel} from './intel'
 import {createMockLabs} from './labs'
 import {createMockLive} from './live'
 import {createMockMeetings} from './meetings'
@@ -104,6 +106,10 @@ function createMockState() {
         minibar: createMockMinibar(),
         // Export's written files, the import's file and run (src/mocks/dialogs.ts).
         dialogs: createMockDialogs(),
+        // Intel GPU and NPU (src/mocks/intel.ts): none unless `?intel=` says so.
+        intel: createMockIntel(),
+        // The speaker engine (src/mocks/diarization.ts).
+        diarization: createMockDiarization(),
     }
 }
 

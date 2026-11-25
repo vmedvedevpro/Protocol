@@ -15,10 +15,12 @@ import {
     whisperModelsQuery,
     builtInModelsQuery,
 } from './models'
+import {GPU_VERSION_ID} from '@/mocks/intel'
 import {createMockModels} from '@/mocks/models'
 import {mockState} from '@/mocks/state'
 import {createTestQueryClient} from '@/test/queryClient'
-import {useModelDownloadSync} from './modelDownloadSync'
+import {companionQuery, downloadGpuVersion, INTEL_CANCELLED} from './intel'
+import {trackIntelDownload, useModelDownloadSync} from './modelDownloadSync'
 
 const listening = () => new Promise((resolve) => setTimeout(resolve, 0))
 
@@ -104,7 +106,47 @@ describe('useModelDownloadSync', () => {
 
         await downloadWhisperModel(POST_CALL_WHISPER_MODEL, {enablePostCall: true})
 
-        expect(mockState.models.postCallModel).toBe(POST_CALL_WHISPER_MODEL)
+        expect(mockState.speech.postCallConfig).toEqual({provider: 'whisper', model: POST_CALL_WHISPER_MODEL})
         await waitFor(() => expect(result.current.whisper).toEqual({kind: 'ready'}))
+    })
+})
+
+describe('trackIntelDownload', () => {
+    function renderIntel() {
+        mockState.platform = 'windows'
+        mockState.intel.gpu = true
+        const client = createTestQueryClient()
+        const wrapper = ({children}: { children: ReactNode }) => <QueryClientProvider client={client}>{children}</QueryClientProvider>
+        const view = renderHook(() => {
+            useModelDownloadSync()
+            const companion = useQuery(companionQuery).data
+            return {companion, state: useQuery(downloadsQuery).data[downloadKey('intelGpu', GPU_VERSION_ID)]}
+        }, {wrapper})
+        return {client, ...view}
+    }
+
+    it('keeps the record until the Intel GPU version reads as installed', async () => {
+        mockState.intel.downloadStep = 50
+        const {client, result} = renderIntel()
+        await waitFor(() => expect(result.current.companion?.installed).toBe(false))
+        await listening()
+
+        const done = trackIntelDownload(client, 'intelGpu', GPU_VERSION_ID, () => downloadGpuVersion(GPU_VERSION_ID, {choose: true}))
+        await waitFor(() => expect(result.current.state).toMatchObject({state: 'downloading'}))
+        await done
+
+        await waitFor(() => expect(result.current.companion?.installed).toBe(true))
+        expect(result.current.state).toBeUndefined()
+    })
+
+    it('keeps a failure, which native sends no event for, and forgets a cancel', async () => {
+        const {client, result} = renderIntel()
+        await listening()
+
+        await expect(trackIntelDownload(client, 'intelGpu', GPU_VERSION_ID, () => Promise.reject(new Error('Network down')))).rejects.toThrow()
+        await waitFor(() => expect(result.current.state).toEqual({state: 'failed', error: 'Network down'}))
+
+        await expect(trackIntelDownload(client, 'intelGpu', GPU_VERSION_ID, () => Promise.reject(new Error(INTEL_CANCELLED)))).rejects.toThrow()
+        await waitFor(() => expect(result.current.state).toBeUndefined())
     })
 })
