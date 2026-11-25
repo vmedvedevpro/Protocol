@@ -77,10 +77,10 @@ const Note = styled.p`
     color: ${({theme}) => theme.colors.muted};
 `
 
+// The tabs keep their width; the search takes what is left of the row.
 const Search = styled.div`
     flex: 1;
-    max-width: 240px;
-    margin-left: auto;
+    min-width: 0;
 `
 
 const Results = styled.div`
@@ -238,7 +238,7 @@ export function SettingsPage() {
                                         type="search"
                                         size="sm"
                                         aria-label="Search settings"
-                                        placeholder="Search settings"
+                                        placeholder="Search"
                                         icon={<MagnifyingGlassIcon size={13} aria-hidden/>}
                                         value={query}
                                         onChange={(event) => setQuery(event.target.value)}

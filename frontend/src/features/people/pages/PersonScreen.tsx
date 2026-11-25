@@ -1,7 +1,6 @@
 import {type ReactNode, type RefObject, useEffect, useRef, useState} from 'react'
 import {DotsThreeIcon, GitMergeIcon, PencilSimpleIcon, TrashIcon} from '@phosphor-icons/react'
 import {useMutation, useQuery, useQueryClient} from '@tanstack/react-query'
-import {AnimatePresence} from 'motion/react'
 import * as m from 'motion/react-m'
 import {Link, useNavigate, useParams} from 'react-router-dom'
 import styled, {css} from 'styled-components'
@@ -24,6 +23,7 @@ import {Menu, MenuItem, MenuSeparator} from '@/components/ui/Menu'
 import {Spinner} from '@/components/ui/Spinner'
 import {colorTransition, focusRing} from '@/components/ui/styles'
 import {TextArea} from '@/components/ui/TextField'
+import {Veil} from '@/components/ui/Veil'
 import {toast} from '@/components/ui/toastStore'
 import {useAutosave, useSaving} from '@/lib/autosave'
 import {dayWhen, parseDate} from '@/lib/dates'
@@ -111,7 +111,9 @@ const Badge = styled.span`
     color: ${({theme}) => theme.colors.muted};
 `
 
+// The card's colour is behind the veil of a row that arrives on it (Veil).
 const Card = styled.div`
+    --surface: ${({theme}) => theme.colors.surface};
     border-radius: ${({theme}) => theme.radii.xl};
     background: ${({theme}) => theme.colors.surface};
 `
@@ -183,6 +185,7 @@ const When = styled.span`
 `
 
 const ItemRow = styled(m.div)`
+    position: relative;
     ${rowStyle};
     align-items: flex-start;
     gap: ${({theme}) => theme.space[2.5]};
@@ -424,6 +427,19 @@ function OpenItems({person}: { person: PersonProfile }) {
     const update = useMutation(updateActionItemMutation)
     const first = firstName(person.displayName)
 
+    // Items there when the list first loads arrive with the screen; one that
+    // shows up later (Undo brings it back) rises under a veil, and one
+    // checked off goes at once: text never fades (Veil). `arrived` keeps a
+    // row's arrival for its whole life, not just the render it came in.
+    const [shown, setShown] = useState<{ ids: Set<string>, arrived: Set<string> } | null>(null)
+    if (items.isSuccess) {
+        const ids = items.data.map((item) => item.id)
+        if (shown === null) setShown({ids: new Set(ids), arrived: new Set()})
+        else if (ids.length !== shown.ids.size || ids.some((id) => !shown.ids.has(id))) {
+            setShown({ids: new Set(ids), arrived: new Set([...shown.arrived, ...ids.filter((id) => !shown.ids.has(id))])})
+        }
+    }
+
     const setDone = (item: ActionItem, done: boolean) => update.mutate({...item, done}, {
         onSuccess: () => done && toast.success('Marked as done', {
             description: item.text,
@@ -438,13 +454,13 @@ function OpenItems({person}: { person: PersonProfile }) {
             <Card>
                 {items.isError && <Empty role="alert">Couldn’t load the action items: {items.error.message}</Empty>}
                 {items.isSuccess && items.data.length === 0 && <Empty>Nothing open for {first}.</Empty>}
-                <AnimatePresence initial={false}>
-                    {(items.data ?? []).map((item) => (
+                {(items.data ?? []).map((item) => {
+                    const arriving = shown?.arrived.has(item.id) ?? false
+                    return (
                         <ItemRow
                             key={item.id}
-                            initial={{opacity: 0, y: 4}}
-                            animate={{opacity: 1, y: 0}}
-                            exit={{opacity: 0, transition: tween('base', 'exit')}}
+                            initial={arriving ? {y: 4} : false}
+                            animate={{y: 0}}
                             transition={tween('base', 'enter')}
                         >
                             <Check
@@ -457,9 +473,10 @@ function OpenItems({person}: { person: PersonProfile }) {
                                 <OneLine>{item.text}</OneLine>
                                 <Sub>{[item.dueText, item.meetingTitle].filter(Boolean).join(' · ')}</Sub>
                             </ItemLink>
+                            {arriving && <Veil/>}
                         </ItemRow>
-                    ))}
-                </AnimatePresence>
+                    )
+                })}
             </Card>
         </Section>
     )

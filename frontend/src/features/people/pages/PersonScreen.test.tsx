@@ -93,7 +93,11 @@ describe('PersonScreen', () => {
         expect(await within(items).findByText('Nothing open for Priya.')).toBeInTheDocument()
 
         await userEvent.click(await screen.findByRole('button', {name: 'Undo'}))
-        expect(await within(items).findByRole('link', {name: /Send the support terms/})).toBeInTheDocument()
+        const back = await within(items).findByRole('link', {name: /Send the support terms/})
+        // It comes back under a veil; the row's text itself never fades.
+        const row = back.parentElement as HTMLElement
+        expect(row.style.opacity).toBe('')
+        expect(row.querySelector('span[aria-hidden="true"]')).not.toBeNull()
     })
 
     it('learns a voice while Labs › Voice profiles is on', async () => {

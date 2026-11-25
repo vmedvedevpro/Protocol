@@ -412,7 +412,10 @@ const RadioTile = styled(RadixRadio.Item)`
     text-align: left;
     cursor: pointer;
     ${colorTransition};
-    ${fieldFocusRing};
+
+    &:focus-visible {
+        ${fieldFocusRing};
+    }
 
     &:hover:not(:disabled) {
         background: ${({theme}) => theme.colors.surface};

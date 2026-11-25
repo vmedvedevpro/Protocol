@@ -100,6 +100,11 @@ interface SheetProps {
      * themselves. Escape and a press outside still close it.
      */
     bare?: boolean
+    /**
+     * Appears and goes at once, scrim and all: for what a shortcut toggles
+     * many times a day (⌘K's search), where any motion is a wait.
+     */
+    instant?: boolean
     children: ReactNode
 }
 
@@ -124,9 +129,9 @@ function openerOf(focused: Element | null): HTMLElement | null {
  * opened it (`openerOf`). The window's title strip stays uncovered and
  * working above the scrim. It arrives from above on
  * `springs.gentle` while the scrim fades in over `base`, and leaves with
- * `tween('base', 'exit')`.
+ * `tween('base', 'exit')`; an `instant` one appears and goes at once.
  */
-export function Sheet({open, onOpenChange, title, description, footer, bare = false, children}: SheetProps) {
+export function Sheet({open, onOpenChange, title, description, footer, bare = false, instant = false, children}: SheetProps) {
     const theme = useTheme()
     // Radix returns focus only to its own Trigger; the sheet remembers the
     // opener itself, so a button, a menu item or a shortcut all work alike.
@@ -139,10 +144,11 @@ export function Sheet({open, onOpenChange, title, description, footer, bare = fa
                 {open && (
                     <Dialog.Portal forceMount>
                         <Dialog.Overlay forceMount asChild>
+                            {/* Without an exit, AnimatePresence removes an instant sheet at once. */}
                             <Scrim
-                                initial={{opacity: 0}}
+                                initial={instant ? false : {opacity: 0}}
                                 animate={{opacity: 1}}
-                                exit={{opacity: 0, transition: tween('base', 'exit')}}
+                                exit={instant ? undefined : {opacity: 0, transition: tween('base', 'exit')}}
                                 transition={tween('base')}
                             />
                         </Dialog.Overlay>
@@ -165,9 +171,9 @@ export function Sheet({open, onOpenChange, title, description, footer, bare = fa
                             }}
                         >
                             <Panel
-                                initial={{opacity: 0, y: offset}}
+                                initial={instant ? false : {opacity: 0, y: offset}}
                                 animate={{opacity: 1, y: 0}}
-                                exit={{opacity: 0, y: offset, transition: tween('base', 'exit')}}
+                                exit={instant ? undefined : {opacity: 0, y: offset, transition: tween('base', 'exit')}}
                                 transition={springs.gentle}
                             >
                                 {bare ? (

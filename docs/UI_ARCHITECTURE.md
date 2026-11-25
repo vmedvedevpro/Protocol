@@ -396,7 +396,7 @@ enter and exit, indicators and springs.
 - Tokens live in `src/styles/motion.ts`: durations `fast` (120 ms: hover,
   press, focus), `base` (200 ms: most changes of state, the theme crossfade)
   and `slow` (320 ms: large surfaces); easings `standard`, `enter` and
-  `exit`; springs `snappy` (indicators) and `gentle` (sheets, panels); and
+  `exit` (both ease-outs: what leaves starts going at once); springs `snappy` (indicators) and `gentle` (sheets, panels); and
   `spinner`: one `turn` (900 ms, linear) and the `delay` (400 ms) before a
   delayed spinner shows. CSS reads `theme.motion.duration.*`,
   `theme.motion.easing.*` and `theme.motion.spinner.*`; motion/react
@@ -483,16 +483,20 @@ enter and exit, indicators and springs.
     in one place use `Crossfade` too.
   - Sheets and dialogs: in from their edge by `y` on `springs.gentle`, the
     scrim fading over `base`; out with `tween('base', 'exit')`. A sheet hangs
-    under the window's header, so it arrives from above.
+    under the window's header, so it arrives from above. ⌘K's search, which
+    a shortcut toggles many times a day, appears and goes at once (Sheet's
+    `instant`), and its rows change in place as the query does.
   - Toasts hang there too and move the same way, from above and back up. A
     toast replaced where it stands swaps its content as a status change
     does.
   - Menus, select lists and tooltips: opacity and a scale from `SCALE_FROM`
     (0.96), with `transform-origin` on the side of their anchor, over
     `fast`. Inside a menu or a select list one highlight slides between the
-    items on `springs.snappy` (`SlidingHighlight`); it stays on the last
+    items on `springs.snappy` (`SlidingHighlight`); an arrow key lands it on
+    the next item at once, the pointer slides it. It stays on the last
     item while the pointer crosses a separator or a group label and lands
-    on the next item past it rather than sliding across, and fades when the pointer
+    on the next item past it rather than sliding across, and fades (by CSS
+    on `data-visible`, never a motion value) when the pointer
     leaves the list or rests on a disabled item, where Enter would do
     nothing.
   - Lists: a new row rises 4 px under a veil over `base`, a removed row

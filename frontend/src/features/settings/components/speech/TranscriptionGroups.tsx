@@ -172,8 +172,8 @@ function VocabularyGroup() {
                     </RowControls>
                 )}
             >
+                {/* Named by the row's label, so the label is not said twice. */}
                 <TextArea
-                    label="Words to recognize"
                     rows={4}
                     value={text}
                     disabled={!saved.isSuccess}

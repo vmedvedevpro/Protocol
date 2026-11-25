@@ -217,6 +217,16 @@ describe('MinibarPage', () => {
         }
     })
 
+    it('changes its status under a veil, never fading the text', async () => {
+        recordFor(30)
+        const {pill} = await renderMinibar()
+
+        const text = within(pill).getByRole('status').firstElementChild as HTMLElement
+        expect(text).toHaveTextContent('Recording')
+        expect(text.style.opacity).toBe('')
+        expect(text.querySelector('span[aria-hidden="true"]')).not.toBeNull()
+    })
+
     it('moves the window from a press on the pill, not on its buttons', async () => {
         recordFor(30)
         const {pill} = await renderMinibar()

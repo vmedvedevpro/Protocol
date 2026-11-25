@@ -1,4 +1,4 @@
-import {useCallback, useMemo} from 'react'
+import {type ReactNode, useCallback, useMemo} from 'react'
 import {UserIcon, UserSwitchIcon} from '@phosphor-icons/react'
 import {useMutation, useQuery} from '@tanstack/react-query'
 import {useNavigate} from 'react-router-dom'
@@ -20,6 +20,15 @@ const Column = styled.div`
     display: flex;
     flex-direction: column;
     height: 100%;
+`
+
+// The transcript's own controls (Labs › Clean transcript's Clean/Verbatim),
+// above the lines: in the tab row they squeezed the tabs at 460 px.
+const Tools = styled.div`
+    display: flex;
+    flex: none;
+    justify-content: flex-end;
+    padding: ${({theme}) => theme.space[2]} ${({theme}) => theme.space[3]} 0;
 `
 
 const Note = styled.p`
@@ -57,6 +66,8 @@ interface TranscriptPanelProps {
     revealKey?: string
     /** Labs › Clean transcript: how each turn is shown (`cleanTranscriptText`). */
     clean?: (text: string) => string
+    /** Controls over the lines, in a row of their own (Clean/Verbatim). */
+    tools?: ReactNode
 }
 
 /**
@@ -65,7 +76,7 @@ interface TranscriptPanelProps {
  * label opens its contact (#118) and names it, on every line of the meeting. While the post-call
  * pass runs, the text is the live one, and a note says a better one comes.
  */
-export function TranscriptPanel({meetingId, playback, playing, onSeek, revealLine, revealKey, clean}: TranscriptPanelProps) {
+export function TranscriptPanel({meetingId, playback, playing, onSeek, revealLine, revealKey, clean, tools}: TranscriptPanelProps) {
     const transcript = useQuery(meetingTranscriptsQuery(meetingId))
     const rename = useMutation(renameSpeakerMutation(meetingId))
     const job = usePostCallJob(meetingId)
@@ -100,6 +111,7 @@ export function TranscriptPanel({meetingId, playback, playing, onSeek, revealLin
 
     return (
         <Column>
+            {tools && <Tools>{tools}</Tools>}
             <TranscriptList
                 lines={lines}
                 clean={clean}

@@ -25,11 +25,15 @@ type Variant = 'segments' | 'tabs'
 
 // Segments sit on the window with a border; tabs on a grey track whose
 // transparent border keeps the same geometry. Both pad the thumb by 2 px.
+// Never narrower than its labels: as a flex item it would shrink (its
+// columns' minimum is 0) and the segments would run into each other.
 const Track = styled.div<{ $count: number, $variant: Variant }>`
     position: relative;
     display: inline-grid;
+    flex: none;
     grid-template-columns: repeat(${({$count}) => $count}, minmax(0, 1fr));
     width: max-content;
+    min-width: max-content;
     padding: ${({theme}) => theme.space[0.5]};
     border: 1px solid;
 

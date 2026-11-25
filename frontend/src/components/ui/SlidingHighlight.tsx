@@ -1,19 +1,31 @@
-import {type FocusEvent, useEffect, useState} from 'react'
+import {type FocusEvent, useEffect, useRef, useState} from 'react'
 import * as m from 'motion/react-m'
 import styled from 'styled-components'
-import {springs, tween} from '@/styles/motion'
+import {springs} from '@/styles/motion'
 
 // The hover follows 0xUrvish's Smooth Dropdown on 21st.dev
 // (https://21st.dev/@0xUrvish/components/smooth-dropdown): one highlight
 // slides on a spring from item to item instead of each item lighting up on
 // its own. It moves by transform (layoutId needs domMax, which is not loaded).
 
+// Shown and hidden by the stylesheet, from `data-visible`: motion drives
+// only the slide. Its opacity used to be motion's too, and a menu opened
+// again could keep the highlight at opacity 0 though it was visible: with
+// `initial={false}` motion takes the first value it sees as a still one,
+// and the focus that shows the highlight can land with the mount. A
+// surface with no text, so it may fade.
 const Highlight = styled(m.span)`
     position: absolute;
     top: 0;
     border-radius: ${({theme}) => theme.radii.xs};
     background: ${({theme}) => theme.colors.surface};
     pointer-events: none;
+    opacity: 0;
+    transition: opacity ${({theme}) => theme.motion.duration.fast} ${({theme}) => theme.motion.easing.standard};
+
+    &[data-visible='true'] {
+        opacity: 1;
+    }
 `
 
 /**
@@ -41,8 +53,11 @@ interface Mark {
     height: number
     visible: boolean
     /**
-     * Appearing after it was hidden, or reaching an item past a divider: it
-     * lands on the item instead of sliding from where it last was.
+     * Appearing after it was hidden, reaching an item past a divider, or
+     * moved by the keyboard: it lands on the item instead of sliding from
+     * where it last was. A key press moves the focus at once, and the
+     * highlight that trailed it on a spring read as lag; the pointer keeps
+     * the slide.
      */
     jump: boolean
 }
@@ -67,6 +82,8 @@ interface Mark {
 export function useSlidingHighlight(itemSelector: string) {
     const [mark, setMark] = useState<Mark | null>(null)
     const [list, setList] = useState<HTMLElement | null>(null)
+    // What moved the focus last: Radix highlights by focus for both.
+    const byKeyboard = useRef(true)
 
     // A native listener: React builds onPointerLeave from pointerout and its
     // relatedTarget, and reads a missing one as leaving the window, which
@@ -81,11 +98,21 @@ export function useSlidingHighlight(itemSelector: string) {
             const item = event.target instanceof Element ? event.target.closest(itemSelector) : null
             if (item?.hasAttribute('data-disabled')) leave()
         }
+        const key = () => {
+            byKeyboard.current = true
+        }
+        const point = () => {
+            byKeyboard.current = false
+        }
         list.addEventListener('pointerleave', leave)
         list.addEventListener('pointerover', over)
+        list.addEventListener('keydown', key, true)
+        list.addEventListener('pointermove', point)
         return () => {
             list.removeEventListener('pointerleave', leave)
             list.removeEventListener('pointerover', over)
+            list.removeEventListener('keydown', key, true)
+            list.removeEventListener('pointermove', point)
         }
     }, [list, itemSelector])
 
@@ -102,7 +129,7 @@ export function useSlidingHighlight(itemSelector: string) {
                 width: item.offsetWidth,
                 height: item.offsetHeight,
                 visible: true,
-                jump: !last?.visible || dividerBetween(root, last.item, item),
+                jump: !last?.visible || byKeyboard.current || dividerBetween(root, last.item, item),
             }))
         },
     }
@@ -116,8 +143,8 @@ export function useSlidingHighlight(itemSelector: string) {
             // Geometry from the item, in an inline style: it changes per item and must not make a class each.
             style={mark ? {left: mark.left, width: mark.width, height: mark.height} : undefined}
             initial={false}
-            animate={{opacity: mark?.visible ? 1 : 0, y: mark?.top ?? 0}}
-            transition={{y: mark?.jump ? {duration: 0} : springs.snappy, opacity: tween('fast')}}
+            animate={{y: mark?.top ?? 0}}
+            transition={{y: mark?.jump ? {duration: 0} : springs.snappy}}
         />
     )
 

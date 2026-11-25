@@ -295,9 +295,6 @@ export function MeetingScreen({meetingId}: { meetingId: string }) {
                 <Row>
                     <TabList/>
                     <Spacer/>
-                    {tab === 'transcript' && cleanLab && (
-                        <SegmentedControl label="Transcript text" options={TEXT_MODES} value={textMode} onChange={setTextMode}/>
-                    )}
                     {tab === 'transcript' && speakers.available && (
                         <SpeakerCount lines={lines} running={speakers.running} onPick={speakers.identify}/>
                     )}
@@ -326,6 +323,9 @@ export function MeetingScreen({meetingId}: { meetingId: string }) {
                                         revealKey={moment?.key}
                                         onSeek={playback.status === 'ready' ? player.playFrom : undefined}
                                         clean={cleanLab && textMode === 'clean' ? cleanTranscriptText : undefined}
+                                        tools={cleanLab && (
+                                            <SegmentedControl label="Transcript text" options={TEXT_MODES} value={textMode} onChange={setTextMode}/>
+                                        )}
                                     />
                                 )
                             }

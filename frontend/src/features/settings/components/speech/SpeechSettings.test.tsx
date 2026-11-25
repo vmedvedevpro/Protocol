@@ -33,6 +33,8 @@ describe('Settings › AI, speech', () => {
         renderSection('ai')
         const field = await screen.findByRole('textbox', {name: 'Words to recognize'})
         await waitFor(() => expect(field).toHaveValue('Acme\nPriya Shah\nParakeet'))
+        // The row's label names the field; it is not said twice.
+        expect(within(group('Vocabulary')).getAllByText('Words to recognize')).toHaveLength(1)
         const save = within(group('Vocabulary')).getByRole('button', {name: 'Save'})
         expect(save).toBeDisabled()
 

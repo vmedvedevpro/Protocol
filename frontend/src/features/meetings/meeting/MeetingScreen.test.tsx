@@ -116,6 +116,8 @@ describe('MeetingScreen', () => {
         renderMeeting('meeting-acme-review', '?tab=transcript')
         const transcript = await screen.findByRole('region', {name: 'Transcript'})
         expect(await within(transcript).findByText('We start with the pilot.')).toBeInTheDocument()
+        // Clean/Verbatim is the transcript's own control, not one more in the tab row.
+        expect(within(screen.getByRole('tabpanel')).getByRole('radiogroup', {name: 'Transcript text'})).toBeInTheDocument()
 
         // The radio is invisible to the pointer; a user clicks its label.
         await userEvent.click(screen.getByRole('radio', {name: 'Verbatim'}).closest('label') as HTMLElement)
