@@ -467,6 +467,9 @@ enter and exit, indicators and springs.
     `delayed`: it fades in only after `spinner.delay`, so a fast load or
     action shows nothing rather than a flash. The notes editor's fallback,
     while its BlockNote chunk loads, turns one on the notes' first line.
+  - `Select`'s `pending` swaps its caret for a delayed spinner and sets
+    `aria-busy` while its options load (the import's model, the cloud
+    summary model, the contact to link); the placeholder says what loads.
   - `Button`'s `pending` disables the button and sets `aria-busy` at once;
     if what the click started runs past `spinner.delay`, the label turns
     transparent in one step (never fading), keeping the button's width, and

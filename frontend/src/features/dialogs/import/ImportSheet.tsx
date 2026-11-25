@@ -443,6 +443,7 @@ function ImportForm({request}: { request: Extract<OpenedDialog, { kind: 'import'
                                         value={model}
                                         onValueChange={setModel}
                                         placeholder={models.pending ? 'Loading…' : 'None'}
+                                        pending={models.pending}
                                         disabled={models.choices.length === 0}
                                     />
                                 )}
