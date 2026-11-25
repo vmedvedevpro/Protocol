@@ -95,8 +95,8 @@ planned work is tracked in [GitHub issues](https://github.com/vmedvedevpro/Proto
 - Releases are built by `.github/workflows/release.yml` from a pushed
   `vX.Y.Z` tag into a draft that the owner publishes; pushes to `main` and
   manual runs are dry runs. Pull requests run only `pr-checks.yml`; the dry run
-  and `updater-e2e.yml` run on `main` after each merge, and a tag goes only on
-  a commit whose `main` runs are green. The procedure is in
+  runs on `main` after each merge, `updater-e2e.yml` only by hand before a
+  release, and a tag goes only on a commit whose runs are green. The procedure is in
   [WORKFLOWS_OVERVIEW.md](.github/workflows/WORKFLOWS_OVERVIEW.md). Never push
   tags or publish releases unless asked.
 - Windows packaging is owned by `frontend/scripts/build-universal-windows.ps1`

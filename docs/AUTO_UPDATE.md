@@ -265,9 +265,10 @@ error kinds and messages, no user data).
 Built with the test-only cargo feature `updater-e2e`, which release builds
 never enable. Started with `--updater-e2e-result=<file>`, such a build skips the
 scheduler and the UI: it checks, downloads, installs and restarts on its own,
-ignoring only the onboarding reason (a fresh profile never finishes
-onboarding). The relaunched build writes `{outcome, version, from}` to the file
-and exits. The flag is an argument rather than an environment variable because
+ignoring only the onboarding and model download reasons (a fresh profile never
+finishes onboarding, and its first launch downloads the speech models at once,
+which raced the install and refused it). The relaunched build writes
+`{outcome, version, from}` to the file and exits. The flag is an argument rather than an environment variable because
 the Windows installer relaunches through the shell, which keeps `/ARGS` but not
 the environment.
 

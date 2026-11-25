@@ -1096,14 +1096,15 @@ Releases are built by `.github/workflows/release.yml`, never locally; the
 procedure, dry runs and the `release` environment are in
 [WORKFLOWS_OVERVIEW.md](../.github/workflows/WORKFLOWS_OVERVIEW.md). Pull
 requests run only `pr-checks.yml`; every push to `main` that changes more than
-documentation also runs this workflow as a dry run and `updater-e2e.yml` (#65).
+documentation also runs this workflow as a dry run (#65); `updater-e2e.yml`
+runs only by hand, before a release.
 Data flow:
 
 1. A release PR runs `scripts/release/bump-version.mjs <version>`: the version in
    `tauri.conf.json`, `frontend/src-tauri/Cargo.toml`, `Cargo.lock` and
    `frontend/package.json`, and `## Protocol <version> — <date>` in `CHANGELOG.md`.
-2. Once the merged commit's `main` runs of `release.yml` and `updater-e2e.yml`
-   are green apart from their macOS jobs, which gate nothing (#164), the owner
+2. Once the merged commit's `release.yml` run and a manual `updater-e2e.yml`
+   run on it are green apart from their macOS jobs, which gate nothing (#164), the owner
    pushes the tag `v<version>` on that commit.
    `validate-release.mjs` checks the tag format, that the commit is on
    `origin/main`, the version files, the CHANGELOG section (it becomes the notes),
