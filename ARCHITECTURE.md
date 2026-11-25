@@ -1073,7 +1073,6 @@ The generated files feed every native surface through these connections:
 ```text
 icon-source.svg -> icon-source.png (+ icon-source-small.svg for 16-32 px)
   -> icons/icon.ico  -> Windows app/taskbar + NSIS installer
-  -> icons/icon.png  -> native Windows notifications
   -> default app icon -> system tray (tray.rs)
   -> icons/icon.icns -> macOS bundle
   -> public/logo-collapsed.png + public/icon_*.png -> in-app/web assets
@@ -1087,7 +1086,7 @@ different brands.
 
 On Windows, `io.github.vmedvedevpro.protocol` is also the single shell identity:
 it is Tauri's bundle identifier, the installer shortcut AUMID, and the explicit
-process AUMID (`notifications/native_windows.rs`) set before any windows are
+process AUMID (`windows_app_identity.rs`) set before any windows are
 created. Changing it detaches the app from upstream Meetily's single-instance
 lock, WebView storage, and plugin stores. Setup creates the Start menu
 shortcut, and the desktop shortcut when its finish-page box stays ticked
