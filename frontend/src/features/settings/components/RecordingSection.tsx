@@ -8,7 +8,6 @@ import {useState} from 'react'
 import {useMutation} from '@tanstack/react-query'
 import {XIcon} from '@phosphor-icons/react'
 import {AnimatePresence} from 'motion/react'
-import * as m from 'motion/react-m'
 import {useNavigate} from 'react-router-dom'
 import styled from 'styled-components'
 import {type LevelFeed, useAudioLevelMonitoring} from '@/api/audio'
@@ -26,13 +25,12 @@ import {toast} from '@/components/ui/toastStore'
 import {openDialog} from '@/lib/dialogs'
 import {paths} from '@/lib/paths'
 import {platform as currentPlatform, type Platform} from '@/lib/platform'
-import {tween} from '@/styles/motion'
 import {openRecordingsFolder, pickRecordingsFolder} from '../api/recordingsFolder'
 import {DeviceRow} from './PreferenceRows'
 import {Range, SliderLine, SliderValue} from './styles'
 import {useDebouncedSave} from '../hooks/useDebouncedSave'
 import {useRecordingPreferences} from '../hooks/useRecordingPreferences'
-import {Warning} from './styles'
+import {Chip, chipMotion, ChipButton, Chips, Warning} from './styles'
 
 const Actions = styled.div`
     display: flex;
@@ -141,56 +139,6 @@ function GainRow({label, field, meter}: {
     )
 }
 
-const Chips = styled.div`
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: ${({theme}) => theme.space[1.5]};
-`
-
-const Chip = styled(m.span)`
-    position: relative;
-    display: inline-flex;
-    align-items: center;
-    gap: ${({theme}) => theme.space[1]};
-    height: ${({theme}) => theme.sizes.control.sm};
-    padding: 0 ${({theme}) => theme.space[1]} 0 ${({theme}) => theme.space[2.5]};
-    border: 1px solid ${({theme}) => theme.colors.border};
-    border-radius: ${({theme}) => theme.radii.pill};
-    background: ${({theme}) => theme.colors.raised};
-    ${({theme}) => theme.text.small};
-    color: ${({theme}) => theme.colors.text};
-`
-
-const Remove = styled.button`
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 20px;
-    height: 20px;
-    margin: 0;
-    padding: 0;
-    border: 0;
-    border-radius: ${({theme}) => theme.radii.pill};
-    background: transparent;
-    color: ${({theme}) => theme.colors.muted};
-    cursor: pointer;
-    ${focusRing};
-
-    &:hover {
-        background: ${({theme}) => theme.colors.surface};
-        color: ${({theme}) => theme.colors.text};
-    }
-`
-
-// The chip's Veil does the fade.
-const chipMotion = {
-    initial: {scale: 0.9},
-    animate: {scale: 1},
-    exit: {scale: 0.9},
-    transition: tween('fast'),
-}
-
 /** The apps whose sound alone is recorded; the chosen-apps page (#117) adds them. */
 function ChosenAppsRow({targets}: {targets: PerAppTarget[]}) {
     const navigate = useNavigate()
@@ -205,13 +153,13 @@ function ChosenAppsRow({targets}: {targets: PerAppTarget[]}) {
                     {targets.map((target) => (
                         <Chip key={target.id} {...chipMotion}>
                             {target.name}
-                            <Remove
+                            <ChipButton
                                 type="button"
                                 aria-label={`Remove ${target.name}`}
                                 onClick={() => save({per_app_targets: targets.filter(({id}) => id !== target.id)})}
                             >
                                 <XIcon size={11} aria-hidden/>
-                            </Remove>
+                            </ChipButton>
                             <Veil duration="fast" outset={1}/>
                         </Chip>
                     ))}

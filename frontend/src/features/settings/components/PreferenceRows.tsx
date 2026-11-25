@@ -156,12 +156,13 @@ export function MeetingLanguageRow() {
     )
 }
 
-export function AutoSummaryRow() {
+export function AutoSummaryRow({description}: {description?: string}) {
     const on = useAutoSummaryStore((state) => state.value)
     const setOn = useAutoSummaryStore((state) => state.set)
     return (
         <SettingsRow
             label="Summarize automatically"
+            description={description}
             control={<Switch checked={on} onCheckedChange={setOn}/>}
         />
     )
@@ -191,7 +192,7 @@ export function SummaryLanguageRow() {
     )
 }
 
-/** The model that writes summaries; its page (#117) changes it. */
+/** The model that writes summaries; its page changes it. */
 export function SummaryModelRow() {
     const navigate = useNavigate()
     const config = useQuery(summaryModelQuery)
