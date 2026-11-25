@@ -6,7 +6,11 @@ import {Veil} from './Veil'
 // The leaving and the arriving view share one grid cell, so they swap in
 // place; the area takes the taller one's height until the old one is gone.
 // The leaving one stays until its veil has covered it, out of sight.
+// Isolated, so the views' z-index orders them only against each other: on
+// the page's root stacking context a view at z-index 1 painted over every
+// portal (a Sheet, a Menu, a Tooltip), which sits at z-index auto.
 const Stack = styled.div`
+    isolation: isolate;
     display: grid;
     flex: 1;
     grid-template: minmax(0, 1fr) / minmax(0, 1fr);

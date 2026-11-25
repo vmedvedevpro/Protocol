@@ -309,7 +309,9 @@ theme; the motion from the Motion section.
 - `SegmentedControl`, and `Tabs` with `TabList` and `TabPanels` (see Motion).
   `Crossfade` with `CrossfadeView` swaps any two views in one place the way
   `TabPanels` swaps panels: one grid cell, a `base` veil (see Motion), and
-  the leaving view `inert` while it is covered.
+  the leaving view `inert` while it is covered. The views' z-index orders
+  them only among themselves (`isolation: isolate`), so a Sheet, Menu or
+  Tooltip portal is never painted under a view.
 - `Switch`, `Select`, `TextField` and `TextArea`. `SettingsGroup`,
   `SettingsRow` and `SettingsNavRow` lay out a settings card; a control in a
   row without a name of its own (`label`, `aria-label`, `aria-labelledby`)

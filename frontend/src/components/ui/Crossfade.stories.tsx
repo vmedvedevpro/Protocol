@@ -3,6 +3,7 @@ import type {Meta, StoryObj} from '@storybook/react-vite'
 import styled from 'styled-components'
 import {Button} from './Button'
 import {Crossfade, CrossfadeView} from './Crossfade'
+import {Sheet} from './Sheet'
 
 const Column = styled.div`
     display: flex;
@@ -55,6 +56,25 @@ function Views() {
     )
 }
 
+// A sheet over the views, as Summary options over a meeting's tab panel:
+// the whole sheet shows above them. A view's z-index once reached the page's
+// root stacking context and painted over the sheet's lower part (#121).
+function SheetOverViews() {
+    const [open, setOpen] = useState(true)
+    return (
+        <>
+            <Views/>
+            <Button size="sm" onClick={() => setOpen(true)}>Open the sheet</Button>
+            <Sheet open={open} onOpenChange={setOpen} title="A sheet over the views">
+                <Card>
+                    <p>Every line of the sheet is drawn above the views.</p>
+                    <p>The last line too.</p>
+                </Card>
+            </Sheet>
+        </>
+    )
+}
+
 const meta = {
     title: 'UI/Crossfade',
     component: Views,
@@ -67,3 +87,5 @@ type Story = StoryObj<typeof meta>
 export const Light: Story = {globals: {theme: 'light'}}
 
 export const Dark: Story = {globals: {theme: 'dark'}}
+
+export const UnderASheet: Story = {globals: {theme: 'light'}, render: () => <SheetOverViews/>}
