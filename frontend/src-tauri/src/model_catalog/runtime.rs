@@ -47,8 +47,12 @@ const STAGING: &str = ".staging-";
 /// downloads.
 const STALL: Duration = Duration::from_secs(30);
 
-/// The file names inside a runtime folder that are not runtime files.
-const ARCHIVE: &str = "archive.zip";
+/// The name the downloaded archive takes in the staging folder: the end of
+/// its URL, which the schema keeps to `.zip` or `.tar.gz` and which says how
+/// [`extract`] unpacks it. The schema keeps runtime files off both names.
+fn archive_name(entry: &RuntimeEntry) -> &'static str {
+    if entry.archive.url.ends_with(".tar.gz") { "archive.tar.gz" } else { "archive.zip" }
+}
 
 /// How long a rename or deletion waits out a lock on a freshly written file
 /// (an antivirus scan of the new libraries, the search indexer) before it
@@ -308,7 +312,7 @@ pub async fn complete_into(
     remove_dir(&staging)?;
     tokio::fs::create_dir_all(&staging).await?;
     let completed = async {
-        let archive = staging.join(ARCHIVE);
+        let archive = staging.join(archive_name(entry));
         download(&client, &archive, entry, cancel, &mut progress).await?;
         let (from, into, files, token) = (archive.clone(), staging.clone(), missing.clone(), cancel.clone());
         let name = entry.name.clone();
@@ -345,7 +349,7 @@ async fn stage(
     cancel: &CancellationToken,
     progress: &mut impl FnMut(u64, u64),
 ) -> Result<()> {
-    let archive = staging.join(ARCHIVE);
+    let archive = staging.join(archive_name(entry));
     download(client, &archive, entry, cancel, progress).await?;
     let (from, into, files, token) = (archive.clone(), staging.to_path_buf(), entry.files.clone(), cancel.clone());
     let name = entry.name.clone();
@@ -426,38 +430,92 @@ fn extract(
     signer: Option<&str>,
     cancelled: &dyn Fn() -> bool,
 ) -> Result<()> {
-    use std::io::{Read, Write};
-    let mut zip = zip::ZipArchive::new(std::fs::File::open(archive)?)
-        .map_err(|error| anyhow!("The {name} archive cannot be read: {error}"))?;
-    let mut buffer = vec![0u8; 1 << 20];
-    for file in files {
-        let pinned = model_integrity::intern(&file.name, file.size, &file.sha256);
-        let mut source = zip
-            .by_name(&file.path)
-            .map_err(|error| anyhow!("The {name} archive lacks {}: {error}", file.path))?;
-        let path = into.join(&file.name);
-        let mut check = model_integrity::Check::new(pinned);
-        let mut output = std::io::BufWriter::new(std::fs::File::create(&path)?);
-        loop {
-            if cancelled() {
-                bail!(CANCELLED);
-            }
-            let read = source.read(&mut buffer)?;
-            if read == 0 {
-                break;
-            }
-            check.update(&buffer[..read])?;
-            output.write_all(&buffer[..read])?;
+    let is_tar = archive.file_name().is_some_and(|file| file.to_string_lossy().ends_with(".tar.gz"));
+    if is_tar {
+        extract_tar(archive, into, files, name, cancelled)?;
+    } else {
+        let mut zip = zip::ZipArchive::new(std::fs::File::open(archive)?)
+            .map_err(|error| anyhow!("The {name} archive cannot be read: {error}"))?;
+        for file in files {
+            let mut source = zip
+                .by_name(&file.path)
+                .map_err(|error| anyhow!("The {name} archive lacks {}: {error}", file.path))?;
+            copy_checked(&mut source, into, file, cancelled)?;
         }
-        output.flush()?;
-        drop(output);
-        check.finish(&path)?;
+    }
+    for file in files {
+        let path = into.join(&file.name);
+        // Only Windows libraries carry a publisher's signature (Authenticode);
+        // an ELF library has none, so on Linux the pins alone vouch for it.
+        #[cfg(windows)]
         if let Some(signer) = signer.filter(|_| file.name.to_ascii_lowercase().ends_with(".dll")) {
             super::authenticode::check_signed_by(&path, signer)?;
         }
-        model_integrity::mark_verified(pinned, &path);
+        #[cfg(not(windows))]
+        let _ = signer;
+        model_integrity::mark_verified(model_integrity::intern(&file.name, file.size, &file.sha256), &path);
     }
     Ok(())
+}
+
+/// The pinned files of a gzip-compressed tar, in one pass (a tar has no
+/// index). Only a regular file at a pinned path counts: Intel's archives
+/// carry each library once as a file and again as version links
+/// (`libopenvino.so -> libopenvino.so.2641`), and a link is never followed,
+/// so a pinned path that is a link is missing.
+fn extract_tar(archive: &Path, into: &Path, files: &[schema::RuntimeFile], name: &str, cancelled: &dyn Fn() -> bool) -> Result<()> {
+    let unreadable = |error: std::io::Error| anyhow!("The {name} archive cannot be read: {error}");
+    let decoder = flate2::read::GzDecoder::new(std::io::BufReader::new(std::fs::File::open(archive)?));
+    let mut tar = tar::Archive::new(decoder);
+    let mut found = vec![false; files.len()];
+    for item in tar.entries().map_err(unreadable)? {
+        if cancelled() {
+            bail!(CANCELLED);
+        }
+        let mut item = item.map_err(unreadable)?;
+        if item.header().entry_type() != tar::EntryType::Regular {
+            continue;
+        }
+        let path = item.path().map_err(unreadable)?.to_string_lossy().into_owned();
+        // A path listed twice in the archive is taken once; a later copy
+        // cannot replace a file already checked.
+        if let Some(index) = files.iter().enumerate().position(|(index, file)| !found[index] && file.path == path) {
+            copy_checked(&mut item, into, &files[index], cancelled)?;
+            found[index] = true;
+        }
+        if found.iter().all(|&done| done) {
+            return Ok(());
+        }
+    }
+    match files.iter().zip(&found).find(|(_, &done)| !done) {
+        Some((file, _)) => bail!("The {name} archive lacks {}", file.path),
+        None => Ok(()),
+    }
+}
+
+/// Writes `source` to `into/<file.name>`, checking it against its pin as it
+/// is written; a mismatch deletes it (`Check::finish`).
+fn copy_checked(source: &mut impl std::io::Read, into: &Path, file: &schema::RuntimeFile, cancelled: &dyn Fn() -> bool) -> Result<()> {
+    use std::io::Write;
+    let pinned = model_integrity::intern(&file.name, file.size, &file.sha256);
+    let path = into.join(&file.name);
+    let mut check = model_integrity::Check::new(pinned);
+    let mut output = std::io::BufWriter::new(std::fs::File::create(&path)?);
+    let mut buffer = vec![0u8; 1 << 20];
+    loop {
+        if cancelled() {
+            bail!(CANCELLED);
+        }
+        let read = source.read(&mut buffer)?;
+        if read == 0 {
+            break;
+        }
+        check.update(&buffer[..read])?;
+        output.write_all(&buffer[..read])?;
+    }
+    output.flush()?;
+    drop(output);
+    check.finish(&path)
 }
 
 /// Removes the version in `dir`: the record first, so a removal stopped
@@ -547,6 +605,26 @@ pub(crate) mod testing {
         (bytes, entry)
     }
 
+    /// A gzip-compressed tar of `files` as regular files, then `links`
+    /// (path, target) as symbolic links, like Intel's Linux archives.
+    pub fn tar_gz(files: &[(&str, &str, &[u8])], links: &[(&str, &str)]) -> Vec<u8> {
+        let mut tar = tar::Builder::new(flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast()));
+        for (path, _, content) in files {
+            let mut header = tar::Header::new_gnu();
+            header.set_size(content.len() as u64);
+            header.set_mode(0o644);
+            header.set_entry_type(tar::EntryType::Regular);
+            tar.append_data(&mut header, path, *content).unwrap();
+        }
+        for (path, target) in links {
+            let mut header = tar::Header::new_gnu();
+            header.set_size(0);
+            header.set_entry_type(tar::EntryType::Symlink);
+            tar.append_link(&mut header, path, target).unwrap();
+        }
+        tar.into_inner().unwrap().finish().unwrap()
+    }
+
     /// The two libraries the binding opens and a licence, under a root
     /// folder as Intel's archive has them.
     pub fn openvino_files(salt: u8) -> Vec<(&'static str, &'static str, Vec<u8>)> {
@@ -632,7 +710,7 @@ mod tests {
             assert_eq!(&std::fs::read(dir.join(name)).unwrap(), content);
         }
         assert!(!dir.join("npu.dll").exists());
-        assert!(!dir.join(ARCHIVE).exists());
+        assert!(!dir.join("archive.zip").exists());
         assert_eq!(reported.last(), Some(&(entry.archive.size, entry.archive.size)));
         assert_eq!(leftovers(&root), ["2026.4.1.0"]);
         let installed = installed_in(&root);
@@ -707,7 +785,7 @@ mod tests {
 
         // A staging folder a crash left goes with the old version.
         std::fs::create_dir_all(root.join(".staging-2026.6.0.0")).unwrap();
-        std::fs::write(root.join(".staging-2026.6.0.0").join(ARCHIVE), b"half").unwrap();
+        std::fs::write(root.join(".staging-2026.6.0.0").join("archive.zip"), b"half").unwrap();
         prune_in(&root, &[new_dir.clone()]);
         assert_eq!(leftovers(&root), ["2026.5.0.0"]);
         assert_eq!(installed_in(&root).len(), 1);
@@ -742,6 +820,7 @@ mod tests {
         archive_and_entry(version, &borrowed, "https://example.com/runtime.zip")
     }
 
+    #[cfg(windows)]
     #[tokio::test]
     async fn a_completion_adds_only_the_files_the_installed_version_lacks() {
         use std::os::windows::fs::OpenOptionsExt;
@@ -880,6 +959,8 @@ mod tests {
         assert!(leftovers(&root).is_empty(), "{:?}", leftovers(&root));
     }
 
+    // Only a Windows library carries a publisher's signature.
+    #[cfg(windows)]
     #[tokio::test]
     async fn a_library_without_its_publishers_signature_installs_nothing() {
         let data = tempfile::tempdir().unwrap();
@@ -892,6 +973,7 @@ mod tests {
         assert!(leftovers(&root).is_empty(), "{:?}", leftovers(&root));
     }
 
+    #[cfg(windows)]
     #[tokio::test]
     async fn a_rename_or_deletion_waits_out_a_file_held_open() {
         use std::os::windows::fs::OpenOptionsExt;
@@ -910,7 +992,7 @@ mod tests {
         release.join().unwrap();
         assert!(to.join("openvino.dll").exists());
 
-        let archive = to.join(ARCHIVE);
+        let archive = to.join("archive.zip");
         let held = hold(&archive);
         assert!(std::fs::remove_file(&archive).is_err());
         let release = std::thread::spawn(move || {
@@ -920,5 +1002,71 @@ mod tests {
         patiently(|| std::fs::remove_file(&archive)).await.unwrap();
         release.join().unwrap();
         assert!(!archive.exists());
+    }
+
+    /// Intel's Linux archive is a .tar.gz that holds each library once as a
+    /// file and again as version links (#178).
+    #[tokio::test]
+    async fn an_install_from_a_tar_gz_takes_only_the_pinned_regular_files() {
+        let data = tempfile::tempdir().unwrap();
+        let root = root_in(data.path(), "openvino-genai");
+        let files = openvino_files(9);
+        let pinned: Vec<(&str, &str, &[u8])> = files.iter().map(|(path, name, content)| (*path, *name, content.as_slice())).collect();
+        let (_, mut entry) = archive_and_entry("2026.4.1.0", &pinned, "https://example.com/runtime.tar.gz");
+        let mut whole = pinned.clone();
+        whole.insert(0, ("root/runtime/lib/libopenvino_intel_npu_plugin.so", "npu", b"npu"));
+        let archive = tar_gz(&whole, &[("root/runtime/lib/libopenvino_c.so.2641", "openvino_c.dll")]);
+        entry.archive.size = archive.len() as u64;
+        entry.archive.sha256 = sha256(&archive);
+        entry.archive.url = format!("{}/runtime.tar.gz", serve(archive).await);
+        let dir = install_into(&Fetch::Local(reqwest::Client::new()), &root, &entry, &CancellationToken::new(), |_, _| {})
+            .await
+            .unwrap();
+        for (_, name, content) in &files {
+            assert_eq!(&std::fs::read(dir.join(name)).unwrap(), content);
+        }
+        assert!(!dir.join("npu").exists());
+        assert!(!dir.join("archive.tar.gz").exists());
+        assert_eq!(leftovers(&root), ["2026.4.1.0"]);
+        assert_eq!(installed_in(&root)[0].record, RuntimeRecord::from_entry(&entry));
+    }
+
+    #[tokio::test]
+    async fn a_pinned_path_that_is_a_link_in_the_tar_installs_nothing() {
+        let data = tempfile::tempdir().unwrap();
+        let root = root_in(data.path(), "openvino-genai");
+        let files = openvino_files(3);
+        let pinned: Vec<(&str, &str, &[u8])> = files.iter().map(|(path, name, content)| (*path, *name, content.as_slice())).collect();
+        let (_, mut entry) = archive_and_entry("2026.4.1.0", &pinned, "https://example.com/runtime.tar.gz");
+        // The first library is only a link to a file outside the pins.
+        let (linked, rest) = pinned.split_first().unwrap();
+        let mut held = rest.to_vec();
+        held.push(("root/elsewhere/real", "real", linked.2));
+        let archive = tar_gz(&held, &[(linked.0, "../../elsewhere/real")]);
+        entry.archive.size = archive.len() as u64;
+        entry.archive.sha256 = sha256(&archive);
+        entry.archive.url = format!("{}/runtime.tar.gz", serve(archive).await);
+        let error = install_into(&Fetch::Local(reqwest::Client::new()), &root, &entry, &CancellationToken::new(), |_, _| {})
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains(&format!("lacks {}", linked.0)), "{error:#}");
+        assert!(leftovers(&root).is_empty(), "{:?}", leftovers(&root));
+    }
+
+    #[tokio::test]
+    async fn a_tar_file_that_differs_from_its_pin_installs_nothing() {
+        let data = tempfile::tempdir().unwrap();
+        let root = root_in(data.path(), "openvino-genai");
+        let files = openvino_files(4);
+        let pinned: Vec<(&str, &str, &[u8])> = files.iter().map(|(path, name, content)| (*path, *name, content.as_slice())).collect();
+        let (_, mut entry) = archive_and_entry("2026.4.1.0", &pinned, "https://example.com/runtime.tar.gz");
+        let mut changed = pinned.clone();
+        changed[1].2 = b"not the pinned library";
+        let archive = tar_gz(&changed, &[]);
+        entry.archive.size = archive.len() as u64;
+        entry.archive.sha256 = sha256(&archive);
+        entry.archive.url = format!("{}/runtime.tar.gz", serve(archive).await);
+        assert!(install_into(&Fetch::Local(reqwest::Client::new()), &root, &entry, &CancellationToken::new(), |_, _| {}).await.is_err());
+        assert!(leftovers(&root).is_empty(), "{:?}", leftovers(&root));
     }
 }
