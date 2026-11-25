@@ -52,7 +52,7 @@ afterEach(async () => {
     useThemeModeStore.setState({mode: 'system'})
     useKeepOnTopStore.setState({onTop: false})
     useAdvancedSettingsStore.setState({advanced: false})
-    useLabsStore.setState({labs: DEFAULT_LABS})
+    useLabsStore.setState({value: DEFAULT_LABS})
     resetToasts()
     postCallJobs.reset()
     recordingPhase.set('idle')

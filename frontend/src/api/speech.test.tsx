@@ -6,7 +6,6 @@ import {describe, expect, it} from 'vitest'
 import {mockState} from '@/mocks/state'
 import {createTestQueryClient} from '@/test/queryClient'
 import {
-    normalizeVocabulary,
     POST_CALL_TRANSCRIPT_CONFIG_CHANGED_EVENT,
     postCallConfigQuery,
     saveGlobalVocabularyMutation,
@@ -19,13 +18,6 @@ import {
 } from './speech'
 
 const listening = () => new Promise((resolve) => setTimeout(resolve, 0))
-
-describe('normalizeVocabulary', () => {
-    it('keeps one of each term per line, as native stores the list', () => {
-        expect(normalizeVocabulary(' Acme, Priya Shah\r\nacme\n\n,Parakeet ')).toBe('Acme\nPriya Shah\nParakeet')
-        expect(normalizeVocabulary(' , \n ')).toBe('')
-    })
-})
 
 describe('the transcript config', () => {
     it('saves the live model and shows it before the save lands', async () => {
@@ -74,7 +66,7 @@ describe('the transcript config', () => {
 
         // A Whisper download with enablePostCall activates it natively.
         mockState.speech.postCallConfig = {provider: 'whisper', model: 'large-v3-turbo-q5_0'}
-        mockState.speech.transcriptConfig = {provider: 'localWhisper', model: 'large-v3-turbo-q5_0', apiKey: null}
+        mockState.speech.transcriptConfig = {provider: 'localWhisper', model: 'large-v3-turbo-q5_0'}
         await emitMockEvent(POST_CALL_TRANSCRIPT_CONFIG_CHANGED_EVENT, null)
         await emitMockEvent(TRANSCRIPT_CONFIG_CHANGED_EVENT, null)
 

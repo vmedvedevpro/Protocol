@@ -25,13 +25,15 @@ import {type NativeEvent, useNativeEvent} from './events'
  */
 export type LiveProvider = 'parakeet' | 'localWhisper'
 
-/** Mirrors api.rs `TranscriptConfig`. Native answers its own default (Parakeet) when nothing is saved. */
+/**
+ * Mirrors api.rs `TranscriptConfig`, without the key of the cloud providers
+ * the old app offered, which the local engines never read. Native answers
+ * its own default (Parakeet) when nothing is saved.
+ */
 export interface TranscriptConfig {
     /** `parakeet` or `localWhisper`; older databases may hold `whisper` or a cloud provider. */
     provider: string
     model: string
-    /** For the cloud providers the old app offered; null for the local engines. */
-    apiKey: string | null
 }
 
 /** Whether a saved provider names Whisper (`localWhisper`, or the older `whisper`). */
@@ -39,9 +41,9 @@ export const isWhisperProvider = (provider: string | undefined) => !!provider &&
 
 export const getTranscriptConfig = () => command<TranscriptConfig | null>('api_get_transcript_config')
 
-/** Saves the live model. The local engines take no key; native keeps a saved one for a cloud provider. */
+/** Saves the live model. The local engines take no key, so none is sent (native's is optional). */
 export const saveTranscriptConfig = ({provider, model}: {provider: LiveProvider, model: string}) =>
-    command<unknown>('api_save_transcript_config', {provider, model, apiKey: null})
+    command<unknown>('api_save_transcript_config', {provider, model})
 
 // --- The after-meeting model -------------------------------------------------
 
@@ -72,27 +74,12 @@ export interface VocabularyConfig {
     meeting: string
 }
 
-/** The most characters a list may have once normalised (vocabulary.rs `MAX_VOCABULARY_CHARS`). */
-export const MAX_VOCABULARY_CHARS = 1000
-
 /**
- * A list as native code stores it (`VocabularyRepository::normalize`): terms
- * split on commas and line breaks, trimmed, repeats dropped regardless of
- * case, one per line. Native counts the limit on this.
+ * The most characters a list may have once native has normalised it
+ * (vocabulary.rs `MAX_VOCABULARY_CHARS`): split on commas and line breaks,
+ * trimmed, repeats dropped, one per line.
  */
-export function normalizeVocabulary(raw: string): string {
-    const seen = new Set<string>()
-    const terms: string[] = []
-    for (const part of raw.split(/[,\n\r]/)) {
-        const term = part.trim()
-        if (!term) continue
-        const key = term.toLowerCase()
-        if (seen.has(key)) continue
-        seen.add(key)
-        terms.push(term)
-    }
-    return terms.join('\n')
-}
+export const MAX_VOCABULARY_CHARS = 1000
 
 /** The global list, and with a meeting id that meeting's list too. */
 export const getVocabulary = (meetingId: string | null = null) => command<VocabularyConfig>('api_get_vocabulary', {meetingId})
@@ -146,7 +133,7 @@ export const saveTranscriptConfigMutation = () =>
         onMutate: async ({provider, model}, {client}) => {
             const {queryKey} = transcriptConfigQuery
             await client.cancelQueries({queryKey})
-            client.setQueryData(queryKey, (config) => ({apiKey: null, ...config, provider, model}))
+            client.setQueryData(queryKey, (): TranscriptConfig => ({provider, model}))
         },
         onSettled: (_reply, _error, _config, _result, {client}) =>
             client.invalidateQueries({queryKey: speechKeys.transcriptConfig()}),
@@ -177,8 +164,9 @@ export const saveGlobalVocabularyMutation = () =>
 
 /**
  * Reads the models again when native code changes them. The events carry
- * nothing, so they only invalidate. Mount it where the models show (Settings,
- * and stories or tests of it).
+ * nothing, so they only invalidate. Mounted once, by the shell beside
+ * `useModelDownloadSync`, so a change made while no screen shows the models
+ * is read when one does.
  */
 export function useSpeechConfigSync() {
     const queryClient = useQueryClient()
