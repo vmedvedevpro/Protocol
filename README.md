@@ -42,6 +42,10 @@
     <source media="(prefers-color-scheme: dark)" srcset="docs/media/live-transcript-dark.gif">
     <img src="docs/media/live-transcript-light.gif" alt="Record is pressed on Home; the recording opens, its Transcript tab fills in line by line with You, Speaker 2 and Speaker 3, while the timer runs and the ring at the bottom moves with the voices" width="400">
   </picture>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/media/search-to-line-dark.gif">
+    <img src="docs/media/search-to-line-light.gif" alt="Ctrl K search for &quot;retention&quot; finds an action item, a line said in a meeting and a summary; choosing the line opens the meeting's transcript at 35:29 with that line highlighted and the player at the same time" width="400">
+  </picture>
 </p>
 
 ## Changes from Meetily – Actually Free
