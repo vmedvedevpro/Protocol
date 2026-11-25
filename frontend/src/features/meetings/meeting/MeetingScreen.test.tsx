@@ -177,6 +177,16 @@ describe('MeetingScreen', () => {
         expect(mockState.meetings.meetings.some((meeting) => meeting.id === 'meeting-acme-review')).toBe(false)
     })
 
+    it('opens a named voice’s contact from its label in the transcript', async () => {
+        const {router} = renderMeeting('meeting-acme-review', '?tab=transcript')
+        const [label] = await screen.findAllByRole('button', {name: 'Priya Shah'})
+
+        await userEvent.click(label)
+        await userEvent.click(await screen.findByRole('menuitem', {name: 'Open Priya Shah'}))
+
+        expect(router.state.location.pathname).toBe('/person/person-priya')
+    })
+
     it('says so when the meeting is gone', async () => {
         renderMeeting('meeting-nowhere')
         expect(await screen.findByRole('heading', {name: 'This meeting isn’t available'})).toBeInTheDocument()

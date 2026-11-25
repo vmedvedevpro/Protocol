@@ -1,17 +1,20 @@
 import {useCallback, useMemo} from 'react'
-import {UserSwitchIcon} from '@phosphor-icons/react'
+import {UserIcon, UserSwitchIcon} from '@phosphor-icons/react'
 import {useMutation, useQuery} from '@tanstack/react-query'
+import {useNavigate} from 'react-router-dom'
 import styled from 'styled-components'
 import {errorMessage} from '@/api/core'
 import {meetingTranscriptsQuery, renameSpeakerMutation} from '@/api/meetings'
+import {peopleQuery, personForSpeaker} from '@/api/people'
 import {usePostCallJob} from '@/api/postCall'
 import {useUserName} from '@/api/preferences'
-import {type PlaybackClock, type SpeakerTarget, TranscriptList} from '@/components/transcript/TranscriptList'
+import {type PlaybackClock, type SpeakerAction, type SpeakerTarget, TranscriptList} from '@/components/transcript/TranscriptList'
 import {lineFromSegment} from '@/components/transcript/turns'
 import {Button} from '@/components/ui/Button'
 import {Spinner} from '@/components/ui/Spinner'
 import {toast} from '@/components/ui/toastStore'
 import {openDialog} from '@/lib/dialogs'
+import {paths} from '@/lib/paths'
 
 const Column = styled.div`
     display: flex;
@@ -52,8 +55,8 @@ interface TranscriptPanelProps {
 
 /**
  * The Transcript tab: every line as it was said, joined into turns, with
- * the turn being played highlighted. A time plays from there; an unnamed
- * voice can be named, on every line of the meeting. While the post-call
+ * the turn being played highlighted. A time plays from there; a voice's
+ * label opens its contact (#118) and names it, on every line of the meeting. While the post-call
  * pass runs, the text is the live one, and a note says a better one comes.
  */
 export function TranscriptPanel({meetingId, playback, playing, onSeek}: TranscriptPanelProps) {
@@ -62,13 +65,18 @@ export function TranscriptPanel({meetingId, playback, playing, onSeek}: Transcri
     const job = usePostCallJob(meetingId)
     const userName = useUserName()
     const lines = useMemo(() => (transcript.data ?? []).map(lineFromSegment), [transcript.data])
-    // Who said this… (features/dialogs, #119); stable, so the turns keep their memo.
-    const speakerActions = useCallback((target: SpeakerTarget) => job ? [] : [{
-        id: 'who-said-this',
-        label: 'Who said this…',
-        icon: <UserSwitchIcon aria-hidden/>,
-        onSelect: () => openDialog({kind: 'speaker', meetingId, ...target}),
-    }], [meetingId, job])
+    const navigate = useNavigate()
+    const people = useQuery(peopleQuery)
+    // Open <contact> when the voice is one (#118), then Who said this…
+    // (features/dialogs, #119). Stable while the contacts are, so the turns
+    // keep their memo.
+    const speakerActions = useCallback((target: SpeakerTarget) => {
+        const person = personForSpeaker(people.data ?? [], target.speaker)
+        const actions: SpeakerAction[] = []
+        if (person) actions.push({id: 'open-person', label: `Open ${person.displayName}`, icon: <UserIcon/>, onSelect: () => void navigate(paths.person(person.id))})
+        if (!job) actions.push({id: 'who-said-this', label: 'Who said this…', icon: <UserSwitchIcon aria-hidden/>, onSelect: () => openDialog({kind: 'speaker', meetingId, ...target})})
+        return actions
+    }, [people.data, navigate, meetingId, job])
 
     if (transcript.isPending) return <Column><Centered aria-busy="true"><Spinner delayed/></Centered></Column>
     if (transcript.isError) {
