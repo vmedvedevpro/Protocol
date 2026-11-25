@@ -91,7 +91,7 @@ same day.
 | Window controls drawn by the app on Windows | window | `components/WindowControls.tsx`, `hooks/useCustomChrome.ts`, `lib/window-chrome.ts` | #110 | Minimize, maximize (follows `onResized`), close. |
 | Close hides the main window to the tray | window | native `lib.rs` | #110 | Native; the UI only needs to expect a hidden window. |
 | Minimizing during a recording opens the minibar | window | native `lib.rs` | #116 | Native; the design's minimize hint matches it. |
-| Minibar window `minibar` | window | native `minibar.rs` | #116 | 680×72, frameless, on top, no taskbar entry, top centre, draggable, clipped to a 24 px rounded rectangle. The design's smaller pill changes these constants. |
+| Minibar window `minibar` | window | native `minibar.rs` | #116 | 680×72, frameless, on top, no taskbar entry, top centre, draggable, clipped to a 24 px rounded rectangle. The design's smaller pill changes these constants: since #116 512×52 with a 26 px radius, the closed pill centred ([UI_ARCHITECTURE.md › The minibar](../UI_ARCHITECTURE.md#the-minibar)). |
 | Sidebar | window | `components/Sidebar/index.tsx`, `components/Sidebar/SidebarProvider.tsx` | #113 | New recording, import, record for a group, search, Contacts, Groups, the meeting list (by date or group, select, export, delete, F2 rename), Settings, About, resize. The design has no sidebar: the list is Home. Bulk select, export and delete are dropped (owner decision 2026-11-24). |
 | Recording pill on other pages | window | `components/recording/RecordingPill.tsx` | #112 | Timer, pause, stop, back to the recording. |
 | About dialog from the wordmark | window | `components/About.tsx` | #114 | General › About. |
@@ -172,7 +172,7 @@ such a command only on its platform
 
 | Item | Kind | Old file | Owner | Notes |
 | --- | --- | --- | --- | --- |
-| `enter_compact_mode` | command | `components/RecordingControls.tsx` | #116 | Explicit shrink from the recording window with `elapsedSeconds`; minimizing during a recording opens the bar natively. |
+| `enter_compact_mode` | command | `components/RecordingControls.tsx` | #116 | Explicit shrink from the recording window with `elapsedSeconds`; minimizing during a recording opens the bar natively. Since #116 the recording bar's Shrink to floating bar. |
 | `exit_compact_mode` | command | `app/minibar/page.tsx` | #116 | Back to the full window. |
 | `stop_recording_from_minibar` | command | `app/minibar/page.tsx` | #116 | Native closes the bar and the main window saves (#112). |
 
