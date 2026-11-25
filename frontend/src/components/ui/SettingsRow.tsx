@@ -1,14 +1,114 @@
-import {type ReactNode, useId, useMemo} from 'react'
+import {
+    createContext,
+    type ReactNode,
+    useCallback,
+    useContext,
+    useId,
+    useLayoutEffect,
+    useMemo,
+    useRef,
+    useState,
+} from 'react'
 import {ArrowSquareOutIcon, CaretRightIcon} from '@phosphor-icons/react'
-import styled from 'styled-components'
+import * as RadixRadio from '@radix-ui/react-radio-group'
+import styled, {css} from 'styled-components'
+import {MOTION_OK} from '@/styles/motion'
 import {ControlLabelContext} from './controlLabelling'
-import {colorTransition} from './styles'
+import {matchesTerms, searchTerms} from './settingsSearch'
+import {colorTransition, fieldFocusRing} from './styles'
 import {VisuallyHidden} from './VisuallyHidden'
 
-const Section = styled.section`
+// ---- Search ------------------------------------------------------------------------------
+//
+// Settings search finds rows by their own text, so no list of settings is
+// kept by hand: inside a `SettingsSearchScope` every row checks its label,
+// string description, badge and value against the query. A row that does
+// not match renders nothing, so its control remounts when it shows again;
+// the row itself keeps listening, so it comes back when the query changes.
+// A group with no row left hides by CSS (`:has()`), and the scope counts
+// the rows that match for "Nothing matches".
+
+interface SearchState {
+    /** The query's words, lower case; a row matches when its text holds every one. */
+    terms: string[]
+    scope?: string
+}
+
+const SearchContext = createContext<SearchState | null>(null)
+
+/** A row says whether it matches; false also when it unmounts. */
+type MatchReport = (rowId: string, matches: boolean) => void
+
+const ReportContext = createContext<MatchReport | null>(null)
+
+/** Reports a row to the scope and says whether it renders: always outside a search, else only when it matches. */
+function useSearchMatch(...parts: (string | undefined)[]): boolean {
+    const search = useContext(SearchContext)
+    const report = useContext(ReportContext)
+    const rowId = useId()
+    const matches = search === null || matchesTerms(search.terms, ...parts)
+    useLayoutEffect(() => {
+        if (!search || !report) return
+        report(rowId, matches)
+        return () => report(rowId, false)
+    }, [search, report, rowId, matches])
+    return matches
+}
+
+/** Only a string description is searched; a StatusLine's text is not in its children. */
+const plain = (node: ReactNode) => (typeof node === 'string' ? node : undefined)
+
+interface SettingsSearchScopeProps {
+    /** What the user typed; blank shows every row as usual. */
+    query: string
+    /** Put before each group's title: "AI" turns "Summaries" into "AI · Summaries". */
+    scope?: string
+    /** How many rows match, whenever that changes. */
+    onMatches?: (count: number) => void
+    children: ReactNode
+}
+
+/** The rows and groups under it follow the query (see Search above). */
+export function SettingsSearchScope({query, scope, onMatches, children}: SettingsSearchScopeProps) {
+    const key = searchTerms(query).join(' ')
+    const search = useMemo<SearchState | null>(() => (key ? {terms: key.split(' '), scope} : null), [key, scope])
+
+    const matched = useRef(new Set<string>())
+    const [count, setCount] = useState(0)
+    const report = useCallback<MatchReport>((rowId, matches) => {
+        if (matches) matched.current.add(rowId)
+        else matched.current.delete(rowId)
+        setCount(matched.current.size)
+    }, [])
+
+    const latest = useRef(onMatches)
+    useLayoutEffect(() => {
+        latest.current = onMatches
+    })
+    // Before paint, so "Nothing matches" never shows for a frame over rows.
+    useLayoutEffect(() => {
+        latest.current?.(count)
+    }, [count])
+
+    return (
+        <SearchContext.Provider value={search}>
+            <ReportContext.Provider value={search ? report : null}>{children}</ReportContext.Provider>
+        </SearchContext.Provider>
+    )
+}
+
+// ---- Groups ------------------------------------------------------------------------------
+
+const Section = styled.section<{$searching: boolean}>`
     display: flex;
     flex-direction: column;
     gap: ${({theme}) => theme.space[1.5]};
+
+    ${({$searching}) => $searching && css`
+        &:not(:has([data-settings-row])) {
+            display: none;
+        }
+    `}
 `
 
 const GroupTitle = styled.h2`
@@ -18,13 +118,14 @@ const GroupTitle = styled.h2`
     color: ${({theme}) => theme.colors.muted};
 `
 
-// Rows sit on one grey card, divided by hairlines.
+// Rows sit on one grey card, divided by hairlines. A row that search hides
+// leaves an empty wrapper behind (a Collapse), which takes no line.
 const Card = styled.div`
     overflow: hidden;
     border-radius: ${({theme}) => theme.radii.xl};
     background: ${({theme}) => theme.colors.surface};
 
-    > * + * {
+    > :not(:empty) ~ :not(:empty) {
         border-top: 1px solid ${({theme}) => theme.colors.border};
     }
 `
@@ -43,17 +144,31 @@ interface SettingsGroupProps {
     children: ReactNode
 }
 
-/** Settings rows on one card, with an optional heading above and a note below. */
-export function SettingsGroup({title, note, children}: SettingsGroupProps) {
+/**
+ * A group's frame, and inside a search what it needs of it: the scope
+ * before its title, hidden while none of its rows match, no note (it
+ * speaks of the rows around it).
+ */
+function GroupFrame({title, note, card}: {title?: string, note?: string, card: (titleId?: string) => ReactNode}) {
     const titleId = useId()
+    const search = useContext(SearchContext)
+    const heading = search?.scope ? [search.scope, title].filter(Boolean).join(' · ') : title
+    const labelled = heading ? titleId : undefined
     return (
-        <Section aria-labelledby={title ? titleId : undefined}>
-            {title && <GroupTitle id={titleId}>{title}</GroupTitle>}
-            <Card>{children}</Card>
-            {note && <Note>{note}</Note>}
+        <Section aria-labelledby={labelled} $searching={search !== null}>
+            {heading && <GroupTitle id={titleId}>{heading}</GroupTitle>}
+            {card(labelled)}
+            {note && !search && <Note>{note}</Note>}
         </Section>
     )
 }
+
+/** Settings rows on one card, with an optional heading above and a note below. */
+export function SettingsGroup({title, note, children}: SettingsGroupProps) {
+    return <GroupFrame title={title} note={note} card={() => <Card>{children}</Card>}/>
+}
+
+// ---- Rows --------------------------------------------------------------------------------
 
 const Row = styled.div`
     display: flex;
@@ -90,6 +205,7 @@ const Description = styled.span`
 `
 
 const Badge = styled.span`
+    flex: none;
     padding: 0 ${({theme}) => theme.space[1]};
     border: 1px solid ${({theme}) => theme.colors.border};
     border-radius: ${({theme}) => theme.radii.xs};
@@ -121,10 +237,11 @@ export function SettingsRow({label, description, badge, control, children}: Sett
         () => ({labelId, descriptionId: description ? descriptionId : undefined}),
         [labelId, descriptionId, description],
     )
+    if (!useSearchMatch(label, plain(description), badge)) return null
 
     return (
         <ControlLabelContext.Provider value={ids}>
-            <Row>
+            <Row data-settings-row="">
                 <Line>
                     <Text>
                         <Label>
@@ -141,10 +258,11 @@ export function SettingsRow({label, description, badge, control, children}: Sett
     )
 }
 
-const NavButton = styled.button`
+// A row-wide button: a subpage, a link, a radio. Inside the card's rounded
+// clip an outset outline would be cut off, so focus draws inside.
+const rowButton = css`
     display: flex;
     align-items: center;
-    gap: ${({theme}) => theme.space[3]};
     width: 100%;
     margin: 0;
     padding: ${({theme}) => theme.space[2.5]} ${({theme}) => theme.space[3]};
@@ -155,15 +273,18 @@ const NavButton = styled.button`
     cursor: pointer;
     ${colorTransition};
 
-    &:hover {
+    &:hover:not(:disabled) {
         background: ${({theme}) => theme.colors.raised};
     }
 
-    /* Inside the card's rounded clip an outset outline would be cut off. */
     &:focus-visible {
-        outline: 2px solid ${({theme}) => theme.colors.text};
-        outline-offset: -2px;
+        ${fieldFocusRing};
     }
+`
+
+const NavButton = styled.button`
+    ${rowButton};
+    gap: ${({theme}) => theme.space[3]};
 
     > svg {
         flex: none;
@@ -193,8 +314,9 @@ interface SettingsNavRowProps {
 
 /** A row that opens a subpage, or a page outside the app, showing the current value. */
 export function SettingsNavRow({label, description, value, external = false, onClick}: SettingsNavRowProps) {
+    if (!useSearchMatch(label, description, value)) return null
     return (
-        <NavButton type="button" onClick={onClick}>
+        <NavButton type="button" onClick={onClick} data-settings-row="">
             <Text>
                 <Label>
                     {label}
@@ -206,5 +328,129 @@ export function SettingsNavRow({label, description, value, external = false, onC
             {value && <Value>{value}</Value>}
             {external ? <ArrowSquareOutIcon size={12} aria-hidden/> : <CaretRightIcon size={11} aria-hidden/>}
         </NavButton>
+    )
+}
+
+// ---- Radio rows --------------------------------------------------------------------------
+
+const RadioButton = styled(RadixRadio.Item)`
+    ${rowButton};
+    gap: ${({theme}) => theme.space[2.5]};
+
+    &:disabled {
+        cursor: default;
+        opacity: 0.5;
+    }
+`
+
+// The ring takes the text colour when chosen; the dot grows into it.
+const Ring = styled.span`
+    display: flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    width: ${({theme}) => theme.sizes.radio.size};
+    height: ${({theme}) => theme.sizes.radio.size};
+    border: ${({theme}) => theme.sizes.radio.ring} solid ${({theme}) => theme.colors.muted};
+    border-radius: ${({theme}) => theme.radii.pill};
+    ${colorTransition};
+
+    [data-state='checked'] > & {
+        border-color: ${({theme}) => theme.colors.text};
+    }
+`
+
+const Dot = styled(RadixRadio.Indicator)`
+    width: ${({theme}) => theme.sizes.radio.dot};
+    height: ${({theme}) => theme.sizes.radio.dot};
+    border-radius: ${({theme}) => theme.radii.pill};
+    background: ${({theme}) => theme.colors.text};
+    opacity: 0;
+    transition: opacity ${({theme}) => theme.motion.duration.fast} ${({theme}) => theme.motion.easing.standard};
+
+    &[data-state='checked'] {
+        opacity: 1;
+    }
+
+    ${MOTION_OK} {
+        transform: scale(0.5);
+        transition-property: opacity, transform;
+
+        &[data-state='checked'] {
+            transform: none;
+        }
+    }
+`
+
+interface SettingsRadioGroupProps<T extends string> {
+    /** The heading over the card, which also names the choice. */
+    title: string
+    note?: string
+    /** The chosen value; none is chosen while it is undefined or matches no row. */
+    value: T | undefined
+    onValueChange: (value: T) => void
+    disabled?: boolean
+    /** `SettingsRadioRow`s. */
+    children: ReactNode
+}
+
+/**
+ * One choice among rows, such as a provider or the default template: a
+ * group whose card is a radio group. Arrow keys move between the rows and
+ * choose as they go; Tab enters at the chosen row.
+ */
+export function SettingsRadioGroup<T extends string>({title, note, value, onValueChange, disabled, children}: SettingsRadioGroupProps<T>) {
+    return (
+        <GroupFrame
+            title={title}
+            note={note}
+            card={(titleId) => (
+                <RadixRadio.Root
+                    asChild
+                    // Radix keeps '' for none; a value with no row leaves every row unchecked.
+                    value={value ?? ''}
+                    onValueChange={(next) => onValueChange(next as T)}
+                    disabled={disabled}
+                    aria-labelledby={titleId}
+                >
+                    <Card>{children}</Card>
+                </RadixRadio.Root>
+            )}
+        />
+    )
+}
+
+interface SettingsRadioRowProps {
+    value: string
+    label: string
+    description?: string
+    /** A short tag at the end, such as "Recommended". */
+    badge?: string
+    disabled?: boolean
+}
+
+/** One option of a `SettingsRadioGroup`. */
+export function SettingsRadioRow({value, label, description, badge, disabled}: SettingsRadioRowProps) {
+    const labelId = useId()
+    const descriptionId = useId()
+    if (!useSearchMatch(label, description, badge)) return null
+    return (
+        <RadioButton
+            value={value}
+            disabled={disabled}
+            data-settings-row=""
+            aria-labelledby={labelId}
+            aria-describedby={description ? descriptionId : undefined}
+        >
+            <Ring>
+                <Dot forceMount/>
+            </Ring>
+            <Text>
+                <Label id={labelId}>{label}</Label>
+                {description && <Description id={descriptionId}>{description}</Description>}
+            </Text>
+            {badge && <Badge>{badge}</Badge>}
+        </RadioButton>
     )
 }

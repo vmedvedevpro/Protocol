@@ -287,7 +287,7 @@ minibar window has none of it.
 
 `components/ui` holds the building blocks every screen uses, each with Light
 and Dark stories. Behaviour and accessibility come from Radix (Dialog, Select,
-DropdownMenu, Switch, Tooltip) or from native elements; the look from the
+DropdownMenu, RadioGroup, Switch, Tooltip) or from native elements; the look from the
 theme; the motion from the Motion section.
 
 - `Button` (filled, secondary, ghost; `sm` 28 px in rows, `md` 30 px in
@@ -310,6 +310,21 @@ theme; the motion from the Motion section.
   shadow: the two snap to device pixels separately, and at a fractional
   display scale (175 %) one side comes out thinner. An
   external `SettingsNavRow` says "(opens in browser)" to screen readers.
+  `SettingsRadioGroup` with `SettingsRadioRow` is one choice among rows
+  (Radix RadioGroup: arrow keys move and choose, Tab enters at the chosen
+  row), titled like a group; a value no row has leaves every row unchosen.
+  The ring takes the text colour and the dot fades in, scaling up inside
+  `MOTION_OK`.
+- Settings search needs no list of settings: under a `SettingsSearchScope`
+  each `SettingsRow`, `SettingsNavRow` and `SettingsRadioRow` checks its own
+  label, string description, badge and value against every word of the
+  query (`settingsSearch.ts`). A row that does not match renders nothing,
+  so its control remounts when it shows again; a group with no row left
+  (`[data-settings-row]`) hides by CSS `:has()`, titled with the scope
+  before its own title ("AI · Summaries") and without its note. The card's
+  hairlines skip the empty wrapper a hidden row leaves (a `Collapse`).
+  `onMatches` gives the count, for "Nothing matches". Filtering does not
+  animate, as on Home.
 - `VisuallyHidden` holds text only assistive technology reads.
 - Menu and select rows keep the design's faint highlight; the keyboard's row
   also gets an inset `muted` ring on `:focus-visible` (`keyboardRowRing`),
