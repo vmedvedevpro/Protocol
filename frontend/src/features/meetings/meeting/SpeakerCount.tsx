@@ -1,49 +1,37 @@
 import {useMemo} from 'react'
-import {CaretDownIcon} from '@phosphor-icons/react'
+import styled from 'styled-components'
 import type {TranscriptSegment} from '@/api/meetings'
 import {Button} from '@/components/ui/Button'
-import {Menu, MenuItem, MenuSeparator} from '@/components/ui/Menu'
-import {countSpeakers, SPEAKER_COUNTS, speakerCountLabel} from './identifySpeakers'
+import {countSpeakers, speakerCountLabel} from './identifySpeakers'
 
-/** Automatic and the counts, as menu items; picking one starts the run. */
-export function SpeakerCountItems({onPick}: { onPick: (count: number | null) => void }) {
-    return (
-        <>
-            <MenuItem onSelect={() => onPick(null)}>Detect automatically</MenuItem>
-            <MenuSeparator/>
-            {SPEAKER_COUNTS.map((count) => (
-                <MenuItem key={count} onSelect={() => onPick(count)}>{speakerCountLabel(count)}</MenuItem>
-            ))}
-        </>
-    )
-}
+const Wrap = styled.div`
+    display: flex;
+    align-items: center;
+    gap: ${({theme}) => theme.space[2]};
+
+    > span {
+        ${({theme}) => theme.text.small};
+        color: ${({theme}) => theme.colors.muted};
+        white-space: nowrap;
+    }
+`
 
 /**
- * "4 speakers ▾" in the Transcript tab's row: how many voices were found,
- * and a menu to find them again with another count.
+ * "4 speakers · Identify speakers…" in the Transcript tab's row: how many
+ * voices were found, and a button that opens the Identify speakers sheet,
+ * where the user picks a count and confirms before anything is relabelled.
  */
-export function SpeakerCount({lines, onPick, running}: {
+export function SpeakerCount({lines, onIdentify, running}: {
     lines: readonly TranscriptSegment[]
-    onPick: (count: number | null) => void
+    onIdentify: () => void
     running: boolean
 }) {
     const count = useMemo(() => countSpeakers(lines), [lines])
     if (count === 0) return null
     return (
-        <Menu
-            trigger={(
-                <Button
-                    size="sm"
-                    pending={running}
-                    aria-label={`${speakerCountLabel(count)} found. Change the count`}
-                    title="Wrong count? Pick another and Protocol relabels the transcript"
-                    trailing={<CaretDownIcon size={11} aria-hidden/>}
-                >
-                    {speakerCountLabel(count)}
-                </Button>
-            )}
-        >
-            <SpeakerCountItems onPick={onPick}/>
-        </Menu>
+        <Wrap>
+            <span>{speakerCountLabel(count)}</span>
+            <Button size="sm" pending={running} onClick={onIdentify}>Identify speakers…</Button>
+        </Wrap>
     )
 }

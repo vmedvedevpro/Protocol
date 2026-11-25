@@ -174,6 +174,7 @@ export function MeetingScreen({meetingId}: { meetingId: string }) {
     const [textMode, setTextMode] = useState<TextMode>('clean')
     const peaks = useQuery({...waveformQuery(audioPath ?? ''), enabled: scrubbing && !!audioPath}).data
     const speakers = useIdentifySpeakers(meetingId, hasAudio)
+    const identifySpeakers = () => openDialog({kind: 'identify-speakers', identify: speakers.identify})
     const {write, starting} = useWriteSummary(meetingId)
 
     const [renaming, setRenaming] = useState(false)
@@ -293,7 +294,7 @@ export function MeetingScreen({meetingId}: { meetingId: string }) {
                 onImprove={() => openDialog({kind: 'enhance', meetingId})}
                 onOpenRecordingFolder={() => void openMeetingFolder(meetingId).catch((error: unknown) =>
                     toast.error('Couldn’t open the recording folder', {description: errorMessage(error)}))}
-                onIdentifySpeakers={speakers.identify}
+                onIdentifySpeakers={identifySpeakers}
                 onDelete={() => setDeleting(true)}
             />
             <Status meetingId={meetingId}/>
@@ -302,7 +303,7 @@ export function MeetingScreen({meetingId}: { meetingId: string }) {
                     <TabList/>
                     <Spacer/>
                     {tab === 'transcript' && speakers.available && (
-                        <SpeakerCount lines={lines} running={speakers.running} onPick={speakers.identify}/>
+                        <SpeakerCount lines={lines} running={speakers.running} onIdentify={identifySpeakers}/>
                     )}
                     {tab === 'summary' && !summaryBusy && summaryText && (
                         <Actions>

@@ -16,7 +16,6 @@ import {IconButton} from '@/components/ui/Button'
 import {Menu, MenuItem, MenuRadioGroup, MenuRadioItem, MenuSeparator, MenuSub} from '@/components/ui/Menu'
 import {Tooltip} from '@/components/ui/Tooltip'
 import {formatLength, headerWhen} from '@/lib/dates'
-import {SpeakerCountItems} from './SpeakerCount'
 
 const Head = styled.div`
     display: flex;
@@ -88,7 +87,7 @@ export interface MeetingHeaderProps {
     onExport: () => void
     onImprove: () => void
     onOpenRecordingFolder: () => void
-    onIdentifySpeakers: (count: number | null) => void
+    onIdentifySpeakers: () => void
     onDelete: () => void
 }
 
@@ -139,11 +138,7 @@ export function MeetingHeader(props: MeetingHeaderProps) {
                     <MenuItem icon={<MagicWandIcon aria-hidden/>} onSelect={props.onImprove}>Improve the transcript…</MenuItem>
                 )}
                 {props.canIdentifySpeakers && (
-                    <>
-                        <MenuSub label="Identify speakers again" icon={<UsersIcon aria-hidden/>}>
-                            <SpeakerCountItems onPick={props.onIdentifySpeakers}/>
-                        </MenuSub>
-                    </>
+                    <MenuItem icon={<UsersIcon aria-hidden/>} onSelect={props.onIdentifySpeakers}>Identify speakers again…</MenuItem>
                 )}
                 <MenuSeparator/>
                 <MenuItem icon={<TrashIcon aria-hidden/>} onSelect={props.onDelete}>Delete…</MenuItem>

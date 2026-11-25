@@ -4,9 +4,6 @@ import {diarizeMeeting, usePostCallJob} from '@/api/postCall'
 import {speakerKey, speakerParts} from '@/components/transcript/turns'
 import {toast} from '@/components/ui/toastStore'
 
-/** The counts offered, as the old dialog's quick picks were. */
-export const SPEAKER_COUNTS = [2, 3, 4, 5, 6, 8] as const
-
 /** How many voices the transcript has, overlaps split and the user counted once. */
 export function countSpeakers(lines: readonly TranscriptSegment[]): number {
     const voices = new Set<string>()

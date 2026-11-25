@@ -2,7 +2,7 @@ import {act, renderHook, screen, waitFor, within} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import {beforeEach, describe, expect, it, vi} from 'vitest'
 import {setLab} from '@/api/labs'
-import {useDialog} from '@/lib/dialogs'
+import {type OpenedDialog, useDialog} from '@/lib/dialogs'
 import {handlers, type MockArgs} from '@/mocks/handlers'
 import {mockState} from '@/mocks/state'
 import {renderRoute} from '../testing'
@@ -35,6 +35,12 @@ function hold(command: string) {
         return original(args)
     })
     return {spy, release}
+}
+
+/** What the Identify speakers sheet does on Identify: hand the count to the screen's run. */
+function identifyFromSheet(request: OpenedDialog | null, count: number | null) {
+    if (request?.kind !== 'identify-speakers') throw new Error('The Identify speakers sheet is not open')
+    request.identify(count)
 }
 
 describe('MeetingScreen', () => {
@@ -166,7 +172,7 @@ describe('MeetingScreen', () => {
 
         await userEvent.click(screen.getByRole('button', {name: /More actions/}))
         expect(await screen.findByRole('menuitem', {name: 'Improve the transcript…'})).toBeInTheDocument()
-        expect(screen.getByRole('menuitem', {name: 'Identify speakers again'})).toBeInTheDocument()
+        expect(screen.getByRole('menuitem', {name: 'Identify speakers again…'})).toBeInTheDocument()
     })
 
     it('opens Who said this from a speaker’s menu', async () => {
@@ -177,26 +183,42 @@ describe('MeetingScreen', () => {
         expect(speaker.result.current.request).toMatchObject({meetingId: 'meeting-untitled', speaker: 'Speaker 1', lineIds: [expect.any(String)]})
     })
 
-    it('identifies the speakers again with a count', async () => {
+    it('asks for the speaker count in a sheet before identifying the speakers again', async () => {
+        const run = vi.spyOn(handlers, 'diarize_meeting')
         renderMeeting('meeting-acme-review', '?tab=transcript')
-        await userEvent.click(await screen.findByRole('button', {name: /speakers found\. Change the count/}))
-        await userEvent.click(screen.getByRole('menuitem', {name: '4 speakers'}))
+        const dialog = renderHook(() => useDialog())
+        await userEvent.click(await screen.findByRole('button', {name: 'Identify speakers…'}))
+        // The sheet (features/dialogs) asks and confirms; opening it starts nothing.
+        expect(dialog.result.current).toMatchObject({open: true, request: {kind: 'identify-speakers'}})
+        expect(run).not.toHaveBeenCalled()
+
+        act(() => identifyFromSheet(dialog.result.current.request, 4))
         expect(await screen.findByText('Found 4 speakers')).toBeInTheDocument()
+        expect(run.mock.calls[0][0]).toMatchObject({meetingId: 'meeting-acme-review', numSpeakers: 4})
+    })
+
+    it('opens the same sheet from the menu’s Identify speakers again', async () => {
+        renderMeeting('meeting-acme-review')
+        const dialog = renderHook(() => useDialog())
+        await userEvent.click(await screen.findByRole('button', {name: /More actions/}))
+        await userEvent.click(await screen.findByRole('menuitem', {name: 'Identify speakers again…'}))
+        expect(dialog.result.current).toMatchObject({open: true, request: {kind: 'identify-speakers'}})
     })
 
     it('keeps a speaker run it started when the user leaves the meeting and comes back', async () => {
         const run = hold('diarize_meeting')
         const {router} = renderMeeting('meeting-acme-review', '?tab=transcript')
-        await userEvent.click(await screen.findByRole('button', {name: /speakers found\. Change the count/}))
-        await userEvent.click(screen.getByRole('menuitem', {name: '4 speakers'}))
+        const dialog = renderHook(() => useDialog())
+        await userEvent.click(await screen.findByRole('button', {name: 'Identify speakers…'}))
+        act(() => identifyFromSheet(dialog.result.current.request, 4))
 
         await act(() => router.navigate('/'))
         await act(() => router.navigate('/meetings/meeting-acme-review?tab=transcript'))
-        expect(await screen.findByRole('button', {name: /speakers found\. Change the count/})).toBeDisabled()
+        expect(await screen.findByRole('button', {name: 'Identify speakers…'})).toBeDisabled()
 
         run.release()
         expect(await screen.findByText('Found 4 speakers')).toBeInTheDocument()
-        await waitFor(() => expect(screen.getByRole('button', {name: /speakers found\. Change the count/})).toBeEnabled())
+        await waitFor(() => expect(screen.getByRole('button', {name: 'Identify speakers…'})).toBeEnabled())
     })
 
     it('deletes the meeting after asking, and returns to the list', async () => {
