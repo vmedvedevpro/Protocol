@@ -197,6 +197,25 @@ describe('MeetingScreen', () => {
         expect(run.mock.calls[0][0]).toMatchObject({meetingId: 'meeting-acme-review', numSpeakers: 4})
     })
 
+    it('says so when a run ends with the labels the meeting already had', async () => {
+        mockState.postCall.diarization = {labeled: 12, changed: 0, speakersOnLines: null}
+        renderMeeting('meeting-acme-review', '?tab=transcript')
+        const dialog = renderHook(() => useDialog())
+        await userEvent.click(await screen.findByRole('button', {name: 'Identify speakers…'}))
+        act(() => identifyFromSheet(dialog.result.current.request, 2))
+        expect(await screen.findByText('Found 2 speakers again')).toBeInTheDocument()
+        expect(screen.getByText('Every line already had these labels, so none changed.')).toBeInTheDocument()
+    })
+
+    it('says so when a speaker it found labels no line', async () => {
+        mockState.postCall.diarization = {labeled: 12, changed: 3, speakersOnLines: 1}
+        renderMeeting('meeting-acme-review', '?tab=transcript')
+        const dialog = renderHook(() => useDialog())
+        await userEvent.click(await screen.findByRole('button', {name: 'Identify speakers…'}))
+        act(() => identifyFromSheet(dialog.result.current.request, null))
+        expect(await screen.findByText('Found 3 speakers, 1 on the transcript')).toBeInTheDocument()
+    })
+
     it('starts one speaker run when the sheet’s Identify comes twice', async () => {
         const run = hold('diarize_meeting')
         renderMeeting('meeting-acme-review', '?tab=transcript')

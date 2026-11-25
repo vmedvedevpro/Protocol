@@ -43,6 +43,12 @@ is inherited from the project Protocol forked from; Protocol did not release it.
   ([#217](https://github.com/vmedvedevpro/Protocol/issues/217)). An imported
   recording now has its speakers identified and, when the automatic summary
   is on, its summary written, as a finished recording does.
+- **The Identify speakers dialog**
+  ([#217](https://github.com/vmedvedevpro/Protocol/issues/217)). The
+  speaker count is one dropdown instead of a grid of buttons that cut
+  "Detect automatically" short. A run that ends with the labels the
+  meeting already had says so, and a run whose speakers do not all reach
+  a line says how many are on the transcript.
 
 ## Protocol 1.0.0-rc.1 — 2026-11-26
 

@@ -132,6 +132,10 @@ export interface MeetingDiarizationResult {
     num_speakers: number
     /** Transcript rows that got a speaker label. */
     labeled: number
+    /** How many of the `num_speakers` label at least one row (#207). */
+    speakers_on_lines: number
+    /** Rows whose label the run changed; 0 when it ended with the labels the meeting had (#205). */
+    changed: number
     /** `[transcript id, "Speaker N"]` pairs. */
     assignments: [string, string][]
 }

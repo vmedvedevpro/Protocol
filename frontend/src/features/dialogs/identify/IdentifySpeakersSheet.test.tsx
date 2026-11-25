@@ -13,12 +13,19 @@ async function open() {
     return {dialog, identify}
 }
 
+/** Picks a count; the sheet is hidden from the accessibility tree until the list has gone. */
+async function pick(dialog: HTMLElement, option: string) {
+    await userEvent.click(within(dialog).getByRole('combobox', {name: 'Speakers'}))
+    await userEvent.click(await screen.findByRole('option', {name: option}))
+    await waitFor(() => expect(screen.queryByRole('listbox')).not.toBeInTheDocument())
+}
+
 const closed = () => waitFor(() => expect(screen.queryByRole('dialog', {name: NAME})).not.toBeInTheDocument())
 
 describe('IdentifySpeakersSheet', () => {
     it('starts on Detect automatically and runs with no count', async () => {
         const {dialog, identify} = await open()
-        expect(within(dialog).getByRole('radio', {name: 'Detect automatically'})).toBeChecked()
+        expect(within(dialog).getByRole('combobox', {name: 'Speakers'})).toHaveTextContent('Detect automatically')
         await userEvent.click(within(dialog).getByRole('button', {name: 'Identify'}))
         expect(identify).toHaveBeenCalledExactlyOnceWith(null)
         await closed()
@@ -26,7 +33,7 @@ describe('IdentifySpeakersSheet', () => {
 
     it('waits for Identify before running with the count picked', async () => {
         const {dialog, identify} = await open()
-        await userEvent.click(within(dialog).getByRole('radio', {name: '4 speakers'}))
+        await pick(dialog, '4 speakers')
         expect(identify).not.toHaveBeenCalled()
         await userEvent.click(within(dialog).getByRole('button', {name: 'Identify'}))
         expect(identify).toHaveBeenCalledExactlyOnceWith(4)
@@ -35,7 +42,7 @@ describe('IdentifySpeakersSheet', () => {
 
     it('starts nothing on Cancel', async () => {
         const {dialog, identify} = await open()
-        await userEvent.click(within(dialog).getByRole('radio', {name: '3 speakers'}))
+        await pick(dialog, '3 speakers')
         await userEvent.click(within(dialog).getByRole('button', {name: 'Cancel'}))
         await closed()
         expect(identify).not.toHaveBeenCalled()
@@ -46,7 +53,7 @@ describe('IdentifySpeakersSheet', () => {
         mockState.diarization.nemotronInstalled = true
         const {dialog, identify} = await open()
         expect(await within(dialog).findByText(/finds the number of speakers itself/)).toBeInTheDocument()
-        expect(within(dialog).queryByRole('radio')).not.toBeInTheDocument()
+        expect(within(dialog).queryByRole('combobox')).not.toBeInTheDocument()
         await userEvent.click(within(dialog).getByRole('button', {name: 'Identify'}))
         expect(identify).toHaveBeenCalledExactlyOnceWith(null)
         await closed()
