@@ -99,6 +99,11 @@ interface SourceMeterProps {
      * says what to do.
      */
     warning?: LevelWarning | null
+    /**
+     * Off in the minibar, whose window is the pill's height and would clip
+     * a tooltip; the button keeps its name and its warning.
+     */
+    tooltip?: boolean
 }
 
 /**
@@ -108,7 +113,7 @@ interface SourceMeterProps {
  * source's place and outlines the button. Each swap animates as a status
  * change.
  */
-export function SourceMeter({source, muted, level, onToggle, warning = null}: SourceMeterProps) {
+export function SourceMeter({source, muted, level, onToggle, warning = null, tooltip = true}: SourceMeterProps) {
     const theme = useTheme()
     const name = NAMES[source]
     const shown = muted ? null : warning
@@ -119,7 +124,7 @@ export function SourceMeter({source, muted, level, onToggle, warning = null}: So
     // (WCAG 2.5.3): "Mute microphone" while on, "Muted microphone" while
     // muted, with aria-pressed for the state. The tooltip says what a click does.
     return (
-        <Tooltip content={muted ? `Turn on ${name}` : shown ? WARNINGS[shown].advice : `Mute ${name}`}>
+        <Tooltip disabled={!tooltip} content={muted ? `Turn on ${name}` : shown ? WARNINGS[shown].advice : `Mute ${name}`}>
             <Button type="button" aria-pressed={muted} $muted={muted} $warning={!!shown} onClick={onToggle}>
                 <AnimatePresence mode="wait" initial={false}>
                     <Content

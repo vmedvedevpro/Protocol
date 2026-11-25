@@ -618,6 +618,7 @@ pub fn run() {
             diarization::open_diarization_model_directory,
             minibar::enter_compact_mode,
             minibar::exit_compact_mode,
+            minibar::resize_minibar,
             minibar::stop_recording_from_minibar,
             api::api_get_model_config,
             api::api_save_model_config,

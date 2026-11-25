@@ -25,7 +25,6 @@ src/
   app/                 the composition root: App, routes, AppThemeProvider,
                        app-wide sync hooks
     shell/             the main window's frame (Window shell below)
-    placeholder/       the minibar's stand-in until #116 replaces it
   api/                 native domains shared by several features (see below)
   components/ui/       design-system primitives, no feature knowledge
   components/editor/   the notes editor (BlockNote), loaded as its own chunk; its
@@ -142,8 +141,8 @@ minibar window has none of it.
   `preventScroll`): the control that navigated, such as Settings or Back to
   meetings, leaves with the old screen, and focus would fall to `<body>`.
   The first screen of the page (location key `default`) leaves focus alone.
-- The minibar is a placeholder (`app/placeholder/MinibarPlaceholder.tsx`)
-  until #116 replaces it in the route table.
+- `/minibar` is the minibar window's whole UI (`features/recording/minibar`,
+  The minibar below).
 
 ### Startup
 
@@ -767,7 +766,9 @@ levels) skip Query and React state; see Styling and the next section.
   Tooltip says what a click does. A `warning` (`'loud'` or `'quiet'`) puts a
   warning icon in the source's place, outlines the button in the text colour
   (no hue: red is the recording's), adds "too loud" or "low audio" to its
-  name, and its Tooltip says what to do. `useSystemAudioWarning(active)`
+  name, and its Tooltip says what to do; the minibar turns the Tooltip off
+  (`tooltip={false}`), since its window would clip it.
+  `useSystemAudioWarning(active)`
   (`levelAdvice.ts`) computes it for computer audio from
   `recording-audio-levels`, as docs/SYSTEM_AUDIO_LEVEL_ADVICE.md describes:
   Too loud after 750 ms of limiter hits no more than 250 ms apart, cleared
@@ -890,7 +891,8 @@ quit is saved whatever screen is open. The minibar window mounts none of it.
   recording screen), the timer, the microphone and computer audio with
   their levels and level advice (a click mutes), Change inputs (`InputsMenu`:
   the device switches at once with `attempt_device_reconnect`; on failure
-  the old one keeps recording) and Stop.
+  the old one keeps recording), Shrink to floating bar (the minibar,
+  `enter_compact_mode`) and Stop.
 - **The screen** (`pages/RecordingPage`): the title (click to rename), when it
   started, the folder picker, More actions (copy the transcript, recording
   settings), then Notes, Transcript (live, with speaker naming) and Summary
@@ -911,6 +913,71 @@ quit is saved whatever screen is open. The minibar window mounts none of it.
   `stop_id`, so the real save runs into the sample library.
   `mockState.live` sets the runtime error, a start error, the transcription
   status after Stop, quitting, checkpoints, and records the answers.
+
+## The minibar
+
+`features/recording/minibar` is the whole UI of the `minibar` window, at
+`/minibar` (#116). Native code opens the window (`minibar.rs`) during a
+recording and hides the main window: minimizing the main window does it
+(lib.rs), and so does Shrink to floating bar in the recording bar
+(`enter_compact_mode`).
+
+- **Its own JavaScript.** The window shares only localStorage (the theme
+  follows by `storage` event) and native state with the main window, and
+  mounts neither `RecordingRuntime` nor the session. It polls
+  `recordingStateQuery` (`get_recording_state`) every 500 ms, which divides
+  the timer's second, so each second shows for a second; the timer is
+  native's `active_duration`, never a local counter. Its own commands read
+  it again once they answer; a pause or mute from elsewhere (the tray, a
+  shortcut) shows within a poll, so it listens to no recording event.
+  Pause, resume and the mutes call the recording feature's wrappers
+  (`api/recording.ts`).
+- **Stop** calls `stop_recording_from_minibar`. Native hides the bar and
+  brings the main window back as the stop begins, and the main window saves
+  the meeting on `recording-stop-complete`, as after any Stop (Recording ›
+  Stop and save). Until native closes it, the bar stops polling, holds its
+  timer and says Finishing… with a spinner where Stop was. Once native has
+  hidden the bar the stop cannot fail: a failure to save the audio reaches
+  the main window in `recording-stop-complete` and its toast. Back to the
+  full window is `exit_compact_mode`.
+- **The pill** (`MinibarPill`): closed, the ring (pause), the timer over
+  Recording, Paused or Finishing…, and Stop. Hover, or keyboard focus inside
+  it, opens the rest to its right: the microphone and computer audio
+  (`SourceMeter`, computer audio with its level advice), Pause, Back to the
+  full window, and Stop's label. A click focuses a button but does not hold
+  the pill open once the pointer leaves. Opening moves nothing under the
+  pointer: the pill grows from its left edge, and Stop follows the timer.
+  The design draws Stop last; there a pointer on its way to Stop would land
+  on a mute button as the pill opened. What opens fades in from 4 px to the
+  left over `base`; the pill's width changes once.
+- **The window** follows the pill, so no transparent part of it takes
+  clicks meant for the windows below: a `ResizeObserver` on the pill sends
+  its width to `resize_minibar` as it opens, closes or its status grows.
+  Native clamps it to 52–512 px, keeps the window's left edge (the pill
+  grows rightwards) unless the open pill would leave the monitor, and clips
+  the window on Windows to the new rounded rectangle (26 px radius). The
+  window starts at the closed pill's 170×52, centred at the top of the
+  primary monitor: GTK never shrinks a non-resizable window below its first
+  size. Until the window catches up, the page clips what lies outside it;
+  `sizes.minibar` in the theme repeats the sizes. The pill is the window's
+  height, so it has no shadow and the window no tooltips: every button
+  carries its name, the ring and Stop their `aria-keyshortcuts`. A press
+  on the pill outside its buttons moves the window (`startDragging`,
+  allowed by the `minibar-drag` capability).
+- **Keys** while the bar has focus: Space pauses and resumes unless a
+  button has focus, ⌘R (Ctrl R) stops.
+- **Failures** take the status's place for 5 s ("Could not pause", "Could
+  not stop"): the window has no room for a toast. A Stop fails only before
+  native hides the bar, so the bar and the recording go on.
+- **Limits.** The resizing is checked by `cargo check` and the mock only:
+  how it looks on Windows (the region) and on Linux (GTK, Wayland) waits
+  for the real-app QA (#121). Not checked on a Mac, where a window without
+  focus may not report hover. A Wayland compositor places windows itself,
+  so the position there is its choice.
+- Tests: `MinibarPage.test.tsx` on the mock (`src/mocks/minibar.ts`: the
+  minibar commands, the resize and the window drag; its Stop runs the mock
+  recorder's). Stories: `Recording/Minibar`, the pill in each state, and
+  `Recording/MinibarPage` on the mock recorder.
 
 ## Meetings and the transcript
 

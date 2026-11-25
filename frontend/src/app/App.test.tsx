@@ -209,7 +209,7 @@ describe('App navigation', () => {
 
         renderApp('/minibar')
 
-        expect(screen.getByText('Minibar placeholder')).toBeInTheDocument()
+        expect(await screen.findByRole('group', {name: 'Recording controls'})).toBeInTheDocument()
         expect(screen.queryByRole('banner')).not.toBeInTheDocument()
         await waitFor(() => expect(setTheme).toHaveBeenCalledWith(expect.objectContaining({label: 'minibar'})))
     })

@@ -18,6 +18,7 @@ import {Tooltip} from '@/components/ui/Tooltip'
 import {paths} from '@/lib/paths'
 import {formatShortcut} from '@/lib/platform'
 import {inputsSummary} from '../lib/inputs'
+import {ShrinkButton} from '../minibar/ShrinkButton'
 import {setSourceMuted, togglePause} from '../store/runtime'
 import {useSessionStore} from '../store/session'
 import {startRecording} from '../store/start'
@@ -114,7 +115,7 @@ interface RecordingBarProps {
  * - Starting: what the start is doing, Record pending.
  * - Recording or paused: the ring pauses and resumes; the timer; the
  *   microphone and computer audio with their levels (a click mutes); Change
- *   inputs; Stop.
+ *   inputs; Shrink to floating bar (the minibar); Stop.
  * - Finishing: what the save is doing, until the meeting opens.
  */
 export function RecordingBar({idle = false}: RecordingBarProps) {
@@ -235,6 +236,7 @@ export function RecordingBar({idle = false}: RecordingBarProps) {
                         </IconButton>
                     )}
                 />
+                <ShrinkButton/>
             </Sources>
         </DockedBar>
     )

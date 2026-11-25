@@ -8,6 +8,7 @@ import {createMockDevices} from './devices'
 import {createMockLabs} from './labs'
 import {createMockLive} from './live'
 import {createMockMeetings} from './meetings'
+import {createMockMinibar} from './minibar'
 import {createMockCatalog} from './modelCatalog'
 import {createMockModels} from './models'
 import {createMockNotes} from './notes'
@@ -98,6 +99,8 @@ function createMockState() {
         labs: createMockLabs(),
         // Summary templates and the stored default (src/mocks/templates.ts).
         templates: createMockTemplates(),
+        // The minibar window (src/mocks/minibar.ts).
+        minibar: createMockMinibar(),
     }
 }
 

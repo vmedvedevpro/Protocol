@@ -4,6 +4,7 @@ import {devicesHandlers} from './devices'
 import {labsHandlers} from './labs'
 import {liveHandlers} from './live'
 import {meetingsHandlers} from './meetings'
+import {minibarHandlers} from './minibar'
 import {modelCatalogHandlers} from './modelCatalog'
 import {modelsHandlers} from './models'
 import {notesHandlers} from './notes'
@@ -95,6 +96,9 @@ export const handlers: Record<string, MockHandler> = {
 
     // Summary templates and the stored default: summary/template_commands.rs, template_settings.rs
     ...templatesHandlers(mockState),
+
+    // The minibar window and its Stop (src/mocks/minibar.ts)
+    ...minibarHandlers(mockState),
 }
 
 /**
