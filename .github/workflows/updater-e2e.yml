@@ -6,11 +6,12 @@ name: Updater end-to-end
 # (src-tauri/src/updater/e2e.rs). Passes when the relaunched copy reports
 # 9.0.1 updated from 9.0.0 and the installed files are the new ones.
 # No secrets, read-only token. See docs/AUTO_UPDATE.md.
-# Runs on every push to main, like the release dry run, and by hand; pull
-# requests run only pr-checks.yml. The three jobs are independent: a tag
-# needs the windows and linux jobs green, and the macos job, whose runner can
-# take up to a day, gates nothing (#164). A red macos job is fixed in a
-# follow-up like any other change (WORKFLOWS_OVERVIEW.md).
+# The windows and linux jobs run on every push to main, like the release dry
+# run, and by hand; pull requests run only pr-checks.yml. A tag needs both
+# green. The macos job runs only by hand (`gh workflow run updater-e2e.yml`):
+# its runner can take up to a day, macOS gates no tag (#164), and the owner
+# keeps it off main pushes. A red macos job is fixed in a follow-up like any
+# other change (WORKFLOWS_OVERVIEW.md).
 on:
   push:
     branches: [main]
@@ -213,8 +214,10 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
-  # Reports on its own and gates no tag; keep it out of every `needs`.
+  # Reports on its own and gates no tag; keep it out of every `needs`. Manual
+  # runs only, so a main push does not wait in the macOS runner queue.
   macos:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: macos-15
     timeout-minutes: 150
     env:

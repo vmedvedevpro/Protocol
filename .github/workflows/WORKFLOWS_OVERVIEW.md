@@ -16,7 +16,7 @@ or Apple certificate yet).
 | `release-build-windows.yml` | called by `release.yml` | `windows-2022`: CPU + Vulkan installer, native tests, payload check, install/start/uninstall on the runner |
 | `release-build-macos.yml` | called by `release.yml` | `macos-15`: Apple Silicon DMG and updater bundle, native tests, bundle checks, two launches; nothing waits for it |
 | `release-build-linux.yml` | called by `release.yml` | `ubuntu-22.04`: AppImage and deb as two builds (the deb uses the distribution's ffmpeg), package checks, start under Xvfb; native tests do not block yet |
-| `updater-e2e.yml` | pushes to `main`, manual runs | On all three platforms, an old build under a test identity updates itself to a new one from a localhost feed ([AUTO_UPDATE.md](../../docs/AUTO_UPDATE.md)); the macOS job gates no tag |
+| `updater-e2e.yml` | pushes to `main` (Windows, Linux), manual runs (also macOS) | On each platform, an old build under a test identity updates itself to a new one from a localhost feed ([AUTO_UPDATE.md](../../docs/AUTO_UPDATE.md)); the macOS job runs only by hand and gates no tag |
 | `release-published.yml` | release published | Downloads the public assets anonymously and checks checksums, `latest.json`, signatures and `/releases/latest`, for the platforms the release has by then |
 
 Everything a job decides lives in tested scripts under `scripts/release/`
@@ -85,8 +85,8 @@ prereleases are invisible to them.
    succeeded **except the macOS ones**: `pr-checks.yml`; `validate`,
    `frontend-checks`, the Windows and Linux legs and `preview` of the dry run;
    the `windows` and `linux` jobs of `updater-e2e.yml`. The macOS jobs
-   (`build-macos`, `preview-macos`, the `macos` job of `updater-e2e.yml`)
-   do not gate a tag, so the run of a workflow can be red or still going
+   (`build-macos`, `preview-macos`, the `macos` job of `updater-e2e.yml`,
+   which runs only by hand) do not gate a tag, so the run of a workflow can be red or still going
    because of them alone:
 
    ```powershell

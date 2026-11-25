@@ -267,8 +267,8 @@ never enable. Started with `--updater-e2e-result=<file>`, such a build skips the
 scheduler and the UI: it checks, downloads, installs and restarts on its own,
 ignoring only the onboarding and model download reasons (a fresh profile never
 finishes onboarding, and its first launch downloads the speech models at once,
-which raced the install and refused it). The relaunched build writes `{outcome, version, from}` to the file
-and exits. The flag is an argument rather than an environment variable because
+which raced the install and refused it). The relaunched build writes
+`{outcome, version, from}` to the file and exits. The flag is an argument rather than an environment variable because
 the Windows installer relaunches through the shell, which keeps `/ARGS` but not
 the environment.
 
