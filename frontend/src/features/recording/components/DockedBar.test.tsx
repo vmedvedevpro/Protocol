@@ -6,13 +6,18 @@ import {DockedBar} from './DockedBar'
 const ring = <canvas data-testid="ring"/>
 
 describe('DockedBar', () => {
-    it('brings a new phase in under a veil, keeping the bar and the ring mounted', () => {
+    it('brings a new phase in under a veil, but not the one it mounted in, keeping the bar and the ring mounted', () => {
         const {rerender} = renderUi(
             <DockedBar label="Record" ring={ring} action={<button type="button">Record</button>}>Ready to record</DockedBar>,
         )
         const bar = screen.getByRole('group', {name: 'Record'})
         const canvas = screen.getByTestId('ring')
         const idleBody = screen.getByText('Ready to record')
+        // The phase it mounted in shows as it is: a screen that mounts the bar replays nothing.
+        const record = screen.getByRole('button', {name: 'Record'})
+        for (const content of [idleBody, record.parentElement as HTMLElement]) {
+            expect(content.querySelector('[aria-hidden="true"]')).toBeNull()
+        }
 
         // Starting keeps the label: the pending Record button stays where it is.
         rerender(<DockedBar label="Record" ring={ring} action={<button type="button">Record</button>}>Starting…</DockedBar>)

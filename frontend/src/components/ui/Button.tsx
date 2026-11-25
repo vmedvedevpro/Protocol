@@ -1,5 +1,5 @@
 import type {ComponentProps, ReactNode} from 'react'
-import styled, {css, keyframes} from 'styled-components'
+import styled, {css, type DefaultTheme, keyframes} from 'styled-components'
 import {ICON_DEFAULTS} from '@/styles/icons'
 import {MOTION_OK, SCALE_FROM} from '@/styles/motion'
 import {Spinner} from './Spinner'
@@ -117,20 +117,20 @@ const hide = keyframes`
     }
 `
 
+// Ends at the spinner's own opacity.
 const show = keyframes`
     from {
         opacity: 0;
     }
-
-    to {
-        opacity: 1;
-    }
 `
+
+// The step both take: none until spinner.delay, then all at once.
+const atDelay = ({theme}: { theme: DefaultTheme }) => `0s ${theme.motion.spinner.delay}`
 
 // The label and what goes with it, laid out as the button lays out its
 // children. While pending it turns transparent when the spinner arrives
-// after spinner.delay, in one step and never by fading (text ending an opacity animation
-// blinks), so an action that ends at once never swaps the label out. It
+// after spinner.delay, in one step and never by fading (text ending an
+// opacity animation blinks), so an action that ends at once never swaps the label out. It
 // keeps the button's width and stays in the accessibility tree, so the
 // button keeps its name.
 const Content = styled.span<{ $pending: boolean }>`
@@ -139,7 +139,7 @@ const Content = styled.span<{ $pending: boolean }>`
     gap: inherit;
 
     ${({$pending}) => $pending && css`
-        animation: ${hide} 0s ${({theme}) => theme.motion.spinner.delay} forwards;
+        animation: ${hide} ${atDelay} forwards;
     `};
 `
 
@@ -151,7 +151,7 @@ const Pending = styled.span`
     display: flex;
     align-items: center;
     justify-content: center;
-    animation: ${show} 0s ${({theme}) => theme.motion.spinner.delay} both;
+    animation: ${show} ${atDelay} both;
 `
 
 /** Children are the label, after an icon if it has one. */

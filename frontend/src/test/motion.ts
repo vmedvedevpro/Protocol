@@ -11,6 +11,15 @@ export async function playAnimations() {
     await import('@/components/ui/motionFeatures')
 }
 
+// Every watchStyles observer of the running test; setup.ts disconnects them
+// after it, so none goes on recording the next test's writes.
+const observers: MutationObserver[] = []
+
+/** Disconnects every watchStyles observer (setup.ts, after each test). */
+export function stopWatchingStyles() {
+    for (const observer of observers.splice(0)) observer.disconnect()
+}
+
 /**
  * Records each inline style written under `root` from now on, so a test
  * reads the whole path of an animation instead of sampling it at a moment,
@@ -26,6 +35,7 @@ export function watchStyles(root: Node = document.body) {
         }
     })
     observer.observe(root, {subtree: true, attributes: true, attributeFilter: ['style']})
+    observers.push(observer)
     const reader = document.createElement('div')
     return {
         /** The values one property took on one element, in order, repeats dropped. */
@@ -39,6 +49,5 @@ export function watchStyles(root: Node = document.body) {
             }
             return values
         },
-        stop: () => observer.disconnect(),
     }
 }

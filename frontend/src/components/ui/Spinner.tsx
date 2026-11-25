@@ -30,7 +30,7 @@ interface SpinnerProps {
     size?: number | string
     /**
      * Shows after `theme.motion.spinner.delay`: for a spinner standing in for
-     * something that usually ends at once (a lazy chunk, a pending button),
+     * something that usually ends at once (a lazy chunk, a Select's options),
      * so it never flashes.
      */
     delayed?: boolean

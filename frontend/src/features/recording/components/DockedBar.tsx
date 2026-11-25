@@ -1,4 +1,4 @@
-import type {ReactNode} from 'react'
+import {type ReactNode, useState} from 'react'
 import * as m from 'motion/react-m'
 import styled from 'styled-components'
 import {Veil} from '@/components/ui/Veil'
@@ -52,6 +52,9 @@ const ActionContent = styled(m.div)`
 `
 
 const arrival = {initial: {y: 4}, animate: {y: 0}, transition: tween('base', 'enter')}
+// The phase the bar mounted in shows as it was, so a screen that mounts the
+// bar replays nothing.
+const still = {initial: false, animate: {y: 0}} as const
 
 export interface DockedBarProps {
     /** Names the group: `Record` while idle, `Recording` during one. */
@@ -72,20 +75,26 @@ export interface DockedBarProps {
  * arrive under a veil, while the bar and the ring stay mounted.
  */
 export function DockedBar({label, ring, children, action}: DockedBarProps) {
+    // The label the bar mounted with, until the first change of phase.
+    const [mountedWith, setMountedWith] = useState<string | null>(label)
+    if (mountedWith !== null && mountedWith !== label) setMountedWith(null)
+    const changed = mountedWith === null
+    const motion = changed ? arrival : still
+
     return (
         <Bar role="group" aria-label={label}>
             <RingSlot>{ring}</RingSlot>
             <Body>
-                <BodyContent key={label} {...arrival}>
+                <BodyContent key={label} {...motion}>
                     {children}
-                    <Veil/>
+                    {changed && <Veil/>}
                 </BodyContent>
             </Body>
             {action && (
                 <Action>
-                    <ActionContent key={label} {...arrival}>
+                    <ActionContent key={label} {...motion}>
                         {action}
-                        <Veil/>
+                        {changed && <Veil/>}
                     </ActionContent>
                 </Action>
             )}

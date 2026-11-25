@@ -488,7 +488,9 @@ enter and exit, indicators and springs.
   - The docked recording bar: a new phase's middle and action (Record,
     then the timer, the sources and Stop) arrive the way a screen does,
     keyed by the bar's label, so starting keeps the pending Record button
-    and pausing replays nothing; the bar and the ring stay mounted.
+    and pausing replays nothing; the bar and the ring stay mounted. The
+    phase the bar mounts in shows as it is, so opening a screen that
+    docks the bar replays nothing either.
   - Home's folder chips: the selected chip's outline is a thumb that
     slides to the chip chosen by transform on `springs.snappy`, taking
     the chip's size on the same spring.

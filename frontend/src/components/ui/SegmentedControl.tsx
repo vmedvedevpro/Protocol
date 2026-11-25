@@ -1,9 +1,10 @@
-import {createContext, type KeyboardEvent, type ReactNode, useContext, useId, useRef, useState} from 'react'
+import {createContext, type KeyboardEvent, type ReactNode, useContext, useId, useRef} from 'react'
 import {useMotionValue, useTransform} from 'motion/react'
 import * as m from 'motion/react-m'
 import styled, {css} from 'styled-components'
 import {springs} from '@/styles/motion'
 import {Crossfade, CrossfadeView} from './Crossfade'
+import {useInstantOnKey} from './instantOnKey'
 import {focusRing} from './styles'
 
 export interface SegmentedOption<T extends string> {
@@ -199,7 +200,7 @@ interface SegmentedControlProps<T extends string> {
  */
 export function SegmentedControl<T extends string>({label, options, value, onChange}: SegmentedControlProps<T>) {
     const name = useId()
-    const [byKey, setByKey] = useState(false)
+    const {instant, handlers} = useInstantOnKey()
 
     return (
         <Track
@@ -207,8 +208,7 @@ export function SegmentedControl<T extends string>({label, options, value, onCha
             aria-label={label}
             $count={options.length}
             $variant="segments"
-            onKeyDownCapture={() => setByKey(true)}
-            onPointerDownCapture={() => setByKey(false)}
+            {...handlers}
         >
             {options.map((option) => (
                 <Segment key={option.value} $selected={option.value === value} $variant="segments">
@@ -226,7 +226,7 @@ export function SegmentedControl<T extends string>({label, options, value, onCha
                 at={indexOf(options, value)}
                 labels={options.map((option) => option.label)}
                 variant="segments"
-                instant={byKey}
+                instant={instant}
             />
         </Track>
     )
@@ -279,10 +279,12 @@ export function TabList() {
     const {ids, label, options, value, onChange} = useTabs('TabList')
     const buttons = useRef<(HTMLButtonElement | null)[]>([])
     const at = indexOf(options, value)
-    const [byKey, setByKey] = useState(false)
+    const {instant, handlers} = useInstantOnKey()
 
     // Only the selected tab is in the Tab order; arrows move between them.
     const onKeyDown = (event: KeyboardEvent) => {
+        // Any key, Enter and Space on a tab too: what it changes lands at once.
+        handlers.onKeyDown()
         const step = KEY_STEPS[event.key]
         if (!step) return
         event.preventDefault()
@@ -298,8 +300,7 @@ export function TabList() {
             $count={options.length}
             $variant="tabs"
             onKeyDown={onKeyDown}
-            onKeyDownCapture={() => setByKey(true)}
-            onPointerDownCapture={() => setByKey(false)}
+            onPointerDown={handlers.onPointerDown}
         >
             {options.map((option, i) => (
                 <Tab
@@ -320,7 +321,7 @@ export function TabList() {
                     {option.label}
                 </Tab>
             ))}
-            <SlidingThumb at={at} labels={options.map((option) => option.label)} variant="tabs" instant={byKey}/>
+            <SlidingThumb at={at} labels={options.map((option) => option.label)} variant="tabs" instant={instant}/>
         </Track>
     )
 }

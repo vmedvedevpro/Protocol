@@ -94,7 +94,7 @@ export function DropOverlay() {
     return (
         <AnimatePresence>
             {dragging && (
-                <Scrim key="drop" aria-hidden>
+                <Scrim aria-hidden>
                     <Dim
                         initial={{opacity: 0}}
                         animate={{opacity: 1}}

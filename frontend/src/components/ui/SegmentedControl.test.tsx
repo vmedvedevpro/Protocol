@@ -43,7 +43,6 @@ async function pathOf(thumb: HTMLElement, act: () => Promise<unknown>, to: RegEx
     const styles = watchStyles(thumb.parentElement as HTMLElement)
     await act()
     await waitFor(() => expect(styles.valuesOf(thumb, 'transform').at(-1)).toMatch(to), {timeout: 2000})
-    styles.stop()
     return styles.valuesOf(thumb, 'transform')
 }
 

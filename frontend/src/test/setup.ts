@@ -21,6 +21,7 @@ import {installMockIpc} from '@/mocks/ipc'
 import {resetMockState} from '@/mocks/state'
 import {useThemeModeStore} from '@/styles/themeMode'
 import {installMatchMedia} from './matchMedia'
+import {stopWatchingStyles} from './motion'
 
 // Animations jump to their end, so a test sees the final state at once.
 MotionGlobalConfig.skipAnimations = true
@@ -53,8 +54,10 @@ beforeEach(() => {
 
 afterEach(async () => {
     cleanup()
-    // A test that played its animations (src/test/motion.ts) ends them again.
+    // A test that played its animations (src/test/motion.ts) ends them again,
+    // and its style watchers stop.
     MotionGlobalConfig.skipAnimations = true
+    stopWatchingStyles()
     // Work still pending at unmount settles after it: a listen() that resolves
     // late calls its stop() (src/api/events.ts), the audio preview's queue
     // runs its stop. Both need the mock IPC, so they get a macrotask, which
