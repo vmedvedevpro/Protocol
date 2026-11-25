@@ -283,7 +283,11 @@ jobs:
             dist/protocol-macos-arm64.app.tar.gz
             dist/SHA256SUMS.txt
           if-no-files-found: error
-          retention-days: 14
+          # As long as GitHub's 30-day re-run window: join-macos reads it on
+          # every re-run. overwrite: a re-run of this leg replaces the
+          # artifact of the earlier attempt instead of failing on its name.
+          retention-days: 30
+          overwrite: true
           compression-level: 0
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
@@ -292,3 +296,4 @@ jobs:
           path: ${{ runner.temp }}/protocol-*launch.log
           if-no-files-found: ignore
           retention-days: 14
+          overwrite: true

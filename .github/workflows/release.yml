@@ -411,8 +411,8 @@ jobs:
       PNPM_CONFIG_ENABLE_GLOBAL_VIRTUAL_STORE: 'false'
       VERSION: ${{ needs.validate.outputs.version }}
       TAG: ${{ needs.validate.outputs.tag }}
-      GH_TOKEN: ${{ github.token }}
-      GH_REPO: ${{ github.repository }}
+    # The token (contents: write) goes only to the steps that call gh, as in
+    # draft: pnpm install and the step holding the signing key never see it.
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -438,18 +438,16 @@ jobs:
           path: ${{ runner.temp }}
       - name: Read the release of this tag
         id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           # The release is looked up by the tag validate checked, and every
           # later call goes to its id or that tag: no other release is read
-          # or written.
+          # or written. merge-macos.mjs refuses a feed of another version.
           id=$(gh release view "$TAG" --json databaseId --jq .databaseId)
           gh api "repos/$GITHUB_REPOSITORY/releases/$id" > "$RUNNER_TEMP/release.json"
-          tag=$(jq -r .tag_name "$RUNNER_TEMP/release.json")
-          if [[ "$tag" != "$TAG" ]]; then
-            echo "::error::Release $id is $tag, not $TAG"
-            exit 1
-          fi
           mkdir -p "$RUNNER_TEMP/release"
           for name in latest.json SHA256SUMS.txt; do
             asset=$(jq -r --arg name "$name" '.assets[] | select(.name == $name) | .id' "$RUNNER_TEMP/release.json")
@@ -491,19 +489,29 @@ jobs:
         id: upload
         env:
           RELEASE_ID: ${{ steps.release.outputs.id }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           dist="$RUNNER_TEMP/dist"
           # The macOS files first and the feed last, so latest.json never
-          # points at a file that is not there yet. A file the release already
-          # holds with the same bytes (a re-run of this job alone) is not
-          # uploaded again: --clobber deletes before it uploads, and a
-          # published release should not lose its macOS bundle even briefly.
+          # points at a file that is not there yet. --clobber deletes an asset
+          # before it uploads the new one (the Releases API has no atomic
+          # replace), so on a published release latest.json and SHA256SUMS.txt
+          # are missing for a moment on every run of this job: installed apps
+          # then see no update (noRelease) until the next check. The .sig, the
+          # checksums and the feed are made again on every run (the signature
+          # carries a timestamp), so they are always uploaded. Only the DMG and
+          # the bundle are skipped when the release already holds the same
+          # bytes (a re-run of this job alone), so a published release does not
+          # lose its macOS bundle even briefly.
           for name in protocol-macos-arm64.dmg protocol-macos-arm64.app.tar.gz protocol-macos-arm64.app.tar.gz.sig SHA256SUMS.txt latest.json; do
-            digest=$(jq -r --arg name "$name" '.assets[] | select(.name == $name) | .digest // ""' "$RUNNER_TEMP/release.json")
-            if [[ "$digest" == "sha256:$(sha256sum "$dist/$name" | cut -d' ' -f1)" ]]; then
-              echo "$name is already in $TAG"
-              continue
+            if [[ "$name" == *.dmg || "$name" == *.app.tar.gz ]]; then
+              digest=$(jq -r --arg name "$name" '.assets[] | select(.name == $name) | .digest // ""' "$RUNNER_TEMP/release.json")
+              if [[ "$digest" == "sha256:$(sha256sum "$dist/$name" | cut -d' ' -f1)" ]]; then
+                echo "$name is already in $TAG"
+                continue
+              fi
             fi
             for attempt in 1 2 3; do
               if gh release upload "$TAG" "$dist/$name" --clobber; then break; fi
@@ -512,8 +520,19 @@ jobs:
               sleep 30
             done
           done
+          # The body is replaced only if nobody changed it since the first
+          # step read it: an edit the owner made while this job signed and
+          # uploaded is kept.
+          body_kept=false
           if [[ -f "$RUNNER_TEMP/notes.md" ]]; then
-            gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" -F "body=@$RUNNER_TEMP/notes.md" > /dev/null
+            gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" --jq '.body // ""' > "$RUNNER_TEMP/body-now.md"
+            if cmp -s "$RUNNER_TEMP/body.md" "$RUNNER_TEMP/body-now.md"; then
+              gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" -F "body=@$RUNNER_TEMP/notes.md" > /dev/null
+            else
+              body_kept=true
+            fi
+          else
+            body_kept=true
           fi
           gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" > "$RUNNER_TEMP/joined.json"
           node scripts/release/check-release-assets.mjs --version "$VERSION" --dir "$dist" --platforms macos --stage joined --release "$RUNNER_TEMP/joined.json"
@@ -525,7 +544,7 @@ jobs:
             echo
             echo "[$url]($url) ($([[ "$draft" == true ]] && echo 'still a draft' || echo 'published'))"
             echo
-            if [[ ! -f "$RUNNER_TEMP/notes.md" ]]; then
+            if [[ "$body_kept" == true ]]; then
               echo "The release body was edited by hand and was left as it is: add the macOS download and the new SHA256SUMS.txt lines yourself."
               echo
             fi

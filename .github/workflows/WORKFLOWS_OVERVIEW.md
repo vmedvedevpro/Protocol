@@ -180,13 +180,19 @@ by then or not, and:
    the macOS lines into `SHA256SUMS.txt`
    (`scripts/release/merge-macos.mjs`), refusing a feed or list of another
    version, and renders the body again with the macOS download. A body the
-   owner edited by hand is left alone; the job summary then says to add the
-   macOS row and checksums by hand;
+   owner edited by hand, also while the job was running (it reads the body
+   again right before it writes), is left alone; the job summary then says to
+   add the macOS row and checksums by hand;
 4. attests the DMG and the bundle, uploads the DMG, the bundle and its `.sig`,
    then `SHA256SUMS.txt`, then `latest.json` (`--clobber`; the feed last, so it
-   never points at a missing file; a file the release already has with the
-   same bytes is not uploaded again), and checks the release's assets by name
-   and digest;
+   never points at a missing file), and checks the release's assets by name
+   and digest. The Releases API cannot replace an asset in place: `--clobber`
+   deletes it and uploads the new one, so on a published release
+   `latest.json` and `SHA256SUMS.txt` are missing for a moment on every run,
+   and installed apps that check just then see no update until their next
+   check. The `.sig`, the checksums and the feed are made again on every run
+   and always uploaded; only the DMG and the bundle are skipped when the
+   release already has the same bytes (a re-run of this job alone);
 5. on a published release, downloads it anonymously and checks it the way
    `release-published.yml` does.
 
@@ -213,9 +219,14 @@ which the next run replaces).
   the fix to macOS installs.
 - A failure that needs a fix: merge the fix to `main`, wait until that
   commit's `main` runs are green (step 2), then move the tag to it and push it
-  again; the new run starts on its own:
+  again; the new run starts on its own. Cancel the old tag run first if it is
+  still going (it may be waiting for a macOS runner): runs of one tag share a
+  concurrency group that is never cancelled, so the new run would wait behind
+  it:
 
   ```powershell
+  gh run list -R vmedvedevpro/Protocol --workflow release.yml --branch v0.3.0 --json databaseId,status --jq '.[] | select(.status != "completed")'
+  gh run cancel <databaseId> -R vmedvedevpro/Protocol   # each run listed
   git push origin :refs/tags/v0.3.0
   git fetch origin
   $sha = git rev-parse origin/main   # the fix's merge commit, green on main

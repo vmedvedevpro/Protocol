@@ -104,7 +104,11 @@ that model lists ask Hugging Face for sizes whether the switch is on or not
   [WORKFLOWS_OVERVIEW.md](../.github/workflows/WORKFLOWS_OVERVIEW.md#macos-joins-later)).
   Until then a macOS install finds no entry for its platform (`noPlatform`):
   automatic checks stay silent, a manual check says the version isn't
-  available for macOS yet, and the next check after the join offers it.
+  available for macOS yet, and the next check after the join offers it. The
+  join replaces `latest.json` by deleting and uploading it (the Releases API
+  has no atomic replace), so on a published release the feed is missing for a
+  moment on each run of the job; a check that lands then fails as `noRelease`,
+  which is benign, and the next one sees the feed again.
 - `requireSignedVersion: true`: each minisign signature carries the version it
   was made for in its trusted comment, so a tampered feed cannot pair an old
   signed installer with a newer version number. `tauri build` adds the version;
