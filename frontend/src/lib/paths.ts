@@ -13,10 +13,11 @@ export const paths = {
      * A meeting, optionally on a tab and at a moment (`?at=` seconds), as a
      * search result opens a line that was said or an action item.
      */
-    meeting: (meetingId: string, view: { tab?: 'notes' | 'transcript' | 'summary', at?: number } = {}) => {
+    meeting: (meetingId: string, view: { tab?: 'notes' | 'transcript' | 'summary', at?: number, line?: string } = {}) => {
         const params = new URLSearchParams()
         if (view.tab) params.set('tab', view.tab)
         if (view.at != null && Number.isFinite(view.at)) params.set('at', String(Math.floor(view.at)))
+        if (view.line) params.set('line', view.line)
         const query = params.toString()
         return `/meetings/${encodeURIComponent(meetingId)}${query ? `?${query}` : ''}`
     },

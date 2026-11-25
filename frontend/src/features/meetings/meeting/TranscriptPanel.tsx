@@ -51,6 +51,8 @@ interface TranscriptPanelProps {
     /** The recording plays: the highlighted turn is kept in view. */
     playing: boolean
     onSeek?: (seconds: number) => void
+    /** A line to scroll into view once (a search result's). */
+    revealLine?: string
 }
 
 /**
@@ -59,7 +61,7 @@ interface TranscriptPanelProps {
  * label opens its contact (#118) and names it, on every line of the meeting. While the post-call
  * pass runs, the text is the live one, and a note says a better one comes.
  */
-export function TranscriptPanel({meetingId, playback, playing, onSeek}: TranscriptPanelProps) {
+export function TranscriptPanel({meetingId, playback, playing, onSeek, revealLine}: TranscriptPanelProps) {
     const transcript = useQuery(meetingTranscriptsQuery(meetingId))
     const rename = useMutation(renameSpeakerMutation(meetingId))
     const job = usePostCallJob(meetingId)
@@ -98,6 +100,7 @@ export function TranscriptPanel({meetingId, playback, playing, onSeek}: Transcri
                 userName={userName || undefined}
                 playback={playback}
                 followPlayback={playing}
+                revealLineId={revealLine}
                 onSeek={onSeek}
                 // The pass replaces the lines and their labels; a name given meanwhile would be lost.
                 onRenameSpeaker={job ? undefined : (from, to) => rename.mutateAsync({from, to}).catch((error: unknown) => {

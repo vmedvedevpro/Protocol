@@ -96,6 +96,11 @@ export interface TranscriptListProps {
     playback?: PlaybackClock
     /** While true, the highlighted turn is kept in view unless the user scrolled a moment ago. */
     followPlayback?: boolean
+    /**
+     * A line to bring into view once it is in the list, at the centre: a
+     * search result opens the transcript there, whether or not it has audio.
+     */
+    revealLineId?: string
     /** Shown instead of the rows while there are none. */
     empty?: ReactNode
     /** Above the first row, such as a note that the text is still provisional. */
@@ -447,6 +452,7 @@ export function TranscriptList({
     speakerActions,
     playback,
     followPlayback = false,
+    revealLineId,
     empty,
     before,
     after,
@@ -546,6 +552,17 @@ export function TranscriptList({
             activeId.current = null
         }
     }, [playback])
+
+    // ---- The line asked for ------------------------------------------------
+    const revealed = useRef(false)
+    useEffect(() => {
+        if (revealed.current || !revealLineId) return
+        const turn = turns.find((entry) => entry.lineIds.includes(revealLineId))
+        const row = turn ? rows.current.get(turn.id) : undefined
+        if (!row) return
+        revealed.current = true
+        row.scrollIntoView?.({block: 'center'})
+    }, [turns, revealLineId])
 
     // ---- Following a live end ----------------------------------------------
     const atEnd = useRef(true)

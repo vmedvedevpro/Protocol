@@ -157,12 +157,13 @@ export function MeetingScreen({meetingId}: { meetingId: string }) {
 
     // A search result opens the meeting at a moment (`?at=` seconds): once
     // the recording has loaded (a load starts it from 0) the player waits
-    // there, and the transcript keeps that turn in view. Without audio the
-    // tab opens at its top.
+    // there. A line (`?line=`, a transcript id) is scrolled into view by the
+    // transcript itself, with audio or without. Both are read once.
     const [at] = useState(() => {
         const seconds = Number(params.get('at') ?? Number.NaN)
         return Number.isFinite(seconds) && seconds >= 0 ? seconds : null
     })
+    const [line] = useState(() => params.get('line') ?? undefined)
     const ready = playback.status === 'ready'
     useEffect(() => {
         if (ready && at !== null) player.seek(at)
@@ -262,7 +263,8 @@ export function MeetingScreen({meetingId}: { meetingId: string }) {
                                     <TranscriptPanel
                                         meetingId={meetingId}
                                         playback={hasAudio ? player.clock : undefined}
-                                        playing={playback.playing || at !== null}
+                                        playing={playback.playing}
+                                        revealLine={line}
                                         onSeek={playback.status === 'ready' ? player.playFrom : undefined}
                                     />
                                 )

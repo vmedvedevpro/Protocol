@@ -1,4 +1,4 @@
-import {type ReactNode, useMemo, useState} from 'react'
+import {type ReactNode, useEffect, useMemo, useState} from 'react'
 import {
     CheckCircleIcon,
     CheckIcon,
@@ -34,7 +34,6 @@ import {closeSearch, openSearch, useSearchLauncher} from '@/lib/searchLauncher'
 import {tween} from '@/styles/motion'
 import {THEME_MODES, type ThemeMode, useThemeModeStore} from '@/styles/themeMode'
 import {MIN_QUERY_LENGTH, type SearchResult, type SearchResultKind, searchQuery} from '../api/search'
-import {useDebounced} from '../hooks/useDebounced'
 
 /** Something search can do besides opening a result. */
 export interface SearchCommand {
@@ -46,11 +45,25 @@ export interface SearchCommand {
     icon: ReactNode
     /** The hotkey that does the same, from `formatShortcut`. */
     shortcut?: string
+    /** Where it is listed; the caller's commands are Actions. */
+    group?: 'Actions' | 'Go to' | 'Theme'
+    /** Runs with the dialog still open, as a theme does, so the next can be tried. */
+    keepOpen?: boolean
     run: () => void
 }
 
 /** How long typing must pause before the library is searched; the old dialog's wait. */
 export const SEARCH_DEBOUNCE_MS = 220
+
+/** `value`, once it has stayed the same for `ms`. */
+function useDebounced<T>(value: T, ms: number): T {
+    const [settled, setSettled] = useState(value)
+    useEffect(() => {
+        const timer = setTimeout(() => setSettled(value), ms)
+        return () => clearTimeout(timer)
+    }, [value, ms])
+    return settled
+}
 
 const RECENT_MEETINGS = 5
 
@@ -253,6 +266,8 @@ export function SearchDialog({actions = []}: { actions?: readonly SearchCommand[
     const open = useSearchLauncher((state) => state.open)
     const query = useSearchLauncher((state) => state.query)
     const trimmed = query.trim()
+    // Below two characters the library is not searched, and old results are not shown.
+    const searching = trimmed.length >= MIN_QUERY_LENGTH
     const debounced = useDebounced(trimmed, SEARCH_DEBOUNCE_MS)
     const results = useQuery({...searchQuery(debounced), enabled: open && debounced.length >= MIN_QUERY_LENGTH})
     const meetings = useQuery({...meetingsQuery, enabled: open})
@@ -275,9 +290,11 @@ export function SearchDialog({actions = []}: { actions?: readonly SearchCommand[
 
     const commands: SearchCommand[] = [
         ...actions,
-        {id: 'settings', label: 'Settings', keywords: 'preferences options models', icon: <GearIcon/>, shortcut: formatShortcut(','), run: () => go(paths.settings())},
-        ...THEME_MODES.map((mode) => ({
+        {id: 'settings', group: 'Go to', label: 'Settings', keywords: 'preferences options models', icon: <GearIcon/>, shortcut: formatShortcut(','), run: () => go(paths.settings())},
+        ...THEME_MODES.map((mode): SearchCommand => ({
             id: `theme-${mode.value}`,
+            group: 'Theme',
+            keepOpen: true,
             label: mode.label,
             keywords: `theme appearance ${mode.value}`,
             icon: THEME_ICONS[mode.value],
@@ -292,12 +309,11 @@ export function SearchDialog({actions = []}: { actions?: readonly SearchCommand[
             title: command.label,
             hidden: current ? ', current' : undefined,
             trailing: current ? <CheckIcon aria-hidden/> : command.shortcut && <Kbd>{command.shortcut}</Kbd>,
-            // A theme applies with the dialog still open, so the next one can be tried.
-            onSelect: () => (command.id.startsWith('theme-') ? command.run() : run(command)),
+            onSelect: () => (command.keepOpen ? command.run() : run(command)),
         }
     }
     const shown = trimmed ? commands.filter((command) => matchesWords(`${command.label} ${command.keywords ?? ''}`, trimmed)) : commands
-    const byGroup = (ids: (id: string) => boolean) => shown.filter((command) => ids(command.id)).map(commandRow)
+    const byGroup = (group: SearchCommand['group']) => shown.filter((command) => (command.group ?? 'Actions') === group).map(commandRow)
 
     const folderName = useMemo(() => new Map((folders.data ?? []).map((folder) => [folder.id, folder.name])), [folders.data])
     const meetingFolder = useMemo(() => new Map((meetings.data ?? []).map((meeting) => [meeting.id, meeting.group_id])), [meetings.data])
@@ -336,7 +352,7 @@ export function SearchDialog({actions = []}: { actions?: readonly SearchCommand[
                     ...base,
                     title: quoted(result.snippet),
                     sub: sub.filter(Boolean).join(' · '),
-                    onSelect: () => go(paths.meeting(meetingId, {tab: 'transcript', at: result.audioStartTime})),
+                    onSelect: () => go(paths.meeting(meetingId, {tab: 'transcript', at: result.audioStartTime, line: result.transcriptId ?? result.id})),
                 }
             }
             case 'summary':
@@ -346,8 +362,7 @@ export function SearchDialog({actions = []}: { actions?: readonly SearchCommand[
 
     const groups: RowGroup[] = []
     const add = (title: string, rows: Row[]) => rows.length > 0 && groups.push({title, rows})
-    const actionIds = new Set(actions.map((action) => action.id))
-    add('Actions', byGroup((id) => actionIds.has(id)))
+    add('Actions', byGroup('Actions'))
     if (!trimmed) {
         add('Recent meetings', (meetings.data ?? []).slice(0, RECENT_MEETINGS).map((meeting) => {
             const when = parseDate(meeting.created_at)
@@ -362,19 +377,19 @@ export function SearchDialog({actions = []}: { actions?: readonly SearchCommand[
     }
     // Results only for the query they answer: the last ones stay while the
     // next load, but not once the field is too short to search.
-    const found = trimmed.length >= MIN_QUERY_LENGTH ? results.data ?? [] : []
+    const found = searching ? results.data ?? [] : []
     for (const kind of [...new Set(found.map((result) => result.kind))]) {
         add(GROUP_TITLES[kind], found.filter((result) => result.kind === kind).map(resultRow))
     }
-    add('Go to', byGroup((id) => id === 'settings'))
-    add('Theme', byGroup((id) => id.startsWith('theme-')))
+    add('Go to', byGroup('Go to'))
+    add('Theme', byGroup('Theme'))
 
     const values = groups.flatMap((group) => group.rows.map((row) => row.value))
     const [selected, setSelected] = useState('')
     // A list without the row the user was on starts on its first, as the design lights it.
     const current = values.includes(selected) ? selected : values[0] ?? ''
 
-    const waiting = trimmed.length >= MIN_QUERY_LENGTH && (trimmed !== debounced || results.isFetching)
+    const waiting = searching && (trimmed !== debounced || results.isFetching)
     const nothing = groups.length === 0 && !waiting && !results.isError
     // Each new set of rows arrives with a fade and a small rise.
     const listKey = trimmed ? `results:${debounced}` : 'commands'
@@ -394,14 +409,12 @@ export function SearchDialog({actions = []}: { actions?: readonly SearchCommand[
                 </Field>
                 <List>
                     <m.div key={listKey} initial={{opacity: 0, y: 4}} animate={{opacity: 1, y: 0}} transition={tween('base', 'enter')}>
-                        {results.isError && trimmed.length >= MIN_QUERY_LENGTH && (
+                        {results.isError && searching && (
                             <Note role="alert">Search is unavailable: {results.error.message}</Note>
                         )}
                         {nothing && (
                             <Note>
-                                {trimmed.length < MIN_QUERY_LENGTH
-                                    ? 'Type another letter to search your meetings.'
-                                    : `Nothing found for “${trimmed}”.`}
+                                {searching ? `Nothing found for “${trimmed}”.` : 'Type another letter to search your meetings.'}
                             </Note>
                         )}
                         {groups.map((group) => (

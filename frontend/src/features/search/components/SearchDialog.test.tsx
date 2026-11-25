@@ -44,10 +44,11 @@ describe('SearchDialog', () => {
         await screen.findByRole('option', {name: /a data retention statement for the recordings folder/})
         expect(groupNames()).toEqual(['Said in a meeting', 'In a summary'])
         expect(screen.getByRole('option', {name: /Sam Rivera · .* · Acme pilot security review/})).toBeInTheDocument()
-        // The first row is lit; Enter opens it on the transcript, at the line.
+        // The first row is lit; Enter opens it on the transcript at the line, and
+        // the player at its moment when the meeting has audio.
         await userEvent.keyboard('{Enter}')
         expect(router.state.location.pathname).toBe('/meetings/meeting-acme-review')
-        expect(router.state.location.search).toMatch(/^\?tab=transcript&at=\d+$/)
+        expect(router.state.location.search).toMatch(/^\?tab=transcript&at=\d+&line=[\w-]+$/)
         await waitFor(() => expect(useSearchLauncher.getState().open).toBe(false))
     })
 
@@ -57,16 +58,18 @@ describe('SearchDialog', () => {
 
         act(() => openSearch('Marcus'))
         await userEvent.click(await screen.findByRole('option', {name: /^Marcus Lee/}))
-        expect(router.state.location.pathname).toBe('/person/person-marcus')
+        await waitFor(() => expect(router.state.location.pathname).toBe('/person/person-marcus'))
 
+        // The item matches "Marcus" too: wait for this query's rows, which
+        // replace the last query's, before clicking one.
         act(() => openSearch('Scope the player'))
-        const item = await screen.findByRole('option', {name: /Scope the player work.*Marcus Lee · Q4 roadmap planning/})
-        await userEvent.click(item)
-        expect(router.state.location.pathname + router.state.location.search).toBe('/meetings/meeting-roadmap?tab=summary&at=42')
+        await waitFor(() => expect(screen.queryByRole('option', {name: /^Marcus Lee/})).not.toBeInTheDocument())
+        await userEvent.click(await screen.findByRole('option', {name: /Scope the player work.*Marcus Lee · Q4 roadmap planning/}))
+        await waitFor(() => expect(router.state.location.pathname + router.state.location.search).toBe('/meetings/meeting-roadmap?tab=summary&at=42'))
 
         act(() => openSearch('acme corp'))
         await userEvent.click(await screen.findByRole('option', {name: /^Acme Corp/}))
-        expect(router.state.location.search).toBe('?folder=group-acme')
+        await waitFor(() => expect(router.state.location.search).toBe('?folder=group-acme'))
     })
 
     it('finds commands by their words and runs one once the dialog has closed', async () => {

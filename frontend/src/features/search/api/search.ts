@@ -57,7 +57,6 @@ export const searchQuery = (query: string) =>
     queryOptions({
         queryKey: searchKeys.results(query),
         queryFn: () => globalSearch(query),
-        enabled: query.length >= MIN_QUERY_LENGTH,
         placeholderData: keepPreviousData,
         // The library changes under it (a rename, a new meeting); a cached
         // query is read again when the dialog opens with it.

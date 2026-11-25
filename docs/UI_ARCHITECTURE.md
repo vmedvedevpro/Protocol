@@ -1205,12 +1205,15 @@ another meeting starts from fresh state).
   dialog is a `Sheet` with `bare`: its title is for screen readers only and
   it has no header or close button.
 - A result opens where it lives: a person at `paths.person(id)`, a folder
-  at Home's `?folder=`, a transcript line on the meeting's transcript and
-  an action item on its summary, both at the moment (`paths.meeting(id,
-  {tab, at})`). The meeting screen reads `?at=` (seconds) once, puts the
-  player there when the recording has loaded, and keeps that turn of the
-  transcript in view; without audio the tab opens at its top. Mock:
-  `src/mocks/search.ts`, native's ranking and snippets.
+  at Home's `?folder=`, a transcript line on the meeting's transcript at
+  that line, and an action item on its summary (`paths.meeting(id, {tab,
+  at, line})`). The meeting screen reads `?at=` (seconds) and `?line=` (a
+  transcript id) once: the player waits at `at` once the recording has
+  loaded, and `TranscriptList` scrolls the turn holding `line` into view
+  (`revealLineId`), with audio or without. Playback is not followed until
+  the user plays. An action item has no line of its own on the summary:
+  without audio its `?at=` does nothing, and the summary opens at its top.
+  Mock: `src/mocks/search.ts`, native's ranking and snippets.
 - The person screen (`/person/:personId`, `features/people`) shows the
   details, the Labs voice (while Voice profiles is on, or to forget one
   learned before), the open action items (`actionItemsQuery({personId,
