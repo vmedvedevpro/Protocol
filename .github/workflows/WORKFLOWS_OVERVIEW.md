@@ -310,7 +310,9 @@ version. No other secrets are used.
   are visible to later `main` runs, to pull requests and, by GitHub's rule
   that any run can restore the default branch's caches, to tag runs; no tag
   run has shown that yet. Caches saved by a tag run are visible only to that
-  tag.
+  tag. `whisper-rs-sys` does not rebuild when the `GGML_*` CPU baseline
+  changes (#176, docs/DEVELOPMENT_MAP.md › ggml CPU baseline), so a change to
+  it bumps the rust-cache key of each job that sets it.
 - Actions are pinned by full commit SHA with the release as a comment, and
   every JavaScript action, including those inside composite actions, must
   target Node.js 24: the runner warns about Node.js 20 actions and will stop

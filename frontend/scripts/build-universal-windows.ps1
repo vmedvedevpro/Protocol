@@ -121,6 +121,28 @@ if (-not (Test-Path (Join-Path $env:LIBCLANG_PATH "libclang.dll"))) {
 # Windows builds must generate their own bindings via libclang.
 Remove-Item Env:WHISPER_DONT_GENERATE_BINDINGS -ErrorAction SilentlyContinue
 
+# ggml's CPU code for a stated baseline in both variants, not for the build
+# machine's CPU (#176). ggml defaults to GGML_NATIVE=ON, where MSVC's
+# FindSIMD.cmake picks /arch:AVX512 on a machine with AVX-512, as the runner of
+# the 1.0.0 RC had; Whisper then dies at model load on CPUs without it.
+# whisper-rs-sys passes GGML_* variables to ggml's CMake. x86-64-v3: AVX2 (MSVC's
+# /arch:AVX2 implies FMA and F16C) and BMI2, which Intel Core CPUs have since
+# Haswell (2013) and AMD since Excavator (2015); CPUs without AVX2 are not
+# supported (the release notes say so). Keep it the same as
+# release-build-linux.yml. llama-helper is built before this script with
+# GGML_NATIVE=OFF set by llama-cpp-sys-2 itself, whose ggml defaults are this
+# baseline. whisper-rs-sys does not rebuild when these change: run
+# `cargo clean -p whisper-rs-sys` (CI: bump the rust-cache key) after changing them.
+# verify-windows-release.mjs checks the result.
+$env:GGML_NATIVE = "OFF"
+$env:GGML_SSE42 = "ON"
+$env:GGML_AVX = "ON"
+$env:GGML_AVX2 = "ON"
+$env:GGML_FMA = "ON"
+$env:GGML_F16C = "ON"
+$env:GGML_BMI2 = "ON"
+$env:GGML_AVX512 = "OFF"
+
 if (-not (Get-Command cmake.exe -ErrorAction SilentlyContinue)) {
   $env:PATH = "C:\Program Files\CMake\bin;$env:PATH"
   if (-not (Get-Command cmake.exe -ErrorAction SilentlyContinue)) { throw "CMake is not installed" }

@@ -24,6 +24,27 @@ jobs:
       NEXT_TELEMETRY_DISABLED: '1'
       PNPM_CONFIG_ENABLE_GLOBAL_VIRTUAL_STORE: 'false'
       VERSION: ${{ inputs.version }}
+      # ggml's CPU code for a stated baseline, not for the runner's CPU (#176).
+      # ggml defaults to GGML_NATIVE=ON (-march=native); a runner with AVX-512
+      # put AVX-512 into the 1.0.0 RC, and Whisper died with SIGILL at every
+      # model load on CPUs without it (most Intel client CPUs since Alder
+      # Lake). whisper-rs-sys passes GGML_* variables to ggml's CMake. The
+      # baseline is x86-64-v3: AVX2, FMA, F16C and BMI2, which Intel Core CPUs
+      # have since Haswell (2013) and AMD since Excavator (2015). CPUs without
+      # AVX2 are not supported (the release notes say so). Keep it the same as
+      # build-universal-windows.ps1 and updater-e2e.yml. llama-helper needs
+      # none of it: llama-cpp-sys-2 sets GGML_NATIVE=OFF itself (it only passes
+      # CMAKE_* on), and ggml's defaults then are this baseline.
+      # whisper-rs-sys does not rebuild when these change: bump the
+      # rust-cache key below with them.
+      GGML_NATIVE: 'OFF'
+      GGML_SSE42: 'ON'
+      GGML_AVX: 'ON'
+      GGML_AVX2: 'ON'
+      GGML_FMA: 'ON'
+      GGML_F16C: 'ON'
+      GGML_BMI2: 'ON'
+      GGML_AVX512: 'OFF'
     steps:
       - name: Check out with Unix line endings
         run: git config --global core.autocrlf false
@@ -68,7 +89,7 @@ jobs:
       - uses: swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
         with:
           workspaces: '. -> target'
-          key: linux-x86_64-release-v1
+          key: linux-x86_64-release-v2
       - name: Build llama-helper
         run: |
           cargo build --release --locked -p llama-helper
