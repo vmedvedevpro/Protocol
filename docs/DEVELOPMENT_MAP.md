@@ -1176,6 +1176,7 @@ beside an installed upstream build without sharing state:
 | Default recordings folder | `protocol-recordings` | `audio/recording_preferences.rs` |
 | Cargo package and executable | `protocol`, `protocol.exe`; installer variants `protocol-vulkan.exe`, `protocol-vulkan-probe.exe` | `src-tauri/Cargo.toml`, `build-universal-windows.ps1`, `windows/installer-hooks.nsh` |
 | Release assets | `protocol-windows-x64-setup.exe`, `protocol-macos-arm64.{dmg,app.tar.gz}`, `protocol-linux-x86_64.AppImage`, `protocol_<version>_amd64.deb` | `scripts/release/release-lib.mjs` |
+| App, installer and tray icons | the recording ring (#120); the tray's in one colour, with a dot while recording | `frontend/scripts/build-icons.mjs` draws `src-tauri/icons/`; `src-tauri/src/tray/icon.rs` switches the tray's ([ARCHITECTURE.md › Branding assets](../ARCHITECTURE.md#branding-assets)) |
 
 On Windows the installer writes the identifier to its shortcuts as their
 AUMID, and `windows_app_identity.rs` binds the process to the same AUMID

@@ -223,6 +223,9 @@ minibar window has none of it.
   request runs the recording's start (Recording › Start), the same as Record
   and ⌘R; the tray's Stop, Pause and Resume stay native, and the window
   follows them by their events.
+- The tray's icon is native too (`tray/icon.rs`, #120): the ring with a dot
+  while a recording is open, switched with the menu, so the WebView sends
+  nothing for it ([ARCHITECTURE.md › Branding assets](../ARCHITECTURE.md#branding-assets)).
 
 ### Hotkeys
 
