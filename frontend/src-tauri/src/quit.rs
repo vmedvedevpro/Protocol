@@ -19,11 +19,14 @@
 //! exits before the save is confirmed.
 //!
 //! On Unix, SIGTERM and SIGINT (logout, shutdown, `kill`, Ctrl+C in a
-//! terminal) are a quit too ([`quit_on_termination_signals`]): they take the
-//! same path, so busy work asks as on tray Quit and the exit ends in
-//! `RunEvent::Exit`, which marks the session clean (`crash_report`). Without
-//! this the default action killed the process and the next start reported an
-//! unclean shutdown (#121). SIGKILL cannot be caught.
+//! terminal) are a quit too ([`quit_on_termination_signals`]), and the exit
+//! ends in `RunEvent::Exit`, which marks the session clean (`crash_report`).
+//! Without this the default action killed the process and the next start
+//! reported an unclean shutdown (#121). The first signal asks as tray Quit
+//! does, as a courtesy; a second one exits at once, since on a logout nobody
+//! answers and the session manager's SIGKILL would follow. A signal never
+//! installs a downloaded update on the way out: a logout would kill the
+//! installer midway ([`on_signal`]). SIGKILL cannot be caught.
 //!
 //! One quit runs at a time. Another quit while the question is open or the
 //! meeting is being saved only brings the main window forward.
@@ -158,6 +161,33 @@ pub(crate) fn action(flow: Flow, plan: Plan) -> Action {
     }
 }
 
+/// What a termination signal does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SignalStep {
+    /// The quit's questions, as tray Quit asks them; `install` is whether
+    /// the exit may install a downloaded update.
+    Request { install: bool },
+    /// Exit now, without asking and without installing.
+    Exit,
+}
+
+/// The first signal asks (a courtesy); a second one, `signalled` before,
+/// quits while the question is open. Neither installs an update.
+pub(crate) fn on_signal(signalled: bool) -> SignalStep {
+    if signalled {
+        SignalStep::Exit
+    } else {
+        SignalStep::Request { install: false }
+    }
+}
+
+/// Whether a quit that saved the recording asks again: only for a recording
+/// started meanwhile. Other busy work does not ask again, since the user
+/// already chose to quit.
+pub(crate) fn asks_again_after_save(next: Plan) -> bool {
+    matches!(next, Plan::StopAndSave | Plan::WaitForSave)
+}
+
 /// Whether a macOS ⌘Q or Dock Quit must be held back for [`request`]: only an
 /// idle app with nothing to install exits without it.
 pub(crate) fn holds(flow: Flow, plan: Plan) -> bool {
@@ -198,12 +228,26 @@ pub fn holds_exit<R: Runtime>(app: &AppHandle<R>) -> bool {
 
 /// Tray Quit, and on macOS ⌘Q and Dock Quit.
 pub fn request<R: Runtime>(app: &AppHandle<R>) {
+    request_with(app, true);
+}
+
+/// The exit: through `updater::quit_app`, which installs a downloaded update
+/// when nothing is busy, or straight out when `install` is false.
+fn leave<R: Runtime>(app: &AppHandle<R>, install: bool) {
+    if install {
+        crate::updater::quit_app(app);
+    } else {
+        app.exit(0);
+    }
+}
+
+fn request_with<R: Runtime>(app: &AppHandle<R>, install: bool) {
     if crate::updater::is_quitting() {
         // The exit is already under way (an update installs on quit).
         crate::updater::quit_app(app);
         return;
     }
-    let plan = plan(Recording::now(), busy_work(), crate::updater::installs_on_quit(app));
+    let plan = plan(Recording::now(), busy_work(), install && crate::updater::installs_on_quit(app));
     let action = {
         let mut flow = flow();
         let action = action(*flow, plan);
@@ -213,20 +257,19 @@ pub fn request<R: Runtime>(app: &AppHandle<R>) {
         action
     };
     match action {
-        Action::Quit => crate::updater::quit_app(app),
+        Action::Quit => leave(app, install),
         Action::BringForward => {
             log::info!("[quit] a quit is already asking or saving");
             crate::tray::focus_main_window(app);
         }
         Action::Ask => {
             let app = app.clone();
-            tauri::async_runtime::spawn(async move { confirm_and_quit(app).await });
+            tauri::async_runtime::spawn(async move { confirm_and_quit(app, install).await });
         }
     }
 }
 
-/// Routes SIGTERM and SIGINT to [`request`] for the app's lifetime. A second
-/// signal while the question is open only brings the window forward.
+/// Routes SIGTERM and SIGINT to the quit for the app's lifetime ([`on_signal`]).
 #[cfg(unix)]
 pub fn quit_on_termination_signals<R: Runtime>(app: &AppHandle<R>) {
     let app = app.clone();
@@ -239,18 +282,28 @@ pub fn quit_on_termination_signals<R: Runtime>(app: &AppHandle<R>) {
                 return;
             }
         };
+        let mut signalled = false;
         loop {
             let name = tokio::select! {
                 _ = terminate.recv() => "SIGTERM",
                 _ = interrupt.recv() => "SIGINT",
             };
-            log::info!("[quit] {name}: quitting as from the tray");
-            request(&app);
+            match on_signal(signalled) {
+                SignalStep::Request { install } => {
+                    log::info!("[quit] {name}: quitting as from the tray");
+                    request_with(&app, install);
+                }
+                SignalStep::Exit => {
+                    log::info!("[quit] {name} again: quitting now");
+                    app.exit(0);
+                }
+            }
+            signalled = true;
         }
     });
 }
 
-async fn confirm_and_quit<R: Runtime>(app: AppHandle<R>) {
+async fn confirm_and_quit<R: Runtime>(app: AppHandle<R>, install: bool) {
     loop {
         bring_forward(&app).await;
         // Read again on every round: the work may have ended or started
@@ -270,6 +323,9 @@ async fn confirm_and_quit<R: Runtime>(app: AppHandle<R>) {
                     return;
                 }
                 log::info!("[quit] the recording is saved");
+                if !asks_again_after_save(plan(Recording::now(), None, false)) {
+                    break;
+                }
                 set_flow(Flow::Asking);
             }
             Plan::Busy(reason) => {
@@ -284,7 +340,7 @@ async fn confirm_and_quit<R: Runtime>(app: AppHandle<R>) {
             Plan::Exit | Plan::Install => break,
         }
     }
-    crate::updater::quit_app(&app);
+    leave(&app, install);
 }
 
 /// The question must be visible while the window is hidden in the tray or
@@ -412,6 +468,21 @@ mod tests {
         // A new recording while the last meeting is still saved is stopped too.
         let new_recording = Recording { running: true, stopping: false, saving: true };
         assert_eq!(plan(new_recording, None, false), Plan::StopAndSave);
+    }
+
+    #[test]
+    fn a_second_signal_quits_and_no_signal_installs_an_update() {
+        assert_eq!(on_signal(false), SignalStep::Request { install: false });
+        assert_eq!(on_signal(true), SignalStep::Exit);
+    }
+
+    #[test]
+    fn after_stop_and_quit_only_a_new_recording_asks_again() {
+        assert!(asks_again_after_save(Plan::StopAndSave), "meeting detection started one");
+        assert!(asks_again_after_save(Plan::WaitForSave));
+        for next in [Plan::Exit, Plan::Install, Plan::Busy(BusyReason::PostCall), Plan::Busy(BusyReason::ModelDownload)] {
+            assert!(!asks_again_after_save(next), "{next:?}");
+        }
     }
 
     #[test]

@@ -76,8 +76,9 @@ that model lists ask Hugging Face for sizes whether the switch is on or not
   version. Otherwise they quit as before. A quit during a recording first asks
   to stop and save it (#32, `quit.rs`), and one during other busy work asks
   whether to quit anyway (#121); after **Stop and quit** has saved the
-  meeting, the install follows the same gate. On Unix SIGTERM and SIGINT take
-  the same path. macOS and Linux skip the install
+  meeting, the install follows the same gate. On Unix SIGTERM and SIGINT ask
+  the same questions but never install: a logout would kill the installer
+  midway. macOS and Linux skip the install
   on quit when the app's folder is not writable instead of raising an
   administrator prompt. On Windows only tray Quit installs: closing the window
   hides it to the tray.

@@ -213,7 +213,13 @@ checkpoints.
 and on Unix SIGTERM and SIGINT (logout, shutdown, `kill`, Ctrl+C;
 `quit_on_termination_signals`, tokio's signal streams), so a signal ends in
 `RunEvent::Exit` and the crash session is marked clean instead of being
-reported as an unclean shutdown on the next start (#121). `plan` reads
+reported as an unclean shutdown on the next start (#121). The first signal
+asks as tray Quit does; a second one exits at once (on a logout nobody
+answers, and the session manager's SIGKILL would follow), and no signal
+installs a downloaded update, which a logout would kill midway
+(`on_signal`). After **Stop and quit** saved the meeting, only a recording
+started meanwhile asks again; other busy work does not, since the user
+already chose to quit. `plan` reads
 recording state (running, stopping, or saving through the handoff), the other
 work `updater::busy::current` reports, and whether a downloaded update would
 install. Busy work without a recording (the post-call pass, a
@@ -243,9 +249,7 @@ ending, no meeting page and no post-call pass when quitting, the `stop_id`
 hand-over). Limits: Stop and quit does not run
 speaker identification or the automatic summary; **Quit anyway** ends busy
 work with the process (a summary cut off this way stays pending, a built-in
-model download resumes from its partial file); a signal that arrives while a
-question is open leaves it open, and the session manager's later SIGKILL is
-still reported on the next start; Windows shutdown
+model download resumes from its partial file); Windows shutdown
 and log-off exit without asking (tao ends the process on `WM_ENDSESSION`); only
 the latest handoff is tracked, so a second Stop during a save is answered
 `notSaved`.
