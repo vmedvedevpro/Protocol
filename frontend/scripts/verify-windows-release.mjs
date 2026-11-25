@@ -3,8 +3,10 @@
 // SHA256SUMS.txt matches protocol-windows-x64-setup.exe, and the installer's
 // payload (extracted with 7-Zip; SEVEN_ZIP overrides its path) carries the CPU
 // build as protocol.exe, the Vulkan build and probe as variants, no CUDA
-// files, the pinned runtimes and sidecars, and the "nsis" bundle-type marker
-// on both executables that can end up installed as protocol.exe.
+// files, the pinned runtimes and sidecars, the "nsis" bundle-type marker on
+// both executables that can end up installed as protocol.exe, and no AVX-512
+// (zmm) code in them or llama-helper.exe (#176). That check disassembles with
+// llvm-objdump (the runner image's LLVM) or GNU objdump; OBJDUMP overrides it.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { createReadStream, existsSync } from 'node:fs';
@@ -13,6 +15,7 @@ import { resolve, join, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { hasBundleType } from '../../scripts/release/patch-bundle-type.mjs';
+import { checkExecutable, findDisassembler } from '../../scripts/release/check-cpu-baseline.mjs';
 
 const repo = fileURLToPath(new URL('../../', import.meta.url));
 const tauri = join(repo, 'frontend/src-tauri');
@@ -102,6 +105,18 @@ try {
   assert.ok(importedDlls(vulkan).includes('vulkan-1.dll'), 'protocol-vulkan.exe is not the Vulkan build');
   for (const [name, buffer] of [['protocol.exe', cpu], ['protocol-vulkan.exe', vulkan]]) {
     assert.ok(hasBundleType(buffer, 'nsis'), `${name} lacks the nsis bundle-type marker the updater needs`);
+  }
+
+  // ggml for x86-64-v3, not for the build machine's CPU (GGML_* in
+  // build-universal-windows.ps1): an AVX-512 ggml has zmm code and crashes
+  // Whisper on CPUs without AVX-512. The few EVEX instructions left are MSVC's
+  // auto-vectorized loops behind __isa_available (check-cpu-baseline.mjs).
+  const disassembler = findDisassembler();
+  const baseline = await Promise.all(['protocol.exe', 'installer-variants/protocol-vulkan.exe', 'llama-helper.exe']
+    .map((name) => checkExecutable(join(extracted, name), { disassembler })));
+  for (const { path, report, problems } of baseline) {
+    console.log(`${basename(path)}: ${report.instructions} instructions, ${report.zmm} on zmm, ${report.evex} EVEX`);
+    assert.deepEqual(problems, [], `${basename(path)} is not built for the x86-64-v3 baseline`);
   }
 
   assert.deepEqual(await listed('runtime-deps'), ['DirectML.dll', 'vc_redist.x64.exe'], 'Unexpected runtime-deps');
