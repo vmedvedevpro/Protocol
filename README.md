@@ -53,7 +53,7 @@
 - A new compact interface, written from scratch for 1.0.
 - Live transcription is 2.5 times faster than in Actually Free.
 - Transcription after a call is 5 times faster than in Actually Free.
-- Transcription after a call makes 20 % fewer word errors.
+- Transcription after a call makes up to 12 % fewer word errors.
 - On Intel GPUs under Windows, Whisper runs through OpenVINO and is another 4 times faster.
 - On Intel NPUs, Parakeet uses 3.5 times less energy than on the processor.
 - AI agents can read your meetings through MCP.
