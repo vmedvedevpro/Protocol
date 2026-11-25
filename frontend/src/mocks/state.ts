@@ -12,6 +12,7 @@ import {createMockCatalog} from './modelCatalog'
 import {createMockModels} from './models'
 import {createMockNotes} from './notes'
 import {completedOnboarding, createMockDatabase} from './onboarding'
+import {createMockPeople} from './people'
 import {createMockPostCall} from './postCall'
 import {createMockPreferences} from './preferences'
 import {createMockSpeech} from './speech'
@@ -87,6 +88,8 @@ function createMockState() {
         postCall: createMockPostCall(),
         // The meetings library (src/mocks/meetings.ts).
         meetings: createMockMeetings(),
+        // Contacts, their voices and the Labs switch (src/mocks/people.ts).
+        people: createMockPeople(),
         // The recorder and its live transcript (src/mocks/live.ts).
         live: createMockLive(),
         // The live and after-meeting models and the vocabulary (src/mocks/speech.ts).
