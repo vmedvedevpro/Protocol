@@ -1,6 +1,6 @@
 /**
- * Dates as the meetings list and a meeting's header word them, in the
- * user's locale. `now` and `locale` are parameters so tests pin them.
+ * Dates as the meetings list, a meeting's header, search and a contact's
+ * meetings word them, in the user's locale. `now` and `locale` are parameters so tests pin them.
  */
 
 const DAY_MS = 86_400_000
@@ -45,6 +45,15 @@ function shortDate(date: Date, now: Date, locale?: string) {
 export function rowWhen(date: Date, now = new Date(), locale?: string): string {
     const days = daysAgo(date, now)
     if (days <= 1) return formatTime(date, locale)
+    if (days < 7) return date.toLocaleDateString(locale, {weekday: 'short'})
+    return shortDate(date, now, locale)
+}
+
+/** A day without its time, as a contact's meetings list them: "Today", "Yesterday", "Sat", "Nov 7". */
+export function dayWhen(date: Date, now = new Date(), locale?: string): string {
+    const days = daysAgo(date, now)
+    if (days <= 0) return 'Today'
+    if (days === 1) return 'Yesterday'
     if (days < 7) return date.toLocaleDateString(locale, {weekday: 'short'})
     return shortDate(date, now, locale)
 }

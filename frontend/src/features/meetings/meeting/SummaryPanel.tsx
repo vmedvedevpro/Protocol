@@ -18,7 +18,7 @@ import {StatusLine} from '@/components/ui/StatusLine'
 import {toast} from '@/components/ui/toastStore'
 import {ProcessingSteps} from '../components/processing/ProcessingSteps'
 import {hasActionSection, syncFinishedSummary} from '../lib/actionItemSync'
-import {useAutosave, useSaving} from '../lib/autosave'
+import {useAutosave, useSaving} from '@/lib/autosave'
 import {completeSummaryMarkdown, parseSummaryData, splitSummaryAtActionItems, type SummaryPart} from '@/lib/summaryMarkdown'
 import {ActionItems} from './ActionItems'
 

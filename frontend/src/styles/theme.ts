@@ -238,6 +238,10 @@ const sizes = {
      * below inside the pill's border; the timer column holds `h:mm:ss`.
      */
     minibar: {width: '512px', height: '52px', ring: '48px', clock: '64px'},
+    /** Search (⌘K): its field's row, a result's icon tile and the glyph in it, and the row of key hints. */
+    search: {field: '48px', icon: '26px', glyph: '14px', hints: '36px'},
+    /** The person screen's Details: the column of field names. */
+    detailLabel: '72px',
 }
 
 /** Motion tokens for CSS transitions; the values live in ./motion.ts. */
