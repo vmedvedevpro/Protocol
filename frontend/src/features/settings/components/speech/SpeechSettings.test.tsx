@@ -29,22 +29,29 @@ describe('Settings › AI, speech', () => {
         await waitFor(() => expect(mockState.speech.postCallConfig).toEqual({provider: 'whisper', model: POST_CALL_WHISPER_MODEL}))
     })
 
-    it('saves the words to recognize and counts them against the limit', async () => {
+    it('adds words to recognize one at a time, ignores repeats, and removes them, saving each change', async () => {
         renderSection('ai')
-        const field = await screen.findByRole('textbox', {name: 'Words to recognize'})
-        await waitFor(() => expect(field).toHaveValue('Acme\nPriya Shah\nParakeet'))
+        const vocabulary = group('Vocabulary')
+        const field = await within(vocabulary).findByRole('textbox', {name: 'Words to recognize'})
+        // The stored text shows as entries.
+        expect(await within(vocabulary).findByRole('button', {name: 'Remove Priya Shah'})).toBeInTheDocument()
         // The row's label names the field; it is not said twice.
-        expect(within(group('Vocabulary')).getAllByText('Words to recognize')).toHaveLength(1)
-        const save = within(group('Vocabulary')).getByRole('button', {name: 'Save'})
-        expect(save).toBeDisabled()
+        expect(within(vocabulary).getAllByText('Words to recognize')).toHaveLength(1)
+        const add = within(vocabulary).getByRole('button', {name: 'Add'})
+        expect(add).toBeDisabled()
 
-        await userEvent.clear(field)
-        await userEvent.type(field, 'Contoso')
-        expect(within(group('Vocabulary')).getByText('7 / 1000')).toBeInTheDocument()
-        await userEvent.click(save)
+        await userEvent.type(field, '  Contoso {Enter}')
+        await waitFor(() => expect(mockState.speech.vocabulary.global).toBe('Acme\nPriya Shah\nParakeet\nContoso'))
+        expect(field).toHaveValue('')
 
-        await waitFor(() => expect(mockState.speech.vocabulary.global).toBe('Contoso'))
-        await waitFor(() => expect(save).toBeDisabled())
+        await userEvent.type(field, 'acme')
+        await userEvent.click(add)
+        expect(field).toHaveValue('')
+        expect(within(vocabulary).getAllByRole('button', {name: /^Remove /})).toHaveLength(4)
+
+        await userEvent.click(within(vocabulary).getByRole('button', {name: 'Remove Priya Shah'}))
+        await waitFor(() => expect(mockState.speech.vocabulary.global).toBe('Acme\nParakeet\nContoso'))
+        await waitFor(() => expect(within(vocabulary).queryByRole('button', {name: 'Remove Priya Shah'})).not.toBeInTheDocument())
     })
 
     it('downloads Nemotron when it is chosen, and native chooses it once it is there', async () => {

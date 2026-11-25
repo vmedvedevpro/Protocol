@@ -1147,8 +1147,11 @@ recording and hides the main window: minimizing the main window does it
   which logs a failure.
 - The speech half of #117 is `components/speech/`: in AI, the Intel offer,
   Transcription (the installed models during and after the meeting; a
-  saved model that is gone shows as such), Vocabulary (Save, the 1000
-  characters native keeps), Speakers (a radio group; choosing Nemotron
+  saved model that is gone shows as such), Vocabulary (entries added one
+  at a time and removed by their chip, each change saved at once;
+  `speech/vocabulary.ts` keeps native's one-per-line text and its rule:
+  trimmed, blanks and repeats in any case dropped, a comma splits, 1000
+  characters), Speakers (a radio group; choosing Nemotron
   downloads it, its threshold saves 250 ms after the slider rests) and the
   row to Speech models; in Advanced, Local AI (read every 5 s while shown;
   both unloads refused during a recording) and Labs (Parakeet on the GPU
