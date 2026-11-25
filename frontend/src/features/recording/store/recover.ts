@@ -4,6 +4,7 @@
  * (api/recovery.ts). Recover saves the copy as a meeting, with its audio
  * rebuilt from native's checkpoints when they are there.
  */
+import {create} from 'zustand'
 import {errorMessage} from '@/api/core'
 import {folderKeys, meetingKeys, saveTranscript} from '@/api/meetings'
 import {queries} from './queries'
@@ -74,8 +75,26 @@ export interface Recovered {
     audio: AudioRecovery | null
 }
 
+/**
+ * Recoveries running now. No native busy reason covers the audio rebuild and
+ * the save, so RecordingRuntime reports them to the updater as
+ * `recordingSave` while the count is above 0.
+ */
+const useRecoveringStore = create<{ count: number }>(() => ({count: 0}))
+
+export const useRecovering = () => useRecoveringStore((state) => state.count > 0)
+
 /** Saves an interrupted meeting from its copy, with its audio when it can be rebuilt. */
 export async function recoverMeeting(recoveryId: string): Promise<Recovered> {
+    useRecoveringStore.setState(({count}) => ({count: count + 1}))
+    try {
+        return await saveRecovered(recoveryId)
+    } finally {
+        useRecoveringStore.setState(({count}) => ({count: count - 1}))
+    }
+}
+
+async function saveRecovered(recoveryId: string): Promise<Recovered> {
     const meeting = await getRecoveryMeeting(recoveryId)
     if (!meeting) throw new Error('This meeting is no longer in the recovery copy.')
     const lines = await getRecoveryLines(recoveryId)

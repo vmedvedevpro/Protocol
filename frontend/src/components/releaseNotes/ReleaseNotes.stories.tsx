@@ -9,7 +9,7 @@ const Column = styled.div`
 `
 
 const meta = {
-    title: 'Settings/ReleaseNotes',
+    title: 'Updates/ReleaseNotes',
     component: ReleaseNotes,
     args: {notes: createMockUpdateRelease().notes ?? ''},
     decorators: [(Story) => <Column><Story/></Column>],

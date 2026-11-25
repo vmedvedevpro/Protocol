@@ -39,9 +39,10 @@ import {CaretDownIcon, DotsSixVerticalIcon, PlusIcon} from '@phosphor-icons/reac
 import * as m from 'motion/react-m'
 import styled, {useTheme} from 'styled-components'
 import {blocksToMarkdownSafely} from '@/lib/blocknote-markdown'
-import {durations, tween} from '@/styles/motion'
+import {Veil} from '@/components/ui/Veil'
+import {durations} from '@/styles/motion'
 import {notesComponents, slashMenuItems, withBlockTypeIcons} from './editorIcons'
-import {editorStyles} from './editorStyles'
+import {editorStyles, summaryEditorStyles} from './editorStyles'
 import type {NotesEditorProps} from './NotesEditor'
 import {notesSchema} from './notesSchema'
 
@@ -62,6 +63,7 @@ export default function NotesEditorView({
     autoFocus = false,
     onChange,
     onReady,
+    variant = 'notes',
 }: NotesEditorProps) {
     const editor = useCreateBlockNote({
         schema: notesSchema,
@@ -109,8 +111,9 @@ export default function NotesEditorView({
     }, [editor])
 
     return (
-        <Root initial={{opacity: 0}} animate={{opacity: 1}} transition={tween('base', 'enter')}>
+        <Root $fill={variant === 'notes'}>
             <Editor
+                $summary={variant === 'summary'}
                 editor={editor}
                 editable={editable}
                 portalElements={PORTALS}
@@ -145,6 +148,7 @@ export default function NotesEditorView({
                     />
                 </ComponentsContext.Provider>
             </Editor>
+            <Veil/>
         </Root>
     )
 }
@@ -251,10 +255,11 @@ function loadContent(editor: BlockNoteEditor, blocks: unknown, markdown: string 
     }
 }
 
-const Root = styled(m.div)`
+const Root = styled(m.div)<{ $fill: boolean }>`
+    position: relative;
     display: flex;
     flex-direction: column;
-    min-height: 100%;
+    min-height: ${({$fill}) => ($fill ? '100%' : 'auto')};
 `
 
 type ViewProps = Omit<
@@ -272,6 +277,7 @@ function SchemedView(props: ViewProps) {
     return <BlockNoteView {...props} theme={theme.name}/>
 }
 
-const Editor = styled(SchemedView)`
+const Editor = styled(SchemedView)<{ $summary: boolean }>`
     ${editorStyles}
+    ${({$summary}) => $summary && summaryEditorStyles}
 `

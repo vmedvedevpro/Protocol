@@ -2,7 +2,9 @@ import {type KeyboardEvent, useEffect, useRef} from 'react'
 import {PauseIcon, PlayIcon, SpeakerSlashIcon} from '@phosphor-icons/react'
 import styled from 'styled-components'
 import {formatClock} from '@/components/transcript/turns'
+import {Spinner} from '@/components/ui/Spinner'
 import {colorTransition, focusRing} from '@/components/ui/styles'
+import {Tooltip} from '@/components/ui/Tooltip'
 import {useHotkey} from '@/lib/hotkeys'
 import {MOTION_OK, SCALE_FROM} from '@/styles/motion'
 import {type MeetingPlayer, type PlayerStatus, SKIP_SECONDS} from './player'
@@ -188,15 +190,20 @@ export function PlayerBar({player, status, playing, duration, rate}: PlayerBarPr
 
     return (
         <Bar role="group" aria-label="Playback">
-            <PlayButton
-                type="button"
-                disabled={!ready}
-                aria-label={playing ? 'Pause' : 'Play'}
-                title={playing ? 'Pause (Space)' : 'Play (Space)'}
-                onClick={player.toggle}
-            >
-                {playing ? <PauseIcon weight="fill" aria-hidden/> : <PlayIcon weight="fill" aria-hidden/>}
-            </PlayButton>
+            <Tooltip content={playing ? 'Pause' : 'Play'} shortcut="Space">
+                <PlayButton
+                    type="button"
+                    disabled={!ready}
+                    aria-label={playing ? 'Pause' : 'Play'}
+                    aria-busy={status === 'loading' || undefined}
+                    onClick={player.toggle}
+                >
+                    {/* Loading usually ends at once: the spinner shows only if it does not. */}
+                    {status === 'loading'
+                        ? <Spinner delayed/>
+                        : playing ? <PauseIcon weight="fill" aria-hidden/> : <PlayIcon weight="fill" aria-hidden/>}
+                </PlayButton>
+            </Tooltip>
             <Clock ref={position}>{formatClock(player.position)}</Clock>
             <Scrubber
                 ref={scrubber}
@@ -211,9 +218,11 @@ export function PlayerBar({player, status, playing, duration, rate}: PlayerBarPr
                 onKeyDown={onKeyDown}
             />
             <Clock $muted>{formatClock(duration)}</Clock>
-            <Speed type="button" disabled={!ready} aria-label={`Playback speed ${rateLabel(rate)}`} title="Playback speed" onClick={player.nextRate}>
-                {rateLabel(rate)}
-            </Speed>
+            <Tooltip content="Playback speed">
+                <Speed type="button" disabled={!ready} aria-label={`Playback speed ${rateLabel(rate)}`} onClick={player.nextRate}>
+                    {rateLabel(rate)}
+                </Speed>
+            </Tooltip>
         </Bar>
     )
 }

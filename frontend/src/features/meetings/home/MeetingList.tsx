@@ -7,6 +7,7 @@ import {usePostCallJob} from '@/api/postCall'
 import {colorTransition, focusRing} from '@/components/ui/styles'
 import {paths} from '@/lib/paths'
 import {tween} from '@/styles/motion'
+import {Veil} from '@/components/ui/Veil'
 import {ProcessingLine} from '../components/processing/ProcessingLine'
 import {dateGroup, formatLength, parseDate, rowWhen} from '../lib/dates'
 
@@ -45,6 +46,7 @@ const Row = styled.li`
 
 const ArrivingRow = styled(m.li)`
     ${rowStyle};
+    position: relative;
 `
 
 // A meeting still being processed keeps the surface, as the design draws it.
@@ -126,7 +128,7 @@ const MeetingRow = memo(function MeetingRow({meeting, folderName, arriving, onRe
         </RowLink>
     )
     return arriving
-        ? <ArrivingRow initial={{opacity: 0, y: 4}} animate={{opacity: 1, y: 0}} transition={tween('base', 'enter')}>{content}</ArrivingRow>
+        ? <ArrivingRow initial={{y: 4}} animate={{y: 0}} transition={tween('base', 'enter')}>{content}<Veil/></ArrivingRow>
         : <Row>{content}</Row>
 })
 

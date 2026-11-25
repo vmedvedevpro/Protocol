@@ -3,6 +3,7 @@ import * as m from 'motion/react-m'
 import styled from 'styled-components'
 import {Button} from '@/components/ui/Button'
 import {type Status, StatusLine} from '@/components/ui/StatusLine'
+import {Veil} from '@/components/ui/Veil'
 import {tween} from '@/styles/motion'
 import {Screen} from '@/components/screen/Screen'
 import type {StartupPhase} from './startup'
@@ -33,6 +34,7 @@ const Title = styled.h1`
 `
 
 const Retry = styled(m.div)`
+    position: relative;
     margin-top: ${({theme}) => theme.space[2]};
 `
 
@@ -45,8 +47,9 @@ export function StartupScreen({phase, onRetry}: { phase: Checking, onRetry: () =
                 <StatusLine status={STATUS[phase]}/>
                 <AnimatePresence>
                     {phase !== 'checking' && (
-                        <Retry initial={{opacity: 0, y: 4}} animate={{opacity: 1, y: 0}} transition={tween('base')}>
+                        <Retry initial={{y: 4}} animate={{y: 0}} transition={tween('base')}>
                             <Button onClick={onRetry}>Retry</Button>
+                            <Veil/>
                         </Retry>
                     )}
                 </AnimatePresence>

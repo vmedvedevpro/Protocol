@@ -118,3 +118,39 @@ export function parseSummaryData(data: unknown): SummaryData | null {
 export function summaryBlocks(data: SummaryData | null): unknown[] | null {
     return Array.isArray(data?.summary_json) ? data.summary_json : null
 }
+
+/** One editor's share of a summary: its blocks when the summary has them, and its Markdown. */
+export interface SummaryPart {
+    blocks: unknown[] | null
+    markdown: string
+}
+
+// The section the action items go before: the design orders Decisions,
+// Action items, Open questions.
+const AFTER_ACTION_ITEMS = /^open questions\b/i
+const AFTER_ACTION_ITEMS_LINE = /^#{1,6}[ \t]+open questions\b/im
+
+const isSectionAfterActionItems = (raw: unknown) => {
+    const block = raw as { type?: string; content?: unknown }
+    return block?.type === 'heading' && AFTER_ACTION_ITEMS.test(inlineText(block.content).trim())
+}
+
+/**
+ * Splits a summary where its action items belong, before its "Open
+ * questions" section, so the rows sit between Decisions and Open questions.
+ * Without that section (or when it comes first) the second part is empty.
+ */
+export function splitSummaryAtActionItems(data: SummaryData | null): [SummaryPart, SummaryPart] {
+    const blocks = summaryBlocks(data)
+    if (blocks) {
+        const at = blocks.findIndex(isSectionAfterActionItems)
+        if (at <= 0) return [{blocks, markdown: completeSummaryMarkdown(data)}, {blocks: null, markdown: ''}]
+        const head = blocks.slice(0, at)
+        const tail = blocks.slice(at)
+        return [{blocks: head, markdown: blocksToMarkdown(head)}, {blocks: tail, markdown: blocksToMarkdown(tail)}]
+    }
+    const markdown = completeSummaryMarkdown(data)
+    const match = AFTER_ACTION_ITEMS_LINE.exec(markdown)
+    if (!match || match.index === 0) return [{blocks: null, markdown}, {blocks: null, markdown: ''}]
+    return [{blocks: null, markdown: markdown.slice(0, match.index).trimEnd()}, {blocks: null, markdown: markdown.slice(match.index)}]
+}

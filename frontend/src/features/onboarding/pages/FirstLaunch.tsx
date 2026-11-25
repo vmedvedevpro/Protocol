@@ -9,16 +9,18 @@ import {Screen} from '@/components/screen/Screen'
 import {Button} from '@/components/ui/Button'
 import {toast} from '@/components/ui/toastStore'
 import {platform as appPlatform, type Platform} from '@/lib/platform'
-import {tween} from '@/styles/motion'
+import {Veil} from '@/components/ui/Veil'
+import {statusSwap as swap, tween} from '@/styles/motion'
 import {ModelsStep} from '../components/ModelsStep'
 import {NAME_FORM_ID, NameStep} from '../components/NameStep'
 import {type DownloadRow, useFirstLaunchDownloads} from '../hooks/useFirstLaunchDownloads'
 
 type Step = 1 | 2
 
-// A step arrives as a screen does, with a fade and a 4 px rise; the one it
-// replaces goes at once.
+// A step arrives as a screen does, with a 4 px rise under a veil; the one
+// it replaces goes at once.
 const StepView = styled(m.div)`
+    position: relative;
     display: flex;
     flex: 1;
     flex-direction: column;
@@ -47,6 +49,7 @@ const Dot = styled.span<{ $on: boolean }>`
 `
 
 const Caption = styled.span`
+    position: relative;
     ${({theme}) => theme.text.small};
     flex: 1;
     min-width: 0;
@@ -54,16 +57,10 @@ const Caption = styled.span`
 `
 
 const Actions = styled(m.span)`
+    position: relative;
     display: flex;
     gap: ${({theme}) => theme.space[2]};
 `
-
-const swap = {
-    initial: {opacity: 0, y: 4},
-    animate: {opacity: 1, y: 0},
-    exit: {opacity: 0, y: -4},
-    transition: tween('fast'),
-}
 
 /** Live text and summaries, as `complete_onboarding` records them. */
 const isReady = (rows: DownloadRow[], id: string) => rows.find((row) => row.download.id === id)?.state.kind === 'ready'
@@ -115,17 +112,20 @@ export function FirstLaunch({platform = appPlatform}: { platform?: Platform }) {
             <AnimatePresence mode="wait" initial={false}>
                 <Caption as={m.span} key={step} {...swap}>
                     {step === 1 ? 'Step 1 of 2' : 'Downloads continue in the background'}
+                    <Veil duration="fast"/>
                 </Caption>
             </AnimatePresence>
             <AnimatePresence mode="wait" initial={false}>
                 {step === 1 ? (
                     <Actions key="name" {...swap}>
                         <Button variant="filled" type="submit" form={NAME_FORM_ID}>Continue</Button>
+                        <Veil duration="fast"/>
                     </Actions>
                 ) : (
                     <Actions key="models" {...swap}>
                         <Button variant="ghost" onClick={() => goTo(1)}>Back</Button>
                         <Button variant="filled" pending={done.isPending} onClick={() => done.mutate()}>Done</Button>
+                        <Veil duration="fast"/>
                     </Actions>
                 )}
             </AnimatePresence>
@@ -134,10 +134,11 @@ export function FirstLaunch({platform = appPlatform}: { platform?: Platform }) {
 
     return (
         <Screen bar={bar}>
-            <StepView key={step} initial={{opacity: 0, y: 4}} animate={{opacity: 1, y: 0}} transition={tween('base', 'enter')}>
+            <StepView key={step} initial={{y: 4}} animate={{y: 0}} transition={tween('base', 'enter')}>
                 {step === 1
                     ? <NameStep onContinue={() => goTo(2)}/>
                     : <ModelsStep rows={rows} platform={platform} focusOnMount={moved}/>}
+                <Veil/>
             </StepView>
         </Screen>
     )

@@ -15,6 +15,7 @@ import {command} from './core'
 import type {NativeEvent} from './events'
 // Used only inside callbacks, so the import cycle with people.ts is harmless.
 import {peopleKeys} from './people'
+import {postCallControls} from './postCall'
 
 // ---- Meetings ---------------------------------------------------------------
 
@@ -200,11 +201,16 @@ export const renameMeetingMutation = (meetingId: string) =>
 
 /**
  * Deleting drops the meeting's own queries rather than refetching them: a
- * screen still showing it would read "Meeting not found".
+ * screen still showing it would read "Meeting not found". Its post-call
+ * pass is cancelled first, so no step starts on, or writes into, a meeting
+ * that is gone.
  */
 export const deleteMeetingMutation = (meetingId: string) =>
     mutationOptions({
-        mutationFn: () => deleteMeeting(meetingId),
+        mutationFn: () => {
+            postCallControls.cancel(meetingId)
+            return deleteMeeting(meetingId)
+        },
         onSuccess: async (_reply, _variables, _result, {client}) => {
             for (const key of [meetingKeys.detail, meetingKeys.transcripts, meetingKeys.audio, meetingKeys.folder, meetingKeys.summary]) {
                 client.removeQueries({queryKey: key(meetingId)})

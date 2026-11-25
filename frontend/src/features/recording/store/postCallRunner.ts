@@ -73,13 +73,42 @@ class Cancelled extends Error {
 export const RUNNER_TIMING = {
     /** The old UI's limit: a retranscription past it is cancelled as stuck. */
     retranscriptionLimitMs: 30 * 60 * 1000,
-    /** How often a running summary is read again. */
-    summaryPollMs: SUMMARY_POLL_MS,
+    /**
+     * How long a retranscription that ended may still hold the model. Native
+     * looks at a cancel before each piece, and a piece is at most 25 s of
+     * audio (post_meeting.rs, `MAX_PIECE_SAMPLES`), which even a slow CPU
+     * decodes well inside this; a run still going past it ignores the cancel.
+     */
+    releaseLimitMs: 2 * 60 * 1000,
     /** How often a cancelled retranscription is asked whether it let go of the model. */
     releasePollMs: 500,
+    /**
+     * A summary past it is cancelled as stuck: a hung provider or a lost
+     * process. Native ends each model request within 15 minutes (the summary
+     * engine's `GENERATION_TIMEOUT_SECS`; 5 minutes for a cloud request,
+     * llm_client.rs), so this leaves room for a long meeting written in
+     * several requests.
+     */
+    summaryLimitMs: 60 * 60 * 1000,
+    /** How often a running summary is read again. */
+    summaryPollMs: SUMMARY_POLL_MS,
 }
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+/**
+ * Waits while native still retranscribes `meetingId`; false when it still
+ * does after `releaseLimitMs`. Without the limit a run that ignores its
+ * cancel would hold this pass, the queue behind it and the updater for good.
+ */
+async function released(meetingId: string): Promise<boolean> {
+    const deadline = Date.now() + RUNNER_TIMING.releaseLimitMs
+    while (await isRetranscriptionInProgress(meetingId).catch(() => false)) {
+        if (Date.now() >= deadline) return false
+        await wait(RUNNER_TIMING.releasePollMs)
+    }
+    return true
+}
 
 /**
  * Retranscribes and resolves when native says it is complete. The listeners
@@ -114,6 +143,7 @@ async function retranscribe(pass: Pass) {
         cancel()
         settle.reject(new Error('Improving the transcript took too long and was stopped.'))
     }, RUNNER_TIMING.retranscriptionLimitMs)
+    let ended: { error: unknown } | null = null
     try {
         if (pass.cancel.signal.aborted) throw new Cancelled()
         // Together, so the time limit covers a start that never answers too.
@@ -128,14 +158,21 @@ async function retranscribe(pass: Pass) {
             }),
             done,
         ])
+    } catch (error) {
+        ended = {error}
     } finally {
         stops.forEach((stop) => stop())
         pass.cancel.signal.removeEventListener('abort', cancel)
         clearTimeout(limit)
-        // After a cancel, an error or the time limit native may still finish
-        // its chunk and hold the model; the next pass, or a Retry, waits for it.
-        while (await isRetranscriptionInProgress(meetingId).catch(() => false)) await wait(RUNNER_TIMING.releasePollMs)
     }
+    // After a cancel, an error or the time limit native may still finish its
+    // chunk and hold the model; the next pass, or a Retry, waits for it. Past
+    // the limit the step's own error stands, and a step that completed fails,
+    // so Retry is offered rather than a pass that starts only to hear
+    // "Retranscription already in progress".
+    const free = await released(meetingId)
+    if (ended) throw ended.error
+    if (!free) throw new Error('The speech model is still busy with this meeting. Retry in a minute.')
 }
 
 /** Starts the automatic summary and waits for native to finish writing it. */
@@ -145,16 +182,24 @@ async function summarize(pass: Pass) {
     if (config.provider === 'builtin-ai' && !(await isBuiltInModelReady(config.model).catch(() => false))) {
         throw new Error('The built-in summary model is not downloaded yet.')
     }
+    if (pass.cancel.signal.aborted) throw new Cancelled()
     await startSummary({meetingId: pass.meetingId, provider: config.provider, model: config.model})
     const abort = () => void cancelSummary(pass.meetingId).catch(() => undefined)
     pass.cancel.signal.addEventListener('abort', abort, {once: true})
+    // A Cancel while the start was on its way aborted before the listener existed.
+    if (pass.cancel.signal.aborted) abort()
+    const deadline = Date.now() + RUNNER_TIMING.summaryLimitMs
     try {
         for (; ;) {
             await wait(RUNNER_TIMING.summaryPollMs)
             if (pass.cancel.signal.aborted) throw new Cancelled()
             const summary = await getSummary(pass.meetingId)
             void queries().invalidateQueries({queryKey: meetingKeys.summary(pass.meetingId)})
-            if (isSummaryRunning(summary.status)) continue
+            if (isSummaryRunning(summary.status)) {
+                if (Date.now() < deadline) continue
+                await cancelSummary(pass.meetingId).catch(() => undefined)
+                throw new Error('Writing the summary took too long and was stopped.')
+            }
             if (summary.status === 'completed') return
             if (summary.status === 'cancelled') throw new Cancelled()
             throw new Error(summary.error || 'The summary could not be written.')
@@ -259,7 +304,9 @@ export const runnerControls = {
         const pass = passes.get(meetingId)
         if (!pass) return
         const job = postCallJobs.get(meetingId)
-        if (job?.state === 'running') {
+        // A pass already cancelling still holds native work too: finishing it
+        // now would start the next one while native holds the model.
+        if (job?.state === 'running' || job?.state === 'cancelling') {
             // Native stops between chunks; the step's end finishes the pass.
             postCallJobs.cancelling(meetingId)
             pass.cancel.abort()

@@ -7,10 +7,12 @@ import {
     TrashIcon,
     UsersIcon,
 } from '@phosphor-icons/react'
+import {useLayoutEffect, useRef, useState} from 'react'
 import styled from 'styled-components'
 import type {Folder} from '@/api/meetings'
 import {IconButton} from '@/components/ui/Button'
 import {Menu, MenuItem, MenuRadioGroup, MenuRadioItem, MenuSeparator, MenuSub} from '@/components/ui/Menu'
+import {Tooltip} from '@/components/ui/Tooltip'
 import {formatLength, headerWhen} from '../lib/dates'
 import {SpeakerCountItems} from './SpeakerCount'
 
@@ -43,6 +45,22 @@ const Meta = styled.p`
     white-space: nowrap;
     text-overflow: ellipsis;
 `
+
+/** The title on one line; cut off, it shows whole in a tooltip. */
+function MeetingTitle({title}: { title: string }) {
+    const heading = useRef<HTMLHeadingElement>(null)
+    const [cut, setCut] = useState(false)
+    useLayoutEffect(() => {
+        const element = heading.current
+        if (!element) return
+        const measure = () => setCut(element.scrollWidth > element.clientWidth)
+        const observer = new ResizeObserver(measure)
+        observer.observe(element)
+        return () => observer.disconnect()
+    }, [title])
+    const shown = <Title ref={heading}>{title}</Title>
+    return cut ? <Tooltip content={title}>{shown}</Tooltip> : shown
+}
 
 // The radio group's value for "No folder"; folder ids are UUIDs.
 const NO_FOLDER = ''
@@ -84,7 +102,7 @@ export function MeetingHeader(props: MeetingHeaderProps) {
     return (
         <Head>
             <Text>
-                <Title>{title}</Title>
+                <MeetingTitle title={title}/>
                 {meta && <Meta>{meta}</Meta>}
             </Text>
             <Menu

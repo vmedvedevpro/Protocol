@@ -1,6 +1,7 @@
 import {act, screen, waitFor, within} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import {beforeEach, describe, expect, it} from 'vitest'
+import {beforeEach, describe, expect, it, vi} from 'vitest'
+import {handlers, type MockArgs} from '@/mocks/handlers'
 import {mockState} from '@/mocks/state'
 import {renderRoute} from '../testing'
 import {MeetingRoute} from './MeetingScreen'
@@ -10,10 +11,26 @@ const renderMeeting = (meetingId: string, query = '') => renderRoute(`/meetings/
     {path: '/meetings/:meetingId', element: <MeetingRoute/>},
 ])
 
+// The mock's runs end at once: a test waits for the state it reads, never for
+// wall time, and holds a run with `hold` when it reads the state in between.
 beforeEach(() => {
-    mockState.meetings.summaryRunMs = 20
-    mockState.postCall.stepMs = 1
+    mockState.meetings.summaryRunMs = 0
+    mockState.postCall.stepMs = 0
 })
+
+/** Holds a mock command until `release`, then runs it as the mock does. */
+function hold(command: string) {
+    const original = handlers[command]
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => {
+        release = resolve
+    })
+    const spy = vi.spyOn(handlers, command).mockImplementationOnce(async (args: MockArgs) => {
+        await gate
+        return original(args)
+    })
+    return {spy, release}
+}
 
 describe('MeetingScreen', () => {
     it('shows the title, when it was, how long and its folder', async () => {
@@ -39,6 +56,8 @@ describe('MeetingScreen', () => {
         await waitFor(() => expect(box).toBeChecked())
 
         await userEvent.click(within(items).getByRole('button', {name: 'Add an action item'}))
+        // Nothing to add yet: Add waits for the text.
+        expect(screen.getByRole('button', {name: 'Add'})).toBeDisabled()
         await userEvent.type(screen.getByRole('textbox', {name: 'What needs doing'}), 'Book the pilot kickoff')
         await userEvent.click(screen.getByRole('button', {name: 'Add'}))
         const added = await within(items).findByRole('button', {name: 'Book the pilot kickoff · no owner yet'})
@@ -60,10 +79,13 @@ describe('MeetingScreen', () => {
     })
 
     it('writes a summary the meeting has none of', async () => {
+        const start = hold('api_process_transcript')
         renderMeeting('meeting-untitled')
         await userEvent.click(await screen.findByRole('button', {name: 'Generate summary'}))
         expect(await screen.findByText('Writing the summary…')).toBeInTheDocument()
-        expect(await screen.findByRole('region', {name: 'Action items'}, {timeout: 3000})).toBeInTheDocument()
+
+        start.release()
+        expect(await screen.findByRole('region', {name: 'Action items'})).toBeInTheDocument()
         expect(mockState.meetings.summaries['meeting-untitled'].status).toBe('completed')
     })
 
@@ -82,7 +104,8 @@ describe('MeetingScreen', () => {
         const confirm = screen.getByRole('dialog', {name: 'Write the summary again?'})
         expect(confirm).toHaveTextContent('replaces your edits')
         await userEvent.click(within(confirm).getByRole('button', {name: 'Write again'}))
-        await waitFor(() => expect(mockState.meetings.summaries['meeting-roadmap'].status).not.toBe('completed'))
+        // The new run replaced the edited summary: a state that stays, unlike the run's status.
+        await waitFor(() => expect(mockState.meetings.summaries['meeting-roadmap'].userEdited).toBe(false))
     })
 
     it('copies the transcript with times and speakers', async () => {
@@ -111,7 +134,7 @@ describe('MeetingScreen', () => {
     })
 
     it('keeps a speaker run it started when the user leaves the meeting and comes back', async () => {
-        mockState.postCall.stepMs = 100
+        const run = hold('diarize_meeting')
         const {router} = renderMeeting('meeting-acme-review', '?tab=transcript')
         await userEvent.click(await screen.findByRole('button', {name: /speakers found\. Change the count/}))
         await userEvent.click(screen.getByRole('menuitem', {name: '4 speakers'}))
@@ -119,6 +142,8 @@ describe('MeetingScreen', () => {
         await act(() => router.navigate('/'))
         await act(() => router.navigate('/meetings/meeting-acme-review?tab=transcript'))
         expect(await screen.findByRole('button', {name: /speakers found\. Change the count/})).toBeDisabled()
+
+        run.release()
         expect(await screen.findByText('Found 4 speakers')).toBeInTheDocument()
         await waitFor(() => expect(screen.getByRole('button', {name: /speakers found\. Change the count/})).toBeEnabled())
     })

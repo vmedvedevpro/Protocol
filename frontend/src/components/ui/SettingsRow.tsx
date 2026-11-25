@@ -119,8 +119,10 @@ const GroupTitle = styled.h2`
 `
 
 // Rows sit on one grey card, divided by hairlines. A row that search hides
-// leaves an empty wrapper behind (a Collapse), which takes no line.
+// leaves an empty wrapper behind (a Collapse), which takes no line. The
+// card's colour is behind the veils of what swaps on it (Veil).
 const Card = styled.div`
+    --surface: ${({theme}) => theme.colors.surface};
     overflow: hidden;
     border-radius: ${({theme}) => theme.radii.xl};
     background: ${({theme}) => theme.colors.surface};
@@ -177,15 +179,18 @@ const Row = styled.div`
     padding: ${({theme}) => theme.space[2.5]} ${({theme}) => theme.space[3]};
 `
 
+// A control too wide to leave the text 160 px drops to its own line, rather
+// than squeezing the label to a word per line (Theme's three segments).
 const Line = styled.div`
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: ${({theme}) => theme.space[3]};
+    gap: ${({theme}) => theme.space[2]} ${({theme}) => theme.space[3]};
 `
 
 const Text = styled.span`
     display: flex;
-    flex: 1;
+    flex: 1 1 160px;
     flex-direction: column;
     min-width: 0;
     text-align: left;

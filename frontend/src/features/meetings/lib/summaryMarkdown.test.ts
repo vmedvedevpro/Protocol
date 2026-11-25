@@ -1,5 +1,5 @@
 import {assert, describe, test} from 'vitest'
-import {blocksToMarkdown, completeSummaryMarkdown, parseSummaryData} from './summaryMarkdown'
+import {blocksToMarkdown, completeSummaryMarkdown, parseSummaryData, splitSummaryAtActionItems} from './summaryMarkdown'
 import {extractActionItems} from './actionItemText'
 
 const text = (value: string) => [{ type: 'text', text: value, styles: {} }]
@@ -68,5 +68,32 @@ describe('parseSummaryData', () => {
         assert.deepEqual(parseSummaryData('{"markdown":"# Hi"}'), {markdown: '# Hi'})
         assert.deepEqual(parseSummaryData('Just text'), {markdown: 'Just text'})
         assert.strictEqual(parseSummaryData(null), null)
+    })
+})
+
+describe('splitSummaryAtActionItems', () => {
+    test('splits Markdown before Open questions', () => {
+        const [head, tail] = splitSummaryAtActionItems({markdown: '## Decisions\n\n- Ship it\n\n## Open questions\n\n- Who signs?'})
+        assert.deepEqual(head, {blocks: null, markdown: '## Decisions\n\n- Ship it'})
+        assert.deepEqual(tail, {blocks: null, markdown: '## Open questions\n\n- Who signs?'})
+    })
+
+    test('splits blocks at the Open questions heading', () => {
+        const blocks = [
+            {type: 'heading', props: {level: 2}, content: text('Decisions')},
+            {type: 'bulletListItem', content: text('Ship it')},
+            {type: 'heading', props: {level: 2}, content: text('Open questions')},
+            {type: 'bulletListItem', content: text('Who signs?')},
+        ]
+        const [head, tail] = splitSummaryAtActionItems({summary_json: blocks, markdown: 'ignored'})
+        assert.deepEqual(head.blocks, blocks.slice(0, 2))
+        assert.deepEqual(tail.blocks, blocks.slice(2))
+        assert.strictEqual(tail.markdown, '## Open questions\n- Who signs?')
+    })
+
+    test('keeps a summary without Open questions whole', () => {
+        const [head, tail] = splitSummaryAtActionItems({markdown: '## Summary\n\nDone.'})
+        assert.strictEqual(head.markdown, '## Summary\n\nDone.')
+        assert.deepEqual(tail, {blocks: null, markdown: ''})
     })
 })

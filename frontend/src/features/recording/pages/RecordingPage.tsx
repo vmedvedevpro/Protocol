@@ -8,6 +8,7 @@ import {TranscriptList} from '@/components/transcript/TranscriptList'
 import {Screen} from '@/components/screen/Screen'
 import {Button} from '@/components/ui/Button'
 import {TabList, TabPanels, Tabs} from '@/components/ui/SegmentedControl'
+import {Spinner} from '@/components/ui/Spinner'
 import {StatusLine} from '@/components/ui/StatusLine'
 import {toast} from '@/components/ui/toastStore'
 import {useHotkey} from '@/lib/hotkeys'
@@ -55,6 +56,21 @@ const Panel = styled.div`
     min-height: 0;
     overflow-y: auto;
     padding: ${({theme}) => theme.space[3]} ${({theme}) => theme.space[4]};
+`
+
+// The transcript scrolls and pads itself, as on the meeting screen.
+const Column = styled.div`
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-height: 0;
+`
+
+// A wait for the first line: the spinner shows it is still listening.
+const Listening = styled.span`
+    display: inline-flex;
+    align-items: center;
+    gap: ${({theme}) => theme.space[1.5]};
 `
 
 const Footnote = styled.p`
@@ -132,7 +148,7 @@ function TranscriptPanel() {
     const shown = useMemo(() => lines.map(toTranscriptLine), [lines])
 
     return (
-        <Panel>
+        <Column>
             <TranscriptList
                 lines={shown}
                 label="Live transcript"
@@ -141,12 +157,12 @@ function TranscriptPanel() {
                 onRenameSpeaker={renameSpeaker}
                 empty={(
                     <Empty>
-                        <EmptyTitle>Listening…</EmptyTitle>
+                        <EmptyTitle><Listening><Spinner/>Listening…</Listening></EmptyTitle>
                         <EmptyText>Lines appear here as people speak.</EmptyText>
                     </Empty>
                 )}
             />
-        </Panel>
+        </Column>
     )
 }
 
@@ -247,8 +263,9 @@ export function RecordingPage() {
             <Tabs label="Recording views" options={TABS} value={tab} onChange={setTab}>
                 <Bar>
                     <TabList/>
+                    {/* While finishing, the bar alone says what the save is doing. */}
                     <Meta>
-                        {phase === 'finishing' ? step ?? 'Finishing…'
+                        {phase === 'finishing' ? null
                             : tab === 'notes' ? 'Autosaved'
                                 : tab === 'transcript' && voices > 0 ? voicesLabel(voices) : null}
                     </Meta>

@@ -90,6 +90,28 @@ describe('Toast', () => {
         expect(toasts()[0]).toHaveTextContent(`Toast ${MAX_TOASTS + 1}`)
     })
 
+    it('closes timed toasts first and never a persistent one for a timed one', async () => {
+        renderUi(<span/>)
+
+        act(() => {
+            toast.warning('Your notes were not saved', {duration: Infinity, action: {label: 'Copy notes', onClick: () => {}}})
+            for (let n = 1; n <= MAX_TOASTS; n++) toast(`Toast ${n}`, {duration: 30_000})
+        })
+
+        await waitFor(() => expect(toasts()).toHaveLength(MAX_TOASTS))
+        expect(toastNamed('Your notes were not saved')).toBeDefined()
+        expect(toastNamed('Toast 1')).toBeUndefined()
+
+        act(() => {
+            for (let n = 1; n < MAX_TOASTS; n++) toast(`Pinned ${n}`, {duration: Infinity})
+            toast('Late', {duration: 30_000})
+        })
+
+        await waitFor(() => expect(toastNamed('Late')).toBeUndefined())
+        expect(toasts()).toHaveLength(MAX_TOASTS)
+        expect(toastNamed('Your notes were not saved')).toBeDefined()
+    })
+
     it('dismisses one toast by id, or all of them', async () => {
         renderUi(<span/>)
 

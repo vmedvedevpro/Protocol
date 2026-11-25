@@ -6,7 +6,8 @@
  * name rejects the whole call, so a new activity needs a native
  * `UiActivity` variant first.
  *
- * - `recordingSave`: after Stop, the wait for the last lines and the save.
+ * - `recordingSave`: after Stop, the wait for the last lines and the save;
+ *   and a recovery's audio rebuild and save.
  * - `postCall`: a post-call pass is queued, runs or waits on a failure.
  */
 import {command} from '@/api/core'

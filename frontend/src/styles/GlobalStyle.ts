@@ -21,6 +21,12 @@ export const GlobalStyle = createGlobalStyle`
         background: ${({theme}) => theme.colors.bg};
     }
 
+    /* Thin scrollbars in the border colour, in every scroll area (both inherit). */
+    :root {
+        scrollbar-width: thin;
+        scrollbar-color: ${({theme}) => theme.colors.border} transparent;
+    }
+
     body {
         font-family: ${({theme}) => theme.fonts.sans};
         ${({theme}) => theme.text.body};

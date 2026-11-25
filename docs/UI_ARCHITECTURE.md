@@ -297,13 +297,15 @@ theme; the motion from the Motion section.
   filled button.
 - `SegmentedControl`, and `Tabs` with `TabList` and `TabPanels` (see Motion).
   `Crossfade` with `CrossfadeView` swaps any two views in one place the way
-  `TabPanels` swaps panels: one grid cell, a `base` fade, and the leaving view
-  `inert` while it fades.
+  `TabPanels` swaps panels: one grid cell, a `base` veil (see Motion), and
+  the leaving view `inert` while it is covered.
 - `Switch`, `Select`, `TextField` and `TextArea`. `SettingsGroup`,
   `SettingsRow` and `SettingsNavRow` lay out a settings card; a control in a
   row without a name of its own (`label`, `aria-label`, `aria-labelledby`)
   is named by the row's label and described by its description, which may
-  be a `StatusLine` for a status that changes (an update's). A focused
+  be a `StatusLine` for a status that changes (an update's). A control too
+  wide to leave the text 160 px (Theme's three segments) drops to its own
+  line rather than squeezing the label to a word per line. A focused
   field draws a 2 px stroke in the text colour on its edge
   (`fieldFocusRing`), so focus differs from hover's `muted` border. The
   stroke is one outline over the border, never a border plus a spread
@@ -344,8 +346,9 @@ theme; the motion from the Motion section.
   from anywhere, a mutation's callback or an event handler outside React;
   `toast.dismiss(id?)` closes one or all. The window's one `Toaster`
   (`Toast.tsx`) draws them under the title strip, newest on top, at most
-  three (a fourth closes the oldest), above an open sheet and usable over
-  it. The design draws no toast: it takes the Home banner's look, an icon
+  three (a fourth closes the oldest timed one; a persistent one, such as
+  "Copy notes", closes only for another persistent one), above an open
+  sheet and usable over it. The design draws no toast: it takes the Home banner's look, an icon
   for the tone (none is red, which is the recording's), a medium title, a
   muted line that wraps anywhere (a hash fits), one small action and the
   close button. Radix's toast gives the behaviour: the time on screen
@@ -389,13 +392,27 @@ enter and exit, indicators and springs.
 - Only `transform` and `opacity` animate, plus colours in state feedback and
   the theme change. Width, height, top, left and margin never animate: each
   frame would lay the window out again. Something that has to grow appears
-  with a fade and a small rise, and the layout moves once. The one exception
+  with a small rise under a veil, and the layout moves once. The one exception
   is `Collapse`, a disclosure's content ("What's included?", advanced
   settings): it grows its height under a clip, because what follows it has
   to slide rather than jump, and its text must not fade, since text that
   ends an opacity animation is rasterized again and visibly blinks. It is a
   short block in a sheet or a settings card, so laying it out each frame
   is cheap.
+- Text never fades itself. Under an opacity below 1 Chromium draws text
+  without subpixel antialiasing and draws it again when the fade ends, a
+  visible blink. So content that holds text keeps its 4 px rise
+  (transform) and is revealed by a veil (`components/ui/Veil.tsx`): a layer
+  in the colour behind it that fades out over it, the only composited
+  thing; under AnimatePresence the veil covers a leaving element again
+  before it goes, or the element goes at once. The veil's colour is
+  `--surface`, which a surface sets on the element inside it whose content
+  swaps (the settings card, the processing strip's content, first launch's
+  download list and microphone card); the window's background otherwise.
+  `statusSwap` (`styles/motion.ts`) is the motion of a status change. Overlays with a
+  surface of their own (sheets, menus, select lists, tooltips, toasts, the
+  transcript's Latest button) keep their fade, and so does the ring's
+  source button, whose own background changes with its content.
 - Animated elements are `m.*` (`import * as m from 'motion/react-m'`) under
   `MotionProvider` (through `UiProviders`). It loads `domAnimation`
   (`components/ui/motionFeatures.ts`) as its own chunk after the first
@@ -441,9 +458,16 @@ enter and exit, indicators and springs.
     which usually ends at once, keeps its label. The crash report sheet's
     Send Report, Save ZIP and Ignore use it.
 - What animates and how:
+  - Screens and first launch's steps arrive with a 4 px rise under a veil
+    over `base`; the one they replace goes at once.
+  - Home's folder chips: the selected chip's outline is a thumb that
+    slides to the chip chosen by transform on `springs.snappy`.
+  - Menus draw the border and shadow on a surface that never scrolls; the
+    rows scroll inside it.
   - Tabs and segmented controls: the thumb slides; the panel below swaps
-    with a `base` crossfade (`Crossfade`), without sliding. Other views that
-    replace each other in one place use `Crossfade` too.
+    through the veil over `base` (`Crossfade`: the old view is covered, the
+    new one revealed), without sliding. Other views that replace each other
+    in one place use `Crossfade` too.
   - Sheets and dialogs: in from their edge by `y` on `springs.gentle`, the
     scrim fading over `base`; out with `tween('base', 'exit')`. A sheet hangs
     under the window's header, so it arrives from above.
@@ -454,18 +478,22 @@ enter and exit, indicators and springs.
     (0.96), with `transform-origin` on the side of their anchor, over
     `fast`. Inside a menu or a select list one highlight slides between the
     items on `springs.snappy` (`SlidingHighlight`); it stays on the last
-    item while the pointer crosses a separator, and fades when the pointer
+    item while the pointer crosses a separator or a group label and lands
+    on the next item past it rather than sliding across, and fades when the pointer
     leaves the list or rests on a disabled item, where Enter would do
     nothing.
-  - Lists: a new row fades in rising 4 px over `base`, a removed row fades
-    out; no stagger, and no reordering animation (it needs layout).
+  - Lists: a new row rises 4 px under a veil over `base`, a removed row
+    goes at once; no stagger, and no reordering animation (it needs layout).
+    Home's banners and the meeting's processing strip and steps arrive the
+    same way.
   - Disclosures: `Collapse` grows from nothing to its content's height over
     `base` and shrinks back the same way, at full opacity throughout; its
     button's caret turns over `fast`. The clip holds only while the height
     moves, so a focus ring at the content's edge shows once it is open.
   - Status changes (a status line, a badge, a count): `AnimatePresence
-    mode="wait"` with the old value leaving and the new one arriving, opacity
-    and 4 px of `y` over `fast`, as the shell's update status does. The key
+    mode="wait"` with the old value leaving and the new one arriving, 4 px
+    of `y` (`statusSwap`) under a veil over `fast`, as the shell's update
+    status does. The key
     names the meaning, not the text: re-key when the meaning changes, never
     on every value; a value inside one meaning (a download's percent, a
     count) updates in place. That value also stays outside the
@@ -802,7 +830,9 @@ quit is saved whatever screen is open. The minibar window mounts none of it.
   `get_recording_state`, the name and `get_transcript_history` bring the
   timer, mutes, title and lines back; the notes come from `af-live-notes`;
   the crash copy is found again by its title, or a new one is made. When
-  `is_recording` itself fails the bar says recording is unavailable.
+  `is_recording` itself fails the bar says recording is unavailable; when
+  only `get_recording_state` fails the session still joins, keeping the
+  timer, pause and mutes it last knew.
 - **Live lines** (`transcript-update`) are kept in order by start time, once
   per sequence id, with this recording's speaker names replayed
   (`lib/speakerEdits.ts`, `meetily-speaker-edits:<recoveryId>`), and each is
@@ -834,19 +864,26 @@ quit is saved whatever screen is open. The minibar window mounts none of it.
   when a speaker engine is installed, then the automatic summary when it is
   on. One meeting at a time; each step waits for the one before. A failed
   step waits for Retry or Skip; a skipped one leaves the list. Cancel stops
-  native between chunks. A retranscription past 30 minutes is cancelled.
-  Its listeners are registered (`listenNative`, awaited) before the start,
+  native between chunks, and reaches a summary that is still starting. A
+  retranscription past 30 minutes and a summary past 60 are cancelled and
+  fail with Retry (`RUNNER_TIMING` gives each limit its reason). Its
+  listeners are registered (`listenNative`, awaited) before the start,
   since a missing audio file fails at once; after a cancel, an error or the
   limit the step waits until `is_retranscription_in_progress_command` says
   native let go of the model, so the next meeting or a Retry does not fail
-  with "Retranscription already in progress".
+  with "Retranscription already in progress". That wait ends after 2
+  minutes: the step's error stands (a completed step fails), and a pass
+  that native then rejects fails with Retry rather than holding the queue
+  and the updater for good. A second Cancel while cancelling changes
+  nothing. Deleting a meeting cancels its pass first.
 - **Recovery** (`api/recovery.ts`, `store/recover.ts`, `RecoverySheet`):
   IndexedDB `MeetilyRecoveryDB` v1 as the old UI wrote it. A recording's
   record is made at its start; every line is added. Once per page load the
   sheet offers unsaved meetings updated within 7 days and more than 2 s ago
   that have lines (one without lines has nothing to save, so it is not
   offered); Recover saves it with audio rebuilt from the checkpoints when
-  there are some, Delete asks first. Old copies are pruned (7 days, saved
+  there are some, Delete asks first; the rebuild and save report
+  `recordingSave` to the updater. Old copies are pruned (7 days, saved
   ones after a day), never while recording.
 - **The bar** (`RecordingBar`): idle, Record and the inputs; starting and
   finishing, what is happening; recording, the ring (pause, Space on the
@@ -861,7 +898,7 @@ quit is saved whatever screen is open. The minibar window mounts none of it.
   12 000 characters and, to steer it, the first 3 000 characters of the
   notes, the old UI's budgets, since native sends the context to the model
   in one request; not saved).
-- **Busy and the updater**: the save reports `recordingSave` and a running
+- **Busy and the updater**: the save and a recovery report `recordingSave` and a running
   or queued pass `postCall` (Native data above; `usePostCallBusy` reads it
   from the jobs); a failed pass waiting for the user holds nothing.
 - `store/queries.ts`: the store works outside React, on the query client
@@ -913,7 +950,7 @@ quit is saved whatever screen is open. The minibar window mounts none of it.
   passes in; the list writes `data-active` and `aria-current` straight
   onto that row, never through React state, and keeps it in view unless
   the user scrolled in the last 4 s. A `live` list (#112) follows its end
-  until the user scrolls up, then offers Latest; its new rows fade in, and
+  until the user scrolls up, then offers Latest; its new rows rise in under a veil, and
   keep their element when `live` turns off after Stop. A
   voice other than the user's can be named in place (`onRenameSpeaker`);
   the user's own label comes from the microphone and is never renamed here.
@@ -977,7 +1014,7 @@ another meeting starts from fresh state).
   meetings stay, in no folder. Rows are grouped by date (`lib/dates.ts`);
   a row's second line is the post-call pass while one runs
   (`ProcessingLine`), else its folder. F2 on a row renames the meeting. A
-  meeting added while Home is open (a recording just saved) fades in;
+  meeting added while Home is open (a recording just saved) rises in under a veil;
   filtering does not animate. Home docks the recording bar
   (`Screen recordBar`) and draws no recording controls of its own.
 - **Home banners.** "Update ready" shows while `updaterStatusQuery` has an
@@ -1001,7 +1038,11 @@ another meeting starts from fresh state).
   the user, that still has one, whether the run ended there or while the
   user was elsewhere. It reads the summary from native again, so a second
   call finds no section and changes nothing; calls for one meeting share
-  one promise. Home runs the backfill of older summaries once per session.
+  one promise. Home runs the backfill of older summaries once per session;
+  one whose list call failed runs again on the next visit. The rows sit
+  between Decisions and Open questions: the summary splits before its Open
+  questions section into two editors (`variant="summary"`, every heading
+  a section label like Action items) saved as one summary.
 - **The meeting screen.** The header (title; when, how long, folder) and
   its menu: Rename (also F2), Move to folder, Copy transcript, Copy summary,
   Open recording folder, Identify speakers again with a count, Delete.

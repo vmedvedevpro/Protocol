@@ -13,7 +13,7 @@ const downloadedOffer = () => {
     mockState.updater = {
         ...mockState.updater,
         support: {kind: 'updatable', install: 'nsis'},
-        offer: {release: {version: '0.9.0', notes: 'Faster summaries.', date: null}, downloaded: true, manualOnly: false, waitingForRecording: false},
+        offer: {release: {version: '0.9.0', notes: '### Changed\n\n- **Faster summaries.**', date: null}, downloaded: true, manualOnly: false, waitingForRecording: false},
     }
 }
 
@@ -125,7 +125,10 @@ describe('HomeScreen', () => {
 
         await userEvent.click(screen.getByRole('button', {name: 'Release notes'}))
         const notes = screen.getByRole('dialog', {name: 'What’s new in 0.9.0'})
-        expect(notes).toHaveTextContent('Faster summaries.')
+        // The changelog's Markdown is drawn, not shown as written.
+        expect(within(notes).getByRole('heading', {name: 'Changed'})).toBeInTheDocument()
+        expect(within(notes).getByRole('listitem')).toHaveTextContent('Faster summaries.')
+        expect(notes).not.toHaveTextContent('**')
         await userEvent.keyboard('{Escape}')
 
         await userEvent.click(screen.getByRole('button', {name: 'Restart and update'}))

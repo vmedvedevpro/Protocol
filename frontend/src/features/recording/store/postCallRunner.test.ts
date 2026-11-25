@@ -1,11 +1,13 @@
 import {waitFor} from '@testing-library/react'
 import {emit} from '@tauri-apps/api/event'
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
+import {deleteMeetingMutation} from '@/api/meetings'
 import {postCallControls, postCallJobs, registerPostCallControls, RETRANSCRIPTION_ERROR_EVENT} from '@/api/postCall'
 import {useAutoSummaryStore} from '@/api/preferences'
 import {handlers} from '@/mocks/handlers'
 import {mockState} from '@/mocks/state'
 import {spyOnIpc} from '@/test/ipc'
+import {createTestQueryClient} from '@/test/queryClient'
 import {runnerControls, RUNNER_TIMING, startPostCall} from './postCallRunner'
 
 const DEFAULT_TIMING = {...RUNNER_TIMING}
@@ -112,6 +114,93 @@ describe('the post-call pass', () => {
         expect(postCallJobs.get(MEETING)?.state).toBe('cancelling')
         await waitFor(() => expect(postCallJobs.get(MEETING)).toBeNull())
         expect(mockState.postCall.retranscribing).toBeNull()
+    })
+
+    it('stops waiting for a retranscription that ignores its cancel, and fails with Retry', async () => {
+        useAutoSummaryStore.getState().set(false)
+        mockState.postCall.stepMs = 200
+        Object.assign(RUNNER_TIMING, {retranscriptionLimitMs: 10, releaseLimitMs: 20})
+        vi.spyOn(handlers, 'cancel_retranscription_command').mockReturnValue(null)
+        await start()
+        await startPostCall({meetingId: 'meeting-1on1', folderPath: '/preview/1on1', audioSaved: true})
+
+        await waitFor(() => expect(postCallJobs.get(MEETING)).toMatchObject({state: 'failed', step: 'transcript'}))
+        expect(postCallJobs.get(MEETING)?.error).toContain('took too long')
+        // Native still holds the model: the next meeting fails visibly instead of waiting for good.
+        await waitFor(() => expect(postCallJobs.get('meeting-1on1')).toMatchObject({state: 'failed', error: expect.stringContaining('already in progress')}))
+    })
+
+    it('fails a completed retranscription whose model native never lets go of', async () => {
+        useAutoSummaryStore.getState().set(false)
+        RUNNER_TIMING.releaseLimitMs = 10
+        vi.spyOn(handlers, 'is_retranscription_in_progress_command').mockReturnValue(true)
+        await start()
+
+        await waitFor(() => expect(postCallJobs.get(MEETING)).toMatchObject({state: 'failed', step: 'transcript'}))
+        expect(postCallJobs.get(MEETING)?.error).toContain('still busy')
+    })
+
+    it('cancels a summary past its time limit and fails with Retry', async () => {
+        mockState.meetings.summaryRunMs = 10_000
+        RUNNER_TIMING.summaryLimitMs = 10
+        await startPostCall({meetingId: MEETING, folderPath: '/preview/roadmap', audioSaved: false})
+
+        await waitFor(() => expect(postCallJobs.get(MEETING)).toMatchObject({state: 'failed', step: 'summary'}))
+        expect(postCallJobs.get(MEETING)?.error).toContain('took too long')
+        expect(mockState.meetings.summaries[MEETING].status).toBe('cancelled')
+    })
+
+    it('cancels a summary natively when Cancel comes while it starts', async () => {
+        mockState.meetings.summaryRunMs = 50
+        const startSummary = handlers.api_process_transcript
+        vi.spyOn(handlers, 'api_process_transcript').mockImplementationOnce((args) => {
+            postCallControls.cancel(MEETING)
+            return startSummary(args)
+        })
+        await startPostCall({meetingId: MEETING, folderPath: '/preview/roadmap', audioSaved: false})
+
+        await waitFor(() => expect(postCallJobs.get(MEETING)).toBeNull())
+        await waitFor(() => expect(mockState.meetings.summaries[MEETING].status).toBe('cancelled'))
+    })
+
+    it('keeps a pass that is cancelling until native lets go, whatever cancels it again', async () => {
+        useAutoSummaryStore.getState().set(false)
+        mockState.postCall.stepMs = 20
+        await start()
+        await startPostCall({meetingId: 'meeting-1on1', folderPath: '/preview/1on1', audioSaved: true})
+        await waitFor(() => expect(mockState.postCall.retranscribing).toBe(MEETING))
+
+        postCallControls.cancel(MEETING)
+        postCallControls.cancel(MEETING)
+
+        expect(postCallJobs.get(MEETING)?.state).toBe('cancelling')
+        await waitFor(() => expect(postCallJobs.get(MEETING)).toBeNull())
+        mockState.postCall.stepMs = 0
+        // Started while native still held the first, it would fail with "Retranscription already in progress".
+        await waitFor(() => expect(postCallJobs.get('meeting-1on1')).toBeNull())
+    })
+
+    it('cancels the pass of a meeting before deleting it', async () => {
+        useAutoSummaryStore.getState().set(false)
+        mockState.postCall.stepMs = 20
+        const invoke = spyOnIpc()
+        await start()
+        await startPostCall({meetingId: 'meeting-1on1', folderPath: '/preview/1on1', audioSaved: true})
+        await waitFor(() => expect(mockState.postCall.retranscribing).toBe(MEETING))
+        const client = createTestQueryClient()
+        const remove = (meetingId: string) => client.getMutationCache().build(client, deleteMeetingMutation(meetingId)).execute(undefined)
+
+        await remove('meeting-1on1')
+        expect(postCallJobs.get('meeting-1on1')).toBeNull()
+        await remove(MEETING)
+
+        const commands = invoke.mock.calls.map(([command]) => command)
+        expect(commands.indexOf('cancel_retranscription_command')).toBeGreaterThan(-1)
+        expect(commands.indexOf('cancel_retranscription_command')).toBeLessThan(commands.lastIndexOf('api_delete_meeting'))
+        await waitFor(() => expect(postCallJobs.get(MEETING)).toBeNull())
+        await waitFor(() => expect(mockState.postCall.retranscribing).toBeNull())
+        expect(invoke.mock.calls.filter(([command, args]) => command === 'start_retranscription_command'
+            && (args as { meetingId?: string }).meetingId === 'meeting-1on1')).toEqual([])
     })
 
     it('runs one meeting at a time', async () => {

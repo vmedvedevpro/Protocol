@@ -35,6 +35,13 @@ export interface NotesEditorProps {
     onChange?: (content: NotesContent) => void
     /** The initial content is in the editor. */
     onReady?: () => void
+    /**
+     * `summary`: every heading is a section label (small, semibold, muted, as
+     * Action items is), the editor is as tall as its content rather than its
+     * panel, and the empty line BlockNote keeps at the end takes no room
+     * until the editor has focus.
+     */
+    variant?: 'notes' | 'summary'
 }
 
 const NotesEditorView = lazy(() => import('./NotesEditorView'))
@@ -47,7 +54,7 @@ const NotesEditorView = lazy(() => import('./NotesEditorView'))
  */
 export function NotesEditor(props: NotesEditorProps) {
     return (
-        <Suspense fallback={<Pending aria-busy="true"><Spinner delayed/></Pending>}>
+        <Suspense fallback={<Pending aria-busy="true" $fill={props.variant !== 'summary'}><Spinner delayed/></Pending>}>
             <NotesEditorView {...props}/>
         </Suspense>
     )
@@ -55,8 +62,8 @@ export function NotesEditor(props: NotesEditorProps) {
 
 // Holds the editor's place, so the panel does not change height when it
 // loads, and sets the spinner on the notes' first line, in muted grey.
-const Pending = styled.div`
-    min-height: 100%;
+const Pending = styled.div<{ $fill: boolean }>`
+    min-height: ${({$fill}) => ($fill ? '100%' : 'auto')};
     ${({theme}) => theme.text.notes};
     color: ${({theme}) => theme.colors.muted};
 `

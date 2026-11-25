@@ -6,17 +6,22 @@ import {type PostCallJob, postCallControls, usePostCallJob} from '@/api/postCall
 import {Button} from '@/components/ui/Button'
 import {ProgressBar} from '@/components/ui/ProgressBar'
 import {StatusLine} from '@/components/ui/StatusLine'
+import {Veil} from '@/components/ui/Veil'
 import {tween} from '@/styles/motion'
 import {postCallProgress, postCallSkipLabel, postCallStatusText, useRemainingText} from './progress'
 
 const Strip = styled(m.div)`
+    position: relative;
     flex: none;
     padding: ${({theme}) => theme.space[2]} ${({theme}) => theme.space[2.5]} ${({theme}) => theme.space[2.5]};
     border-radius: ${({theme}) => theme.radii.md};
     background: ${({theme}) => theme.colors.surface};
 `
 
+// The colour behind its veil and the status line's (Veil).
 const Content = styled(m.div)`
+    --surface: ${({theme}) => theme.colors.surface};
+    position: relative;
     display: flex;
     flex-direction: column;
     gap: ${({theme}) => theme.space[2]};
@@ -137,23 +142,24 @@ export function ProcessingStatus({meetingId, className}: ProcessingStatusProps) 
                 <Strip
                     key="processing"
                     className={className}
-                    initial={{opacity: 0, y: 4}}
-                    animate={{opacity: 1, y: 0}}
-                    exit={{opacity: 0, transition: tween('base', 'exit')}}
+                    initial={{y: 4}}
+                    animate={{y: 0}}
                     transition={tween('base', 'enter')}
                 >
                     {/* A failure, or Retry after one, swaps the content as a status change. */}
                     <AnimatePresence mode="wait" initial={false}>
                         <Content
                             key={failed ? 'failed' : 'running'}
-                            initial={{opacity: 0, y: 4}}
-                            animate={{opacity: 1, y: 0}}
-                            exit={{opacity: 0, y: -4}}
+                            initial={{y: 4}}
+                            animate={{y: 0}}
+                            exit={{y: -4}}
                             transition={tween('fast')}
                         >
                             {failed ? <Failed job={job}/> : <Running job={job}/>}
+                            <Veil duration="fast"/>
                         </Content>
                     </AnimatePresence>
+                    <Veil/>
                 </Strip>
             )}
         </AnimatePresence>

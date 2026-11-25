@@ -7,8 +7,10 @@ import {errorMessage} from '@/api/core'
 import {isAlreadyDownloading} from '@/api/models'
 import {Button} from '@/components/ui/Button'
 import {ProgressBar} from '@/components/ui/ProgressBar'
+import {Spinner} from '@/components/ui/Spinner'
 import {toast} from '@/components/ui/toastStore'
-import {tween} from '@/styles/motion'
+import {Veil} from '@/components/ui/Veil'
+import {statusSwap as swap, tween} from '@/styles/motion'
 import type {DownloadRow, RowState} from '../hooks/useFirstLaunchDownloads'
 
 const ICONS: Record<string, ReactNode> = {
@@ -17,14 +19,18 @@ const ICONS: Record<string, ReactNode> = {
     summaries: <TextAlignLeftIcon size={16}/>,
 }
 
+// The colour behind its rows' veils (Veil).
 const List = styled.ul`
-    margin-top: ${({theme}) => theme.space[4]};
+    --surface: ${({theme}) => theme.colors.surface};
+    margin: ${({theme}) => theme.space[4]} 0 0;
+    padding: 0;
     border-radius: ${({theme}) => theme.radii.xl};
     background: ${({theme}) => theme.colors.surface};
     list-style: none;
 `
 
 const Row = styled(m.li)`
+    position: relative;
     display: flex;
     align-items: center;
     gap: ${({theme}) => theme.space[3]};
@@ -49,7 +55,9 @@ const Title = styled.div`
     ${({theme}) => theme.text.body};
 `
 
+// Positioned for the veil of the failure's line.
 const Detail = styled.div`
+    position: relative;
     ${({theme}) => theme.text.small};
     color: ${({theme}) => theme.colors.muted};
     overflow-wrap: anywhere;
@@ -66,6 +74,10 @@ const Progress = styled.div`
 `
 
 const Label = styled(m.span)`
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: ${({theme}) => theme.space[1]};
     ${({theme}) => theme.text.caption};
     font-family: ${({theme}) => theme.fonts.mono};
     font-variant-numeric: tabular-nums;
@@ -75,13 +87,6 @@ const Label = styled(m.span)`
 const Bar = styled.div`
     width: 100%;
 `
-
-const swap = {
-    initial: {opacity: 0, y: 4},
-    animate: {opacity: 1, y: 0},
-    exit: {opacity: 0, y: -4},
-    transition: tween('fast'),
-}
 
 function label(state: RowState) {
     switch (state.kind) {
@@ -110,20 +115,25 @@ function DownloadItem({row: {download, state}}: { row: DownloadRow }) {
     // A percent ticks in place; the label swaps only when its meaning does.
     const meaning = state.kind === 'missing' ? 'downloading' : state.kind
     return (
-        <Row initial={{opacity: 0, y: 4}} animate={{opacity: 1, y: 0}} transition={tween('base', 'enter')}>
+        <Row initial={{y: 4}} animate={{y: 0}} transition={tween('base', 'enter')}>
             {ICONS[download.id]}
             <Text>
                 <Title>{download.title}</Title>
                 <Detail>{download.detail}</Detail>
                 <AnimatePresence initial={false}>
                     {state.kind === 'failed' && (
-                        <Detail as={m.div} {...swap}>{state.error}</Detail>
+                        <Detail as={m.div} {...swap}>{state.error}<Veil duration="fast"/></Detail>
                     )}
                 </AnimatePresence>
             </Text>
             <Progress>
                 <AnimatePresence mode="wait" initial={false}>
-                    <Label key={meaning} {...swap}>{label(state)}</Label>
+                    <Label key={meaning} {...swap}>
+                        {/* Turning on has no percent: the spinner shows it still runs. */}
+                        {state.kind === 'activating' && <Spinner/>}
+                        {label(state)}
+                        <Veil duration="fast"/>
+                    </Label>
                 </AnimatePresence>
                 {state.kind === 'failed' ? (
                     <Button size="sm" pending={retrying} onClick={retry} aria-label={`Retry ${download.title}`}>
@@ -133,11 +143,13 @@ function DownloadItem({row: {download, state}}: { row: DownloadRow }) {
                     <Bar>
                         <ProgressBar
                             label={download.title}
-                            value={state.kind === 'ready' ? 100 : state.kind === 'downloading' ? state.progress : 0}
+                            // Turning on follows the download: the bar stays full rather than falling to 0.
+                            value={state.kind === 'ready' || state.kind === 'activating' ? 100 : state.kind === 'downloading' ? state.progress : 0}
                         />
                     </Bar>
                 )}
             </Progress>
+            <Veil/>
         </Row>
     )
 }
