@@ -5,6 +5,7 @@
  * shows it, and saves the meeting once native hands it over with
  * `recording-stop-complete` (save_handoff.rs).
  */
+import {queryOptions} from '@tanstack/react-query'
 import {command} from '@/api/core'
 import type {NativeEvent} from '@/api/events'
 
@@ -27,6 +28,21 @@ export interface NativeRecordingState {
 export const isRecording = () => command<boolean>('is_recording')
 
 export const getRecordingState = () => command<NativeRecordingState>('get_recording_state')
+
+export const recordingKeys = {
+    all: ['recording'] as const,
+    state: () => [...recordingKeys.all, 'state'] as const,
+}
+
+/**
+ * The recorder's state for a window without the session store: the minibar
+ * polls it (features/recording/minibar). The main window keeps its own
+ * session instead.
+ */
+export const recordingStateQuery = queryOptions({
+    queryKey: recordingKeys.state(),
+    queryFn: getRecordingState,
+})
 
 /** The title the running recording started with, after a WebView reload. */
 export const getRecordingMeetingName = () => command<string | null>('get_recording_meeting_name')
