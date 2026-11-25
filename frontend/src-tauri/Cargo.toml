@@ -246,6 +246,11 @@ ort = { version = "=2.0.0-rc.15", default-features = false, features = ["load-dy
 libloading = "0.8.9"
 # Already in the tree through tao/gtk; names the app for the tray (src/tray.rs).
 glib = "0.18"
+# Unpacking Intel's OpenVINO GenAI archive for Linux, a .tar.gz
+# (model_catalog/runtime.rs, #178). Both are in the tree already, through zip,
+# ureq and tauri-plugin-updater, so naming them adds no crate.
+flate2 = "1"
+tar = "0.4"
 
 [dev-dependencies]
 tempfile = "3.3.0"

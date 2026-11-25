@@ -4605,6 +4605,7 @@ dependencies = [
  "env_logger",
  "esaxx-rs",
  "ffmpeg-sidecar",
+ "flate2",
  "futures",
  "futures-util",
  "glib",

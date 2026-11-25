@@ -40,6 +40,19 @@ use tauri::{AppHandle, Emitter, Runtime};
 use tokio::io::AsyncWriteExt;
 use tokio_util::sync::CancellationToken;
 
+/// Parakeet on the Intel NPU shares the runtime on Windows (#66). Linux has
+/// no NPU path, so nothing else keeps the runtime there.
+#[cfg(windows)]
+use crate::parakeet_engine::npu::state as npu;
+#[cfg(not(windows))]
+mod npu {
+    pub fn keeps_runtime() -> bool {
+        false
+    }
+    pub fn runtime_removed() {}
+    pub fn changed() {}
+}
+
 use super::installed::{self, InstallRecord};
 use super::runtime::{self as runtimes, Installed};
 use super::schema::{self, Entry, License, RuntimeEntry, OPENVINO_GENAI};
@@ -239,13 +252,13 @@ pub fn prune_at_startup() {
     let Ok(_operations) = OPERATIONS.try_lock() else { return };
     // Parakeet on the NPU keeps the runtime too (#66), not Whisper's cache.
     let companion = any_companion_in(&crate::paths::models_dir(), &super::companions());
-    let wanted = companion || crate::parakeet_engine::npu::state::keeps_runtime();
+    let wanted = companion || npu::keeps_runtime();
     prune_runtimes(&runtime_root(), wanted, runtime_entry().as_ref());
     if !companion {
         crate::whisper_engine::openvino::remove_cache();
     }
     if !wanted {
-        crate::parakeet_engine::npu::state::runtime_removed();
+        npu::runtime_removed();
     }
 }
 
@@ -463,7 +476,7 @@ pub async fn openvino_status<R: Runtime>(app: AppHandle<R>, whisper_model: Strin
     let Some(entry) = companion_for(&whisper_model) else { return Ok(None) };
     let loaded = crate::whisper_engine::openvino::loaded_runtime_dir();
     let models = crate::paths::models_dir();
-    let npu_keeps = crate::parakeet_engine::npu::state::keeps_runtime();
+    let npu_keeps = npu::keeps_runtime();
     let mut status =
         status_in(&models, &runtime_root(), &entry, runtime_entry().as_ref(), loaded.as_deref(), &super::companions(), npu_keeps);
     status.stopped = crate::whisper_engine::openvino::stopped();
@@ -526,7 +539,7 @@ pub async fn openvino_download<R: Runtime>(app: AppHandle<R>, id: String, choose
         Ok(()) => {
             log::info!("[openvino] {} and its runtime are installed", entry.id);
             unload_engines_if_idle().await;
-            crate::parakeet_engine::npu::state::changed();
+            npu::changed();
         }
         Err(error) if error.to_string() == CANCELLED => log::info!("[openvino] the download of {} was cancelled", entry.id),
         Err(error) => log::error!("[openvino] the download of {} failed: {error:#}", entry.id),
@@ -589,7 +602,7 @@ pub async fn openvino_runtime_download<R: Runtime>(app: AppHandle<R>) -> Result<
     match &result {
         Ok(()) => {
             log::info!("[openvino] the runtime is installed");
-            crate::parakeet_engine::npu::state::changed();
+            npu::changed();
         }
         Err(error) if error.to_string() == CANCELLED => log::info!("[openvino] the download of the runtime was cancelled"),
         Err(error) => log::error!("[openvino] the download of the runtime failed: {error:#}"),
@@ -751,9 +764,9 @@ pub async fn openvino_remove<R: Runtime>(app: AppHandle<R>, id: String) -> Resul
         // unless Parakeet on the NPU keeps it (#66).
         if !any_companion_in(&models, &super::companions()) {
             crate::whisper_engine::openvino::remove_cache();
-            if !crate::parakeet_engine::npu::state::keeps_runtime() {
+            if !npu::keeps_runtime() {
                 prune_runtimes(&runtime_root(), false, None);
-                crate::parakeet_engine::npu::state::runtime_removed();
+                npu::runtime_removed();
             }
         }
     }
@@ -1086,7 +1099,12 @@ mod tests {
         assert_eq!(runtime.api, API_LEVEL);
         assert!(runtime.archive.url.starts_with("https://storage.openvinotoolkit.org/"));
         // The libraries the binding opens are among the pinned files.
-        for library in [crate::whisper_engine::openvino::genai::GENAI_C_LIBRARY, "openvino_c.dll"] {
+        use crate::whisper_engine::openvino::genai;
+        for library in [genai::GENAI_C_LIBRARY, genai::OPENVINO_C_LIBRARY] {
+            assert!(runtime.files.iter().any(|file| file.name == library), "{library}");
+        }
+        #[cfg(target_os = "linux")]
+        for library in genai::PRELOAD {
             assert!(runtime.files.iter().any(|file| file.name == library), "{library}");
         }
     }

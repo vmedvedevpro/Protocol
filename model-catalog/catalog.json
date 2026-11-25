@@ -343,6 +343,46 @@
         { "name": "openvino-genai-third-party-programs.txt", "path": "openvino_genai_windows_2026.4.1.0_x86_64/docs/licensing/third-party-programs-genai.txt", "size": 20742, "sha256": "d9b815b6614fe936d53656b5e7a859ed38cf88646732ea739c121d82c074c4aa" },
         { "name": "TBB-LICENSE.txt", "path": "openvino_genai_windows_2026.4.1.0_x86_64/runtime/3rdparty/tbb/TBB-LICENSE", "size": 11558, "sha256": "1eb85fc97224598dad1852b5d6483bbcf0aa8608790dcc657a5a2a761ae9c8c6" }
       ]
+    },
+    {
+      "id": "openvino-genai",
+      "name": "OpenVINO GenAI",
+      "description": "Intel's OpenVINO libraries that run Whisper on an Intel GPU",
+      "version": "2026.4.1.0",
+      "platform": "linux-x86_64",
+      "api": 1,
+      "license": {
+        "name": "Intel OpenVINO Distribution License",
+        "url": "https://www.intel.com/content/dam/develop/external/us/en/documents/intel-openvino-license-agreements.pdf"
+      },
+      "archive": {
+        "url": "https://storage.openvinotoolkit.org/repositories/openvino_genai/packages/2026.4.1/linux/openvino_genai_ubuntu22_2026.4.1.0_x86_64.tar.gz",
+        "size": 133487173,
+        "sha256": "41b934976445c188301bf6f0631bb009989c16f9d288352dd477136157c0199b"
+      },
+      "files": [
+        { "name": "libopenvino_genai_c.so", "path": "openvino_genai_ubuntu22_2026.4.1.0_x86_64/runtime/lib/intel64/libopenvino_genai_c.so.2026.4.1.0", "size": 211096, "sha256": "4c3da58321d8b027424d0c644aff4b4390293a2c3f77e77b534c1070b4da61bb" },
+        { "name": "libopenvino_genai.so", "path": "openvino_genai_ubuntu22_2026.4.1.0_x86_64/runtime/lib/intel64/libopenvino_genai.so.2026.4.1.0", "size": 8669400, "sha256": "282214b95babdde4dd2f931216c68db76977cef9e299a3e6297713581e3d037a" },
+        { "name": "libopenvino_c.so", "path": "openvino_genai_ubuntu22_2026.4.1.0_x86_64/runtime/lib/intel64/libopenvino_c.so.2026.4.1", "size": 317968, "sha256": "ecb79c323713c40a775ff5349dbff8f8dac24bba7c61226dd491738767b42a23" },
+        { "name": "libopenvino.so", "path": "openvino_genai_ubuntu22_2026.4.1.0_x86_64/runtime/lib/intel64/libopenvino.so.2026.4.1", "size": 18705280, "sha256": "321290fa47d4088f0506c0d9a4fe08821d44dcf7c0f6f280098dd61df11a0a9b" },
+        { "name": "libopenvino_intel_gpu_plugin.so", "path": "openvino_genai_ubuntu22_2026.4.1.0_x86_64/runtime/lib/intel64/libopenvino_intel_gpu_plugin.so", "size": 39156096, "sha256": "23b9791277b20046d54a7472f5626e9c00779714f8f6e3b9ee27978d00e2012f" },
+        { "name": "libopenvino_intel_cpu_plugin.so", "path": "openvino_genai_ubuntu22_2026.4.1.0_x86_64/runtime/lib/intel64/libopenvino_intel_cpu_plugin.so", "size": 59543656, "sha256": "9a4ed0d7215ae7df52966ec32e80a53dc18dbdaeb4870fd0eccce4c9acb71847" },
+        { "name": "libopenvino_auto_batch_plugin.so", "path": "openvino_genai_ubuntu22_2026.4.1.0_x86_64/runtime/lib/intel64/libopenvino_auto_batch_plugin.so", "size": 235752, "sha256": "1ac79b5da433781d6df31e3837f23c5d0c59ef2b7e194b0e5c77910bf19697c3" },
+        { "name": "libopenvino_ir_frontend.so.2641", "path": "openvino_genai_ubuntu22_2026.4.1.0_x86_64/runtime/lib/intel64/libopenvino_ir_frontend.so.2026.4.1", "size": 539968, "sha256": "28d039223432e09df16ffa213a252b42c4444f5bdfaf783a60f5ff5f8b1d44d7" },
+        { "name": "libopenvino_tokenizers.so", "path": "openvino_genai_ubuntu22_2026.4.1.0_x86_64/runtime/lib/intel64/libopenvino_tokenizers.so", "size": 3800368, "sha256": "9e5f05005027bb047c61f00fab2f6d09246da82777a1c2ae8e20451dff4198ff" },
+        { "name": "libtbb.so", "path": "openvino_genai_ubuntu22_2026.4.1.0_x86_64/runtime/3rdparty/tbb/lib/libtbb.so.12.13", "size": 354760, "sha256": "25984f1c1ac802e2cea39e6dfa91920046c276cf9116f8bf6af87e620cd85522" },
+        { "name": "libtbbmalloc.so.2", "path": "openvino_genai_ubuntu22_2026.4.1.0_x86_64/runtime/3rdparty/tbb/lib/libtbbmalloc.so.2.13", "size": 153096, "sha256": "4001aca1a3ae769a5b38e043cc807a2853d377df559b0d7f5e4f95ee7917cb8e" },
+        { "name": "libtbbbind_2_5.so.3", "path": "openvino_genai_ubuntu22_2026.4.1.0_x86_64/runtime/3rdparty/tbb/lib/libtbbbind_2_5.so.3.13", "size": 26544, "sha256": "4b8504fbb7f2db435b4c865bca205bc2db6314655214864654663d960ef346d6" },
+        { "name": "libhwloc.so", "path": "openvino_genai_ubuntu22_2026.4.1.0_x86_64/runtime/3rdparty/tbb/lib/libhwloc.so.15.6.4", "size": 462800, "sha256": "2baabe0936fbd640a8b1cd641fcb314e8632b79fd59df2cbd1f0bdfaacb8d3c8" },
+        { "name": "openvino-EULA.txt", "path": "openvino_genai_ubuntu22_2026.4.1.0_x86_64/docs/licensing/EULA.txt", "size": 7741, "sha256": "2ef6a5d67fc91a095fe753745c02be03e91847816add25bf82a02752aa1be151" },
+        { "name": "openvino-redist.txt", "path": "openvino_genai_ubuntu22_2026.4.1.0_x86_64/docs/licensing/redist.txt", "size": 1808, "sha256": "ee34242c138f42d2d24399c72212fb88be4dd46bee9f5845380acb6c19355d1d" },
+        { "name": "openvino-LICENSE.txt", "path": "openvino_genai_ubuntu22_2026.4.1.0_x86_64/docs/licensing/LICENSE", "size": 11357, "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4" },
+        { "name": "openvino-third-party-programs.txt", "path": "openvino_genai_ubuntu22_2026.4.1.0_x86_64/docs/licensing/runtime-third-party-programs.txt", "size": 118919, "sha256": "21ccba6916a7f99278d7b111ce2ce448377750362341f638e24fc336aaf85806" },
+        { "name": "onednn-third-party-programs.txt", "path": "openvino_genai_ubuntu22_2026.4.1.0_x86_64/docs/licensing/onednn_third-party-programs.txt", "size": 28475, "sha256": "f1b16991dfe8488f3f5f07cccba575c31c91175a9f2c8d9e1569665f86e0b2f6" },
+        { "name": "onetbb-third-party-programs.txt", "path": "openvino_genai_ubuntu22_2026.4.1.0_x86_64/docs/licensing/onetbb_third-party-programs.txt", "size": 46979, "sha256": "b10997cc50652ba6ab365e3bc43e13057681cd4a56533b46171529bd249749f3" },
+        { "name": "openvino-genai-third-party-programs.txt", "path": "openvino_genai_ubuntu22_2026.4.1.0_x86_64/docs/licensing/third-party-programs-genai.txt", "size": 20742, "sha256": "d9b815b6614fe936d53656b5e7a859ed38cf88646732ea739c121d82c074c4aa" },
+        { "name": "TBB-LICENSE.txt", "path": "openvino_genai_ubuntu22_2026.4.1.0_x86_64/runtime/3rdparty/tbb/TBB-LICENSE", "size": 11357, "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4" }
+      ]
     }
   ]
 }

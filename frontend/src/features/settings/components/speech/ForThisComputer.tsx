@@ -84,6 +84,9 @@ export function ForThisComputer() {
         .catch((error) => toast.error('That didn’t work', {description: intelError(error)}))
         .finally(() => void queryClient.invalidateQueries({queryKey: localStackKeys.all}))
 
+    // Linux: the package of Intel's GPU driver this computer still needs (#178).
+    const driverNote = offered && availability?.driver && <Warning role="status">{availability.driver}</Warning>
+
     const parakeetRow = live && (
         <ModelRow
             name="Parakeet"
@@ -143,6 +146,7 @@ export function ForThisComputer() {
                     <Button size="sm" variant="ghost" onClick={retry(retryIntelGpu)}>Try again</Button>
                 </RowControls>
             )}
+            {driverNote}
             {copyRetires && copy?.status === 'Available' && <RowValue>The regular copy stays until this one has transcribed a meeting</RowValue>}
         </ModelRow>
     ) : copy && (
@@ -184,7 +188,9 @@ export function ForThisComputer() {
                     downloads={downloads}
                     onDownload={switchToGpu}
                     onCancel={() => cancelIntel(offered.id)}
-                />
+                >
+                    {driverNote}
+                </ModelRow>
             )}
         </SettingsGroup>
     )

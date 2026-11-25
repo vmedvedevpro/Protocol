@@ -38,16 +38,44 @@ export const OPENVINO_WHISPER_FILES = [
   'preprocessor_config.json',
 ];
 // Inference runtimes this version of the app can load (#79), by id: the
-// platforms it loads each on, the files it must list (the libraries its
-// binding opens by name, and the auto-batching plugin, which OpenVINO would
-// otherwise look for in the current directory), and the only host its archive comes from (over https; the catalog is not
+// platforms it loads each on, with the files each must list (the libraries
+// its binding opens by name, and the auto-batching plugin, which OpenVINO
+// would otherwise look for in the current directory) and the end of its
+// archive's URL (the vendor's packaging, which says how it is unpacked), and
+// the only host its archive comes from (over https; the catalog is not
 // signed, so a commit can pick a version but not a server). A runtime is not
 // a model: it sits in the document's `runtimes` list, which apps before 0.5.0
-// never read.
+// never read. Mirrors RUNTIMES in schema.rs, which gives the reasons.
 export const RUNTIMES = {
   'openvino-genai': {
-    platforms: ['windows-x86_64'],
-    files: ['openvino_genai_c.dll', 'openvino_c.dll', 'openvino_auto_batch_plugin.dll'],
+    platforms: {
+      'windows-x86_64': {
+        files: [
+          'openvino_genai_c.dll',
+          'openvino_c.dll',
+          'openvino_intel_gpu_plugin.dll',
+          'openvino_intel_cpu_plugin.dll',
+          'openvino_ir_frontend.dll',
+          'openvino_tokenizers.dll',
+          'openvino_auto_batch_plugin.dll',
+        ],
+        archive: '.zip',
+      },
+      'linux-x86_64': {
+        files: [
+          'libopenvino_genai_c.so',
+          'libopenvino_genai.so',
+          'libopenvino_c.so',
+          'libopenvino.so',
+          'libtbb.so',
+          'libopenvino_intel_gpu_plugin.so',
+          'libopenvino_intel_cpu_plugin.so',
+          'libopenvino_tokenizers.so',
+          'libopenvino_auto_batch_plugin.so',
+        ],
+        archive: '.tar.gz',
+      },
+    },
     host: 'storage.openvinotoolkit.org',
   },
 };
@@ -70,10 +98,10 @@ const LANGUAGE = /^(\*|[a-z]{2,3})$/;
 const VERSION = /^\d+\.\d+\.\d+$/;
 const RUNTIME_VERSION = /^\d+\.\d+\.\d+(\.\d+)?$/;
 const SHA256 = /^[0-9a-f]{64}$/;
-const ZIP_URL = /^https:\/\/([^/?#:@]+)\/[^?#]*\.zip$/;
+const ARCHIVE_URL = /^https:\/\/([^/?#:@]+)\/[^?#]*(\.zip|\.tar\.gz)$/;
 // Names a runtime file cannot take in its version folder: the install's own
 // files and Windows device names, which open a device in any folder.
-const RESERVED_RUNTIME_FILES = ['runtime.json', 'archive.zip'];
+const RESERVED_RUNTIME_FILES = ['runtime.json', 'archive.zip', 'archive.tar.gz'];
 const DEVICE_NAME = /^(con|prn|aux|nul|com[0-9]|lpt[0-9])(\..*)?$/i;
 const isRuntimeFileName = (name) =>
   FILE_NAME.test(name) &&
@@ -226,8 +254,9 @@ export function runtimeProblems(runtime) {
   if (!isObject(runtime)) return ['is not an object'];
   const problems = [];
   const known = typeof runtime.id === 'string' && Object.hasOwn(RUNTIMES, runtime.id) ? RUNTIMES[runtime.id] : null;
+  const on = known && typeof runtime.platform === 'string' && Object.hasOwn(known.platforms, runtime.platform) ? known.platforms[runtime.platform] : null;
   if (!known) problems.push(`runtime ${JSON.stringify(runtime.id)} is not supported`);
-  else if (!known.platforms.includes(runtime.platform)) {
+  else if (!on) {
     problems.push(`platform ${JSON.stringify(runtime.platform)} is not supported by ${runtime.id}`);
   }
   if (!isText(runtime.name, 80)) problems.push('name must be a non-empty text of at most 80 characters');
@@ -243,14 +272,16 @@ export function runtimeProblems(runtime) {
   if (
     !isObject(archive) ||
     typeof archive.url !== 'string' ||
-    !ZIP_URL.test(archive.url) ||
+    !ARCHIVE_URL.test(archive.url) ||
     !isWhole(archive.size, SIZE) ||
     typeof archive.sha256 !== 'string' ||
     !SHA256.test(archive.sha256)
   ) {
-    problems.push('archive needs the https url of a .zip, its size and its sha256');
-  } else if (known && ZIP_URL.exec(archive.url)[1].toLowerCase() !== known.host) {
+    problems.push('archive needs the https url of a .zip or .tar.gz, its size and its sha256');
+  } else if (known && ARCHIVE_URL.exec(archive.url)[1].toLowerCase() !== known.host) {
     problems.push(`the archive of ${runtime.id} must come from https://${known.host}/`);
+  } else if (on && !archive.url.endsWith(on.archive)) {
+    problems.push(`the archive of ${runtime.id} for ${runtime.platform} must be a ${on.archive}`);
   }
   if (runtime.min_app_version !== undefined && (typeof runtime.min_app_version !== 'string' || !VERSION.test(runtime.min_app_version))) {
     problems.push('min_app_version must be X.Y.Z');
@@ -278,7 +309,7 @@ export function runtimeProblems(runtime) {
     if (names.has(file.name.toLowerCase())) problems.push(`file ${file.name} is listed twice`);
     names.add(file.name.toLowerCase());
   }
-  const missing = (known?.files ?? []).filter((name) => !names.has(name.toLowerCase()));
+  const missing = (on?.files ?? []).filter((name) => !names.has(name.toLowerCase()));
   if (missing.length > 0) problems.push(`${runtime.id} needs the files ${missing.join(', ')}`);
   return problems;
 }

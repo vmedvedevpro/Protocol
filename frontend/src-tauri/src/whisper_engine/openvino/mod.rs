@@ -630,6 +630,27 @@ pub struct Availability {
     /// …or why OpenVINO cannot take Whisper here after all: OpenVINO lists
     /// no GPU that is whisper.cpp's, or the runtime does not load.
     pub mismatch: Option<String>,
+    /// Linux: the package of Intel's OpenCL driver to install, as a
+    /// sentence, when the GPU is offered but the driver is not registered
+    /// ([`device::has_intel_driver`]). Read once per process, as the OpenCL
+    /// loader reads its drivers once, so the sentence asks for a restart.
+    pub driver: Option<String>,
+}
+
+/// Whether the GPU whisper.cpp uses is offered, from what the system says
+/// without OpenVINO: Windows' display adapters, Linux's PCI devices.
+fn offered_here(chosen: Option<device::ChosenGpu<'_>>) -> bool {
+    #[cfg(windows)]
+    return device::offer_for(chosen, &device::display_adapters());
+    #[cfg(not(windows))]
+    device::offer_by_address(chosen, |address| device::sysfs_vendor(std::path::Path::new("/sys/bus/pci/devices"), address))
+}
+
+/// What the OpenCL loader would load here, from its variables
+/// ([`device::icd_entries`]).
+#[cfg(target_os = "linux")]
+fn icd_entries() -> Vec<String> {
+    device::icd_entries(std::env::var_os("OCL_ICD_VENDORS").as_deref(), std::env::var_os("OCL_ICD_FILENAMES").as_deref())
 }
 
 /// The offer half of [`Availability`], decided once per process: the build
@@ -654,17 +675,22 @@ async fn offer() -> Availability {
                     name: &gpu.name,
                     integrated: gpu.integrated,
                 });
-                (device::offer_for(chosen, &device::display_adapters()), gpu.map(|gpu| gpu.name))
+                let offered = offered_here(chosen);
+                #[cfg(target_os = "linux")]
+                let driver = (offered && !device::has_intel_driver(&icd_entries())).then(device::driver_message);
+                #[cfg(not(target_os = "linux"))]
+                let driver = None;
+                (offered, gpu.map(|gpu| gpu.name), driver)
             })
             .await;
             match decided {
-                Ok((true, gpu)) => Availability { offer: true, gpu, ..Default::default() },
-                Ok((false, Some(gpu))) => Availability {
+                Ok((true, gpu, driver)) => Availability { offer: true, gpu, driver, ..Default::default() },
+                Ok((false, Some(gpu), _)) => Availability {
                     reason: Some(format!("Whisper runs on {gpu}, which is not an Intel GPU")),
                     gpu: Some(gpu),
                     ..Default::default()
                 },
-                Ok((false, None)) => Availability { reason: Some("Whisper runs on no GPU here".to_string()), ..Default::default() },
+                Ok((false, None, _)) => Availability { reason: Some("Whisper runs on no GPU here".to_string()), ..Default::default() },
                 Err(error) => Availability { reason: Some(format!("the GPU check failed: {error}")), ..Default::default() },
             }
         })
@@ -701,8 +727,14 @@ pub async fn availability() -> Availability {
     let gpu = availability.gpu.clone().unwrap_or_else(|| "the GPU Whisper uses".to_string());
     match decided {
         Ok(Some(device)) => availability.device = Some(device),
+        // Without Intel's OpenCL driver the GPU plugin lists no GPU at all:
+        // the driver is the reason, not the device rule.
+        Ok(None) if availability.driver.is_some() => availability.mismatch = availability.driver.clone(),
         Ok(None) => {
             availability.mismatch = Some(format!("OpenVINO lists no Intel GPU that is {gpu}, so Whisper stays on Vulkan"))
+        }
+        Err(error) if device::names_missing_loader(&error) => {
+            availability.mismatch = Some(device::loader_message())
         }
         Err(error) => availability.mismatch = Some(error),
     }

@@ -177,6 +177,81 @@ pub fn display_adapters() -> Vec<DisplayAdapter> {
         .collect()
 }
 
+/// Whether to offer OpenVINO on Linux before the runtime is installed
+/// (#178): the GPU whisper.cpp would use has a PCI address from Vulkan
+/// (Mesa's drivers offer `VK_EXT_pci_bus_info`), and the kernel lists an
+/// Intel device there (`vendor_of`, read from sysfs by [`sysfs_vendor`]).
+/// Without an address nothing is offered: Linux keeps no adapter names to
+/// match a Vulkan name against, as Windows' registry does.
+pub fn offer_by_address(chosen: Option<ChosenGpu<'_>>, vendor_of: impl Fn(PciAddress) -> Option<u32>) -> bool {
+    chosen
+        .and_then(|chosen| chosen.pci_bus_id)
+        .and_then(PciAddress::from_ggml)
+        .is_some_and(|address| vendor_of(address) == Some(INTEL_VENDOR))
+}
+
+/// The PCI vendor the kernel reports for `address` under `devices`
+/// (`/sys/bus/pci/devices`): its `vendor` file, `0x8086`.
+pub fn sysfs_vendor(devices: &std::path::Path, address: PciAddress) -> Option<u32> {
+    let name = format!("{:04x}:{:02x}:{:02x}.{:x}", address.domain, address.bus, address.device, address.function);
+    let text = std::fs::read_to_string(devices.join(name).join("vendor")).ok()?;
+    u32::from_str_radix(text.trim().trim_start_matches("0x"), 16).ok()
+}
+
+/// Whether Intel's OpenCL driver is registered with the OpenCL loader on
+/// Linux. OpenVINO's GPU plugin talks to the GPU through OpenCL alone (it
+/// links `libOpenCL.so.1` and never Level Zero), so it needs Intel's OpenCL
+/// driver, the compute runtime (NEO), whose library is `libigdrcl.so`.
+/// `entries` are what the loader would load ([`icd_entries`]). Without the
+/// driver the plugin lists no GPU, and Whisper would stay on Vulkan with
+/// nothing said.
+pub fn has_intel_driver(entries: &[String]) -> bool {
+    entries.iter().any(|entry| entry.contains("libigdrcl"))
+}
+
+/// What the OpenCL loader (ocl-icd) would load, as texts naming libraries:
+/// each library in `filenames` (`OCL_ICD_FILENAMES`, separated by `:`), and
+/// the contents of the `.icd` files in `vendors` (`OCL_ICD_VENDORS`, a folder
+/// or one `.icd` file, else `/etc/OpenCL/vendors`), or that path itself when
+/// it names a library. Both variables are taken together, so a setup that
+/// uses either is not called missing.
+pub fn icd_entries(vendors: Option<&std::ffi::OsStr>, filenames: Option<&std::ffi::OsStr>) -> Vec<String> {
+    let mut entries: Vec<String> = filenames
+        .map(|list| list.to_string_lossy().split(':').filter(|name| !name.is_empty()).map(str::to_string).collect())
+        .unwrap_or_default();
+    let place = vendors.map_or_else(|| std::path::PathBuf::from("/etc/OpenCL/vendors"), std::path::PathBuf::from);
+    if place.is_dir() {
+        let read = std::fs::read_dir(&place).into_iter().flatten().flatten();
+        entries.extend(
+            read.filter(|item| item.path().extension().is_some_and(|extension| extension == "icd"))
+                .filter_map(|item| std::fs::read_to_string(item.path()).ok()),
+        );
+    } else if place.extension().is_some_and(|extension| extension == "icd") {
+        entries.extend(std::fs::read_to_string(&place).ok());
+    } else if place.is_file() {
+        entries.push(place.to_string_lossy().into_owned());
+    }
+    entries
+}
+
+/// Whether a load error is the dynamic loader not finding the OpenCL loader
+/// GenAI and the GPU plugin link (`libOpenCL.so.1: cannot open shared object
+/// file`).
+pub fn names_missing_loader(error: &str) -> bool {
+    error.contains("libOpenCL.so.1")
+}
+
+/// What Settings says when Intel's OpenCL driver is not registered. The
+/// driver's package depends on the loader's, so it is the one to name.
+pub fn driver_message() -> String {
+    "Running Whisper on the Intel GPU needs Intel's OpenCL driver: install the intel-opencl-icd package (intel-compute-runtime on Fedora and Arch), then restart Protocol".to_string()
+}
+
+/// What Settings says when the OpenCL loader itself is missing.
+pub fn loader_message() -> String {
+    "Running Whisper on the Intel GPU needs the OpenCL loader: install the ocl-icd-libopencl1 package (ocl-icd on Fedora and Arch), then restart Protocol".to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -296,5 +371,61 @@ mod tests {
         let other = gpu("GPU", "Intel(R) Arc(TM) B390 GPU (iGPU)", true, 0x10de, 0, 2);
         assert_eq!(openvino_device_for(chosen(Some("0000:00:02.0"), B390, true), &[other.clone()]), None);
         assert_eq!(openvino_device_for(chosen(None, B390, true), &[other]), None);
+    }
+
+    #[test]
+    fn on_linux_the_offer_needs_an_intel_device_at_the_gpus_address() {
+        let intel_at_02 = |address: PciAddress| (address == PciAddress { domain: 0, bus: 0, device: 2, function: 0 }).then_some(INTEL_VENDOR);
+        assert!(offer_by_address(chosen(Some("0000:00:02.0"), "Intel(R) Arc(tm) B390 (PTL)", true), intel_at_02));
+        // An NVIDIA card at another address, an Intel name without an address,
+        // a device sysfs does not list, and no GPU offer nothing.
+        assert!(!offer_by_address(chosen(Some("0000:01:00.0"), "NVIDIA GeForce RTX 4060", false), intel_at_02));
+        assert!(!offer_by_address(chosen(None, "Intel(R) Arc(tm) B390 (PTL)", true), intel_at_02));
+        assert!(!offer_by_address(chosen(Some("0000:00:02.0"), "x", true), |_| None));
+        assert!(!offer_by_address(None, intel_at_02));
+    }
+
+    #[test]
+    fn the_vendor_is_read_from_sysfs() {
+        let devices = tempfile::tempdir().unwrap();
+        let dir = devices.path().join("0000:00:02.0");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("vendor"), "0x8086\n").unwrap();
+        let address = PciAddress::from_ggml("0000:00:02.0").unwrap();
+        assert_eq!(sysfs_vendor(devices.path(), address), Some(INTEL_VENDOR));
+        assert_eq!(sysfs_vendor(devices.path(), PciAddress::from_ggml("0000:01:00.0").unwrap()), None);
+    }
+
+    #[test]
+    fn the_missing_opencl_piece_is_named() {
+        assert!(has_intel_driver(&["/usr/lib/x86_64-linux-gnu/intel-opencl/libigdrcl.so\n".to_string()]));
+        assert!(!has_intel_driver(&[]));
+        // Another vendor's driver (Mesa's rusticl) does not run the GPU plugin.
+        assert!(!has_intel_driver(&["libRusticlOpenCL.so.1".to_string()]));
+        assert!(names_missing_loader("libOpenCL.so.1: cannot open shared object file: No such file or directory"));
+        assert!(!names_missing_loader("libopenvino.so: invalid ELF header"));
+        assert!(driver_message().contains("install the intel-opencl-icd package"));
+        assert!(loader_message().contains("install the ocl-icd-libopencl1 package (ocl-icd on Fedora and Arch)"));
+    }
+
+    #[test]
+    fn the_icd_entries_follow_the_loaders_variables() {
+        let root = tempfile::tempdir().unwrap();
+        let vendors = root.path().join("vendors");
+        std::fs::create_dir(&vendors).unwrap();
+        std::fs::write(vendors.join("intel.icd"), "/opt/neo/libigdrcl.so\n").unwrap();
+        std::fs::write(vendors.join("notes.txt"), "libigdrcl").unwrap();
+        assert_eq!(icd_entries(Some(vendors.as_os_str()), None), ["/opt/neo/libigdrcl.so\n"]);
+        // One .icd file, or a library named directly.
+        assert_eq!(icd_entries(Some(vendors.join("intel.icd").as_os_str()), None), ["/opt/neo/libigdrcl.so\n"]);
+        let library = root.path().join("libigdrcl.so");
+        std::fs::write(&library, b"").unwrap();
+        assert!(has_intel_driver(&icd_entries(Some(library.as_os_str()), None)));
+        // OCL_ICD_FILENAMES alone, beside an empty vendors folder.
+        let empty = root.path().join("empty");
+        std::fs::create_dir(&empty).unwrap();
+        let listed = icd_entries(Some(empty.as_os_str()), Some(std::ffi::OsStr::new("/a/libOther.so:/opt/neo/libigdrcl.so")));
+        assert!(has_intel_driver(&listed), "{listed:?}");
+        assert!(!has_intel_driver(&icd_entries(Some(empty.as_os_str()), None)));
     }
 }

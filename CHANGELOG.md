@@ -48,6 +48,11 @@ changes are included here.
   graphics card, and on the processor without one. If the graphics card's
   driver ever closes Protocol, the next start stays on the processor and
   Settings says so, with Try again.
+- **Whisper on Intel GPUs under Linux**
+  ([#178](https://github.com/vmedvedevpro/Protocol/issues/178)). With
+  Intel's OpenCL driver installed, Large V3 Turbo runs on an Intel GPU
+  through Intel's libraries, downloaded on your click as on Windows; without
+  the driver, Settings names the package to install.
 
 ### Changed
 

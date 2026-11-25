@@ -368,7 +368,7 @@ pub fn run() {
             model_catalog::service::init(_app.handle());
             // OpenVINO's runtime versions and cache that nothing will load,
             // before anything loads one (#79).
-            #[cfg(windows)]
+            #[cfg(any(windows, target_os = "linux"))]
             model_catalog::openvino::prune_at_startup();
 
             // In-app updates: restores a downloaded update, then checks daily
@@ -739,19 +739,19 @@ pub fn run() {
             model_catalog::commands::model_update_start,
             model_catalog::commands::model_update_cancel,
             // Whisper on an Intel GPU: OpenVINO companions and their runtime (#79)
-            #[cfg(windows)]
+            #[cfg(any(windows, target_os = "linux"))]
             model_catalog::openvino::openvino_status,
-            #[cfg(windows)]
+            #[cfg(any(windows, target_os = "linux"))]
             model_catalog::openvino::openvino_download,
-            #[cfg(windows)]
+            #[cfg(any(windows, target_os = "linux"))]
             model_catalog::openvino::openvino_cancel,
-            #[cfg(windows)]
+            #[cfg(any(windows, target_os = "linux"))]
             model_catalog::openvino::openvino_remove,
-            #[cfg(windows)]
+            #[cfg(any(windows, target_os = "linux"))]
             speech_choice::speech_choice_remove_gpu_version,
-            #[cfg(windows)]
+            #[cfg(any(windows, target_os = "linux"))]
             speech_choice::speech_choice_copy_retires,
-            #[cfg(windows)]
+            #[cfg(any(windows, target_os = "linux"))]
             model_catalog::openvino::openvino_retry,
             // Parakeet on an Intel NPU (#66): its status, the retry, and the runtime alone
             #[cfg(windows)]
@@ -783,7 +783,7 @@ pub fn run() {
                 tauri::RunEvent::Exit => {
                     log::info!("Application exiting, cleaning up resources...");
                     // An OpenVINO compile this exit cuts short is not a crash.
-                    #[cfg(windows)]
+                    #[cfg(any(windows, target_os = "linux"))]
                     whisper_engine::openvino::set_closing(true);
                     #[cfg(windows)]
                     parakeet_engine::npu::guard::set_closing(true);

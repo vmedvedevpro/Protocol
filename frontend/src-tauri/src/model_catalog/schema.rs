@@ -50,28 +50,81 @@ pub const OPENVINO_GENAI: &str = "openvino-genai";
 /// An inference runtime this build can load (#79).
 struct KnownRuntime {
     id: &'static str,
-    /// The platforms it is loaded on.
-    platforms: &'static [&'static str],
-    /// The files it must list: the libraries its binding opens by name, and
-    /// those OpenVINO would otherwise look for outside the runtime's folder.
-    files: &'static [&'static str],
+    /// The platforms it is loaded on, each with its own files and archive.
+    platforms: &'static [KnownPlatform],
     /// The only host its archive is downloaded from, over https, redirects
     /// included. The catalog is not signed, and the runtime is native code
     /// every install loads: a catalog commit can pick a version, but not a
     /// server, and these rules cannot be tightened for an app once it ships.
     host: &'static str,
-    /// The publisher whose Authenticode signature every `.dll` of it carries.
+    /// The publisher whose Authenticode signature every `.dll` of it carries
+    /// (Windows only: an ELF library carries no signature to check).
     signer: &'static str,
+}
+
+/// One platform of a [`KnownRuntime`].
+struct KnownPlatform {
+    /// As [`platform`] names it.
+    name: &'static str,
+    /// The files it must list: the libraries its binding opens by name, and
+    /// those OpenVINO would otherwise look for outside the runtime's folder.
+    files: &'static [&'static str],
+    /// The end of the archive's URL, which says how it is unpacked
+    /// (`runtime::extract`): the vendor's own packaging for that platform.
+    archive: &'static str,
 }
 
 /// Mirrors `RUNTIMES` in check-catalog.mjs.
 const RUNTIMES: [KnownRuntime; 1] = [KnownRuntime {
     id: OPENVINO_GENAI,
-    platforms: &["windows-x86_64"],
-    // Every compile asks for the auto-batching plugin, and OpenVINO looks
-    // for a plugin it lacks in the current directory (`get_plugin_path`):
-    // with it in the folder, that lookup never happens.
-    files: &["openvino_genai_c.dll", "openvino_c.dll", "openvino_auto_batch_plugin.dll"],
+    platforms: &[
+        KnownPlatform {
+            name: "windows-x86_64",
+            // The C APIs the binding opens; every file each Whisper call loads
+            // (the GPU plugin, the CPU plugin GenAI compiles the tokenizer on,
+            // the IR frontend that reads the model, the tokenizers extension),
+            // since an entry without one would pass and fail at the first call,
+            // and a shipped app cannot be tightened; and the auto-batching
+            // plugin, which every compile asks for and OpenVINO would otherwise
+            // look for in the current directory (`get_plugin_path`).
+            files: &[
+                "openvino_genai_c.dll",
+                "openvino_c.dll",
+                "openvino_intel_gpu_plugin.dll",
+                "openvino_intel_cpu_plugin.dll",
+                "openvino_ir_frontend.dll",
+                "openvino_tokenizers.dll",
+                "openvino_auto_batch_plugin.dll",
+            ],
+            archive: ".zip",
+        },
+        KnownPlatform {
+            name: "linux-x86_64",
+            // Intel's libraries carry no RUNPATH, so the binding opens each one
+            // GenAI's C API needs by absolute path, dependencies first
+            // (`genai::PRELOAD`), and glibc satisfies a later NEEDED entry with
+            // the already loaded SONAME. The names are the archive's links
+            // without a version (`libopenvino.so`), so a new version of the same
+            // API level needs no app release; the auto-batching plugin as on
+            // Windows, and every file each Whisper call loads as on Windows but
+            // the IR frontend, whose name carries the library version
+            // (`libopenvino_ir_frontend.so.2641`, the pattern OpenVINO looks
+            // for), which a rule of this build cannot name for later versions.
+            // Intel ships the Linux archives as .tar.gz only.
+            files: &[
+                "libopenvino_genai_c.so",
+                "libopenvino_genai.so",
+                "libopenvino_c.so",
+                "libopenvino.so",
+                "libtbb.so",
+                "libopenvino_intel_gpu_plugin.so",
+                "libopenvino_intel_cpu_plugin.so",
+                "libopenvino_tokenizers.so",
+                "libopenvino_auto_batch_plugin.so",
+            ],
+            archive: ".tar.gz",
+        },
+    ],
     host: "storage.openvinotoolkit.org",
     signer: "Intel Corporation",
 }];
@@ -439,16 +492,17 @@ impl Entry {
 }
 
 static RUNTIME_VERSION: Lazy<Regex> = Lazy::new(|| Regex::new(r"^\d+\.\d+\.\d+(\.\d+)?$").unwrap());
-static ZIP_URL: Lazy<Regex> = Lazy::new(|| Regex::new(r"^https://([^/?#:@]+)/[^?#]*\.zip$").unwrap());
+static ARCHIVE_URL: Lazy<Regex> = Lazy::new(|| Regex::new(r"^https://([^/?#:@]+)/[^?#]*(\.zip|\.tar\.gz)$").unwrap());
 
-/// Whether `url` is the https URL of a `.zip` on `host` (no port, no user).
+/// Whether `url` is the https URL of a `.zip` or `.tar.gz` on `host` (no
+/// port, no user).
 pub fn is_archive_url(url: &str, host: &str) -> bool {
-    ZIP_URL.captures(url).is_some_and(|captures| captures[1].eq_ignore_ascii_case(host))
+    ARCHIVE_URL.captures(url).is_some_and(|captures| captures[1].eq_ignore_ascii_case(host))
 }
 
 /// The names a runtime file cannot take: the install's own files and
 /// Windows device names, which open a device in any folder (`NUL`, `com1.txt`).
-const RESERVED_RUNTIME_FILES: [&str; 2] = ["runtime.json", "archive.zip"];
+const RESERVED_RUNTIME_FILES: [&str; 3] = ["runtime.json", "archive.zip", "archive.tar.gz"];
 static DEVICE_NAME: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)^(con|prn|aux|nul|com[0-9]|lpt[0-9])(\..*)?$").unwrap());
 
 /// Whether a runtime file can be called `name` in its version folder on
@@ -474,11 +528,10 @@ impl RuntimeEntry {
     pub fn problems(&self) -> Vec<String> {
         let mut problems = Vec::new();
         let known = known_runtime(&self.id);
+        let on = known.and_then(|known| known.platforms.iter().find(|platform| platform.name == self.platform));
         match known {
             None => problems.push(format!("runtime {:?} is not supported", self.id)),
-            Some(known) if !known.platforms.contains(&self.platform.as_str()) => {
-                problems.push(format!("platform {:?} is not supported by {}", self.platform, self.id));
-            }
+            Some(_) if on.is_none() => problems.push(format!("platform {:?} is not supported by {}", self.platform, self.id)),
             Some(_) => {}
         }
         if !is_text(&self.name, 80) {
@@ -497,10 +550,12 @@ impl RuntimeEntry {
             problems.push("license needs a name and an https url".to_string());
         }
         let archive = &self.archive;
-        if !ZIP_URL.is_match(&archive.url) || !is_size(archive.size) || !is_sha256(&archive.sha256) {
-            problems.push("archive needs the https url of a .zip, its size and its sha256".to_string());
+        if !ARCHIVE_URL.is_match(&archive.url) || !is_size(archive.size) || !is_sha256(&archive.sha256) {
+            problems.push("archive needs the https url of a .zip or .tar.gz, its size and its sha256".to_string());
         } else if let Some(known) = known.filter(|known| !is_archive_url(&archive.url, known.host)) {
             problems.push(format!("the archive of {} must come from https://{}/", known.id, known.host));
+        } else if let Some(on) = on.filter(|on| !archive.url.ends_with(on.archive)) {
+            problems.push(format!("the archive of {} for {} must be a {}", self.id, on.name, on.archive));
         }
         if self.min_app_version.as_deref().is_some_and(|version| !VERSION.is_match(version)) {
             problems.push("min_app_version must be X.Y.Z".to_string());
@@ -524,7 +579,7 @@ impl RuntimeEntry {
                 problems.push(format!("file {} is listed twice", file.name));
             }
         }
-        let required = known.map_or(&[][..], |known| known.files);
+        let required = on.map_or(&[][..], |on| on.files);
         let missing: Vec<&str> = required.iter().copied().filter(|name| !names.contains(&name.to_ascii_lowercase())).collect();
         if !missing.is_empty() {
             problems.push(format!("{} needs the files {}", self.id, missing.join(", ")));

@@ -117,7 +117,7 @@ pub struct WhisperEngine {
     // Active downloads tracking to prevent concurrent downloads
     active_downloads: Arc<RwLock<HashSet<String>>>, // Set of models currently being downloaded
     /// The model on OpenVINO instead of `current_context` (#79, `openvino`).
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     pub(crate) openvino: super::openvino::Slot,
 }
 
@@ -252,7 +252,7 @@ impl WhisperEngine {
             cancel_download_flag: Arc::new(RwLock::new(None)),
             // Initialize active downloads tracking
             active_downloads: Arc::new(RwLock::new(HashSet::new())),
-            #[cfg(windows)]
+            #[cfg(any(windows, target_os = "linux"))]
             openvino: Default::default(),
         };
         
@@ -438,9 +438,9 @@ impl WhisperEngine {
         self.unload_model().await;
         // This load decides afresh: an older outcome must not stand for it,
         // in the reason below or in Settings (as `load_openvino_companion`).
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "linux"))]
         super::openvino::record_status(super::openvino::BackendStatus::default());
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "linux"))]
         let reason = match crate::speech_choice::installed(version) {
             Some(companion) if super::openvino::is_model_dir(&companion.dir) => {
                 if self.try_openvino(&companion.dir, &companion.commit).await {
@@ -464,8 +464,8 @@ impl WhisperEngine {
             }
             _ => "it is not installed".to_string(),
         };
-        #[cfg(not(windows))]
-        let reason = "it runs only on Windows".to_string();
+        #[cfg(not(any(windows, target_os = "linux")))]
+        let reason = "it runs only on Windows and Linux".to_string();
         if self.available_models.read().await.is_empty() {
             self.discover_models().await?;
         }
@@ -511,7 +511,7 @@ impl WhisperEngine {
 
                 log::info!("Loading model: {}", model_name);
 
-                #[cfg(windows)]
+                #[cfg(any(windows, target_os = "linux"))]
                 if companion_in_place && self.load_openvino_companion(model_name).await {
                     self.release_whisper_cpp().await;
                     *self.current_model.write().await = Some(model_name.to_string());
@@ -550,7 +550,7 @@ impl WhisperEngine {
                     *ctx_guard = Some(ctx);
                 }
                 // A pipeline left from before would take the calls first.
-                #[cfg(windows)]
+                #[cfg(any(windows, target_os = "linux"))]
                 self.set_openvino(None);
                 *self.current_model.write().await = Some(model_name.to_string());
 
@@ -587,7 +587,7 @@ impl WhisperEngine {
     /// acceleration it chose.
     #[cfg(test)]
     pub(crate) async fn load_model_in_place(&self, path: &std::path::Path) -> Result<&'static str> {
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "linux"))]
         if super::openvino::is_model_dir(path) {
             // A folder the app installed has its commit in its record; the
             // kit's own copy keys its cache as "local".
@@ -608,7 +608,7 @@ impl WhisperEngine {
         self.live_state.lock().await.take();
         *ctx_guard = Some(ctx);
         drop(ctx_guard);
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "linux"))]
         self.set_openvino(None);
         *self.current_model.write().await = Some(path.display().to_string());
         Ok(acceleration.status_label())
@@ -617,7 +617,7 @@ impl WhisperEngine {
     /// Frees the whisper.cpp context and the live state made from it once
     /// the model runs on OpenVINO (#79), whose live calls never use them
     /// (`transcribe_audio_with_confidence` returns before the state).
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     async fn release_whisper_cpp(&self) {
         let mut ctx_guard = self.current_context.write().await;
         self.live_state.lock().await.take();
@@ -629,7 +629,7 @@ impl WhisperEngine {
         // A state holds its context: the model is freed only with it.
         self.live_state.lock().await.take();
         let unloaded = ctx_guard.take().is_some();
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "linux"))]
         let unloaded = self.set_openvino(None) || unloaded;
         if unloaded {
             log::info!("📉Whisper model unloaded");
@@ -659,7 +659,7 @@ impl WhisperEngine {
     }
     
     pub async fn is_model_loaded(&self) -> bool {
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "linux"))]
         if self.loaded_openvino().is_some() {
             return true;
         }
@@ -854,7 +854,7 @@ impl WhisperEngine {
         language: Option<String>,
         initial_prompt: Option<&str>,
     ) -> Result<(String, f32, bool)> {
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "linux"))]
         if let Some(openvino) = self.loaded_openvino() {
             return super::openvino::live_call(openvino, audio_data, language, initial_prompt).await;
         }
@@ -932,7 +932,7 @@ impl WhisperEngine {
         language: Option<String>,
         initial_prompt: Option<&str>,
     ) -> Result<String> {
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "linux"))]
         if let Some(openvino) = self.loaded_openvino() {
             return super::openvino::live_call(openvino, audio_data, language, initial_prompt).await.map(|(text, ..)| text);
         }
@@ -1799,7 +1799,7 @@ mod tests {
     /// a retry or a model switch does: the live state (#78) exists only while
     /// whisper.cpp holds the model, OpenVINO's live calls neither make nor
     /// need it, and each load frees what the other backend held.
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     #[tokio::test]
     #[ignore = "Requires PROTOCOL_WHISPER_TEST_MODEL (ggml-*.bin), OPENVINO_TEST_MODEL (an OpenVINO model folder), MEASURE_OPENVINO_RUNTIME and PROTOCOL_WHISPER_TEST_WAV; runs on the Intel GPU"]
     async fn the_live_state_exists_only_while_whisper_cpp_holds_the_model() {

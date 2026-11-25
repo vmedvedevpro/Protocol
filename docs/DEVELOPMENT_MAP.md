@@ -920,8 +920,18 @@ kernels, not the state or the decoder.
 On Windows the Vulkan build runs Large V3 Turbo through OpenVINO GenAI's
 `WhisperPipeline` when the model's OpenVINO companion and Intel's runtime are
 installed and the GPU whisper.cpp would use is an Intel GPU OpenVINO lists
-(#79); otherwise, and after a failed load, whisper.cpp runs as above. Read
-[OPENVINO_WHISPER.md](OPENVINO_WHISPER.md) before changing it.
+(#79); otherwise, and after a failed load, whisper.cpp runs as above. Since
+#178 the Linux Vulkan build does too (the gates are
+`cfg(any(windows, target_os = "linux"))`; the NPU and Authenticode stay
+Windows-only). Read [OPENVINO_WHISPER.md](OPENVINO_WHISPER.md) (its
+[Linux](OPENVINO_WHISPER.md#linux) section for what differs) before changing it.
+
+- Linux (#178): Intel's `ubuntu22` `.tar.gz` (`runtime::extract_tar`, regular
+  files only), the libraries opened by absolute path dependencies first
+  (`genai::PRELOAD`, since they carry no RUNPATH), the offer by the GPU's PCI
+  vendor in sysfs (`device::offer_by_address`), and Intel's OpenCL driver
+  checked through the OpenCL loader's `.icd` files (`device::missing_driver`,
+  `availability.driver`, shown under the Intel GPU row of For this computer).
 
 - The device rule (`whisper_engine/openvino/device.rs`): OpenVINO runs only
   on the GPU whisper.cpp would pick, and only if it is an Intel GPU. The GPU

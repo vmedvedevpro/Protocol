@@ -145,5 +145,9 @@ export const platformHandlers: Record<Platform, Record<string, MockHandler>> = {
     macos: {
         ...macosPermissionsHandlers,
     },
-    linux: {},
+    // The Intel GPU's commands exist on Linux too (#178); the NPU's mock
+    // answers stay absent there while `intel.npu` is false, as on a real Linux.
+    linux: {
+        ...windowsIntelHandlers(mockState),
+    },
 }

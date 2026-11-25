@@ -1,7 +1,8 @@
 # Whisper on OpenVINO (Intel GPUs)
 
 Issue #79. On Windows, the Vulkan build can run Whisper Large V3 Turbo on an
-Intel GPU through OpenVINO GenAI's `WhisperPipeline` instead of whisper.cpp.
+Intel GPU through OpenVINO GenAI's `WhisperPipeline` instead of whisper.cpp;
+since #178 the Linux Vulkan build can too ([Linux](#linux)).
 On an Arc B390 (Core Ultra X7 358H) the measurement kit on `fleurs-ru`, three
 interleaved pairs against `main` under the #66 energy harness, gave:
 
@@ -18,8 +19,9 @@ what, and what is still open.
 
 All of these, checked when a Whisper model loads (`WhisperEngine::load_model`):
 
-1. The app is the Windows Vulkan build (`WhisperCompiledBackend::Vulkan`). The
-   CPU build and other platforms never load OpenVINO.
+1. The app is a Vulkan build (`WhisperCompiledBackend::Vulkan`) on Windows or
+   Linux. The CPU build and macOS never load OpenVINO: the device rule (3)
+   names the GPU ggml-vulkan picked, which a build without Vulkan has none of.
 2. The model has an OpenVINO companion and it is installed and verified
    (`model_catalog::openvino::installed_companion`; the catalog's
    `openvino-ir` entry, see below), and so is Intel's runtime
@@ -92,6 +94,106 @@ longer present (the test machine lists a B370 beside its B390); they matter
 only if they share the GPU's name. Once the runtime is installed, rule 3
 decides as before, and a GPU OpenVINO does not list is shown under the row
 (`availability.mismatch`) instead of silently staying on whisper.cpp.
+
+## Linux
+
+#178. The same path runs on the Linux Vulkan build (#176) with these
+differences; everything else above holds as written. On the Arc B390 under
+Kubuntu 26.10 (Mesa's Vulkan driver, Intel's compute runtime 26.27), the kit
+on `fleurs-ru` (241 s of speech after meetings, 234 s live), Large V3 Turbo,
+three interleaved repeats of OpenVINO and Vulkan, medians with the range:
+
+| | post-meeting s | × real time | WER | live s | × real time | WER |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| whisper.cpp, processor, q5_0 | 222.1 (216.4–249.8) | 1.1 | 6.4 % | 619.3 (610.0–624.4) | 0.4 | 10.8 % |
+| whisper.cpp, Vulkan, q5_0 | 17.7 (17.7–17.7) | 13.6 | 6.4 % | 32.8 (32.8–36.4) | 7.1 | 10.8 % |
+| OpenVINO GenAI 2026.4.1, GPU, int8 | 6.6 (6.1–6.7) | 36.4 | 5.7 % | 8.0 (7.9–8.4) | 29.2 | 10.1 % |
+
+Post-meeting is beam 5 on whisper.cpp and greedy on OpenVINO, as on
+Windows. Word errors were the same in every repeat of a backend. The laptop
+was in use meanwhile (load 2–5); the processor's runs are #176's on the same
+audio and model, the slowest under the heaviest load. No energy harness ran:
+#66's is Windows-only. The device matched by PCI address (Mesa offers
+`VK_EXT_pci_bus_info`), and the post-meeting speed is Windows' (36.6×).
+
+- **Runtime.** The catalog's second `openvino-genai` entry,
+  `platform: linux-x86_64`: Intel's
+  `openvino_genai_ubuntu22_2026.4.1.0_x86_64.tar.gz` (133 MB, the version the
+  Windows entry pins), unpacked by `runtime::extract_tar` (flate2 and tar,
+  both already in the app through zip, ureq and the updater). Ubuntu 22.04's
+  build, not 24.04's: the app is built on 22.04 (glibc 2.35, libstdc++ of
+  GCC 12), and the `ubuntu24` libraries need `GLIBC_2.38`, while the
+  `ubuntu22` ones need `GLIBC_2.34` and `GLIBCXX_3.4.30`. The app takes the
+  GPU, CPU and auto-batching plugins, the IR frontend, the tokenizers
+  extension, GenAI and its C API, OpenVINO and its C API, oneTBB's three as
+  on Windows (`libtbb`, `libtbbmalloc.so.2`, `libtbbbind_2_5.so.3`, the names
+  TBB opens them by from its own folder) plus the `libhwloc` the binding
+  needs, and the licence files, 132 MB on disk. The NPU plugin and the ONNX
+  frontend stay in the archive: Parakeet on the NPU is Windows-only. Both
+  platforms must list every file a Whisper call loads (the GPU and CPU
+  plugins, the tokenizers extension, on Windows the IR frontend, whose Linux
+  name carries the library version), so a catalog commit that dropped one
+  is hidden instead of failing at the first call.
+- **Names and loading.** Intel's libraries carry no RUNPATH (only the
+  tokenizers extension has `$ORIGIN`), so a `dlopen` of GenAI's C API by
+  path would look its `NEEDED` libraries (`libopenvino.so.2641`,
+  `libtbb.so.12`) up on the system's path. The binding opens them first by
+  absolute path, dependencies first (`genai::PRELOAD`: `libtbb.so`,
+  `libopenvino.so`, `libopenvino_c.so`, `libopenvino_genai.so`, then
+  `libopenvino_genai_c.so`, `RTLD_NOW | RTLD_LOCAL`; `libhwloc.so` before
+  them when the runtime has it, since TBB opens its binding, which needs
+  `libhwloc.so.15`, on its own), and glibc satisfies each
+  later `NEEDED` entry with the object already loaded under that SONAME,
+  whatever its file is called. So the files are named like the archive's
+  unversioned links, and a later version of the same API level needs no app
+  release; the IR frontend alone keeps its versioned name
+  (`libopenvino_ir_frontend.so.2641`), the pattern OpenVINO's frontend
+  manager looks for. OpenVINO finds its plugins beside `libopenvino.so`
+  (`dladdr`), as beside `openvino.dll`. A pinned path must be a regular file
+  of the tar; the archive's links are never followed.
+- **Tokenizers.** GenAI would find `libopenvino_tokenizers.so` beside its own
+  library without `OPENVINO_TOKENIZERS_PATH_GENAI`, but when the variable is
+  unset it sets it with `setenv` and removes it with `unsetenv` around every
+  tokenizer it creates (`ScopedVar`, `tokenizers_path.hpp`, 2026.4.1), writes
+  that race `getenv` on other threads at each model load. The binding sets
+  it once before the load (`std::env::set_var`), so GenAI keeps it and never
+  writes; it also keeps an inherited value from bringing in another copy.
+- **File locks.** The install's wait for a held file (`patiently`) is
+  Windows-only: Linux renames and deletes open files, so a permission or I/O
+  error there is reported at once.
+- **Paths.** GCC's `std::filesystem::path` keeps a narrow path's bytes, so a
+  path goes to GenAI as its bytes; none of the Windows code page handling
+  applies.
+- **Trust.** An ELF library has no publisher signature to check, so the
+  pinned https host and each file's SHA-256 alone vouch for the files (on
+  Windows Authenticode is checked as well).
+- **The offer.** Mesa's Vulkan drivers offer `VK_EXT_pci_bus_info`, so ggml
+  reports the PCI address of the GPU whisper.cpp uses; the offer reads that
+  device's vendor from `/sys/bus/pci/devices/<address>/vendor`
+  (`device::offer_by_address`) where Windows reads the registry. Without an
+  address nothing is offered: Linux keeps no adapter names to match a Vulkan
+  name against. Once the runtime is installed, the device rule decides by
+  the address, as on Windows.
+- **Intel's driver.** OpenVINO's GPU plugin talks to the GPU through OpenCL
+  alone: it links `libOpenCL.so.1` and never Level Zero (`libze-intel-gpu1`
+  is not needed). It needs the OpenCL loader (`ocl-icd-libopencl1`) and
+  Intel's OpenCL driver, the compute runtime (`intel-opencl-icd` on Debian and
+  Ubuntu, `intel-compute-runtime` on Fedora and Arch), which registers itself
+  as an `.icd` file in `/etc/OpenCL/vendors` (or `OCL_ICD_VENDORS`) naming
+  `libigdrcl.so`; the loader also takes libraries from `OCL_ICD_FILENAMES`
+  and an `OCL_ICD_VENDORS` that names a library, and the check reads all of
+  them (`device::icd_entries`). Without it the plugin lists no GPU and Whisper
+  would stay on Vulkan with nothing said. So the offer reads those once per
+  process (the OpenCL loader reads them once too), and when no Intel driver
+  is registered `availability.driver` names the package; For this computer
+  shows it under the Intel GPU row, and once the runtime is installed the
+  mismatch says the same. A missing loader fails GenAI's load
+  (`libOpenCL.so.1: cannot open shared object file`), which the row turns
+  into a sentence of its own naming the loader's package
+  (`ocl-icd-libopencl1`, `ocl-icd` on Fedora and Arch). The driver's package
+  depends on the loader's.
+  The device nodes (`/dev/dri/renderD*`) need the user's seat access or the
+  `render` group, as for Vulkan.
 
 ## Runtime
 
@@ -377,6 +479,19 @@ It is a separate download because GenAI cannot read ggml files.
   the ASCII short name, and through the code page where it holds them), and
   loading a runtime replacing an inherited tokenizer path with its own
   (`genai.rs`).
+- Linux (#178): the offer by the GPU's PCI vendor in sysfs, the vendor read
+  from sysfs, the OpenCL piece named for a missing driver or loader, and the
+  loader's variables honoured (`device.rs`); a folder whose files are no libraries refused by the first
+  one the binding opens, and a Cyrillic path handed over as its bytes
+  (`genai.rs`, `linux_tests`); the libraries the binding opens among the
+  built-in entry's files (`model_catalog/openvino.rs`); an install from a
+  `.tar.gz` taking only the pinned regular files, a pinned path that is a
+  link in the tar and a file off its pin installing nothing, a version
+  topped up from a `.tar.gz` (`runtime.rs`); the Linux entry's rules in the
+  shared cases (a zip, a Windows file list, a missing `libtbb.so`, GPU plugin
+  or tokenizers extension, another host, a file named like the tar
+  archive), and the Windows entry without its GPU plugin or tokenizers; the driver line in Settings
+  (`settingsPages.test.tsx`).
 - The catalog: the `runtimes` rules in the shared cases
   (`entry-cases.json`: `runtime_cases`, among them another host, a host that
   only ends like the pinned one, a port, a user, file names that clash
@@ -429,6 +544,17 @@ It is a separate download because GenAI cannot read ggml files.
 
 ## Open
 
+- Linux rests on #176's Vulkan build: the device rule needs the GPU
+  ggml-vulkan lists. When #176's crash guard keeps Vulkan off after a crash,
+  ggml lists no GPU, so OpenVINO is not offered either ("Whisper runs on no
+  GPU here") until that guard's Try again.
+- Linux, untested elsewhere: measured only on an Arc B390 (Panther Lake)
+  under Kubuntu 26.10 with Intel's compute runtime 26.27. Fedora's and Arch's
+  package names are given from their repositories, not tried. A compute
+  runtime too old for the GPU lists no GPU; the row then shows the device
+  mismatch, not a package.
+- Linux: the deb does not recommend `intel-opencl-icd`; the row names it
+  when it is missing.
 - Beam search (above).
 - Language pinning on Auto (above).
 - A companion installed while the ggml model is loaded on whisper.cpp takes

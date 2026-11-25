@@ -32,3 +32,14 @@ describe('Search index of Speech models', () => {
         expect([...seen].sort()).toEqual([...indexedLabels('speech-models')].sort())
     })
 })
+
+describe('Whisper for the Intel GPU on Linux', () => {
+    it('names the driver package the GPU still needs', async () => {
+        mockState.platform = 'linux'
+        mockState.intel.gpu = true
+        mockState.intel.driver = 'Running Whisper on the Intel GPU needs Intel\'s OpenCL driver: install the intel-opencl-icd package'
+        renderSettings(createElement(SettingsPage), '/settings/speech-models')
+        await screen.findByText('Whisper for the Intel GPU')
+        expect(await screen.findByText(/install the intel-opencl-icd package/)).toBeTruthy()
+    })
+})
