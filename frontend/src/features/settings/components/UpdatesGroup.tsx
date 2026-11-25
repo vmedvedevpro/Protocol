@@ -183,7 +183,7 @@ function AppUpdateRow({snapshot}: {snapshot: UpdaterSnapshot}) {
             key: 'check',
             buttons: (
                 <Button size="sm" disabled={!idle} onClick={() => check.mutate()}>
-                    {foreground?.action === 'check' ? 'Try again' : 'Check now'}
+                    {foreground?.action === 'check' ? 'Try again' : 'Check'}
                 </Button>
             ),
         }

@@ -36,7 +36,7 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
-/** Not checked yet: Check now finds 0.7.0, Download moves, Restart and update installs. */
+/** Not checked yet: Check finds 0.7.0, Download moves, Restart and update installs. */
 export const Light: Story = {globals: {theme: 'light'}}
 
 export const Dark: Story = {globals: {theme: 'dark'}}

@@ -20,7 +20,7 @@ const INSTALL: Record<Platform, string> = {windows: 'nsis', macos: 'app', linux:
 
 /**
  * An installed copy that has not checked yet, so Settings › Updates can be
- * tried on the mock: Check now finds `updateRelease`, Download moves to
+ * tried on the mock: Check finds `updateRelease`, Download moves to
  * ready, Restart and update starts the install. A test or story of a
  * development build sets `support` to `{kind: 'off', reason: 'dev'}`.
  */
