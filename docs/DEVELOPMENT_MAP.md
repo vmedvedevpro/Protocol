@@ -250,8 +250,7 @@ id in `default_summary_template.txt` in the data root while that template still
 loads, else `standard_meeting`, the template the UI always sent (upstream fell
 back to `daily_standup`). Settings › Summary templates stores it with
 `api_set_default_template`, which accepts only a template that loads, so a
-deleted custom default falls back by itself; the file is written beside itself
-and renamed, so a run starting meanwhile reads a whole id. The UI's
+deleted custom default falls back by itself. The UI's
 `startSummary` (`frontend/src/api/meetings.ts`) leaves the template out unless
 a run picks one, so the automatic summary after a recording uses the default.
 The module also reads one template whole (`api_get_template`) for its sections

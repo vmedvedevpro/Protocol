@@ -366,10 +366,7 @@ pub async fn api_process_transcript<R: Runtime>(
 
     let pool = state.db_manager.pool().clone();
     let final_prompt = custom_prompt.unwrap_or_else(|| "".to_string());
-    // Without a template the run takes the stored default (Settings › Summary templates).
-    let final_template_id = template_id
-        .filter(|id| !id.trim().is_empty())
-        .unwrap_or_else(super::template_settings::default_template_id);
+    let final_template_id = template_id.unwrap_or_else(super::template_settings::default_template_id);
     let process_id = Uuid::new_v4().to_string();
     let registration = SummaryService::try_register_cancellation_token(&m_id)
         .ok_or_else(|| "Summary generation is already active for this meeting".to_string())?;

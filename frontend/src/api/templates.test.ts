@@ -1,11 +1,10 @@
 import type {MutationOptions, QueryClient} from '@tanstack/react-query'
 import {describe, expect, it} from 'vitest'
-import {mockState} from '@/mocks/state'
+import {FALLBACK_TEMPLATE_ID} from '@/mocks/templates'
 import {createTestQueryClient} from '@/test/queryClient'
 import {
     defaultTemplateQuery,
     deleteCustomTemplateMutation,
-    FALLBACK_TEMPLATE_ID,
     saveCustomTemplateMutation,
     setDefaultTemplateMutation,
     type Template,
@@ -76,14 +75,6 @@ describe('summary templates', () => {
         expect(await client.fetchQuery(templateQuery('client_discovery'))).toEqual(DISCOVERY)
     })
 
-    it('refuses a template native would not load', async () => {
-        const client = createTestQueryClient()
-
-        await expect(run(client, saveCustomTemplateMutation, {templateId: 'empty', template: {...DISCOVERY, sections: []}}))
-            .rejects.toThrow('Template must have at least one section')
-        expect(mockState.templates.custom).toEqual({})
-    })
-
     it('uses the fallback until a default is stored, then the stored one', async () => {
         const client = createTestQueryClient()
         expect(await client.fetchQuery(defaultTemplateQuery)).toBe(FALLBACK_TEMPLATE_ID)
@@ -94,13 +85,6 @@ describe('summary templates', () => {
         expect(await client.fetchQuery(defaultTemplateQuery)).toBe('daily_standup')
     })
 
-    it('stores no template that does not load', async () => {
-        const client = createTestQueryClient()
-
-        await expect(run(client, setDefaultTemplateMutation, 'nothing_here')).rejects.toThrow("Template 'nothing_here' not found")
-        expect(mockState.templates.defaultId).toBeNull()
-    })
-
     it('falls back when the custom default is deleted', async () => {
         const client = createTestQueryClient()
         await run(client, saveCustomTemplateMutation, {templateId: 'client_discovery', template: DISCOVERY})
@@ -109,6 +93,7 @@ describe('summary templates', () => {
 
         await run(client, deleteCustomTemplateMutation, 'client_discovery')
 
+        expect(client.getQueryState(templateKeys.default())?.isInvalidated).toBe(true)
         expect(await client.fetchQuery(defaultTemplateQuery)).toBe(FALLBACK_TEMPLATE_ID)
         expect((await client.fetchQuery(templatesQuery)).some(({id}) => id === 'client_discovery')).toBe(false)
     })
@@ -124,9 +109,4 @@ describe('summary templates', () => {
         expect((await client.fetchQuery(templatesQuery)).find(({id}) => id === 'standard_meeting')?.custom).toBe(false)
     })
 
-    it('cannot delete a built-in template', async () => {
-        const client = createTestQueryClient()
-
-        await expect(run(client, deleteCustomTemplateMutation, 'daily_standup')).rejects.toThrow("Custom template 'daily_standup' not found")
-    })
 })

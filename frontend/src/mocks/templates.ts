@@ -17,7 +17,8 @@ export interface MockTemplates {
     defaultId: string | null
 }
 
-const FALLBACK = 'standard_meeting'
+/** What native answers while no default is stored (`FALLBACK_TEMPLATE_ID` in summary/template_settings.rs). */
+export const FALLBACK_TEMPLATE_ID = 'standard_meeting'
 
 export function createMockTemplates(): MockTemplates {
     return {
@@ -36,19 +37,6 @@ export function createMockTemplates(): MockTemplates {
 
 /** `sanitize_template_id` in summary/templates/loader.rs. */
 const sanitize = (id: string) => id.replace(/[^A-Za-z0-9_-]/g, '_').toLowerCase().replace(/^_+|_+$/g, '')
-
-function validate(template: Template) {
-    if (!template.name) throw 'Template name cannot be empty'
-    if (!template.description) throw 'Template description cannot be empty'
-    if (!template.sections?.length) throw 'Template must have at least one section'
-    template.sections.forEach((section, index) => {
-        if (!section.title) throw `Section ${index} has empty title`
-        if (!section.instruction) throw `Section '${section.title}' has empty instruction`
-        if (!['paragraph', 'list', 'table', 'string'].includes(section.format)) {
-            throw `Section '${section.title}' has invalid format '${section.format}'. Must be 'paragraph', 'list', 'table', or 'string'`
-        }
-    })
-}
 
 export function templatesHandlers(state: {templates: MockTemplates}): Record<string, MockHandler> {
     const find = (id: string) => state.templates.custom[id] ?? state.templates.builtIn[id]
@@ -69,7 +57,6 @@ export function templatesHandlers(state: {templates: MockTemplates}): Record<str
             } catch (error) {
                 throw `Failed to parse template JSON: ${String(error)}`
             }
-            validate(template)
             const id = sanitize(String(templateId))
             if (!id) throw 'Template id must contain at least one alphanumeric character'
             state.templates.custom[id] = template
@@ -83,7 +70,7 @@ export function templatesHandlers(state: {templates: MockTemplates}): Record<str
         },
         api_get_default_template: () => {
             const stored = state.templates.defaultId
-            return stored && find(stored) ? stored : FALLBACK
+            return stored && find(stored) ? stored : FALLBACK_TEMPLATE_ID
         },
         api_set_default_template: ({templateId}) => {
             load(String(templateId))

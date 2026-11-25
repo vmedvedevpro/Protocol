@@ -50,9 +50,6 @@ export interface Template {
     sections: TemplateSection[]
 }
 
-/** The template native code uses while none is stored or the stored one is gone. */
-export const FALLBACK_TEMPLATE_ID = 'standard_meeting'
-
 export const templateKeys = {
     all: ['templates'] as const,
     list: () => [...templateKeys.all, 'list'] as const,

@@ -34,17 +34,6 @@ fn resolve(stored: Option<String>) -> String {
     }
 }
 
-/// Written beside the file and renamed over it, so a summary starting at the
-/// same moment reads the old id or the new one, never half of it.
-fn store(file: &Path, template_id: &str) -> Result<(), String> {
-    if let Some(parent) = file.parent() {
-        std::fs::create_dir_all(parent).map_err(|error| format!("Failed to create the data folder: {error}"))?;
-    }
-    let partial = file.with_extension("txt.partial");
-    std::fs::write(&partial, template_id).map_err(|error| format!("Failed to save the default template: {error}"))?;
-    std::fs::rename(&partial, file).map_err(|error| format!("Failed to save the default template: {error}"))
-}
-
 /// The template a summary uses when none is asked for.
 pub fn default_template_id() -> String {
     resolve(read_stored(&default_path()))
@@ -68,7 +57,7 @@ pub async fn api_get_default_template() -> Result<String, String> {
 #[tauri::command]
 pub async fn api_set_default_template(template_id: String) -> Result<(), String> {
     templates::get_template(&template_id)?;
-    store(&default_path(), &template_id)
+    std::fs::write(default_path(), &template_id).map_err(|error| format!("Failed to save the default template: {error}"))
 }
 
 #[cfg(test)]
@@ -96,16 +85,14 @@ mod tests {
     }
 
     #[test]
-    fn stores_and_reads_back_one_id() {
+    fn reads_the_stored_id() {
         let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("nested").join("default_summary_template.txt");
+        let file = dir.path().join("default_summary_template.txt");
         assert_eq!(read_stored(&file), None);
 
-        store(&file, "daily_standup").unwrap();
-        store(&file, "standard_meeting").unwrap();
+        std::fs::write(&file, "daily_standup\n").unwrap();
 
-        assert_eq!(read_stored(&file).as_deref(), Some("standard_meeting"));
-        assert!(!file.with_extension("txt.partial").exists());
+        assert_eq!(read_stored(&file).as_deref(), Some("daily_standup"));
     }
 
     #[test]
