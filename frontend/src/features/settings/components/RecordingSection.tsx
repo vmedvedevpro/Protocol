@@ -29,6 +29,7 @@ import {platform as currentPlatform, type Platform} from '@/lib/platform'
 import {tween} from '@/styles/motion'
 import {openRecordingsFolder, pickRecordingsFolder} from '../api/recordingsFolder'
 import {DeviceRow} from './PreferenceRows'
+import {Range, SliderLine, SliderValue} from './styles'
 import {useRecordingPreferences} from '../hooks/useRecordingPreferences'
 import {Warning} from './styles'
 
@@ -102,32 +103,6 @@ function SavingGroup() {
     )
 }
 
-const SliderLine = styled.div`
-    display: flex;
-    align-items: center;
-    gap: ${({theme}) => theme.space[3]};
-`
-
-const Range = styled.input`
-    flex: 1;
-    min-width: 0;
-    height: ${({theme}) => theme.sizes.control.sm};
-    margin: 0;
-    background: transparent;
-    accent-color: ${({theme}) => theme.colors.text};
-    cursor: pointer;
-    ${focusRing};
-`
-
-const Times = styled.span`
-    flex: none;
-    min-width: 4ch;
-    ${({theme}) => theme.text.small};
-    font-variant-numeric: tabular-nums;
-    color: ${({theme}) => theme.colors.muted};
-    text-align: right;
-`
-
 // A drag writes the preferences once it rests this long, not on every step.
 const GAIN_SAVE_MS = 250
 
@@ -185,7 +160,7 @@ function GainRow({label, field, meter}: {
                     disabled={!preferences}
                     onChange={(event) => change(Number(event.target.value))}
                 />
-                <Times>{times(gain)}</Times>
+                <SliderValue>{times(gain)}</SliderValue>
                 {meter && <LevelMeter level={feed}/>}
             </SliderLine>
         </SettingsRow>

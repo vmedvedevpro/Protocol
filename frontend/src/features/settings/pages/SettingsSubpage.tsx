@@ -1,18 +1,21 @@
+import type {ComponentType} from 'react'
 import {CaretLeftIcon} from '@phosphor-icons/react'
 import {Navigate, useNavigate, useParams} from 'react-router-dom'
 import styled from 'styled-components'
 import {Screen} from '@/components/screen/Screen'
 import {Button} from '@/components/ui/Button'
 import {paths} from '@/lib/paths'
+import {SpeechModels} from '../components/speech/SpeechModels'
 import type {SettingsSection} from '../sections'
 import {SETTINGS_SECTIONS} from '../sections'
 import {useAdvancedSettingsStore} from '../store/advanced'
 
-/** The pages inside Settings: their titles and the section each belongs to. */
+/** The pages inside Settings: their titles, the section each belongs to and what it shows. */
 const PAGES = {
     'summary-model': {title: 'Summary model', section: 'ai'},
     'chosen-apps': {title: 'Chosen apps', section: 'recording'},
-} as const satisfies Record<Parameters<typeof paths.settingsPage>[0], {title: string; section: SettingsSection}>
+    'speech-models': {title: 'Speech models', section: 'ai', View: SpeechModels},
+} as const satisfies Record<Parameters<typeof paths.settingsPage>[0], {title: string; section: SettingsSection; View?: ComponentType}>
 
 // Own keys only: `in` would also take `constructor` and its kind.
 const isPage = (page: string | undefined): page is keyof typeof PAGES => page !== undefined && Object.hasOwn(PAGES, page)
@@ -35,8 +38,11 @@ const Body = styled.div`
     flex: 1;
     min-height: 0;
     overflow-y: auto;
-    padding: ${({theme}) => theme.space[3]} ${({theme}) => theme.space[4]};
+    padding: ${({theme}) => theme.space[3]} ${({theme}) => theme.space[4]} ${({theme}) => theme.space[6]};
     border-top: 1px solid ${({theme}) => theme.colors.border};
+`
+
+const Placeholder = styled.p`
     ${({theme}) => theme.text.small};
     color: ${({theme}) => theme.colors.muted};
 `
@@ -52,7 +58,7 @@ export function SettingsSubpage() {
     const advanced = useAdvancedSettingsStore((state) => state.advanced)
     if (!isPage(page)) return <Navigate to={paths.settings()} replace/>
 
-    const {title, section} = PAGES[page]
+    const {title, section, View}: {title: string, section: SettingsSection, View?: ComponentType} = PAGES[page]
     const parent = advanced ? SETTINGS_SECTIONS.find((option) => option.value === section)?.label ?? 'Settings' : 'Settings'
     const back = () => void navigate(advanced ? paths.settings(section) : paths.settings())
 
@@ -65,7 +71,7 @@ export function SettingsSubpage() {
                 </Button>
                 <Title>{title}</Title>
             </Head>
-            <Body>Coming soon.</Body>
+            <Body>{View ? <View/> : <Placeholder>Coming soon.</Placeholder>}</Body>
         </Screen>
     )
 }
