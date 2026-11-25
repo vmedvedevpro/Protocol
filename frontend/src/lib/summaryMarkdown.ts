@@ -126,31 +126,36 @@ export interface SummaryPart {
 }
 
 // The section the action items go before: the design orders Decisions,
-// Action items, Open questions.
+// Action items, Open questions. Both forms of a summary test their
+// headings' titles with it.
 const AFTER_ACTION_ITEMS = /^open questions\b/i
-const AFTER_ACTION_ITEMS_LINE = /^#{1,6}[ \t]+open questions\b/im
+const MARKDOWN_HEADING = /^#{1,6}[ \t]+(.*)$/
 
-const isSectionAfterActionItems = (raw: unknown) => {
-    const block = raw as { type?: string; content?: unknown }
-    return block?.type === 'heading' && AFTER_ACTION_ITEMS.test(inlineText(block.content).trim())
-}
+const isSectionAfterActionItems = (title: string | undefined) => title !== undefined && AFTER_ACTION_ITEMS.test(title.trim())
+
+const NO_PART: SummaryPart = {blocks: null, markdown: ''}
 
 /**
  * Splits a summary where its action items belong, before its "Open
  * questions" section, so the rows sit between Decisions and Open questions.
  * Without that section (or when it comes first) the second part is empty.
+ * A summary edited in the app splits its blocks; one native wrote, its Markdown.
  */
 export function splitSummaryAtActionItems(data: SummaryData | null): [SummaryPart, SummaryPart] {
     const blocks = summaryBlocks(data)
     if (blocks) {
-        const at = blocks.findIndex(isSectionAfterActionItems)
-        if (at <= 0) return [{blocks, markdown: completeSummaryMarkdown(data)}, {blocks: null, markdown: ''}]
+        const at = blocks.findIndex((raw) => {
+            const block = raw as { type?: string; content?: unknown }
+            return block?.type === 'heading' && isSectionAfterActionItems(inlineText(block.content))
+        })
+        if (at <= 0) return [{blocks, markdown: completeSummaryMarkdown(data)}, NO_PART]
         const head = blocks.slice(0, at)
         const tail = blocks.slice(at)
         return [{blocks: head, markdown: blocksToMarkdown(head)}, {blocks: tail, markdown: blocksToMarkdown(tail)}]
     }
     const markdown = completeSummaryMarkdown(data)
-    const match = AFTER_ACTION_ITEMS_LINE.exec(markdown)
-    if (!match || match.index === 0) return [{blocks: null, markdown}, {blocks: null, markdown: ''}]
-    return [{blocks: null, markdown: markdown.slice(0, match.index).trimEnd()}, {blocks: null, markdown: markdown.slice(match.index)}]
+    const lines = markdown.split('\n')
+    const at = lines.findIndex((line) => isSectionAfterActionItems(MARKDOWN_HEADING.exec(line)?.[1]))
+    if (at <= 0) return [{blocks: null, markdown}, NO_PART]
+    return [{blocks: null, markdown: lines.slice(0, at).join('\n').trimEnd()}, {blocks: null, markdown: lines.slice(at).join('\n')}]
 }

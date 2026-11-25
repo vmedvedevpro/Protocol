@@ -1,3 +1,4 @@
+import type {ReactNode, Ref} from 'react'
 import * as m from 'motion/react-m'
 import styled from 'styled-components'
 import {type DurationName, tween} from '@/styles/motion'
@@ -39,5 +40,29 @@ export function Veil({duration = 'base', outset = 0}: VeilProps) {
             animate={{opacity: 0, transition: tween(duration, 'enter')}}
             exit={{opacity: 1, transition: tween(duration, 'exit')}}
         />
+    )
+}
+
+const RisingRow = styled(m.li)`
+    position: relative;
+`
+
+export interface VeilRowProps {
+    children: ReactNode
+    className?: string
+    ref?: Ref<HTMLLIElement>
+}
+
+/**
+ * A list row that arrives: it rises 4 px and its Veil fades off it. A list
+ * styles it with `styled(VeilRow)` and shows it only for rows that arrive
+ * after the first render, so a list that opens does not play every row.
+ */
+export function VeilRow({children, className, ref}: VeilRowProps) {
+    return (
+        <RisingRow ref={ref} className={className} initial={{y: 4}} animate={{y: 0}} transition={tween('base', 'enter')}>
+            {children}
+            <Veil/>
+        </RisingRow>
     )
 }

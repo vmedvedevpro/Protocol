@@ -1,13 +1,11 @@
 import {type KeyboardEvent, memo, type ReactNode, useMemo, useState} from 'react'
-import * as m from 'motion/react-m'
 import {Link} from 'react-router-dom'
 import styled, {css} from 'styled-components'
 import type {MeetingListItem} from '@/api/meetings'
 import {usePostCallJob} from '@/api/postCall'
 import {colorTransition, focusRing} from '@/components/ui/styles'
 import {paths} from '@/lib/paths'
-import {tween} from '@/styles/motion'
-import {Veil} from '@/components/ui/Veil'
+import {VeilRow} from '@/components/ui/Veil'
 import {ProcessingLine} from '../components/processing/ProcessingLine'
 import {dateGroup, formatLength, parseDate, rowWhen} from '@/lib/dates'
 
@@ -44,9 +42,8 @@ const Row = styled.li`
     ${rowStyle};
 `
 
-const ArrivingRow = styled(m.li)`
+const ArrivingRow = styled(VeilRow)`
     ${rowStyle};
-    position: relative;
 `
 
 // A meeting still being processed keeps the surface, as the design draws it.
@@ -128,7 +125,7 @@ const MeetingRow = memo(function MeetingRow({meeting, folderName, arriving, onRe
         </RowLink>
     )
     return arriving
-        ? <ArrivingRow initial={{y: 4}} animate={{y: 0}} transition={tween('base', 'enter')}>{content}<Veil/></ArrivingRow>
+        ? <ArrivingRow>{content}</ArrivingRow>
         : <Row>{content}</Row>
 })
 

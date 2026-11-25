@@ -67,6 +67,7 @@ export function useStoryPass({state, step, percent, noSummary, noAudio, play}: S
                 if (job) postCallJobs.run(meetingId, job.step)
             },
             skip: next,
+            settled: () => Promise.resolve(),
         })
 
         const timer = play

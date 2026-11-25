@@ -15,7 +15,7 @@ import styled, {css} from 'styled-components'
 import {Menu, MenuItem} from '@/components/ui/Menu'
 import {colorTransition, fieldFocusRing, focusRing} from '@/components/ui/styles'
 import {tween} from '@/styles/motion'
-import {Veil} from '@/components/ui/Veil'
+import {VeilRow} from '@/components/ui/Veil'
 import {
     activeTurnIndex,
     displaySpeaker,
@@ -159,9 +159,8 @@ const Row = styled.li`
     ${rowStyle};
 `
 
-const ArrivingRow = styled(m.li)`
+const ArrivingRow = styled(VeilRow)`
     ${rowStyle};
-    position: relative;
 `
 
 const timeStyle = css`
@@ -416,7 +415,7 @@ const TurnRow = memo(function TurnRow({turn, arriving, userName, editing, canSee
     const ref = (element: HTMLElement | null) => actions.register(turn.id, element)
 
     return arriving
-        ? <ArrivingRow ref={ref} initial={{y: 4}} animate={{y: 0}} transition={tween('base', 'enter')}>{content}<Veil/></ArrivingRow>
+        ? <ArrivingRow ref={ref}>{content}</ArrivingRow>
         : <Row ref={ref}>{content}</Row>
 }, (before, after) =>
     // Turns are rebuilt whenever lines change; compare what a row shows, so
