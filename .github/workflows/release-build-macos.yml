@@ -248,10 +248,14 @@ jobs:
 
           FIRST_LOG="$RUNNER_TEMP/protocol-launch.log"
           launch "$FIRST_LOG" 20
+          # The onboarding line proves the bundled frontend ran and called the
+          # app. Since 1.0 first launch reads the onboarding status but saves
+          # it only when the user finishes, so the old milestone "Successfully
+          # persisted onboarding status to disk" never appears here.
           for milestone in \
             "Application setup complete" \
             "Fresh database initialized successfully" \
-            "Successfully persisted onboarding status to disk" \
+            "No stored onboarding status found, using defaults" \
             "Hardware acceleration support: enabled"; do
             grep -q "$milestone" "$FIRST_LOG" || { cat "$FIRST_LOG"; echo "Missing startup milestone: $milestone"; exit 1; }
           done
