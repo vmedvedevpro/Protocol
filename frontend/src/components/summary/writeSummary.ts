@@ -93,8 +93,10 @@ export function useWriteSummary(meetingId: string) {
             toast.error(again ? 'Couldn’t write the summary again' : 'Couldn’t write the summary', {description: errorMessage(error)})
             return false
         } finally {
-            setStarting(false)
+            // Starting ends once the summary read again shows the run:
+            // cleared first, the panel would show no summary for a moment.
             await client.invalidateQueries({queryKey: meetingKeys.summary(meetingId)})
+            setStarting(false)
         }
     }
 
