@@ -7,6 +7,12 @@ is inherited from the project Protocol forked from; Protocol did not release it.
 
 ## Protocol — unreleased
 
+- **Whisper on Intel GPUs under Linux**
+  ([#178](https://github.com/vmedvedevpro/Protocol/issues/178)). With
+  Intel's OpenCL driver installed, Large V3 Turbo runs on an Intel GPU
+  through Intel's libraries, downloaded on your click as on Windows; without
+  the driver, Settings names the package to install.
+
 ## Protocol 1.0.0 — 2026-11-25
 
 Protocol 1.0 has a new interface. Version 0.6.0 was never released; its
