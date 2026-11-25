@@ -1,5 +1,12 @@
 import {create} from 'zustand'
 
+/** Summary options: write the summary again; `templateId` starts on that template instead of the default. */
+interface SummaryOptionsRequest {
+    kind: 'summary'
+    meetingId: string
+    templateId?: string
+}
+
 /**
  * The dialogs that open over a screen (#119), and what each needs to open.
  * They live in features/dialogs, which no feature imports; a screen opens
@@ -12,6 +19,13 @@ export type DialogRequest =
     | { kind: 'export', meetingId: string }
     /** Enhance transcript: retranscribe the meeting's audio with a chosen model. */
     | { kind: 'enhance', meetingId: string }
+    | SummaryOptionsRequest
+    /**
+     * The template editor: edit `templateId`, or a new template without one.
+     * `returnTo` reopens Summary options as the editor closes, on the
+     * template it saved.
+     */
+    | { kind: 'template', templateId?: string, returnTo?: SummaryOptionsRequest }
 
 export type DialogKind = DialogRequest['kind']
 

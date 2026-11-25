@@ -2,6 +2,8 @@ import {EnhanceSheet} from './enhance/EnhanceSheet'
 import {ExportSheet} from './export/ExportSheet'
 import {DropOverlay} from './import/DropOverlay'
 import {ImportSheet} from './import/ImportSheet'
+import {SummaryOptionsSheet} from './summary/SummaryOptionsSheet'
+import {TemplateSheet} from './template/TemplateSheet'
 
 /**
  * Every dialog over a screen (#119), mounted once by the shell under the
@@ -16,6 +18,8 @@ export function DialogHost() {
             <ImportSheet/>
             <ExportSheet/>
             <EnhanceSheet/>
+            <SummaryOptionsSheet/>
+            <TemplateSheet/>
             <DropOverlay/>
         </>
     )

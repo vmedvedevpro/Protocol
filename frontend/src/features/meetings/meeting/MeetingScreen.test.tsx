@@ -98,15 +98,11 @@ describe('MeetingScreen', () => {
         expect(mockState.meetings.summaries['meeting-untitled']).toBeUndefined()
     })
 
-    it('asks before writing again over the user’s edits', async () => {
-        mockState.meetings.summaries['meeting-roadmap'].userEdited = true
+    it('opens Summary options to write the summary again', async () => {
         renderMeeting('meeting-roadmap')
+        const options = renderHook(() => useDialog('summary'))
         await userEvent.click(await screen.findByRole('button', {name: 'Write the summary again'}))
-        const confirm = screen.getByRole('dialog', {name: 'Write the summary again?'})
-        expect(confirm).toHaveTextContent('replaces your edits')
-        await userEvent.click(within(confirm).getByRole('button', {name: 'Write again'}))
-        // The new run replaced the edited summary: a state that stays, unlike the run's status.
-        await waitFor(() => expect(mockState.meetings.summaries['meeting-roadmap'].userEdited).toBe(false))
+        expect(options.result.current).toMatchObject({open: true, request: {meetingId: 'meeting-roadmap'}})
     })
 
     it('copies the transcript with times and speakers', async () => {

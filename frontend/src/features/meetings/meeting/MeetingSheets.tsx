@@ -49,34 +49,3 @@ export function DeleteMeetingSheet({meetingId, open, onOpenChange}: {
         </Sheet>
     )
 }
-
-/** Asks before a new summary replaces one the user edited. */
-export function WriteAgainSheet({open, onOpenChange, onConfirm}: {
-    open: boolean
-    onOpenChange: (open: boolean) => void
-    onConfirm: () => void
-}) {
-    return (
-        <Sheet
-            open={open}
-            onOpenChange={onOpenChange}
-            title="Write the summary again?"
-            footer={(
-                <>
-                    <SheetClose asChild><Button variant="ghost">Cancel</Button></SheetClose>
-                    <Button
-                        variant="filled"
-                        onClick={() => {
-                            onOpenChange(false)
-                            onConfirm()
-                        }}
-                    >
-                        Write again
-                    </Button>
-                </>
-            )}
-        >
-            <Text>Writing it again replaces your edits to the summary. Your notes and action items stay.</Text>
-        </Sheet>
-    )
-}
