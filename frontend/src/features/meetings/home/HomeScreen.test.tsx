@@ -1,6 +1,7 @@
-import {screen, waitFor, within} from '@testing-library/react'
+import {renderHook, screen, waitFor, within} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import {describe, expect, it} from 'vitest'
+import {useDialog} from '@/lib/dialogs'
 import {mockState} from '@/mocks/state'
 import {renderRoute} from '../testing'
 import {HomeScreen} from './HomeScreen'
@@ -109,12 +110,14 @@ describe('HomeScreen', () => {
         expect(await screen.findByRole('link', {name: /^Q4 roadmap \d/})).toBeInTheDocument()
     })
 
-    it('shows an empty state without Import when there are no meetings', async () => {
+    it('shows an empty state that offers Import when there are no meetings', async () => {
         mockState.meetings.meetings = []
         renderHome()
+        const importDialog = renderHook(() => useDialog('import'))
         expect(await screen.findByText('No meetings yet')).toBeInTheDocument()
         expect(screen.queryByRole('searchbox')).not.toBeInTheDocument()
-        expect(screen.queryByRole('button', {name: /import/i})).not.toBeInTheDocument()
+        await userEvent.click(screen.getByRole('button', {name: 'Import a recording'}))
+        expect(importDialog.result.current.open).toBe(true)
     })
 
     it('announces a downloaded update and installs it on request', async () => {

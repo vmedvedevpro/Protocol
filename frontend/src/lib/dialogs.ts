@@ -34,10 +34,16 @@ const useDialogStore = create<DialogStore>(() => ({open: null, requests: {}}))
 
 let seq = 0
 
-/** Opens a dialog over the screen, in place of the one open. */
+/**
+ * Opens a dialog over the screen, in place of the one open. Asked again
+ * while it is open (a second file dropped on Import), it keeps its `seq`
+ * and takes the new request, so its form carries on with it.
+ */
 export function openDialog(request: DialogRequest) {
-    seq += 1
-    useDialogStore.setState(({requests}) => ({open: request.kind, requests: {...requests, [request.kind]: {...request, seq}}}))
+    useDialogStore.setState(({open, requests}) => {
+        const same = open === request.kind ? requests[request.kind]?.seq : undefined
+        return {open: request.kind, requests: {...requests, [request.kind]: {...request, seq: same ?? ++seq}}}
+    })
 }
 
 /** Closes `kind` if it is the one open, or whichever is open. */

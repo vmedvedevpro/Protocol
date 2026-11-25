@@ -1,8 +1,9 @@
 import {createElement} from 'react'
-import {act, fireEvent, screen, waitFor, within} from '@testing-library/react'
+import {act, fireEvent, renderHook, screen, waitFor, within} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import {describe, expect, it} from 'vitest'
 import {recordingPhase} from '@/api/recordingPhase'
+import {useDialog} from '@/lib/dialogs'
 import type {Platform} from '@/lib/platform'
 import {mockState} from '@/mocks/state'
 import {settleIpc} from '@/test/ipc'
@@ -181,5 +182,15 @@ describe('Recording › devices', () => {
         await waitFor(() => expect(mockState.audio.monitoring).not.toBeNull())
         unmount()
         await waitFor(() => expect(mockState.audio.monitoring).toBeNull())
+    })
+})
+
+describe('Recording › Import', () => {
+    it('opens Import a recording', async () => {
+        renderRecording()
+        const importDialog = renderHook(() => useDialog('import'))
+        const card = await group('Import')
+        await userEvent.click(within(card).getByRole('button', {name: 'Choose a file'}))
+        expect(importDialog.result.current.open).toBe(true)
     })
 })

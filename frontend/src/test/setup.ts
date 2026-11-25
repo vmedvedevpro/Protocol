@@ -14,6 +14,7 @@ import {useKeepOnTopStore} from '@/app/shell/keepOnTop'
 import {resetRecording} from '@/features/recording/store/reset'
 import {useAdvancedSettingsStore} from '@/features/settings/store/advanced'
 import {resetToasts} from '@/components/ui/toastStore'
+import {importState} from '@/features/dialogs/import/importState'
 import {resetDialogs} from '@/lib/dialogs'
 import {installMockIpc} from '@/mocks/ipc'
 import {resetMockState} from '@/mocks/state'
@@ -64,6 +65,7 @@ afterEach(async () => {
     useLabsStore.setState({value: DEFAULT_LABS})
     resetToasts()
     resetDialogs()
+    importState.clear()
     postCallJobs.reset()
     recordingPhase.set('idle')
     // Tests that fake View Transitions install the method on document.

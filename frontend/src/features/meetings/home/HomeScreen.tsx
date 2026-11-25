@@ -11,6 +11,7 @@ import {Screen} from '@/components/screen/Screen'
 import {Button, IconButton} from '@/components/ui/Button'
 import {Spinner} from '@/components/ui/Spinner'
 import {TextField} from '@/components/ui/TextField'
+import {openDialog} from '@/lib/dialogs'
 import {paths} from '@/lib/paths'
 import {formatShortcut} from '@/lib/platform'
 import {RenameMeetingSheet} from '../components/RenameMeetingSheet'
@@ -65,6 +66,10 @@ const Muted = styled.p`
     margin: 0;
     ${({theme}) => theme.text.body};
     color: ${({theme}) => theme.colors.muted};
+`
+
+const ImportButton = styled(Button)`
+    margin-top: ${({theme}) => theme.space[1.5]};
 `
 
 const NoMatch = styled(Muted)`
@@ -174,6 +179,7 @@ export function HomeScreen() {
                 <Empty>
                     <EmptyTitle>No meetings yet</EmptyTitle>
                     <Muted>Press Record when a call starts. The notes, transcript and summary show up here.</Muted>
+                    <ImportButton onClick={() => openDialog({kind: 'import'})}>Import a recording</ImportButton>
                 </Empty>
             )}
             {meetings.isSuccess && !none && (
