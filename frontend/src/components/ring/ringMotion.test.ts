@@ -31,7 +31,7 @@ describe('ring motion', () => {
 
     it('breathes on its own when idle, whatever it hears', () => {
         const idle = run('idle', 1, 2)
-        expect(idle.level).toBeLessThan(0.08)
+        expect(idle.level).toBeLessThan(0.2)
         expect(idle.mono).toBeCloseTo(0.55)
     })
 

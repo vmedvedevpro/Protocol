@@ -22,27 +22,14 @@ import {popoverItem, popoverSurface, px} from './styles'
 // (https://21st.dev/@originui/components/dropdown-menu/labeled-grouped-items).
 
 // Radix sets the transform origin on the side of the button the menu opened
-// from; the menu grows from there. The surface draws the border and the
-// shadow once and never scrolls: as its own scroll container (overflow on
-// both axes) the shadow was painted with the scrolled layer and showed cut
-// or doubled at the edges. Rows scroll inside it, as a select's list does.
+// from; the menu grows from there. It is the items' offset parent, for the
+// highlight.
 const Surface = styled(m.div)`
-    ${popoverSurface};
-    display: flex;
-    flex-direction: column;
-    max-width: var(--radix-dropdown-menu-content-available-width);
-    max-height: var(--radix-dropdown-menu-content-available-height);
-    padding: 0;
-    transform-origin: var(--radix-dropdown-menu-content-transform-origin);
-`
-
-// The items' offset parent, for the highlight, and what scrolls.
-const Rows = styled.div`
     position: relative;
-    flex: 1;
-    min-height: 0;
-    padding: ${({theme}) => theme.space[1]};
+    ${popoverSurface};
+    max-height: var(--radix-dropdown-menu-content-available-height);
     overflow-y: auto;
+    transform-origin: var(--radix-dropdown-menu-content-transform-origin);
 `
 
 // An item's icon is muted beside its text, as in shadcn's menu.
@@ -149,10 +136,8 @@ function MenuSurface({children, ref, onFocus, ...props}: SurfaceProps) {
                 handlers.onFocus(event)
             }}
         >
-            <Rows>
-                {highlight}
-                {children}
-            </Rows>
+            {highlight}
+            {children}
         </Surface>
     )
 }

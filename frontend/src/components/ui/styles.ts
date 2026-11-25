@@ -27,10 +27,9 @@ export const fieldFocusRing = css`
 `
 
 /**
- * The keyboard's row in a menu or a list: an inset ring in `muted`. The
- * highlight's fill (`surface` on `raised`) barely shows, and the pointer has
- * the row under it to go by; the keyboard gets this as well. Rows show it on
- * `:focus-visible`, so the pointer's look stays the design's.
+ * The keyboard's row in the notes editor's menus (Ariakit, BlockNote's slash
+ * menu), where the pick moves only by the keyboard: an inset ring in `muted`.
+ * The app's own menus and lists show only the sliding highlight.
  */
 export const keyboardRowRing = css`
     outline: 1px solid ${({theme}) => theme.colors.muted};
@@ -76,10 +75,6 @@ export const popoverItem = css`
     outline: none;
     user-select: none;
     ${colorTransition};
-
-    &:focus-visible {
-        ${keyboardRowRing};
-    }
 
     &[data-disabled] {
         color: ${({theme}) => theme.colors.muted};
