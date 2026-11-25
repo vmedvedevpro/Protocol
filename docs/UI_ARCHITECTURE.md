@@ -1272,7 +1272,10 @@ another meeting starts from fresh state).
   the speed steps 1×, 1.25×, 1.5×, 2×. A meeting without audio says so in
   the bar. Whether a meeting has audio is native's answer
   (`meetingAudioQuery`); a recording the WebView cannot play only switches
-  the player off, so Improve and Identify speakers stay.
+  the player off, so Improve and Identify speakers stay. On Linux the
+  recording plays from native's `playbackUrl` instead of the asset
+  protocol, which WebKitGTK's player refuses (DEVELOPMENT_MAP.md ›
+  Recording playback).
 - **Notes and the edited summary** autosave 600 ms after typing stops and
   at once when the tab or the screen closes (`src/lib/autosave.ts`, which
   a contact's private notes use too). The

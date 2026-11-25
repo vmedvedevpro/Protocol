@@ -72,6 +72,12 @@ export interface MeetingAudio {
     path: string | null
     micPath: string | null
     systemPath: string | null
+    /**
+     * Native's own URL for `path` where the asset protocol cannot play media
+     * (Linux: WebKitGTK's player takes only http(s), blob, data and file
+     * URLs; see recording_stream.rs); null elsewhere.
+     */
+    playbackUrl: string | null
 }
 
 export const meetingKeys = {
@@ -151,8 +157,8 @@ export const openMeetingFolder = (meetingId: string) => command<null>('open_meet
  */
 export const getMeetingAudio = (meetingId: string) => command<MeetingAudio>('api_get_meeting_audio', {meetingId})
 
-/** A URL the webview can play a recording from (Tauri's asset protocol). */
-export const audioSource = (path: string) => convertFileSrc(path)
+/** A URL the webview can play a meeting's recording from: native's, else Tauri's asset protocol. */
+export const audioSource = (audio: MeetingAudio) => audio.playbackUrl ?? (audio.path === null ? null : convertFileSrc(audio.path))
 
 export const meetingsQuery = queryOptions({
     queryKey: meetingKeys.lists(),

@@ -64,6 +64,8 @@ pub mod model_integrity;
 pub mod parakeet_engine;
 pub mod paths;
 pub mod quit;
+#[cfg(target_os = "linux")]
+mod recording_stream;
 pub mod speech_choice;
 pub mod state;
 pub mod summary;

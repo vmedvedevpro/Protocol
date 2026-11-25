@@ -299,6 +299,10 @@ pub struct MeetingAudio {
     pub path: Option<String>,
     pub mic_path: Option<String>,
     pub system_path: Option<String>,
+    /// Where the WebView plays `path` from when the asset protocol cannot
+    /// serve media to it (WebKitGTK, see recording_stream.rs); `None`
+    /// elsewhere, where the page streams `path` through the asset protocol.
+    pub playback_url: Option<String>,
 }
 
 const PLAYABLE_EXTENSIONS: [&str; 8] = ["mp4", "m4a", "mp3", "wav", "aac", "flac", "ogg", "webm"];
@@ -318,6 +322,7 @@ pub async fn api_get_meeting_audio<R: Runtime>(
         path: None,
         mic_path: None,
         system_path: None,
+        playback_url: None,
     };
     let folder: Option<String> = sqlx::query_scalar("SELECT folder_path FROM meetings WHERE id = ?")
         .bind(&meeting_id)
@@ -349,10 +354,18 @@ pub async fn api_get_meeting_audio<R: Runtime>(
         })
         .map(|path| path.to_string_lossy().to_string())
     });
+    #[cfg(target_os = "linux")]
+    let playback_url = match &playback {
+        Some(path) => Some(crate::recording_stream::stream_url(std::path::Path::new(path))?),
+        None => None,
+    };
+    #[cfg(not(target_os = "linux"))]
+    let playback_url = None;
     let audio = MeetingAudio {
         path: playback,
         mic_path: existing("mic.mp4"),
         system_path: existing("system.mp4"),
+        playback_url,
     };
     if audio.path.is_some() || audio.mic_path.is_some() || audio.system_path.is_some() {
         app.asset_protocol_scope()

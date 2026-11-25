@@ -149,13 +149,13 @@ export class MeetingPlayer {
 export function useMeetingPlayer(meetingId: string): { player: MeetingPlayer, state: PlayerState } {
     const [player] = useState(() => new MeetingPlayer())
     const audio = useQuery(meetingAudioQuery(meetingId))
-    const path = audio.data?.path
+    const source = audio.data ? audioSource(audio.data) : undefined
     const failed = audio.isError
 
     useEffect(() => {
         if (failed) player.load(null)
-        else if (path !== undefined) player.load(path ? audioSource(path) : null)
-    }, [player, path, failed])
+        else if (source !== undefined) player.load(source)
+    }, [player, source, failed])
 
     useEffect(() => () => player.dispose(), [player])
 

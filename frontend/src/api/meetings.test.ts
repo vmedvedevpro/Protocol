@@ -136,7 +136,9 @@ describe('meetings', () => {
 
         expect(audio.path).toBe('mock-audio/meeting-acme-review')
         // The mock plays it from a silent WAV as long as the transcript.
-        expect(audioSource(audio.path!)).toMatch(/^blob:/)
+        expect(audioSource(audio)).toMatch(/^blob:/)
+        // On Linux native serves it itself, and that URL wins.
+        expect(audioSource({...audio, playbackUrl: 'http://127.0.0.1:4100/token'})).toBe('http://127.0.0.1:4100/token')
         mockState.meetings.meetings.find((meeting) => meeting.id === 'meeting-1on1')!.folder_path = null
         expect((await getMeetingAudio('meeting-1on1')).path).toBeNull()
     })

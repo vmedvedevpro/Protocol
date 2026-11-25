@@ -1436,6 +1436,27 @@ depends on a recognizable Key Topics heading or legacy section. Verification
 covers frontend/native builds and the Windows installer payload; a local installer
 is not a published release.
 
+### Recording playback (#121)
+
+`api_get_meeting_audio` (`api/api.rs`) finds a meeting's playback file and adds
+its folder to the asset protocol scope; the meeting screen's `<audio>`
+(`frontend/src/features/meetings/meeting/player.ts`) plays it from
+`audioSource` in `frontend/src/api/meetings.ts`. On Windows and macOS that is
+the asset protocol (`convertFileSrc`), which WebView2 and WKWebView stream with
+byte ranges. WebKitGTK's media player accepts only blob, data, file, http and
+https URLs (`isProtocolAllowed` in WebKit's `GStreamerCommon.cpp`) and fails
+`asset://` with a FormatError before any request, so on Linux the reply also
+carries `playbackUrl` from `recording_stream.rs`: a loopback HTTP server bound to
+127.0.0.1 that serves only files native registered, each under a random 256-bit
+token, with Range support; the CSP's `media-src` allows `http://127.0.0.1:*`.
+WebKitGTK copies a streamed recording into an unlinked, 0600 temp file in
+`/var/tmp` while its player exists (GStreamer's download buffering), so memory
+stays flat for long recordings. Verified on WebKitGTK 2.52.6 under Xvfb with
+WAV, M4A and a two-hour AAC `audio.mp4` (playing, and seeking to 1:56:00);
+`recording_stream::tests` cover the ranges, unknown tokens and paths. Whether a
+meeting has audio comes from native, not from playback: a recording the WebView
+cannot play only switches the player off.
+
 ### AI agents: the MCP server (#8)
 
 `mcp-server/` (`protocol-mcp`) serves the meeting library to AI agents over
