@@ -17,6 +17,10 @@ is inherited from the project Protocol forked from; Protocol did not release it.
   ([#220](https://github.com/vmedvedevpro/Protocol/issues/220)). It starts at
   your system's language when the transcript after the meeting supports it,
   otherwise at Detect automatically, and you can change it before Done.
+- **Faster live text says what it trades**
+  ([#220](https://github.com/vmedvedevpro/Protocol/issues/220)): words appear
+  sooner, live text can split sentences, and the transcript after the meeting
+  is unaffected.
 
 ## Protocol 1.0.0-rc.1 — 2026-11-26
 
