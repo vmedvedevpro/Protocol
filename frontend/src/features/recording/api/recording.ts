@@ -84,9 +84,6 @@ export const setSystemAudioMuted = (muted: boolean) => command<boolean>('set_sys
 export const attemptDeviceReconnect = (deviceName: string, deviceType: 'Microphone' | 'SystemAudio') =>
     command<boolean>('attempt_device_reconnect', {deviceName, deviceType})
 
-/** Where recordings are saved, for `stopRecording`'s path (database/commands.rs). */
-export const getDatabaseDirectory = () => command<string>('get_database_directory')
-
 /** The running recording's folder, once native has created it. */
 export const getMeetingFolderPath = () => command<string | null>('get_meeting_folder_path')
 

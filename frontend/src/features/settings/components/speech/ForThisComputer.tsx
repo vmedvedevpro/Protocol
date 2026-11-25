@@ -28,7 +28,7 @@ import {formatModelSize} from '@/lib/sizes'
 import {speechModelLabel} from '@/lib/speechModels'
 import {useModelUse, useSpeechModels} from '../../hooks/useSpeechModels'
 import {RowControls, RowValue, Warning} from '../styles'
-import {ModelRow} from './ModelRow'
+import {ModelRow} from '../ModelRow'
 import {facts} from './modelText'
 
 const quiet = (error: unknown) => {

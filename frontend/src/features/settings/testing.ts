@@ -32,3 +32,13 @@ export function renderSettings(element: ReactElement, path = '/settings') {
     )
     return {...view, router}
 }
+
+/**
+ * The labels of the settings rows on screen, once each, for the tests that
+ * hold a page to its search index (`SETTINGS_PAGES[…].rows`). `data` are
+ * rows that list data (models, templates, apps), which the index leaves out.
+ */
+export function renderedRowLabels(data: readonly string[] = []) {
+    const labels = [...document.querySelectorAll('[data-settings-row]')].map((row) => row.getAttribute('data-settings-row') ?? '')
+    return [...new Set(labels)].filter((label) => !data.includes(label)).sort()
+}

@@ -357,15 +357,30 @@ export function modelsHandlers(state: {models: MockModels, speech: MockSpeech, i
                         speed_mbps: 18.2,
                         status: 'downloading',
                     })
-                })
+                }, `builtIn:${model}`)
             } catch (error) {
-                const message = (error as Error).message
                 models.builtIn[model] = {type: 'not_downloaded'}
+                // Native removes the partial file, says `cancelled`, and the call rejects.
+                if (error === CANCELLED) {
+                    send(BUILTIN_AI_DOWNLOAD_PROGRESS_EVENT, {model, progress: 0, status: 'cancelled'})
+                    throw 'CANCELLED: Download cancelled by user'
+                }
+                const message = (error as Error).message
                 send(BUILTIN_AI_DOWNLOAD_PROGRESS_EVENT, {model, progress: 0, downloaded_mb: 0, total_mb: 0, speed_mbps: 0, status: 'error', error: message})
                 throw message
             }
             models.builtIn[model] = {type: 'available'}
             send(BUILTIN_AI_DOWNLOAD_PROGRESS_EVENT, {model, progress: 100, downloaded_mb: 0, total_mb: 0, speed_mbps: 0, status: 'completed'})
+            return null
+        },
+        builtin_ai_cancel_download: ({modelName}) => {
+            cancels.get(`builtIn:${String(modelName)}`)?.()
+            return null
+        },
+        builtin_ai_delete_model: ({modelName}) => {
+            const model = String(modelName)
+            if (state.models.builtIn[model]?.type !== 'available') throw `Model ${model} is not downloaded`
+            state.models.builtIn[model] = {type: 'not_downloaded'}
             return null
         },
     }

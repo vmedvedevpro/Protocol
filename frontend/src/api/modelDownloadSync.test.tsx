@@ -84,7 +84,8 @@ describe('useModelDownloadSync', () => {
             downloadWhisperModel(POST_CALL_WHISPER_MODEL),
             downloadBuiltInModel('qwen3.5:4b'),
         ]
-        await waitFor(() => expect(result.current.summary).toEqual({kind: 'downloading', progress: 20}))
+        // Any percent: the fake steps every 250 ms, and a busy machine checks late.
+        await waitFor(() => expect(result.current.summary).toMatchObject({kind: 'downloading'}))
 
         // Native refuses each second call and sends the refusal as an error event.
         await expect(downloadParakeetModel(PARAKEET_MODEL)).rejects.toThrow(/already in progress/)

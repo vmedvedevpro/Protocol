@@ -1,5 +1,7 @@
+import * as m from 'motion/react-m'
 import styled from 'styled-components'
-import {focusRing} from '@/components/ui/styles'
+import {colorTransition, focusRing} from '@/components/ui/styles'
+import {tween} from '@/styles/motion'
 
 /**
  * A line that needs attention: a failure, or what a choice costs. The window
@@ -84,3 +86,58 @@ export const Disclosure = styled.button`
         transform: rotate(180deg);
     }
 `
+
+// Chips: chosen apps, summary languages.
+
+export const Chips = styled.div`
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: ${({theme}) => theme.space[1.5]};
+`
+
+/** `$selected`: a pinned language, outlined in the text colour. */
+export const Chip = styled(m.span)<{$selected?: boolean}>`
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: ${({theme}) => theme.space[1]};
+    height: ${({theme}) => theme.sizes.control.sm};
+    padding: 0 ${({theme}) => theme.space[1]} 0 ${({theme}) => theme.space[2.5]};
+    border: 1px solid ${({theme, $selected}) => $selected ? theme.colors.text : theme.colors.border};
+    border-radius: ${({theme}) => theme.radii.pill};
+    background: ${({theme}) => theme.colors.raised};
+    ${colorTransition};
+    ${({theme}) => theme.text.small};
+    color: ${({theme}) => theme.colors.text};
+`
+
+/** A small round button inside a chip: remove, pin. */
+export const ChipButton = styled.button`
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-radius: ${({theme}) => theme.radii.pill};
+    background: transparent;
+    color: ${({theme}) => theme.colors.muted};
+    cursor: pointer;
+    ${focusRing};
+
+    &:hover {
+        background: ${({theme}) => theme.colors.surface};
+        color: ${({theme}) => theme.colors.text};
+    }
+`
+
+/** Chips grow in and shrink out; a chip's Veil does the fade, so its text never fades. */
+export const chipMotion = {
+    initial: {scale: 0.9},
+    animate: {scale: 1},
+    exit: {scale: 0.9},
+    transition: tween('fast'),
+}

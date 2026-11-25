@@ -10,7 +10,7 @@
  * shared by the main window and the minibar; `usePreferencesSync` brings a
  * change made in the other window over and tells native the meeting language.
  */
-import {queryOptions} from '@tanstack/react-query'
+import {mutationOptions, queryOptions} from '@tanstack/react-query'
 import {useEffect} from 'react'
 import {DETECT_LANGUAGE, normaliseSummaryLanguage} from '@/lib/languages'
 import {safely, storedValue} from '@/lib/storage'
@@ -215,16 +215,78 @@ export interface SummaryModelConfig {
 export const preferenceKeys = {
     all: ['preferences'] as const,
     summaryModel: () => [...preferenceKeys.all, 'summaryModel'] as const,
+    apiKey: (provider: SummaryProvider) => [...preferenceKeys.all, 'apiKey', provider] as const,
+    customServer: () => [...preferenceKeys.all, 'customServer'] as const,
 }
 
 /** Null until anything was saved: first launch saves built-in AI. */
 export const getSummaryModelConfig = () => command<SummaryModelConfig | null>('api_get_model_config')
 
-/**
- * The summary model. Its page (#117) saves it with `api_save_model_config`
- * and invalidates `preferenceKeys.summaryModel()`.
- */
+/** The summary model; Settings › Summary model saves it (`saveSummaryModelMutation`). */
 export const summaryModelQuery = queryOptions({
     queryKey: preferenceKeys.summaryModel(),
     queryFn: getSummaryModelConfig,
+})
+
+/** What `api_save_model_config` takes: the whole choice, replacing the stored one. */
+export interface SummaryModelChoice {
+    provider: SummaryProvider
+    model: string
+    /** Stored beside the summary model and read by nothing new; written back as read. */
+    whisperModel: string
+    /** A cloud provider's key, saved for that provider; native ignores an empty one. */
+    apiKey: string | null
+    ollamaEndpoint: string | null
+    summaryMaxTokens: number | null
+}
+
+/**
+ * Saves the summary model. Native checks the maximum length (Claude's
+ * against `claude-output-limits.json`, others 1 to 64 000) and refuses
+ * anything else; a cloud provider's key is kept per provider, so switching
+ * back finds it again. The built-in model's sidecar is shut down, so the
+ * next summary loads the new choice.
+ */
+export const saveSummaryModel = ({provider, model, whisperModel, apiKey, ollamaEndpoint, summaryMaxTokens}: SummaryModelChoice) =>
+    command<unknown>('api_save_model_config', {provider, model, whisperModel, apiKey, ollamaEndpoint, summaryMaxTokens})
+
+/** The key saved for a provider, '' when none is. */
+export const getApiKey = (provider: SummaryProvider) => command<string>('api_get_api_key', {provider})
+
+export const apiKeyQuery = (provider: SummaryProvider) =>
+    queryOptions({queryKey: preferenceKeys.apiKey(provider), queryFn: () => getApiKey(provider)})
+
+/** Mirrors `CustomOpenAIConfig` in summary/mod.rs: an OpenAI-compatible server of the user's. */
+export interface CustomServerConfig {
+    /** The API's base URL, `http://localhost:8000/v1`. */
+    endpoint: string
+    apiKey: string | null
+    model: string
+    maxTokens: number | null
+    /** 0 to 2. */
+    temperature: number | null
+    /** 0 to 1. */
+    topP: number | null
+}
+
+/** Null until a custom server was saved. */
+export const getCustomServer = () => command<CustomServerConfig | null>('api_get_custom_openai_config')
+
+export const customServerQuery = queryOptions({queryKey: preferenceKeys.customServer(), queryFn: getCustomServer})
+
+/** Native checks the endpoint starts with http:// or https:// and the model is named. */
+export const saveCustomServer = ({endpoint, apiKey, model, maxTokens, temperature, topP}: CustomServerConfig) =>
+    command<unknown>('api_save_custom_openai_config', {endpoint, apiKey, model, maxTokens, temperature, topP})
+
+/**
+ * Saves the summary model, and first the custom server when that is the
+ * provider: the custom server is stored apart, and the model choice names
+ * it by its model. Everything else that reads the choice reads it again.
+ */
+export const saveSummaryModelMutation = mutationOptions({
+    mutationFn: async ({choice, customServer}: {choice: SummaryModelChoice, customServer?: CustomServerConfig}) => {
+        if (customServer) await saveCustomServer(customServer)
+        await saveSummaryModel(choice)
+    },
+    onSettled: (_reply, _error, _variables, _result, {client}) => client.invalidateQueries({queryKey: preferenceKeys.all}),
 })

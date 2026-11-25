@@ -4,6 +4,7 @@ import {command} from './core'
 export const appKeys = {
     all: ['app'] as const,
     version: () => [...appKeys.all, 'version'] as const,
+    dataFolder: () => [...appKeys.all, 'dataFolder'] as const,
 }
 
 /** The version in tauri.conf.json, through Tauri's app plugin (`getVersion`). */
@@ -15,3 +16,20 @@ export const appVersionQuery = queryOptions({
     // Fixed for the life of the process.
     staleTime: Infinity,
 })
+
+/**
+ * The app's data folder (`paths::install_data_root`, database/commands.rs):
+ * the database, the models and, by default, the recordings. Recording builds
+ * the stop's save path from it; Settings shows it.
+ */
+export const getDatabaseDirectory = () => command<string>('get_database_directory')
+
+export const dataFolderQuery = queryOptions({
+    queryKey: appKeys.dataFolder(),
+    queryFn: getDatabaseDirectory,
+    // Resolved once when the app starts.
+    staleTime: Infinity,
+})
+
+/** Opens the data folder in the file manager, creating it first if it is missing. */
+export const openDataFolder = () => command<null>('open_database_folder')

@@ -1100,19 +1100,59 @@ recording and hides the main window: minimizing the main window does it
   row to Speech models; in Advanced, Local AI (read every 5 s while shown;
   both unloads refused during a recording) and Labs (Parakeet on the GPU
   on Windows only, hidden while the NPU runs Parakeet). Speech models
-  (`SpeechModels`, the `View` of its `PAGES` entry) shows the pair for this
+  (`SpeechModels`, its `SETTINGS_PAGES` entry) shows the pair for this
   computer with its Intel paths, then every Parakeet and Whisper model with
   its download, Cancel, Retry, Remove after a sheet, a damaged copy's
   Download again and the catalog's update; every download row there,
-  Nemotron's and the Intel ones included, is a `ModelRow`; native reads missing sizes
+  Nemotron's and the Intel ones included, is a `ModelRow` (shared with
+  the summary models since #117's AI half); native reads missing sizes
   (`model_catalog_request_sizes`). Tests: `components/speech/*.test.tsx`;
   stories: `Settings/Speech`.
-- #117 adds the AI and Advanced panels in `SectionView`
-  (`pages/SettingsPage.tsx`), the search beside the tabs, and the pages in
-  `pages/SettingsSubpage.tsx` (`PAGES`, `paths.settingsPage`) and in
-  `stories/settingsRoutes.ts`, the routes Settings' stories and tests share.
-  A page opened from the simple page goes back to it; with Advanced on, it
-  goes back to its section.
+- The pages inside Settings are `SETTINGS_PAGES` (`pages/settingsPages.ts`):
+  each names its title, the section Back returns to with Advanced on, the
+  component below its head, and its search index (`rows`: the labels and
+  descriptions of every row it can show, data rows such as models or apps
+  left out). `SettingsSubpage` draws the head and Back, `paths.settingsPage`
+  lists the ids. A page opened from the simple page goes back to it.
+- Search sits beside the tabs; its query is `?q=`, and picking a tab or
+  turning Advanced off drops it. Results render every section under a
+  `SettingsSearchScope` named after it, so a section's rows match by their
+  own text with no list kept by hand. Pages are looked up in their index
+  without rendering, so a search loads nothing of theirs (running apps,
+  model lists, an Ollama probe); a page whose title or indexed rows match
+  gets a row in "Pages" that opens it. Each page has a test that the rows
+  it renders are its index (`renderedRowLabels`, which reads
+  `data-settings-row`), so the index cannot drift. Section notes and the
+  Intel offer stay out of search; "Nothing matches" counts both.
+- AI › Summaries is the simple page's summary rows in full: the recent
+  summary languages as chips (pin, remove, "+ Add language", under the old
+  keys), the summary model, and Templates with the stored default's name.
+  Advanced holds Disk (the data folder, `src/api/app.ts`) and AI agents.
+- Summary model keeps a draft until Save (`summaryModel/draft.ts`), which
+  stores the custom server first when it is the provider, then the choice
+  (`saveSummaryModelMutation`); Cancel leaves without it. A provider switched
+  to starts with the model the old settings saved for it (`providerModelMap`,
+  read once, no longer written). Save waits for a provider's key, a
+  downloaded built-in model, and a valid length or custom server; native
+  checks the length again. A cloud provider's list is asked with the key
+  once typing it has rested (`useDebouncedSave`, a spinner meanwhile) and is
+  keyed by the provider alone, so no key is in a query hash; Ollama's list is
+  keyed by its endpoint, also once typing rests, and Fetch models asks again.
+  Built-in and Ollama models are `ModelRow`s, the speech half's download row
+  (`components/ModelRow.tsx`): built-in downloads show the `downloadsQuery`
+  progress that `useModelDownloadSync` keeps, so they outlive the page;
+  Ollama's pull has no cancel, as native has none, and holds the updater's
+  busy reason natively for its whole run (`pull_ollama_model`). The old UI's
+  `model-config-updated` event is gone: the only reader of the model in
+  another window was the main window itself, which invalidates its own query.
+- Summary templates chooses the default at once (`setDefaultTemplateMutation`)
+  and shows its sections; Delete removes the user's own template. Editing and
+  new templates are the template editor's (#119). Chosen apps lists the open
+  apps once per visit (`recordableAppsQuery`), playing sound first, adds one
+  by its program (`targetOf`, `sameApp`) or from the picker, and saves each
+  change at once. Connect an agent shows Claude Code's command and adds
+  Protocol to Claude Desktop (Windows, macOS) or gives its configuration to
+  paste (Linux, and by hand); it asks for access first when it is off.
 
 ## The meetings list and the meeting screen
 

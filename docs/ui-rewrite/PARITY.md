@@ -263,7 +263,7 @@ such a command only on its platform
 | Item | Kind | Old file | Owner | Notes |
 | --- | --- | --- | --- | --- |
 | `get_audio_devices` | command | `components/RecordingControls.tsx`, `components/onboarding/steps/AudioTestStep.tsx`, `hooks/usePermissionCheck.ts` | #114 | Device lists (moved from the record card); also the bar's "Change inputs" (#112) and the mic test (#115). |
-| `get_database_directory` | command | `components/RecordingControls.tsx`, `contexts/ConfigContext.tsx` | #117 | Advanced › Local AI › Models and recordings; also builds the `stop_recording` save path (#112). |
+| `get_database_directory` | command | `components/RecordingControls.tsx`, `contexts/ConfigContext.tsx` | #117 | Advanced › Disk, beside Show folder (`open_database_folder`, which the old UI never called); also builds the `stop_recording` save path (#112). Since #117 in `src/api/app.ts`. |
 | `get_default_recordings_folder_path` | command | `components/RecordingSettings.tsx`, `contexts/ConfigContext.tsx` | #114 | Shown when no folder is saved. Not called since #114: `get_recording_preferences` already answers the default folder in `save_folder` when none is stored, and `set_recording_preferences` rejects an empty one. |
 | `get_recordable_apps` | command | `hooks/useAppAudio.ts` | #117 | Chosen apps subpage. |
 | `get_recording_preferences` | command | `components/RecordingControls.tsx`, `components/RecordingSettings.tsx`, `components/TranscriptSettings.tsx` +3 | #114 | Save audio, folder, devices, volumes, chosen apps, Faster live text. |
@@ -509,7 +509,7 @@ Listed so their effects are not lost.
 | `open-global-search` | DOM event | `components/Sidebar/index.tsx`, `components/GlobalSearchDialog.tsx` | #118 | |
 | `af-open-group-editor` | DOM event | `components/groups/GroupEditor.tsx` | #113 | New folder from anywhere. |
 | `confidenceIndicatorChanged` | DOM event | `contexts/ConfigContext.tsx` | dropped | Dispatched by the dead Show confidence setting; nothing listens. |
-| `model-config-updated` | UI event | `contexts/ConfigContext.tsx`, `components/SummaryModelSettings.tsx`, `app/meeting-details/page.tsx`, `app/meeting-details/page-content.tsx` | #117 | A Tauri event the UI emits to every window after saving the summary model, so other views reload; native never emits it. |
+| `model-config-updated` | UI event | `contexts/ConfigContext.tsx`, `components/SummaryModelSettings.tsx`, `app/meeting-details/page.tsx`, `app/meeting-details/page-content.tsx` | #117 | A Tauri event the UI emits to every window after saving the summary model, so other views reload; native never emits it. Dropped in #117: the main window that saves also reads the model and invalidates its own query; the minibar does not read it. |
 | `af-sidebar-width` | DOM event | `components/Sidebar/SidebarProvider.tsx` | dropped | No sidebar in the design. |
 | `meetily-automation-changed` | DOM event | `lib/meeting-automation.ts` | dropped | Auto-record dropped. |
 

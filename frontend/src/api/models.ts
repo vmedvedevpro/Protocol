@@ -10,11 +10,11 @@
  * so `useModelDownloadSync` (`modelDownloadSync.ts`, mounted once by the
  * shell) keeps `downloadsQuery` from the events and refreshes a list when
  * its download ends; `modelState` folds the two into what a screen shows.
- * Settings › Speech models (#117) cancels and removes them; the models chosen
+ * Settings › Speech models and Summary model (#117) cancel and remove them; the models chosen
  * for each task are in `speech.ts`. The Intel GPU version and Intel's
  * libraries are in `intel.ts`, the speaker engine in `diarization.ts`.
  */
-import {queryOptions} from '@tanstack/react-query'
+import {mutationOptions, queryOptions} from '@tanstack/react-query'
 import {command} from './core'
 import type {NativeEvent} from './events'
 
@@ -186,6 +186,18 @@ export const getRecommendedSummaryModel = () => command<string>('builtin_ai_get_
  * in progress" while it runs. Progress comes as `builtin-ai-download-progress`.
  */
 export const downloadBuiltInModel = (modelName: string) => command<null>('builtin_ai_download_model', {modelName})
+
+/**
+ * Stops a built-in download. Native removes the partial file and sends
+ * `cancelled`, and the download's own call rejects with "CANCELLED: …".
+ */
+export const cancelBuiltInDownload = (modelName: string) => command<null>('builtin_ai_cancel_download', {modelName})
+
+/** Deletes a built-in model's file; the list reads it as not downloaded. */
+export const deleteBuiltInModel = (modelName: string) => command<null>('builtin_ai_delete_model', {modelName})
+
+/** A cancel's rejection of the download call: no failure to show. */
+export const isCancelledDownload = (error: unknown) => /^CANCELLED:/.test(String(error instanceof Error ? error.message : error))
 
 /**
  * A second call for a download that runs: every engine rejects it with this
@@ -369,3 +381,9 @@ export function modelState(status: SpeechModelStatus | BuiltInModelStatus | unde
     if (installed.kind === 'downloading') return {kind: 'downloading', progress: Math.min(installed.progress, 99)}
     return installed
 }
+
+/** Deletes a built-in model and reads the list again, with every readiness check under it. */
+export const deleteBuiltInModelMutation = mutationOptions({
+    mutationFn: deleteBuiltInModel,
+    onSettled: (_reply, _error, _model, _result, {client}) => client.invalidateQueries({queryKey: modelKeys.builtIn()}),
+})

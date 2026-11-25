@@ -246,7 +246,7 @@ export function SettingsRow({label, description, badge, control, children}: Sett
 
     return (
         <ControlLabelContext.Provider value={ids}>
-            <Row data-settings-row="">
+            <Row data-settings-row={label}>
                 <Line>
                     <Text>
                         <Label>
@@ -321,7 +321,7 @@ interface SettingsNavRowProps {
 export function SettingsNavRow({label, description, value, external = false, onClick}: SettingsNavRowProps) {
     if (!useSearchMatch(label, description, value)) return null
     return (
-        <NavButton type="button" onClick={onClick} data-settings-row="">
+        <NavButton type="button" onClick={onClick} data-settings-row={label}>
             <Text>
                 <Label>
                     {label}
@@ -510,7 +510,7 @@ export function SettingsRadioRow({value, label, description, badge, disabled}: S
         <RadioButton
             value={value}
             disabled={disabled}
-            data-settings-row=""
+            data-settings-row={label}
             aria-labelledby={labelId}
             aria-describedby={description ? descriptionId : undefined}
         >
