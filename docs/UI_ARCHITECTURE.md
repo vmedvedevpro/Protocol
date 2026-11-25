@@ -408,11 +408,11 @@ enter and exit, indicators and springs.
   frame would lay the window out again. Something that has to grow appears
   with a small rise under a veil, and the layout moves once. The one exception
   is `Collapse`, a disclosure's content ("What's included?", advanced
-  settings): it grows its height under a clip, because what follows it has
-  to slide rather than jump, and its text must not fade, since text that
-  ends an opacity animation is rasterized again and visibly blinks. It is a
-  short block in a sheet or a settings card, so laying it out each frame
-  is cheap.
+  settings) or a banner's slot: it grows its height under a clip, because
+  what follows it has to slide rather than jump, and its text must not
+  fade, since text that ends an opacity animation is rasterized again and
+  visibly blinks. It is a short block in a sheet, a settings card or atop
+  Home, so laying it out each frame is cheap.
 - Text never fades itself. Under an opacity below 1 Chromium draws text
   without subpixel antialiasing and draws it again when the fade ends, a
   visible blink. So content that holds text keeps its 4 px rise
@@ -514,7 +514,9 @@ enter and exit, indicators and springs.
   - Lists: a new row rises 4 px under a veil over `base`, a removed row
     goes at once; no stagger, and no reordering animation (it needs layout).
     Home's banners and the meeting's processing strip and steps arrive the
-    same way.
+    same way; a banner (Home's, the Intel offer in Settings) does so inside
+    a `Collapse`, so the content below slides as its slot opens and closes,
+    and it leaves under its veil while the slot closes.
   - Disclosures: `Collapse` grows from nothing to its content's height over
     `base` and shrinks back the same way, at full opacity throughout; its
     button's caret turns over `fast`. The clip holds only while the height

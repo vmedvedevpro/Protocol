@@ -4,6 +4,7 @@ import {describe, expect, it} from 'vitest'
 import {useDialog} from '@/lib/dialogs'
 import {useSearchLauncher} from '@/lib/searchLauncher'
 import {mockState} from '@/mocks/state'
+import {playAnimations, watchStyles} from '@/test/motion'
 import {renderRoute} from '../testing'
 import {HomeScreen} from './HomeScreen'
 
@@ -151,6 +152,18 @@ describe('HomeScreen', () => {
 
         await userEvent.click(screen.getByRole('button', {name: 'Restart and update'}))
         await waitFor(() => expect(mockState.updater.activity.state).toBe('installing'))
+    })
+
+    it('opens a banner’s slot as it arrives, so the list below slides instead of jumping', async () => {
+        await playAnimations()
+        downloadedOffer()
+        const styles = watchStyles()
+        renderHome()
+        const banner = (await screen.findByText('Update ready')).closest('[role="status"]') as HTMLElement
+
+        // The slot grows under a clip, then hands its height back to the layout.
+        const slot = banner.parentElement as HTMLElement
+        await waitFor(() => expect(styles.valuesOf(slot, 'overflow')).toEqual(['hidden', '']), {timeout: 2000})
     })
 
     it('says what an install waits for while work runs', async () => {

@@ -57,9 +57,10 @@ interface BannerProps {
 
 /**
  * Something on Home that needs the user: an update waiting for a restart,
- * an audio permission missing. It arrives with a 4 px rise under a veil and
- * leaves the same way (wrap it in AnimatePresence); its title and
- * description are a status, read once when it appears.
+ * an audio permission missing. It arrives with a 4 px rise under a veil
+ * inside a Collapse, which opens its slot so what is below slides, and
+ * goes under the veil as the slot closes; its title and description are a
+ * status, read once when it appears.
  */
 export function Banner({icon, title, description, actions}: BannerProps) {
     return (
@@ -67,7 +68,6 @@ export function Banner({icon, title, description, actions}: BannerProps) {
             role="status"
             initial={{y: -4}}
             animate={{y: 0}}
-            exit={{y: -4, transition: tween('base', 'exit')}}
             transition={tween('base', 'enter')}
         >
             {icon}
