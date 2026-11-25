@@ -5,7 +5,7 @@ import {meetingNotesQuery, saveMeetingNotesMutation} from '@/api/notes'
 import {NotesEditor} from '@/components/editor/NotesEditor'
 import {Spinner} from '@/components/ui/Spinner'
 import {toast} from '@/components/ui/toastStore'
-import {useAutosave, useSaving} from '../lib/autosave'
+import {useAutosave, useSaving} from '@/lib/autosave'
 
 const Panel = styled.div`
     height: 100%;

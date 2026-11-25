@@ -16,6 +16,7 @@ import {useHotkey} from '@/lib/hotkeys'
 import {platform} from '@/lib/platform'
 import {paths} from '@/lib/paths'
 import {CrashReportSheet} from './CrashReportSheet'
+import {GlobalSearch} from './GlobalSearch'
 import {useKeepOnTopStore, useKeepOnTopSync} from './keepOnTop'
 import {useStartupPhase} from './startup'
 import {StartupScreen} from './StartupScreen'
@@ -53,7 +54,8 @@ function ShellCommands() {
     useNativeEvent(TRAY_START_RECORDING_EVENT, () => void startRecording())
     useHotkey({code: 'KeyR', mod: true}, toggleRecording, {level: 'app'})
     useHotkey({code: 'Comma', mod: true}, () => void navigate(paths.settings()), {level: 'app'})
-    return <RecordingRuntime/>
+    // Search registers ⌘K and runs the recording's commands too.
+    return <><RecordingRuntime/><GlobalSearch/></>
 }
 
 /**

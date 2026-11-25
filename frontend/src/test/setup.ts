@@ -10,6 +10,7 @@ import {DEFAULT_LABS, useLabsStore} from '@/api/labs'
 import {postCallJobs} from '@/api/postCall'
 import {rereadPreferences} from '@/api/preferences'
 import {recordingPhase} from '@/api/recordingPhase'
+import {closeSearch} from '@/lib/searchLauncher'
 import {useKeepOnTopStore} from '@/app/shell/keepOnTop'
 import {resetRecording} from '@/features/recording/store/reset'
 import {useAdvancedSettingsStore} from '@/features/settings/store/advanced'
@@ -35,7 +36,8 @@ Element.prototype.releasePointerCapture ??= () => {}
 Element.prototype.scrollIntoView ??= () => {}
 
 // jsdom lays nothing out, so there is no size to observe: the meeting's
-// title, which shows whole in a tooltip once it is cut off, never is.
+// title, which shows whole in a tooltip once it is cut off, never is; and
+// cmdk's list (search, #118) never changes height.
 globalThis.ResizeObserver ??= class {
     observe() {}
     unobserve() {}
@@ -68,6 +70,7 @@ afterEach(async () => {
     resetImport()
     postCallJobs.reset()
     recordingPhase.set('idle')
+    closeSearch()
     // Tests that fake View Transitions install the method on document.
     delete (document as { startViewTransition?: unknown }).startViewTransition
     localStorage.clear()

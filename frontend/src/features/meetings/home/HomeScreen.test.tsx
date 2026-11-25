@@ -2,6 +2,7 @@ import {renderHook, screen, waitFor, within} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import {describe, expect, it} from 'vitest'
 import {useDialog} from '@/lib/dialogs'
+import {useSearchLauncher} from '@/lib/searchLauncher'
 import {mockState} from '@/mocks/state'
 import {renderRoute} from '../testing'
 import {HomeScreen} from './HomeScreen'
@@ -26,6 +27,19 @@ describe('HomeScreen', () => {
         // The folder is the second line.
         expect(within(today).getByRole('link', {name: /Acme pilot security review/})).toHaveTextContent('Acme Corp')
         expect(screen.getByRole('region', {name: 'Yesterday'})).toHaveTextContent('Q4 roadmap planning')
+    })
+
+    it('takes the words to search for transcripts, summaries and people', async () => {
+        renderHome()
+        const search = await screen.findByRole('searchbox', {name: 'Search meetings'})
+
+        await userEvent.type(search, 'retention')
+        await userEvent.click(await screen.findByRole('button', {name: /Search transcripts, summaries and people for “retention”/}))
+        expect(useSearchLauncher.getState()).toEqual({open: true, query: 'retention'})
+
+        useSearchLauncher.setState({open: false, query: ''})
+        await userEvent.type(search, '{Enter}')
+        expect(useSearchLauncher.getState()).toEqual({open: true, query: 'retention'})
     })
 
     it('filters by title and by folder name as the user types, and Escape clears it', async () => {

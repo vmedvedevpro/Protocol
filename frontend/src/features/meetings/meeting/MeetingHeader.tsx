@@ -15,7 +15,7 @@ import type {Folder} from '@/api/meetings'
 import {IconButton} from '@/components/ui/Button'
 import {Menu, MenuItem, MenuRadioGroup, MenuRadioItem, MenuSeparator, MenuSub} from '@/components/ui/Menu'
 import {Tooltip} from '@/components/ui/Tooltip'
-import {formatLength, headerWhen} from '../lib/dates'
+import {formatLength, headerWhen} from '@/lib/dates'
 import {SpeakerCountItems} from './SpeakerCount'
 
 const Head = styled.div`

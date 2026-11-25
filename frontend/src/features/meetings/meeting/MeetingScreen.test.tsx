@@ -177,6 +177,27 @@ describe('MeetingScreen', () => {
         expect(mockState.meetings.meetings.some((meeting) => meeting.id === 'meeting-acme-review')).toBe(false)
     })
 
+    it('opens a named voice’s contact from its label in the transcript', async () => {
+        const {router} = renderMeeting('meeting-acme-review', '?tab=transcript')
+        const [label] = await screen.findAllByRole('button', {name: 'Priya Shah'})
+
+        await userEvent.click(label)
+        await userEvent.click(await screen.findByRole('menuitem', {name: 'Open Priya Shah'}))
+
+        expect(router.state.location.pathname).toBe('/person/person-priya')
+    })
+
+    it('opens the transcript at a search result’s line, though the meeting has no audio to seek', async () => {
+        const line = mockState.meetings.transcripts['meeting-acme-review'].find((entry) => entry.text.includes('data retention'))!
+        const scroll = vi.spyOn(Element.prototype, 'scrollIntoView')
+        renderMeeting('meeting-acme-review', `?tab=transcript&at=999&line=${line.id}`)
+
+        const text = await screen.findByText(/a data retention statement for the recordings folder/)
+
+        await waitFor(() => expect(scroll).toHaveBeenCalledTimes(1))
+        expect((scroll.mock.contexts[0] as HTMLElement).contains(text)).toBe(true)
+    })
+
     it('says so when the meeting is gone', async () => {
         renderMeeting('meeting-nowhere')
         expect(await screen.findByRole('heading', {name: 'This meeting isn’t available'})).toBeInTheDocument()

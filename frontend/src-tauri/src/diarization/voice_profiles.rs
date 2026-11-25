@@ -461,6 +461,9 @@ pub async fn enroll_person_voice(
     person_id: String,
     meeting_id: Option<String>,
 ) -> Result<VoiceProfileInfo, String> {
+    // Reads up to ten meetings' audio through the speaker models: an update
+    // must not restart the app in the middle of it.
+    let _busy = crate::updater::busy::hold(crate::updater::busy::BusyReason::Diarization);
     let pool = state.db_manager.pool();
     let name: String = sqlx::query_scalar("SELECT display_name FROM people WHERE id = ?")
         .bind(&person_id).fetch_optional(pool).await.map_err(|error| error.to_string())?

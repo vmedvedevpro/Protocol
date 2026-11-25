@@ -1,4 +1,4 @@
-import {useState} from 'react'
+import {useEffect, useState} from 'react'
 import {ArrowClockwiseIcon, CopyIcon} from '@phosphor-icons/react'
 import {useMutation, useQuery, useQueryClient} from '@tanstack/react-query'
 import {useNavigate, useParams, useSearchParams} from 'react-router-dom'
@@ -32,7 +32,7 @@ import {completeSummaryMarkdown, parseSummaryData} from '@/lib/summaryMarkdown'
 import {FolderNameSheet} from '../components/FolderSheets'
 import {ProcessingStatus} from '../components/processing/ProcessingStatus'
 import {RenameMeetingSheet} from '../components/RenameMeetingSheet'
-import {parseDate} from '../lib/dates'
+import {parseDate} from '@/lib/dates'
 import {MeetingHeader} from './MeetingHeader'
 import {DeleteMeetingSheet} from './MeetingSheets'
 import {NotesPanel} from './NotesPanel'
@@ -155,6 +155,20 @@ export function MeetingScreen({meetingId}: { meetingId: string }) {
     useHotkey({code: 'Digit3', mod: true}, () => selectTab('summary'))
     useHotkey({code: 'F2'}, () => setRenaming(true), {enabled: meeting.isSuccess})
 
+    // A search result opens the meeting at a moment (`?at=` seconds): once
+    // the recording has loaded (a load starts it from 0) the player waits
+    // there. A line (`?line=`, a transcript id) is scrolled into view by the
+    // transcript itself, with audio or without. Both are read once.
+    const [at] = useState(() => {
+        const seconds = Number(params.get('at') ?? Number.NaN)
+        return Number.isFinite(seconds) && seconds >= 0 ? seconds : null
+    })
+    const [line] = useState(() => params.get('line') ?? undefined)
+    const ready = playback.status === 'ready'
+    useEffect(() => {
+        if (ready && at !== null) player.seek(at)
+    }, [ready, at, player])
+
     const title = meeting.data?.title ?? ''
     const createdAt = parseDate(meeting.data?.created_at)
     const lines = transcript.data ?? []
@@ -250,6 +264,7 @@ export function MeetingScreen({meetingId}: { meetingId: string }) {
                                         meetingId={meetingId}
                                         playback={hasAudio ? player.clock : undefined}
                                         playing={playback.playing}
+                                        revealLine={line}
                                         onSeek={playback.status === 'ready' ? player.playFrom : undefined}
                                     />
                                 )

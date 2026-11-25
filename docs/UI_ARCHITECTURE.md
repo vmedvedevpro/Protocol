@@ -1074,11 +1074,12 @@ sheets) and their helpers (`lib/`). The routes are `/` (`HomeScreen`) and
 another meeting starts from fresh state).
 
 - **Home.** Search filters the list by title and folder name as the user
-  types; Escape clears it. Search in transcripts and summaries is #118's.
+  types; Escape clears it. Enter, or the row under the list, takes the
+  words to search (⌘K) for transcripts, summaries and people (#118).
   The folder chips filter by folder, kept in the URL (`?folder=`) so Back
   from a meeting returns to it; a folder that no longer exists shows
   everything. The selected folder's menu renames or deletes it; its
-  meetings stay, in no folder. Rows are grouped by date (`lib/dates.ts`);
+  meetings stay, in no folder. Rows are grouped by date (`src/lib/dates.ts`);
   a row's second line is the post-call pass while one runs
   (`ProcessingLine`), else its folder. F2 on a row renames the meeting. A
   meeting added while Home is open (a recording just saved) rises in under a veil;
@@ -1125,7 +1126,8 @@ another meeting starts from fresh state).
   the speed steps 1×, 1.25×, 1.5×, 2×. A meeting without audio says so in
   the bar.
 - **Notes and the edited summary** autosave 600 ms after typing stops and
-  at once when the tab or the screen closes (`lib/autosave.ts`). The
+  at once when the tab or the screen closes (`src/lib/autosave.ts`, which
+  a contact's private notes use too). The
   editor reads its content once, so it mounts only once the last save of
   that text has landed (`useSaving` over the mutation's scope): the notes
   are read back after each save, and a saved summary edit is written into
@@ -1188,6 +1190,38 @@ another meeting starts from fresh state).
   mock's handlers with what native does in the same write:
   `rename_meeting_speaker` makes a contact of a new name, and
   `api_list_action_items` answers with owners linked to their contacts.
+- Search (#118) is `features/search`: `SearchDialog` registers ⌘K / Ctrl K
+  and opens from anywhere through `src/lib/searchLauncher.ts`
+  (`openSearch(query)`, which Home's field uses). cmdk gives the list its
+  keys and selection with its own filtering off: with no query it shows
+  the commands (the caller's `actions`, then Go to and Theme) and five
+  recent meetings, filtered by their words as the user types; from two
+  characters `api_global_search` answers 220 ms after typing pauses, its
+  rows kept in native's order and grouped by kind in that order. The
+  composition root passes the commands that belong to other features
+  (`app/shell/GlobalSearch.tsx`: the recording's, New folder, New
+  contact); a command runs once the dialog has closed, so a sheet it opens
+  keeps the focus, while a theme applies with the dialog still open. The
+  dialog is a `Sheet` with `bare`: its title is for screen readers only and
+  it has no header or close button.
+- A result opens where it lives: a person at `paths.person(id)`, a folder
+  at Home's `?folder=`, a transcript line on the meeting's transcript at
+  that line, and an action item on its summary (`paths.meeting(id, {tab,
+  at, line})`). The meeting screen reads `?at=` (seconds) and `?line=` (a
+  transcript id) once: the player waits at `at` once the recording has
+  loaded, and `TranscriptList` scrolls the turn holding `line` into view
+  (`revealLineId`), with audio or without. Playback is not followed until
+  the user plays. An action item has no line of its own on the summary:
+  without audio its `?at=` does nothing, and the summary opens at its top.
+  Mock: `src/mocks/search.ts`, native's ranking and snippets.
+- The person screen (`/person/:personId`, `features/people`) shows the
+  details, the Labs voice (while Voice profiles is on, or to forget one
+  learned before), the open action items (`actionItemsQuery({personId,
+  openOnly})`, checked off with Undo), the meetings together (the old
+  library's `?person=` filter) and private notes. Edit, Merge and Delete
+  are in its menu; a merge opens the contact kept, a delete goes home. A
+  voice's label in a meeting's transcript opens its contact through the
+  speaker menu ("Open <name>").
 
 ## Dialogs over a screen
 
