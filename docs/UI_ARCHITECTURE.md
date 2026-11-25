@@ -480,6 +480,10 @@ enter and exit, indicators and springs.
 - What animates and how:
   - Screens and first launch's steps arrive with a 4 px rise under a veil
     over `base`; the one they replace goes at once.
+  - The docked recording bar: a new phase's middle and action (Record,
+    then the timer, the sources and Stop) arrive the way a screen does,
+    keyed by the bar's label, so starting keeps the pending Record button
+    and pausing replays nothing; the bar and the ring stay mounted.
   - Home's folder chips: the selected chip's outline is a thumb that
     slides to the chip chosen by transform on `springs.snappy`.
   - Tabs and segmented controls: the thumb slides, except that a change
