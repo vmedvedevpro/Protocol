@@ -1,6 +1,6 @@
 name: Release build (Linux)
 
-# Called by release.yml. Builds the experimental x86_64 AppImage and deb,
+# Called by release.yml. Builds the x86_64 AppImage and deb,
 # checks that the AppImage starts, and uploads the leg-linux artifact.
 # No secrets, read-only token. The native tests have never run on Linux in
 # this lineage and do not block a release yet.

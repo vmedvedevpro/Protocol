@@ -151,3 +151,9 @@ test('a published release needs Windows and Linux; macOS may still be on its way
     'macos is incomplete: protocol-macos-arm64.app.tar.gz.sig, protocol-macos-arm64.dmg missing',
   ]);
 });
+
+test('the release notes keep no source wraps inside a paragraph', () => {
+  const notes = renderNotes({ version: '0.3.1', notes: '- A change\n  wrapped in the CHANGELOG.', sums: sumsOf('0.3.1', ['windows', 'macos', 'linux']) });
+  assert.match(notes, /^- A change wrapped in the CHANGELOG\.$/m);
+  assert.match(notes, /you don't need to download them\./);
+});
