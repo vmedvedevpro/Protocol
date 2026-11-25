@@ -1,157 +1,81 @@
 <p align="center">
-  <img src="frontend/src-tauri/icons/128x128@2x.png" alt="Protocol logo" width="120" />
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/media/ring-dark.gif">
+    <img src="docs/media/ring-light.gif" alt="Protocol's ring, a softly glowing violet and blue circle whose edge moves gently as if it hears a voice" width="120">
+  </picture>
 </p>
 
 <h1 align="center">Protocol</h1>
 
 <p align="center">
-  <strong>Meeting notes that never leave your computer.</strong><br>
-  Protocol records your calls, transcribes them on your machine, tells the
-  speakers apart, and keeps notes, action items, and summaries next to the
-  transcript.
+  Protocol records your calls, transcribes them on your computer, tells the
+  speakers apart and writes a summary.
 </p>
 
 <p align="center">
-  <a href="https://github.com/vmedvedevpro/Protocol/releases/latest"><strong>Download the latest release</strong></a>
-  for Windows, macOS (Apple Silicon), or Linux (experimental)
+  <a href="https://github.com/vmedvedevpro/Protocol/releases/latest"><strong>Download</strong></a>
+  for Windows, macOS (Apple Silicon) or Linux.
 </p>
 
-Free and open source: no account, no subscription, no analytics. Protocol is
-built on [Meetily – Actually Free](https://github.com/TylerBuza/Meetily-ActuallyFree),
-which made the original [Meetily](https://github.com/Zackriya-Solutions/meetily)
-free of paid tiers and added speaker diarization and voice profiles.
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/media/home-dark.png">
+    <img src="docs/media/home-light.png" alt="Home: the search field, folder chips for Acme Corp, Design Team and Weekly Standup, meetings grouped under Today, Yesterday, This week and Earlier this month, and at the bottom the ring with Ready to record and the Record button" width="400">
+  </picture>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/media/meeting-summary-dark.png">
+    <img src="docs/media/meeting-summary-light.png" alt="A saved meeting on its Summary tab: the summary, the decisions, and action items with their owners and due dates, above the recording's player" width="400">
+  </picture>
+</p>
 
-## What Protocol adds
+## What it does
 
-Everything Meetily – Actually Free offers is here, plus:
+- Records your microphone and your computer's audio.
+- Transcribes live during the call and again after it.
+- Marks your microphone as You and tells the other voices apart.
+- Writes a summary with a local model or a provider you connect.
+- Searches all your meetings and transcripts.
+- Exports a meeting to PDF, Word, Markdown, text or JSON.
 
-- **Faster transcription.** On a laptop with an Intel Core Ultra X7 358H,
-  Whisper Large V3 Turbo Compressed on its Arc B390 GPU transcribes 20 minutes
-  of a meeting after the call in about 2 minutes, where whisper.cpp 1.7.1 with
-  the settings Protocol inherited took 10. On its processor, Parakeet
-  transcribes about twice as fast as with the ONNX Runtime 1.22 setup Protocol
-  inherited. Measured in [#64](https://github.com/vmedvedevpro/Protocol/pull/64),
-  [#71](https://github.com/vmedvedevpro/Protocol/pull/71) and
-  [#72](https://github.com/vmedvedevpro/Protocol/pull/72).
-- **Runs next to Meetily.** Its own name, `protocol.exe`, folders, and
-  settings. Install it beside Meetily or Meetily – Actually Free and keep
-  both: installing, updating, or removing Protocol leaves them running and
-  their data untouched.
-- **Updates you control.** One check a day, which you can turn off. An update
-  downloads only when you click **Download**, its signature is verified, and it
-  installs when you click **Restart and update** or quit the app, never during
-  a recording or while a meeting is being processed.
-- **Verified models.** Whisper, Parakeet, and the summary models come from a
-  model list in this repository, so models are added and updated without an
-  app release; the speaker models are pinned in each release. Downloads come
-  from Hugging Face at a fixed commit, and every file is checked against its
-  SHA-256 before Protocol loads it.
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/media/live-transcript-dark.gif">
+    <img src="docs/media/live-transcript-light.gif" alt="Record is pressed on Home; the recording opens, its Transcript tab fills in line by line with You, Speaker 2 and Speaker 3, while the timer runs and the ring at the bottom moves with the voices" width="400">
+  </picture>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/media/search-to-line-dark.gif">
+    <img src="docs/media/search-to-line-light.gif" alt="Ctrl K search for &quot;retention&quot; finds an action item, a line said in a meeting and a summary; choosing the line opens the meeting's transcript at 35:29 with that line highlighted and the player at the same time" width="400">
+  </picture>
+</p>
 
-  ![Settings › Transcription: the installed Parakeet and Whisper models with their badges, and further Whisper models from the model list with their sizes, one of them downloading](docs/media/settings-speech-models.png)
+## Changes from Meetily – Actually Free
 
-- **Your meetings in Claude.** Turn on Settings › AI agents and Claude Desktop,
-  Claude Code or another MCP client on your computer can search and read your
-  meetings, read-only. See [the MCP server](docs/MCP_SERVER.md).
-- **A lean, locked-down app.** No analytics code, no internal commands the app
-  does not use, and no setting that starts an executable of your choice.
-- **One small Windows installer.** About 118 MB. It picks the Vulkan GPU build
-  (NVIDIA, AMD, Intel Arc) or the CPU build for your computer by itself.
-- **Builds you can check.** Windows, macOS, and Linux builds come from public
-  GitHub Actions runs, with `SHA256SUMS.txt` and build-provenance
-  attestations.
+- A new compact interface, written from scratch for 1.0.
+- Live transcription is 2.5 times faster than in Actually Free.
+- Transcription after a call is 5 times faster than in Actually Free.
+- Transcription after a call makes up to 12 % fewer word errors.
+- On Intel GPUs under Windows, Whisper runs through OpenVINO and is another 4 times faster.
+- On Intel NPUs, Parakeet uses 3.5 times less energy than on the processor.
+- AI agents can read your meetings through MCP.
+- The analytics code is removed.
+- Updates are built into the app.
+- Transcription and summary models are verified before they load. New models arrive without a new Protocol release.
+- Installers for Windows, macOS and Linux are built from the tagged source in public GitHub Actions runs.
+- Actually Free builds its Windows installer on its maintainer's computer.
+- Each release carries SHA-256 checksums and signed build provenance.
 
-## Features
-
-- **Capture.** Microphone and computer audio are recorded as separate tracks
-  plus a mixed track. On Windows you can capture only the apps you choose
-  instead of all computer audio.
-- **Transcription on your machine.** Live transcription with Parakeet, and
-  optional Whisper for a more accurate pass after the call. Import existing
-  audio files too.
-
-  ![A recording starts and its transcript fills in line by line while the call goes on, each new voice listed as a speaker of its own](docs/media/live-transcript.gif)
-
-- **Who said what.** Your microphone is always **You**; remote voices are told
-  apart with Pyannote/WeSpeaker or the optional Nemotron model. Rename and
-  merge speakers during or after a call, link them to contacts, and let
-  Protocol suggest names it has heard before (voice profiles, beta).
-- **Notes and summaries.** Notes, action items, and AI summaries with local
-  models (built-in models or Ollama) or a provider you connect with your own
-  key: Claude, OpenAI, Groq, OpenRouter, or any compatible endpoint. Ask
-  questions about a meeting and use your own summary templates.
-
-  ![A saved meeting: the transcript with each speaker's name, and beside it the notes, action items with owners and due dates, and the AI summary](docs/media/meeting-transcript-and-notes.png)
-
-- **Your meeting library.** History, groups, contacts, a **Ctrl+K** command
-  bar, and export to PDF, Word, Markdown (with YAML frontmatter), text, or
-  JSON.
-
-  ![Ctrl+K search for "retention" finds an action item and a line said in a meeting; Enter opens the meeting at that line](docs/media/search-jump-to-moment.gif)
-
-- **Labs.** Opt-in waveform scrubbing, clean transcripts, a Whisper silence
-  guard, and Parakeet on the GPU through DirectML.
-
-## Install
-
-Download the file for your system from the
-[latest release](https://github.com/vmedvedevpro/Protocol/releases/latest):
-Windows 10/11 x64, macOS 14.2+ on Apple Silicon, or Linux x64 (experimental).
-The release page also has the checksums and step-by-step install notes.
-
-The builds are not code-signed yet, so your system warns you the first time.
-
-- **Windows:** if SmartScreen says "Windows protected your PC", click
-  **More info**, then **Run anyway**. Setup installs for your user only, with
-  no administrator rights.
-- **macOS:** if Gatekeeper cannot verify Protocol, click **Open Anyway** in
-  **System Settings → Privacy & Security** once.
-- **Linux** builds are experimental: they are built and started in CI but not
-  yet tested with real meetings.
-
-After that, Protocol offers new versions itself; see
-[docs/AUTO_UPDATE.md](docs/AUTO_UPDATE.md) for how updates work.
+The speed and energy figures were measured on an Intel Core Ultra laptop.
 
 ## Privacy
 
-Recordings, transcripts, and settings stay on your computer. Nothing is sent
-anywhere unless you choose a cloud provider for summaries, which then
-processes that content under its own terms. Once a day, unless you turn it
-off, Protocol asks GitHub whether a newer release or model list exists and
-Hugging Face whether the models you downloaded changed, and a list of models
-asks Hugging Face for their download sizes; the requests carry nothing about
-you or your meetings. Models, including the repair download of
-the bundled speaker models, are downloaded from Hugging Face.
-See [PRIVACY_POLICY.md](PRIVACY_POLICY.md).
-
-<details>
-<summary><strong>Where your data lives</strong></summary>
-
-| Data | Windows location |
-| --- | --- |
-| Database, templates, models, file-backed settings | `<app folder>\data` (installed: `%LOCALAPPDATA%\vmedvedevpro\Protocol\data`; dev build: `target\debug\data`); `%APPDATA%\vmedvedevpro\Protocol` if that folder is not writable |
-| Recording and onboarding preferences | `%APPDATA%\io.github.vmedvedevpro.protocol` |
-| WebView storage | `%LOCALAPPDATA%\io.github.vmedvedevpro.protocol` |
-| Downloaded update and `updater.log` | `%LOCALAPPDATA%\io.github.vmedvedevpro.protocol\updates` (update preferences: `updater.json` in `%APPDATA%\io.github.vmedvedevpro.protocol`) |
-| Recordings | `Music\protocol-recordings` (change in **Settings → Recording**) |
-
-On macOS the first row is `~/Library/Application Support/vmedvedevpro/Protocol` and
-recordings default to `~/Movies/protocol-recordings`.
-
-</details>
-
-Found a bug or want something? [Open an issue](https://github.com/vmedvedevpro/Protocol/issues).
-
-## For developers
-
-Building from source, checks, releases, and syncing with upstream are in
-[docs/BUILDING.md](docs/BUILDING.md). Start with [AGENTS.md](AGENTS.md),
-[ARCHITECTURE.md](ARCHITECTURE.md), and the
-[development map](docs/DEVELOPMENT_MAP.md) before changing code.
+Everything runs on your computer. Your meetings leave it only if you connect
+a cloud model or an AI agent. See [PRIVACY_POLICY.md](PRIVACY_POLICY.md).
 
 ## Credits and license
 
-Protocol is based on [Meetily – Actually Free](https://github.com/TylerBuza/Meetily-ActuallyFree)
+Protocol is built on [Meetily – Actually Free](https://github.com/TylerBuza/Meetily-ActuallyFree)
 by Tyler Buza and the original [Meetily](https://github.com/Zackriya-Solutions/meetily)
-by Zackriya Solutions, with contributions from their communities.
+by Zackriya Solutions, both MIT licensed. To build it yourself, see
+[docs/BUILDING.md](docs/BUILDING.md).
 
-MIT licensed; see [LICENSE.md](LICENSE.md). Upstream copyright notices are retained.
+MIT licensed; see [LICENSE.md](LICENSE.md).
