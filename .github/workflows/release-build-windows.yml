@@ -60,7 +60,9 @@ jobs:
       - uses: swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
         with:
           workspaces: '. -> target'
-          key: windows-x64-release-v1
+          # Bump with the GGML_* baseline in build-universal-windows.ps1:
+          # whisper-rs-sys does not rebuild when those variables change.
+          key: windows-x64-release-v2
       # whisper-rs generates its Windows bindings with libclang, and only
       # LLVM 18 works (the image has 20). The script pins the archive by SHA-256.
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0

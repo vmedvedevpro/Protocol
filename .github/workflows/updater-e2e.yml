@@ -42,6 +42,17 @@ jobs:
     # windows-2022: whisper.cpp and llama.cpp are only known to build with VS 2022.
     runs-on: windows-2022
     timeout-minutes: 180
+    # ggml for x86-64-v3, as the release legs build it (release-build-linux.yml
+    # says why): GGML_NATIVE would compile for the runner's CPU.
+    env:
+      GGML_NATIVE: 'OFF'
+      GGML_SSE42: 'ON'
+      GGML_AVX: 'ON'
+      GGML_AVX2: 'ON'
+      GGML_FMA: 'ON'
+      GGML_F16C: 'ON'
+      GGML_BMI2: 'ON'
+      GGML_AVX512: 'OFF'
     defaults:
       run:
         shell: pwsh
@@ -65,7 +76,8 @@ jobs:
       - uses: swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
         with:
           workspaces: '. -> target'
-          key: windows-x64-updater-e2e-v1
+          # Bump with GGML_*: whisper-rs-sys does not rebuild when they change.
+          key: windows-x64-updater-e2e-v2
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .build-tools/clang+llvm-18.1.8-x86_64-pc-windows-msvc.tar.xz
@@ -328,6 +340,17 @@ jobs:
   linux:
     runs-on: ubuntu-22.04
     timeout-minutes: 150
+    # ggml for x86-64-v3, as the release legs build it (release-build-linux.yml
+    # says why): GGML_NATIVE would compile for the runner's CPU.
+    env:
+      GGML_NATIVE: 'OFF'
+      GGML_SSE42: 'ON'
+      GGML_AVX: 'ON'
+      GGML_AVX2: 'ON'
+      GGML_FMA: 'ON'
+      GGML_F16C: 'ON'
+      GGML_BMI2: 'ON'
+      GGML_AVX512: 'OFF'
     steps:
       - name: Check out with Unix line endings
         run: git config --global core.autocrlf false
@@ -355,7 +378,8 @@ jobs:
       - uses: swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
         with:
           workspaces: '. -> target'
-          key: linux-x86_64-updater-e2e-v1
+          # Bump with GGML_*: whisper-rs-sys does not rebuild when they change.
+          key: linux-x86_64-updater-e2e-v2
       - name: Build llama-helper
         run: |
           cargo build --release --locked -p llama-helper

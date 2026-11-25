@@ -24,6 +24,27 @@ jobs:
       NEXT_TELEMETRY_DISABLED: '1'
       PNPM_CONFIG_ENABLE_GLOBAL_VIRTUAL_STORE: 'false'
       VERSION: ${{ inputs.version }}
+      # ggml's CPU code for a stated baseline, not for the runner's CPU (#176).
+      # ggml defaults to GGML_NATIVE=ON (-march=native); a runner with AVX-512
+      # put AVX-512 into the 1.0.0 RC, and Whisper died with SIGILL at every
+      # model load on CPUs without it (most Intel client CPUs since Alder
+      # Lake). whisper-rs-sys passes GGML_* variables to ggml's CMake. The
+      # baseline is x86-64-v3: AVX2, FMA, F16C and BMI2, which Intel Core CPUs
+      # have since Haswell (2013) and AMD since Excavator (2015). CPUs without
+      # AVX2 are not supported (the release notes say so). Keep it the same as
+      # build-universal-windows.ps1 and updater-e2e.yml. llama-helper needs
+      # none of it: llama-cpp-sys-2 sets GGML_NATIVE=OFF itself (it only passes
+      # CMAKE_* on), and ggml's defaults then are this baseline.
+      # whisper-rs-sys does not rebuild when these change: bump the
+      # rust-cache key below with them.
+      GGML_NATIVE: 'OFF'
+      GGML_SSE42: 'ON'
+      GGML_AVX: 'ON'
+      GGML_AVX2: 'ON'
+      GGML_FMA: 'ON'
+      GGML_F16C: 'ON'
+      GGML_BMI2: 'ON'
+      GGML_AVX512: 'OFF'
     steps:
       - name: Check out with Unix line endings
         run: git config --global core.autocrlf false
@@ -68,7 +89,7 @@ jobs:
       - uses: swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
         with:
           workspaces: '. -> target'
-          key: linux-x86_64-release-v1
+          key: linux-x86_64-release-v2
       - name: Build llama-helper
         run: |
           cargo build --release --locked -p llama-helper
@@ -124,6 +145,23 @@ jobs:
           mksquashfs "$work/squashfs-root" "$work/filesystem.squashfs" -root-owned -noappend -comp "$compression" -quiet
           cat "$work/runtime" "$work/filesystem.squashfs" > "$appimage"
           chmod +x "$appimage"
+          rm -rf "$work"
+      # The GGML_* baseline above reached the shipped executables: no AVX-512
+      # (no EVEX instruction at all) in the deb's or the AppImage's protocol and
+      # llama-helper (scripts/release/check-cpu-baseline.mjs). Each package
+      # build relinks protocol, so both copies are checked.
+      - name: Check that the executables need no AVX-512
+        run: |
+          set -euo pipefail
+          appimage=$(find target/release/bundle/appimage -maxdepth 1 -name '*.AppImage' -print -quit)
+          deb=$(find target/release/bundle/deb -maxdepth 1 -name '*.deb' -print -quit)
+          work="$RUNNER_TEMP/cpu-baseline"
+          mkdir -p "$work"
+          dpkg-deb -x "$deb" "$work/deb"
+          unsquashfs -no-progress -o "$("$appimage" --appimage-offset)" -d "$work/appimage" "$appimage" usr/bin/protocol usr/bin/llama-helper >/dev/null
+          node scripts/release/check-cpu-baseline.mjs --no-evex \
+            "$work/deb/usr/bin/protocol" "$work/deb/usr/bin/llama-helper" \
+            "$work/appimage/usr/bin/protocol" "$work/appimage/usr/bin/llama-helper"
           rm -rf "$work"
       # custom-protocol as in tauri build, so tauri and its dependents are not
       # compiled again for the tests.

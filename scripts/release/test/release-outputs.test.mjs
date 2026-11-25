@@ -26,6 +26,8 @@ test('the release notes link every download and carry the checksums', () => {
   assert.ok(notes.includes(sums.trim()));
   assert.ok(notes.includes('gh attestation verify'));
   assert.ok(notes.includes('only when you click **Download**'), 'updates download on the user\'s click');
+  // ggml is built for x86-64-v3 (#176).
+  assert.ok(notes.includes('need an x64 processor with AVX2'), 'the notes state the CPU requirement');
   assert.ok(!/updater\.exe|CUDA build/.test(notes));
   assert.ok(!notes.includes('for Windows'), 'the release also ships macOS and Linux');
   const later = renderNotes({ version: '0.3.1', notes: '- Fix.', sums: sumsOf('0.3.1', ['windows', 'macos', 'linux']) });
