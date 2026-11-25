@@ -19,7 +19,6 @@ function Strip({platform, back}: { platform: Platform, back: boolean }) {
         <Window>
             <TitleBar
                 platform={platform}
-                title={back ? 'Settings' : 'Protocol'}
                 onBack={back ? () => undefined : undefined}
                 onTop={onTop}
                 onTopChange={setOnTop}
@@ -48,7 +47,7 @@ export const Dark: Story = {globals: {theme: 'dark'}}
 /** macOS draws the traffic lights itself; the strip leaves room for them. */
 export const MacOS: Story = {args: {platform: 'macos'}, globals: {theme: 'light'}}
 
-/** GNOME's round close and the screen's title in the middle. */
+/** Only the app's row: the desktop's own title bar sits above it. */
 export const Linux: Story = {args: {platform: 'linux'}, globals: {theme: 'dark'}}
 
 /** The meetings: no way back. */

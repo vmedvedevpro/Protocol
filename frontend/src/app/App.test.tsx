@@ -53,8 +53,9 @@ describe('App startup', () => {
         expect(banner.parentElement).toBe(main.parentElement)
         expect(footer.parentElement).toBe(main.parentElement)
         expect(within(footer).getByRole('group', {name: 'Record'})).toBeInTheDocument()
-        // The title strip drags the window; its buttons stay clickable.
-        expect(banner).toHaveAttribute('data-tauri-drag-region', 'deep')
+        // Tests run as Linux (jsdom's user agent), where the desktop's own
+        // title bar moves the window, not the app's row (TitleBar).
+        expect(banner).not.toHaveAttribute('data-tauri-drag-region')
         expect(within(banner).queryByRole('button', {name: 'Back to meetings'})).not.toBeInTheDocument()
     })
 
@@ -180,6 +181,17 @@ describe('App navigation', () => {
         // A take this short is discarded.
         await userEvent.keyboard('{Control>}[KeyR]{/Control}')
         await waitFor(() => expect(mockState.live.saveAnswers).toEqual([{stopId: 1, outcome: 'discarded'}]))
+    })
+
+    it("names the window after the screen, for the desktop's title bar on Linux", async () => {
+        const setTitle = vi.spyOn(handlers, 'plugin:window|set_title')
+        renderApp()
+        await heading('Meetings')
+        await waitFor(() => expect(setTitle).toHaveBeenLastCalledWith(expect.objectContaining({value: 'Protocol'})))
+
+        await userEvent.keyboard('{Control>}[Comma]{/Control}')
+        await heading('Settings')
+        await waitFor(() => expect(setTitle).toHaveBeenLastCalledWith(expect.objectContaining({value: 'Settings — Protocol'})))
     })
 
     it('moves focus to the new screen after a navigation, and leaves it on the first screen', async () => {

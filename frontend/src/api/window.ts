@@ -16,6 +16,11 @@ export async function setWindowTheme(theme: ThemeName | null): Promise<void> {
     await getCurrentWindow().setTheme(theme)
 }
 
+/** Names the window in its title bar, the task manager and the window switcher. */
+export async function setWindowTitle(title: string): Promise<void> {
+    await getCurrentWindow().setTitle(title)
+}
+
 /**
  * Minimizes the window. Native code turns a minimized main window into the
  * minibar while a recording runs (lib.rs, `on_window_event`).

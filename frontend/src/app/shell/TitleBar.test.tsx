@@ -6,7 +6,7 @@ import {renderUi} from '@/test/renderUi'
 import {TitleBar, type TitleBarProps} from './TitleBar'
 
 function renderTitleBar(props: Partial<TitleBarProps> & Pick<TitleBarProps, 'platform'>) {
-    return renderUi(<TitleBar title="Protocol" onTop={false} onTopChange={() => undefined} {...props}/>)
+    return renderUi(<TitleBar onTop={false} onTopChange={() => undefined} {...props}/>)
 }
 
 describe('TitleBar', () => {
@@ -24,17 +24,19 @@ describe('TitleBar', () => {
         expect(minimize).toHaveBeenCalledTimes(1)
         expect(close).toHaveBeenCalledTimes(1)
         expect(screen.getByText('Protocol')).toBeInTheDocument()
+        expect(screen.getByRole('banner')).toHaveAttribute('data-tauri-drag-region', 'deep')
     })
 
-    it("draws GNOME's close button and the screen's title on Linux", async () => {
-        const close = vi.spyOn(handlers, 'plugin:window|close')
-        renderTitleBar({platform: 'linux', title: 'Settings'})
+    it("leaves the window's chrome to the desktop's frame on Linux", () => {
+        renderTitleBar({platform: 'linux', onBack: () => undefined})
 
-        expect(screen.getByText('Settings')).toBeInTheDocument()
+        expect(screen.queryByRole('button', {name: 'Close'})).not.toBeInTheDocument()
         expect(screen.queryByRole('button', {name: 'Minimize'})).not.toBeInTheDocument()
-        await userEvent.click(screen.getByRole('button', {name: 'Close'}))
-
-        expect(close).toHaveBeenCalledTimes(1)
+        expect(screen.queryByText('Protocol')).not.toBeInTheDocument()
+        expect(screen.getByRole('button', {name: 'Back to meetings'})).toBeInTheDocument()
+        expect(screen.getByRole('button', {name: 'Keep on top'})).toBeInTheDocument()
+        // The desktop's title bar moves the window; the app's row does not.
+        expect(screen.getByRole('banner')).not.toHaveAttribute('data-tauri-drag-region')
     })
 
     it('leaves the window buttons to macOS', () => {
@@ -55,7 +57,7 @@ describe('TitleBar', () => {
         expect(onBack).toHaveBeenCalledTimes(1)
         expect(onTopChange).toHaveBeenLastCalledWith(true)
 
-        rerender(<TitleBar platform="linux" title="Protocol" onTop onTopChange={onTopChange}/>)
+        rerender(<TitleBar platform="linux" onTop onTopChange={onTopChange}/>)
         expect(screen.getByRole('button', {name: 'Keep on top'})).toHaveAttribute('aria-pressed', 'true')
         await waitFor(() => expect(screen.queryByRole('button', {name: 'Back to meetings'})).not.toBeInTheDocument())
     })

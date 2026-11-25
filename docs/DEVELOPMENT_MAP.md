@@ -1637,6 +1637,13 @@ CPU-only on Windows and Linux; on Windows the Vulkan/CPU choice happens at
 install and update time, not at launch (Linux decides at launch, see
 [Whisper on Vulkan in the Linux app](#whisper-on-vulkan-in-the-linux-app)).
 
+### The Linux desktop
+
+How the main window, the minibar and the tray sit on a Linux desktop (#215)
+is in [LINUX_DESKTOP.md](LINUX_DESKTOP.md): the desktop's own window frame
+(`tauri.linux.conf.json`, `TitleBar.tsx`). Read it before changing the Linux
+window configuration, the title strip, the theme, keep on top or the tray.
+
 ### Fork identity and updates
 
 Protocol is a fork of Meetily – Actually Free with its own identity, so it can run

@@ -78,20 +78,22 @@ minibar window has none of it.
   360 px keeps room for the docked bar's status beside its 56 px ring and
   Record or Stop, and for the Windows strip beside its three 46 px caption
   buttons; 480 px leaves the content room under the title bar, a screen's
-  header and the bar. `tauri.conf.json` holds the window for Windows and
-  Linux; `tauri.macos.conf.json` repeats the whole entry for its title bar,
-  since a platform file replaces the `windows` array.
+  header and the bar. `tauri.conf.json` holds the window for Windows;
+  `tauri.macos.conf.json` and `tauri.linux.conf.json` repeat the whole entry
+  for their title bars, since a platform file replaces the `windows` array.
 - The app draws the title strip (`TitleBar`, the `<header>`) on every
-  platform, as the design does: macOS keeps its traffic lights over an overlay
+  platform: macOS keeps its traffic lights over an overlay
   title bar (`titleBarStyle: Overlay`, `hiddenTitle`, `trafficLightPosition`
   {13, 17}: tao makes the title bar the buttons' height plus `y` and leaves
   the buttons at AppKit's offset from its bottom, which centres them on the
   38 px strip; not yet checked on a Mac) and the strip starts after them;
   Windows (`decorations: false`) gets Windows 11's caption buttons, Maximize
-  turning into Restore with every resize; Linux (`decorations: false`) gets
-  GNOME's round close button and the screen's title in the middle (a route's
-  `handle.title`). `?platform=` previews the others on mock IPC.
-- The strip is `data-tauri-drag-region="deep"`: it drags the window and
+  turning into Restore with every resize; Linux (`decorations: true`, #200)
+  has the desktop's own title bar, so the strip is only the app's row under
+  it, Back and Keep on top, and the window's title follows the screen (a
+  route's `handle.title`, [LINUX_DESKTOP.md](LINUX_DESKTOP.md)). `?platform=`
+  previews the others on mock IPC.
+- On macOS and Windows the strip is `data-tauri-drag-region="deep"`: it drags the window and
   double-clicks to maximize, and Tauri's drag script leaves out buttons,
   links and other controls, so nothing in it needs its own exception. The
   window permissions it calls are in `tauri.conf.json`'s capability

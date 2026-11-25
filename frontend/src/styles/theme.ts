@@ -218,7 +218,8 @@ const sizes = {
     /** The compact desktop window the design is drawn for. */
     window: {width: '460px', height: '700px'},
     /**
-     * The window's title strip at its tallest (Linux; a sheet hangs under it),
+     * The room a sheet or a toast leaves above itself for the window's title
+     * strip (at least as tall as the strip on any platform),
      * the meeting's player bar, and the recording bar docked at the bottom
      * with the ring (`dockRing`) at its start.
      */
@@ -227,10 +228,10 @@ const sizes = {
      * The title strip on each platform, as the design draws them, and on
      * macOS the room the traffic lights take at its start: their 13 px
      * inset (tauri.macos.conf.json), three 12 px lights 8 px apart and a
-     * 12 px gap. `caption` is one Windows caption button's width;
-     * `closeDisc` the grey disc of GNOME's close button.
+     * 12 px gap. `caption` is one Windows caption button's width. On Linux
+     * it is the app's row under the desktop's own title bar.
      */
-    titleBar: {macos: '38px', windows: '36px', linux: '44px', trafficLights: '78px', caption: '46px', closeDisc: '22px'},
+    titleBar: {macos: '38px', windows: '36px', linux: '40px', trafficLights: '78px', caption: '46px'},
     /**
      * The level meter: one bar's width and full height, the source icon
      * beside it, and the smallest width of the mute button that holds them,

@@ -114,6 +114,10 @@ is inherited from the project Protocol forked from; Protocol did not release it.
   ([#219](https://github.com/vmedvedevpro/Protocol/issues/219)). Details are
   set apart by spacing, a comma or parentheses instead. New automatic titles
   read "Meeting, Mon, Sep 28, 2:30 PM"; older ones still count as automatic.
+- **Linux: the desktop's own window frame**
+  ([#215](https://github.com/vmedvedevpro/Protocol/issues/215)). The main
+  window has the desktop's title bar, buttons, rounded corners and shadow,
+  like the other windows, and its title names the open screen.
 
 ## Protocol 1.0.0-rc.1 — 2026-11-26
 

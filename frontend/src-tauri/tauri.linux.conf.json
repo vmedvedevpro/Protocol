@@ -1,5 +1,19 @@
 {
   "app": {
+    "windows": [
+      {
+        "title": "Protocol",
+        "url": "/",
+        "width": 460,
+        "height": 700,
+        "minWidth": 360,
+        "minHeight": 480,
+        "center": true,
+        "resizable": true,
+        "fullscreen": false,
+        "decorations": true
+      }
+    ],
     "security": {
       "csp": {
         "media-src": "'self' asset: http://asset.localhost https://asset.localhost http://127.0.0.1:* blob:"

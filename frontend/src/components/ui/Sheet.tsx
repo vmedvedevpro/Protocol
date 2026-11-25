@@ -16,8 +16,8 @@ import {VisuallyHidden} from './VisuallyHidden'
 // the design's sheets, and the spring and fades are the theme's.
 
 // The scrim starts under the window's title strip (TitleBar), which stays
-// live: on Windows and Linux it holds the window's own buttons and drags the
-// window, and the modal sheet must not take those away.
+// live: on Windows it holds the window's own buttons and drags the window,
+// and the modal sheet must not take those away.
 const Scrim = styled(m.div)`
     position: fixed;
     inset: ${({theme}) => theme.sizes.titleBar[platform]} 0 0;
