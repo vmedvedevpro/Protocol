@@ -58,7 +58,6 @@ export function LocalAiGroup() {
                     </Button>
                 </RowControls>
             </SettingsRow>
-            {data?.networkNote && <SettingsRow label="Network" description={data.networkNote}/>}
         </SettingsGroup>
     )
 }

@@ -40,6 +40,44 @@ const IPC_CLOSE_DELAY: Duration = Duration::from_millis(500);
 static MINIBAR_LIFECYCLE: Mutex<()> = Mutex::new(());
 static MAIN_HIDDEN_BY_MINIBAR: AtomicBool = AtomicBool::new(false);
 static MINIBAR_GENERATION: AtomicU64 = AtomicU64::new(0);
+// A resize that would run the bar off the right edge moves it left. This is
+// where it stood before (home) and where the shift put it, so a narrower bar
+// goes back home instead of staying shifted; a bar the user dragged since
+// stands elsewhere and takes that as its home.
+static EDGE_SHIFT: Mutex<Option<EdgeShift>> = Mutex::new(None);
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct EdgeShift {
+    home: i32,
+    shifted: i32,
+}
+
+/// Where a bar `width` physical pixels wide stands, its left edge at `x`
+/// now, on a monitor from `left` to `right`, and the shift to remember.
+fn edge_position(
+    shift: Option<EdgeShift>,
+    x: i32,
+    width: i32,
+    left: i32,
+    right: i32,
+) -> (i32, Option<EdgeShift>) {
+    let home = match shift {
+        Some(shift) if shift.shifted == x => shift.home,
+        _ => x,
+    };
+    let fitted = if home + width > right {
+        (right - width).max(left)
+    } else {
+        home
+    };
+    (
+        fitted,
+        (fitted != home).then_some(EdgeShift {
+            home,
+            shifted: fitted,
+        }),
+    )
+}
 
 /// Drop the square window frame and clip the HWND to the bar's rounded rect,
 /// `width` logical pixels wide.
@@ -315,8 +353,12 @@ pub async fn resize_minibar<R: Runtime>(app: AppHandle<R>, width: f64) -> Result
         let left = monitor.position().x;
         let right = left + monitor.size().width as i32;
         let physical_width = (width * monitor.scale_factor()).round() as i32;
-        if position.x + physical_width > right {
-            let x = (right - physical_width).max(left);
+        let mut shift = EDGE_SHIFT
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let (x, next) = edge_position(*shift, position.x, physical_width, left, right);
+        *shift = next;
+        if x != position.x {
             let _ = bar.set_position(tauri::PhysicalPosition::new(x, position.y));
         }
     }
@@ -343,4 +385,39 @@ pub async fn stop_recording_from_minibar<R: Runtime>(app: AppHandle<R>) -> Resul
     schedule_close_after_ipc(app);
 
     Ok(outcome? == crate::audio::recording_commands::StopOutcome::Completed)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_bar_shifted_off_the_right_edge_goes_back_once_it_is_narrower() {
+        // A monitor 0..1000; the closed bar stands at 700, 170 wide.
+        let (x, shift) = edge_position(None, 700, 170, 0, 1000);
+        assert_eq!((x, shift), (700, None));
+        // Open, 512 wide, it would run off: it moves left and remembers 700.
+        let (x, shift) = edge_position(shift, 700, 512, 0, 1000);
+        assert_eq!(
+            (x, shift),
+            (
+                488,
+                Some(EdgeShift {
+                    home: 700,
+                    shifted: 488
+                })
+            )
+        );
+        // Closed again, it fits at home.
+        assert_eq!(edge_position(shift, x, 170, 0, 1000), (700, None));
+    }
+
+    #[test]
+    fn a_bar_dragged_after_a_shift_takes_its_new_place_as_home() {
+        let shift = Some(EdgeShift {
+            home: 700,
+            shifted: 488,
+        });
+        assert_eq!(edge_position(shift, 300, 170, 0, 1000), (300, None));
+    }
 }

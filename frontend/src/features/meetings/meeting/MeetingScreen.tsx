@@ -1,7 +1,7 @@
 import {useEffect, useState} from 'react'
 import {ArrowClockwiseIcon, CopyIcon} from '@phosphor-icons/react'
 import {useMutation, useQuery, useQueryClient} from '@tanstack/react-query'
-import {useNavigate, useParams, useSearchParams} from 'react-router-dom'
+import {useLocation, useNavigate, useParams, useSearchParams} from 'react-router-dom'
 import styled from 'styled-components'
 import {actionItemsQuery} from '@/api/actionItems'
 import {errorMessage} from '@/api/core'
@@ -115,6 +115,22 @@ const Muted = styled.p`
     color: ${({theme}) => theme.colors.muted};
 `
 
+interface Moment {
+    /** Seconds into the recording, or null. */
+    at: number | null
+    line?: string
+    /** The navigation that asked, so the same request twice reveals twice. */
+    key: string
+}
+
+/** What a navigation asks to be shown (`?at=`, `?line=`), if anything. */
+function momentOf(params: URLSearchParams, key: string): Moment | null {
+    const seconds = Number(params.get('at') ?? Number.NaN)
+    const at = Number.isFinite(seconds) && seconds >= 0 ? seconds : null
+    const line = params.get('line') ?? undefined
+    return at === null && line === undefined ? null : {at, line, key}
+}
+
 /** `/meetings/:meetingId`: the route reads the id; the screen renders once per meeting. */
 export function MeetingRoute() {
     const {meetingId = ''} = useParams()
@@ -175,16 +191,33 @@ export function MeetingScreen({meetingId}: { meetingId: string }) {
     // A search result opens the meeting at a moment (`?at=` seconds): once
     // the recording has loaded (a load starts it from 0) the player waits
     // there. A line (`?line=`, a transcript id) is scrolled into view by the
-    // transcript itself, with audio or without. Both are read once.
-    const [at] = useState(() => {
-        const seconds = Number(params.get('at') ?? Number.NaN)
-        return Number.isFinite(seconds) && seconds >= 0 ? seconds : null
-    })
-    const [line] = useState(() => params.get('line') ?? undefined)
+    // transcript itself, with audio or without. Each navigation that carries
+    // them is a request, read as it arrives and then taken out of the URL:
+    // the screen stays mounted for a hit inside the meeting already open, so
+    // that hit (the same one again too) is a new request, and a tab switch,
+    // which keeps the rest of the URL, is not.
+    const location = useLocation()
+    const [moment, setMoment] = useState(() => momentOf(params, location.key))
+    const [seen, setSeen] = useState(location.key)
+    if (seen !== location.key) {
+        setSeen(location.key)
+        const next = momentOf(params, location.key)
+        if (next) setMoment(next)
+    }
+    const asked = params.has('at') || params.has('line')
+    useEffect(() => {
+        if (!asked) return
+        setParams((current) => {
+            const updated = new URLSearchParams(current)
+            updated.delete('at')
+            updated.delete('line')
+            return updated
+        }, {replace: true})
+    }, [asked, setParams])
     const ready = playback.status === 'ready'
     useEffect(() => {
-        if (ready && at !== null) player.seek(at)
-    }, [ready, at, player])
+        if (ready && moment?.at != null) player.seek(moment.at)
+    }, [ready, moment, player])
 
     const title = meeting.data?.title ?? ''
     const createdAt = parseDate(meeting.data?.created_at)
@@ -262,9 +295,6 @@ export function MeetingScreen({meetingId}: { meetingId: string }) {
                 <Row>
                     <TabList/>
                     <Spacer/>
-                    {tab === 'transcript' && cleanLab && (
-                        <SegmentedControl label="Transcript text" options={TEXT_MODES} value={textMode} onChange={setTextMode}/>
-                    )}
                     {tab === 'transcript' && speakers.available && (
                         <SpeakerCount lines={lines} running={speakers.running} onPick={speakers.identify}/>
                     )}
@@ -289,9 +319,13 @@ export function MeetingScreen({meetingId}: { meetingId: string }) {
                                         meetingId={meetingId}
                                         playback={hasAudio ? player.clock : undefined}
                                         playing={playback.playing}
-                                        revealLine={line}
+                                        revealLine={moment?.line}
+                                        revealKey={moment?.key}
                                         onSeek={playback.status === 'ready' ? player.playFrom : undefined}
                                         clean={cleanLab && textMode === 'clean' ? cleanTranscriptText : undefined}
+                                        tools={cleanLab && (
+                                            <SegmentedControl label="Transcript text" options={TEXT_MODES} value={textMode} onChange={setTextMode}/>
+                                        )}
                                     />
                                 )
                             }

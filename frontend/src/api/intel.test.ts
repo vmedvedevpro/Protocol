@@ -7,7 +7,7 @@ import {
     NPU_ABSENT,
     offerFor,
     type ParakeetNpuStatus,
-    useIntelOfferDismissedStore,
+    dismissIntelOffer,
 } from './intel'
 
 const companion = (patch: Partial<CompanionStatus> = {}) => ({
@@ -55,7 +55,7 @@ describe('intelError', () => {
 
 describe('Not now', () => {
     it('keeps the dismissed devices as a bare list, and removes the key when there are none', () => {
-        useIntelOfferDismissedStore.getState().dismiss(['Intel GPU'])
+        dismissIntelOffer(['Intel GPU'])
         expect(JSON.parse(localStorage.getItem(INTEL_OFFER_DISMISSED_KEY) ?? 'null')).toEqual(['Intel GPU'])
     })
 })

@@ -26,8 +26,12 @@ export const easings = {
     standard: [0.2, 0, 0, 1],
     /** Something arriving. */
     enter: [0, 0, 0.2, 1],
-    /** Something leaving, which may stop abruptly. */
-    exit: [0.4, 0, 1, 1],
+    /**
+     * Something leaving: an ease-out, which starts moving at once. An ease-in
+     * ([0.4, 0, 1, 1] before) held it still at first, the moment the user
+     * watches, and read as lag.
+     */
+    exit: [0.23, 1, 0.32, 1],
 } as const satisfies Record<string, Bezier>
 
 export type EasingName = keyof typeof easings

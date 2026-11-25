@@ -1,4 +1,4 @@
-import {type KeyboardEvent, memo, type ReactNode, useMemo, useState} from 'react'
+import {type KeyboardEvent, memo, type ReactNode, useMemo} from 'react'
 import {Link} from 'react-router-dom'
 import styled, {css} from 'styled-components'
 import type {MeetingListItem} from '@/api/meetings'
@@ -7,6 +7,7 @@ import {colorTransition, focusRing} from '@/components/ui/styles'
 import {paths} from '@/lib/paths'
 import {VeilRow} from '@/components/ui/Veil'
 import {ProcessingLine} from '../components/processing/ProcessingLine'
+import {useArrivedIds} from '@/lib/arrivedIds'
 import {dateGroup, formatLength, parseDate, rowWhen} from '@/lib/dates'
 
 const Scroller = styled.div`
@@ -16,8 +17,15 @@ const Scroller = styled.div`
     padding: ${({theme}) => theme.space[1.5]} ${({theme}) => theme.space[2]} ${({theme}) => theme.space[2.5]};
 `
 
+// A group reads as one when the space before its heading is clearly more
+// than the rhythm of its rows: two rows' text is 12 px apart (their padding).
+// Before every heading after the first, 16 px and the heading's own 8 px
+// make 24 px, twice that, while the heading stays 4 px from its own rows.
+// (It was 14 px, which read as one more row gap.)
 const Section = styled.section`
-    margin-bottom: ${({theme}) => theme.space[1.5]};
+    & + & {
+        margin-top: ${({theme}) => theme.space[4]};
+    }
 `
 
 const Heading = styled.h2`
@@ -164,8 +172,9 @@ export function MeetingList({meetings, shows, folderNames, onRename, empty}: Mee
     }, [shown])
 
     // Meetings there at the first render arrive with the screen, whichever
-    // folder shows; only one added later fades in.
-    const [initialIds] = useState(() => new Set(meetings.map((meeting) => meeting.id)))
+    // folder shows; only one added later rises on its own.
+    const meetingIds = useMemo(() => meetings.map((meeting) => meeting.id), [meetings])
+    const arrived = useArrivedIds(meetingIds)
 
     return (
         <Scroller>
@@ -178,7 +187,7 @@ export function MeetingList({meetings, shows, folderNames, onRename, empty}: Mee
                                 key={meeting.id}
                                 meeting={meeting}
                                 folderName={meeting.group_id ? folderNames.get(meeting.group_id) : undefined}
-                                arriving={!initialIds.has(meeting.id)}
+                                arriving={arrived.has(meeting.id)}
                                 onRename={onRename}
                             />
                         ))}

@@ -14,6 +14,9 @@ import {App} from './App'
 import {KEEP_ON_TOP_STORAGE_KEY, useKeepOnTopStore} from './shell/keepOnTop'
 import {STARTUP_PATIENCE_MS} from './shell/startup'
 
+// A StatusLine says its text twice: the live region is the copy that counts.
+const LIVE = {selector: '[role="status"]'}
+
 // The radio itself is invisible to the pointer; a user clicks its label.
 const option = (name: string) => screen.getByRole('radio', {name}).closest('label') as HTMLElement
 
@@ -42,7 +45,7 @@ describe('App startup', () => {
     it('checks setup, then shows the meetings with the window landmarks side by side', async () => {
         renderApp()
 
-        expect(screen.getByText('Checking setup…')).toBeInTheDocument()
+        expect(screen.getByText('Checking setup…', LIVE)).toBeInTheDocument()
         await heading('Meetings')
         const banner = screen.getByRole('banner')
         const main = screen.getByRole('main')
@@ -73,11 +76,11 @@ describe('App startup', () => {
         try {
             vi.spyOn(handlers, 'get_onboarding_status').mockImplementation(() => new Promise(() => undefined))
             renderApp()
-            expect(screen.getByText('Checking setup…')).toBeInTheDocument()
+            expect(screen.getByText('Checking setup…', LIVE)).toBeInTheDocument()
 
             await act(() => vi.advanceTimersByTimeAsync(STARTUP_PATIENCE_MS))
 
-            expect(screen.getByText('Setup status is taking longer than expected.')).toBeInTheDocument()
+            expect(screen.getByText('Setup status is taking longer than expected.', LIVE)).toBeInTheDocument()
             expect(screen.getByRole('button', {name: 'Retry'})).toBeInTheDocument()
         } finally {
             vi.useRealTimers()
@@ -92,11 +95,11 @@ describe('App startup', () => {
         })
         renderApp()
 
-        expect(await screen.findByText('Unable to set up the meetings database. Please retry.')).toBeInTheDocument()
+        expect(await screen.findByText('Unable to set up the meetings database. Please retry.', LIVE)).toBeInTheDocument()
         // Native still holds no database: Retry fails again rather than opening the app.
         await userEvent.click(screen.getByRole('button', {name: 'Retry'}))
         await waitFor(() => expect(fresh).toHaveBeenCalledTimes(2))
-        expect(await screen.findByText('Unable to set up the meetings database. Please retry.')).toBeInTheDocument()
+        expect(await screen.findByText('Unable to set up the meetings database. Please retry.', LIVE)).toBeInTheDocument()
 
         fresh.mockRestore()
         await userEvent.click(screen.getByRole('button', {name: 'Retry'}))

@@ -14,6 +14,7 @@ import {Kbd} from '@/components/ui/Kbd'
 import {Spinner} from '@/components/ui/Spinner'
 import {colorTransition, focusRing} from '@/components/ui/styles'
 import {TextField} from '@/components/ui/TextField'
+import {Veil} from '@/components/ui/Veil'
 import {openDialog} from '@/lib/dialogs'
 import {paths} from '@/lib/paths'
 import {formatShortcut} from '@/lib/platform'
@@ -85,6 +86,7 @@ const NoMatch = styled(Muted)`
 // Under the filtered list while the field has a query: the same words in
 // transcripts, summaries, action items and people, through search (#118).
 const Everywhere = styled(m.button)`
+    position: relative;
     display: flex;
     flex: none;
     align-items: center;
@@ -252,23 +254,22 @@ export function HomeScreen() {
                             </NoMatch>
                         )}
                     />
-                    <AnimatePresence initial={false}>
-                        {needle && (
-                            <Everywhere
-                                key="everywhere"
-                                type="button"
-                                initial={{opacity: 0, y: 4}}
-                                animate={{opacity: 1, y: 0}}
-                                exit={{opacity: 0, transition: tween('fast', 'exit')}}
-                                transition={tween('base', 'enter')}
-                                onClick={() => openSearch(query)}
-                            >
-                                <MagnifyingGlassIcon aria-hidden/>
-                                <span>Search transcripts, summaries and people for “{query.trim()}”</span>
-                                <ArrowElbowDownLeftIcon aria-hidden/>
-                            </Everywhere>
-                        )}
-                    </AnimatePresence>
+                    {/* Text never fades: it rises under a veil, and goes at once when the query is cleared. */}
+                    {needle && (
+                        <Everywhere
+                            key="everywhere"
+                            type="button"
+                            initial={{y: 4}}
+                            animate={{y: 0}}
+                            transition={tween('base', 'enter')}
+                            onClick={() => openSearch(query)}
+                        >
+                            <MagnifyingGlassIcon aria-hidden/>
+                            <span>Search transcripts, summaries and people for “{query.trim()}”</span>
+                            <ArrowElbowDownLeftIcon aria-hidden/>
+                            <Veil/>
+                        </Everywhere>
+                    )}
                 </>
             )}
             <FolderNameSheet

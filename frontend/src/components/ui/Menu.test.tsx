@@ -51,6 +51,26 @@ describe('Menu', () => {
         expect(trigger).toHaveFocus()
     })
 
+    it('shows the keyboard’s highlight on every opening, and lands it without the slide', async () => {
+        renderUi(<Actions/>)
+        const trigger = screen.getByRole('button', {name: 'More actions'})
+
+        for (let opening = 1; opening <= 3; opening++) {
+            trigger.focus()
+            await userEvent.keyboard('{Enter}')
+            await waitFor(() => expect(screen.getByRole('menuitem', {name: 'Rename'})).toHaveFocus())
+            await userEvent.keyboard('{ArrowDown}')
+
+            expect(highlight()).toHaveAttribute('data-visible', 'true')
+            // Shown by the stylesheet, not by a motion value a remount could leave at 0.
+            expect(getComputedStyle(highlight()).opacity).toBe('1')
+            expect(highlight()).toHaveAttribute('data-move', 'land')
+
+            await userEvent.keyboard('{Escape}')
+            await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument())
+        }
+    })
+
     it('checks one radio item and toggles a checkbox item', async () => {
         const onCheckedChange = vi.fn()
         function Inputs() {

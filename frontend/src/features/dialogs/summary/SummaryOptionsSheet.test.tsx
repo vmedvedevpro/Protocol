@@ -2,7 +2,7 @@ import {renderHook, screen, waitFor, within} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import {describe, expect, it, vi} from 'vitest'
 import {useDialog} from '@/lib/dialogs'
-import {handlers} from '@/mocks/handlers'
+import {handlers, type MockArgs} from '@/mocks/handlers'
 import {mockState} from '@/mocks/state'
 import {renderDialogs} from '../testing/renderDialogs'
 
@@ -43,6 +43,27 @@ describe('SummaryOptionsSheet', () => {
         await userEvent.type(within(dialog).getByRole('textbox', {name: 'Write it again'}), 'Short{Control>}{Enter}{/Control}')
         await waitFor(() => expect(run).toHaveBeenCalled())
         expect(run.mock.calls[0][0]).toMatchObject({customPrompt: 'Short'})
+    })
+
+    it('starts once when Ctrl Enter is pressed twice quickly', async () => {
+        const {dialog, run} = await open()
+        // The first start is still saving the language when the second press comes.
+        const original = handlers.api_save_meeting_summary_language
+        let release!: () => void
+        const gate = new Promise<void>((resolve) => {
+            release = resolve
+        })
+        const saveLanguage = vi.spyOn(handlers, 'api_save_meeting_summary_language').mockImplementation(async (args: MockArgs) => {
+            await gate
+            return original(args)
+        })
+        await pick(dialog, 'Language', 'German')
+        await userEvent.type(within(dialog).getByRole('textbox', {name: 'Write it again'}), '{Control>}{Enter}{Enter}{/Control}')
+        release()
+
+        await waitFor(() => expect(run).toHaveBeenCalled())
+        expect(saveLanguage).toHaveBeenCalledTimes(1)
+        expect(run).toHaveBeenCalledTimes(1)
     })
 
     it('says that edits are replaced, and stays open when no model is chosen', async () => {

@@ -1,19 +1,20 @@
 import {useState} from 'react'
-import {ArrowUUpLeftIcon, FolderPlusIcon, MicrophoneIcon, PauseIcon, PlayIcon, StopIcon, UserPlusIcon} from '@phosphor-icons/react'
+import {ArrowUUpLeftIcon, DownloadSimpleIcon, FolderPlusIcon, MicrophoneIcon, PauseIcon, PlayIcon, StopIcon, UserPlusIcon} from '@phosphor-icons/react'
 import {useLocation, useNavigate} from 'react-router-dom'
 import {useRecordingPhase} from '@/api/recordingPhase'
 import {FolderNameSheet} from '@/features/meetings/components/FolderSheets'
 import {ContactSheet} from '@/features/people/components/ContactSheets'
 import {togglePause, toggleRecording} from '@/features/recording/store/runtime'
 import {type SearchCommand, SearchDialog} from '@/features/search/components/SearchDialog'
+import {openDialog} from '@/lib/dialogs'
 import {paths} from '@/lib/paths'
 import {formatShortcut} from '@/lib/platform'
 
 /**
  * Search (⌘K) with the commands that belong to other features: the
  * recording's (start, pause or resume, stop, back to it), a new folder and a
- * new contact, whose sheets open here once search has closed. Import a
- * recording joins them with #119's import sheet.
+ * new contact, whose sheets open here once search has closed, and Import a
+ * recording, which opens the import sheet (features/dialogs).
  */
 export function GlobalSearch() {
     const navigate = useNavigate()
@@ -42,6 +43,7 @@ export function GlobalSearch() {
         )
     }
     actions.push(
+        {id: 'import', label: 'Import a recording', keywords: 'audio video file upload add', icon: <DownloadSimpleIcon/>, run: () => openDialog({kind: 'import'})},
         {id: 'new-folder', label: 'New folder', keywords: 'create group customer team project', icon: <FolderPlusIcon/>, run: () => setSheet('folder')},
         {id: 'new-contact', label: 'New contact', keywords: 'create person people add', icon: <UserPlusIcon/>, run: () => setSheet('contact')},
     )

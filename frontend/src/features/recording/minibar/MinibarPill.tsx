@@ -8,9 +8,10 @@ import type {LevelWarning} from '@/components/ring/levelAdvice'
 import {Ring} from '@/components/ring/Ring'
 import {SourceMeter} from '@/components/ring/SourceMeter'
 import {Spinner} from '@/components/ui/Spinner'
+import {Veil} from '@/components/ui/Veil'
 import {colorTransition, focusRing, px} from '@/components/ui/styles'
 import {ICON_DEFAULTS} from '@/styles/icons'
-import {MOTION_OK, SCALE_FROM, tween} from '@/styles/motion'
+import {MOTION_OK, SCALE_FROM, statusSwap, tween} from '@/styles/motion'
 import {formatTimer} from '../store/session'
 
 /**
@@ -31,7 +32,8 @@ const Pill = styled.div`
     padding: 0 ${({theme}) => theme.space[1.5]} 0 ${({theme}) => theme.space[0.5]};
     border: 1px solid ${({theme}) => theme.colors.border};
     border-radius: ${({theme}) => theme.radii.pill};
-    background: ${({theme}) => theme.colors.raised};
+    --surface: ${({theme}) => theme.colors.raised};
+    background: var(--surface);
     color: ${({theme}) => theme.colors.text};
     white-space: nowrap;
     cursor: grab;
@@ -82,6 +84,7 @@ const Status = styled.span`
 
 // A transform needs a box; a plain inline span would ignore it.
 const Swap = styled(m.span)`
+    position: relative;
     display: inline-block;
 `
 
@@ -96,17 +99,20 @@ const Stop = styled.button`
     padding: 0 ${({theme}) => theme.space[2.5]};
     border: 0;
     border-radius: ${({theme}) => theme.radii.pill};
-    background: ${({theme}) => theme.colors.surface};
+    /* The colour behind the Stop label's veil follows the hover. */
+    --surface: ${({theme}) => theme.colors.surface};
+    background: var(--surface);
     color: ${({theme}) => theme.colors.text};
     ${({theme}) => theme.text.label};
     ${press};
 
     &:hover {
-        background: ${({theme}) => theme.colors.border};
+        --surface: ${({theme}) => theme.colors.border};
     }
 `
 
 const StopLabel = styled(m.span)`
+    position: relative;
     padding-right: ${({theme}) => theme.space[1]};
 `
 
@@ -121,6 +127,7 @@ const Waiting = styled.span`
 
 // What hover or keyboard focus reveals, one flex item that fades in.
 const More = styled(m.span)`
+    position: relative;
     display: flex;
     align-items: center;
     gap: ${({theme}) => theme.space[2]};
@@ -153,17 +160,11 @@ const RoundButton = styled.button`
     }
 `
 
-const statusSwap = {
-    initial: {opacity: 0, y: 4},
-    animate: {opacity: 1, y: 0},
-    exit: {opacity: 0, y: -4},
-    transition: tween('fast'),
-}
-
+// What the open pill shows arrives 4 px from the left under a veil and goes
+// at once as it closes: text never fades (Veil).
 const reveal = {
-    initial: {opacity: 0, x: -4},
-    animate: {opacity: 1, x: 0},
-    exit: {opacity: 0, transition: tween('fast', 'exit')},
+    initial: {x: -4},
+    animate: {x: 0},
     transition: tween('base', 'enter'),
 }
 
@@ -288,7 +289,7 @@ export function MinibarPill({
                 <Time role="timer" aria-label="Recording time">{seconds === null ? '–:––' : formatTimer(seconds)}</Time>
                 <Status role="status">
                     <AnimatePresence mode="wait" initial={false}>
-                        <Swap key={status} {...statusSwap}>{status}</Swap>
+                        <Swap key={status} {...statusSwap}>{status}<Veil duration="fast"/></Swap>
                     </AnimatePresence>
                 </Status>
             </Clock>
@@ -297,14 +298,11 @@ export function MinibarPill({
             ) : (
                 <Stop type="button" aria-label="Stop and save" aria-keyshortcuts={stopKeys} onClick={onStop}>
                     <StopIcon size={theme.sizes.meter.icon} weight="fill" aria-hidden/>
-                    <AnimatePresence initial={false}>
-                        {open && <StopLabel key="label" {...reveal}>Stop</StopLabel>}
-                    </AnimatePresence>
+                    {open && <StopLabel {...reveal}>Stop<Veil/></StopLabel>}
                 </Stop>
             )}
-            <AnimatePresence initial={false}>
-                {open && (
-                    <More key="more" {...reveal}>
+            {open && (
+                <More {...reveal}>
                         <Divider aria-hidden/>
                         <SourceMeter
                             source="mic"
@@ -328,9 +326,9 @@ export function MinibarPill({
                         <RoundButton type="button" aria-label="Back to the full window" onClick={onBackToWindow}>
                             <ArrowsOutSimpleIcon size={theme.sizes.meter.icon} aria-hidden/>
                         </RoundButton>
+                        <Veil/>
                     </More>
                 )}
-            </AnimatePresence>
         </Pill>
     )
 }

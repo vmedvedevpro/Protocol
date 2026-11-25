@@ -9,6 +9,9 @@ import {renderSettings} from '../testing'
 import {UpdatesGroup} from './UpdatesGroup'
 import {appUpdateStatus, catalogStatus} from './updateStatus'
 
+// A StatusLine says its text twice: the live region is the copy that counts.
+const LIVE = {selector: '[role="status"]'}
+
 const renderUpdates = () => renderSettings(createElement(UpdatesGroup))
 
 const offered = (patch: Partial<UpdaterSnapshot['offer'] & object> = {}): UpdaterSnapshot => ({
@@ -20,18 +23,18 @@ describe('Updates', () => {
     it('checks, downloads on a click and restarts on another', async () => {
         renderUpdates()
         expect(await screen.findByText(`Protocol ${mockState.updater.currentVersion}`)).toBeInTheDocument()
-        expect(screen.getByText('Not checked yet')).toBeInTheDocument()
+        expect(screen.getByText('Not checked yet', LIVE)).toBeInTheDocument()
 
         await userEvent.click(screen.getByRole('button', {name: 'Check now'}))
-        expect(await screen.findByText('0.7.0 is available')).toBeInTheDocument()
+        expect(await screen.findByText('0.7.0 is available', LIVE)).toBeInTheDocument()
         expect(mockState.updater.activity.state).toBe('idle')
 
         await userEvent.click(screen.getByRole('button', {name: 'Download'}))
-        expect(await screen.findByText('0.7.0 is ready to install')).toBeInTheDocument()
+        expect(await screen.findByText('0.7.0 is ready to install', LIVE)).toBeInTheDocument()
         expect(screen.getByText(/Protocol closes for about half a minute/)).toBeInTheDocument()
 
         await userEvent.click(screen.getByRole('button', {name: 'Restart and update'}))
-        expect(await screen.findByText('Starting the update…')).toBeInTheDocument()
+        expect(await screen.findByText('Starting the update…', LIVE)).toBeInTheDocument()
     })
 
     it('says up to date after a check that found nothing', async () => {
@@ -40,7 +43,7 @@ describe('Updates', () => {
 
         await userEvent.click(await screen.findByRole('button', {name: 'Check now'}))
 
-        expect(await screen.findByText('Up to date, checked')).toBeInTheDocument()
+        expect(await screen.findByText('Up to date, checked', LIVE)).toBeInTheDocument()
         expect(screen.getByText('just now')).toBeInTheDocument()
     })
 
@@ -79,7 +82,7 @@ describe('Updates', () => {
         mockState.updater = {...mockState.updater, support: {kind: 'off', reason: 'dev'}}
         renderUpdates()
 
-        expect(await screen.findByText('Updates are off in development builds')).toBeInTheDocument()
+        expect(await screen.findByText('Updates are off in development builds', LIVE)).toBeInTheDocument()
         await userEvent.click(screen.getByRole('button', {name: 'Open releases'}))
         expect(mockState.openedUrls).toEqual(['https://github.com/vmedvedevpro/Protocol/releases'])
     })
@@ -99,8 +102,8 @@ describe('Updates', () => {
         await userEvent.click(await screen.findByRole('button', {name: 'Check'}))
 
         // The app's own row still says it has not checked.
-        expect(await screen.findByText('Up to date, checked')).toBeInTheDocument()
-        expect(screen.getByText('Not checked yet')).toBeInTheDocument()
+        expect(await screen.findByText('Up to date, checked', LIVE)).toBeInTheDocument()
+        expect(screen.getByText('Not checked yet', LIVE)).toBeInTheDocument()
         expect(mockState.catalog.source).toBe('remote')
     })
 })

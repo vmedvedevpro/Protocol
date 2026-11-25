@@ -8,6 +8,9 @@ import {mockState} from '@/mocks/state'
 import {renderRoute} from '../testing'
 import {MeetingRoute} from './MeetingScreen'
 
+// A StatusLine says its text twice: the live region is the copy that counts.
+const LIVE = {selector: '[role="status"]'}
+
 const renderMeeting = (meetingId: string, query = '') => renderRoute(`/meetings/${meetingId}${query}`, [
     {path: '/', element: <p>Home</p>},
     {path: '/meetings/:meetingId', element: <MeetingRoute/>},
@@ -84,7 +87,7 @@ describe('MeetingScreen', () => {
         const start = hold('api_process_transcript')
         renderMeeting('meeting-untitled')
         await userEvent.click(await screen.findByRole('button', {name: 'Generate summary'}))
-        expect(await screen.findByText('Writing the summary…')).toBeInTheDocument()
+        expect(await screen.findByText('Writing the summary…', LIVE)).toBeInTheDocument()
 
         start.release()
         expect(await screen.findByRole('region', {name: 'Action items'})).toBeInTheDocument()
@@ -113,6 +116,8 @@ describe('MeetingScreen', () => {
         renderMeeting('meeting-acme-review', '?tab=transcript')
         const transcript = await screen.findByRole('region', {name: 'Transcript'})
         expect(await within(transcript).findByText('We start with the pilot.')).toBeInTheDocument()
+        // Clean/Verbatim is the transcript's own control, not one more in the tab row.
+        expect(within(screen.getByRole('tabpanel')).getByRole('radiogroup', {name: 'Transcript text'})).toBeInTheDocument()
 
         // The radio is invisible to the pointer; a user clicks its label.
         await userEvent.click(screen.getByRole('radio', {name: 'Verbatim'}).closest('label') as HTMLElement)
@@ -211,6 +216,24 @@ describe('MeetingScreen', () => {
 
         await waitFor(() => expect(scroll).toHaveBeenCalledTimes(1))
         expect((scroll.mock.contexts[0] as HTMLElement).contains(text)).toBe(true)
+    })
+
+    it('goes to each search result inside the meeting already open, the same one again too', async () => {
+        const lines = mockState.meetings.transcripts['meeting-acme-review']
+        const first = lines.find((entry) => entry.text.includes('data retention'))!
+        const other = lines.find((entry) => entry !== first)!
+        const scroll = vi.spyOn(Element.prototype, 'scrollIntoView')
+        const {router} = renderMeeting('meeting-acme-review', `?tab=transcript&line=${first.id}`)
+        await waitFor(() => expect(scroll).toHaveBeenCalledTimes(1))
+        // Read and taken out of the URL, so a tab switch is not a new request.
+        await waitFor(() => expect(router.state.location.search).toBe('?tab=transcript'))
+
+        await act(() => router.navigate(`/meetings/meeting-acme-review?tab=transcript&line=${other.id}`))
+        await waitFor(() => expect(scroll).toHaveBeenCalledTimes(2))
+        expect((scroll.mock.contexts[1] as HTMLElement).textContent).toContain(other.text.slice(0, 20))
+
+        await act(() => router.navigate(`/meetings/meeting-acme-review?tab=transcript&line=${other.id}`))
+        await waitFor(() => expect(scroll).toHaveBeenCalledTimes(3))
     })
 
     it('says so when the meeting is gone', async () => {

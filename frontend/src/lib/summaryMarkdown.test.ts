@@ -1,5 +1,5 @@
 import {assert, describe, test} from 'vitest'
-import {blocksToMarkdown, completeSummaryMarkdown, parseSummaryData, splitSummaryAtActionItems} from './summaryMarkdown'
+import {blocksToMarkdown, completeSummaryMarkdown, markdownSnippetText, parseSummaryData, splitSummaryAtActionItems} from './summaryMarkdown'
 
 const text = (value: string) => [{ type: 'text', text: value, styles: {} }]
 
@@ -85,5 +85,23 @@ describe('splitSummaryAtActionItems', () => {
         const [head, tail] = splitSummaryAtActionItems({markdown: '## Summary\n\nDone.'})
         assert.strictEqual(head.markdown, '## Summary\n\nDone.')
         assert.deepEqual(tail, {blocks: null, markdown: ''})
+    })
+})
+
+describe('markdownSnippetText', () => {
+    test('shows a summary snippet without its Markdown', () => {
+        assert.equal(
+            markdownSnippetText('## Summary\nThe team **agreed** on _retention_ and `30 days`.\n- Ship the [policy](https://x.y) draft\n1. Ask legal\n> Quoted'),
+            'Summary The team agreed on retention and 30 days. Ship the policy draft Ask legal Quoted',
+        )
+    })
+
+    test('reads a table as its cells', () => {
+        assert.equal(markdownSnippetText('...Shah | Send terms | Today |\n|---|---|---|\n| You | Write it | Next week |'), '...Shah · Send terms · Today You · Write it · Next week')
+    })
+
+    test('leaves a mark the cut left alone, and plain words with underscores', () => {
+        assert.equal(markdownSnippetText('...was **agreed'), '...was **agreed')
+        assert.equal(markdownSnippetText('the snake_case name'), 'the snake_case name')
     })
 })

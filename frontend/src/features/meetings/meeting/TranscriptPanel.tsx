@@ -1,4 +1,4 @@
-import {useCallback, useMemo} from 'react'
+import {type ReactNode, useCallback, useMemo} from 'react'
 import {UserIcon, UserSwitchIcon} from '@phosphor-icons/react'
 import {useMutation, useQuery} from '@tanstack/react-query'
 import {useNavigate} from 'react-router-dom'
@@ -20,6 +20,15 @@ const Column = styled.div`
     display: flex;
     flex-direction: column;
     height: 100%;
+`
+
+// The transcript's own controls (Labs › Clean transcript's Clean/Verbatim),
+// above the lines: in the tab row they squeezed the tabs at 460 px.
+const Tools = styled.div`
+    display: flex;
+    flex: none;
+    justify-content: flex-end;
+    padding: ${({theme}) => theme.space[2]} ${({theme}) => theme.space[3]} 0;
 `
 
 const Note = styled.p`
@@ -53,8 +62,12 @@ interface TranscriptPanelProps {
     onSeek?: (seconds: number) => void
     /** A line to scroll into view once (a search result's). */
     revealLine?: string
+    /** Names the request for `revealLine`: a new key reveals the line again. */
+    revealKey?: string
     /** Labs › Clean transcript: how each turn is shown (`cleanTranscriptText`). */
     clean?: (text: string) => string
+    /** Controls over the lines, in a row of their own (Clean/Verbatim). */
+    tools?: ReactNode
 }
 
 /**
@@ -63,7 +76,7 @@ interface TranscriptPanelProps {
  * label opens its contact (#118) and names it, on every line of the meeting. While the post-call
  * pass runs, the text is the live one, and a note says a better one comes.
  */
-export function TranscriptPanel({meetingId, playback, playing, onSeek, revealLine, clean}: TranscriptPanelProps) {
+export function TranscriptPanel({meetingId, playback, playing, onSeek, revealLine, revealKey, clean, tools}: TranscriptPanelProps) {
     const transcript = useQuery(meetingTranscriptsQuery(meetingId))
     const rename = useMutation(renameSpeakerMutation(meetingId))
     const job = usePostCallJob(meetingId)
@@ -72,15 +85,17 @@ export function TranscriptPanel({meetingId, playback, playing, onSeek, revealLin
     const navigate = useNavigate()
     const people = useQuery(peopleQuery)
     // Open <contact> when the voice is one (#118), then Who said this…
-    // (features/dialogs, #119). Stable while the contacts are, so the turns
-    // keep their memo.
+    // (features/dialogs, #119). Stable while the contacts are and while a
+    // pass runs or does not, so the turns keep their memo: the job itself
+    // is replaced on every percent.
+    const passRunning = !!job
     const speakerActions = useCallback((target: SpeakerTarget) => {
         const person = personForSpeaker(people.data ?? [], target.speaker)
         const actions: SpeakerAction[] = []
         if (person) actions.push({id: 'open-person', label: `Open ${person.displayName}`, icon: <UserIcon/>, onSelect: () => void navigate(paths.person(person.id))})
-        if (!job) actions.push({id: 'who-said-this', label: 'Who said this…', icon: <UserSwitchIcon aria-hidden/>, onSelect: () => openDialog({kind: 'speaker', meetingId, ...target})})
+        if (!passRunning) actions.push({id: 'who-said-this', label: 'Who said this…', icon: <UserSwitchIcon aria-hidden/>, onSelect: () => openDialog({kind: 'speaker', meetingId, ...target})})
         return actions
-    }, [people.data, navigate, meetingId, job])
+    }, [people.data, navigate, meetingId, passRunning])
 
     if (transcript.isPending) return <Column><Centered aria-busy="true"><Spinner delayed/></Centered></Column>
     if (transcript.isError) {
@@ -96,6 +111,7 @@ export function TranscriptPanel({meetingId, playback, playing, onSeek, revealLin
 
     return (
         <Column>
+            {tools && <Tools>{tools}</Tools>}
             <TranscriptList
                 lines={lines}
                 clean={clean}
@@ -104,6 +120,7 @@ export function TranscriptPanel({meetingId, playback, playing, onSeek, revealLin
                 playback={playback}
                 followPlayback={playing}
                 revealLineId={revealLine}
+                revealKey={revealKey}
                 onSeek={onSeek}
                 // The pass replaces the lines and their labels; a name given meanwhile would be lost.
                 onRenameSpeaker={job ? undefined : (from, to) => rename.mutateAsync({from, to}).catch((error: unknown) => {

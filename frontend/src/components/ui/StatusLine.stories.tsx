@@ -16,6 +16,7 @@ const MEANINGS = [
     {value: 'checking', label: 'Checking'},
     {value: 'downloading', label: 'Downloading'},
     {value: 'ready', label: 'Ready'},
+    {value: 'up-to-date', label: 'Up to date'},
 ] as const
 
 type Meaning = (typeof MEANINGS)[number]['value']
@@ -36,6 +37,9 @@ function Updates({initial = 'downloading'}: { initial?: Meaning }) {
         checking: {key: 'checking', text: 'Checking for updates…', busy: true},
         downloading: {key: 'downloading', text: 'Downloading 0.7.0…', value: `${percent}%`},
         ready: {key: 'ready', text: 'Update 0.7.0 is ready'},
+        // Checking → Up to date is where a value used to arrive beside the
+        // leaving text and jump: now it comes in with its own text.
+        'up-to-date': {key: 'up-to-date', text: 'Up to date, checked', value: 'just now'},
     }[meaning]
 
     return (

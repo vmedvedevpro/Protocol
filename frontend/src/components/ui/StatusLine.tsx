@@ -4,6 +4,7 @@ import styled from 'styled-components'
 import {Spinner} from './Spinner'
 import {statusSwap as swap} from '@/styles/motion'
 import {Veil} from './Veil'
+import {VisuallyHidden} from './VisuallyHidden'
 
 /**
  * What a status line says. `key` names the meaning (`downloading`, `ready`);
@@ -20,9 +21,8 @@ export interface Status {
 }
 
 const Line = styled.span`
+    position: relative;
     display: inline-flex;
-    align-items: baseline;
-    gap: ${({theme}) => theme.space[1]};
     min-width: 0;
     ${({theme}) => theme.text.small};
     color: ${({theme}) => theme.colors.muted};
@@ -39,35 +39,41 @@ const Busy = styled.span`
 `
 
 // Figures keep one width, so a climbing percent does not shake the line.
-const Value = styled(Swap)`
+const Value = styled.span`
+    margin-left: ${({theme}) => theme.space[1]};
     font-variant-numeric: tabular-nums;
 `
 
 /**
  * A one-line status. When its meaning changes the old line leaves upwards
  * and the new one arrives from below, each under a veil (only the veil
- * under reduced motion),
- * the spinner of a busy status with it; within one meaning the value
- * updates where it stands.
+ * under reduced motion); within one meaning the value updates where it
+ * stands.
  *
- * Only the text is the live region (`role="status"`): screen readers announce
- * a change of meaning, not every tick of the value beside it.
+ * The spinner, the text and the value are one keyed unit: they leave
+ * together and the next unit arrives only once the last has left, so what
+ * stays on screen never moves. Separate presences for text and value let a
+ * new value arrive beside the leaving text and jump when the text swapped.
+ * A status's `busy` belongs to its meaning (its key), so a spinner never
+ * comes or goes under a text that stays.
+ *
+ * The live region (`role="status"`) is a hidden copy of the text that stays
+ * mounted, so a change of meaning is announced (a new region is not) and a
+ * ticking value is not.
  */
 export function StatusLine({status}: { status: Status }) {
     return (
         <Line>
-            <span role="status">
-                <AnimatePresence mode="wait" initial={false}>
-                    <Swap key={status.key} {...swap}>
+            <VisuallyHidden role="status">{status.text}</VisuallyHidden>
+            <AnimatePresence mode="wait" initial={false}>
+                <Swap key={status.key} {...swap}>
+                    <span aria-hidden>
                         {status.busy && <Busy><Spinner/></Busy>}
                         {status.text}
-                        <Veil duration="fast"/>
-                    </Swap>
-                </AnimatePresence>
-            </span>
-            {/* Keyed like the text, so the two leave and arrive together. */}
-            <AnimatePresence mode="wait" initial={false}>
-                {status.value !== undefined && <Value key={status.key} {...swap}>{status.value}<Veil duration="fast"/></Value>}
+                    </span>
+                    {status.value !== undefined && <Value>{status.value}</Value>}
+                    <Veil duration="fast"/>
+                </Swap>
             </AnimatePresence>
         </Line>
     )

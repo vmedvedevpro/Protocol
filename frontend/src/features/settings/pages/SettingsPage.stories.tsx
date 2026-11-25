@@ -33,6 +33,13 @@ export const Advanced: Story = {
     args: {path: '/settings?section=general'},
 }
 
+/** At the window's narrowest, 460 px: the tabs keep their width and the search takes the rest. */
+export const AdvancedNarrow: Story = {
+    globals: {theme: 'light'},
+    args: {path: '/settings?section=general'},
+    decorators: [(Story) => <div style={{width: 460}}><Story/></div>],
+}
+
 export const AdvancedDark: Story = {
     globals: {theme: 'dark'},
     args: {path: '/settings?section=general'},

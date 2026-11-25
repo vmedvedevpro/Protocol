@@ -4,9 +4,11 @@ import {handlers} from '@/mocks/handlers'
 import {mockState} from '@/mocks/state'
 import {createTestQueryClient} from '@/test/queryClient'
 import {listenNative} from './events'
+import {registerPostCallControls} from './postCall'
 import {
     audioSource,
     deleteFolderMutation,
+    DELETE_SETTLE_LIMIT_MS,
     deleteMeetingMutation,
     folderKeys,
     foldersQuery,
@@ -103,6 +105,30 @@ describe('meetings', () => {
         expect(client.getQueryState(meetingKeys.detail('meeting-roadmap'))).toBeUndefined()
         expect(client.getQueryState(meetingKeys.transcripts('meeting-roadmap'))).toBeUndefined()
         expect((await client.fetchQuery(meetingsQuery)).some((meeting) => meeting.id === 'meeting-roadmap')).toBe(false)
+    })
+
+    it('refuses to delete while the meeting’s pass has not let go of it in time', async () => {
+        vi.useFakeTimers()
+        const unregister = registerPostCallControls({cancel: vi.fn(), retry: vi.fn(), skip: vi.fn(), settled: () => new Promise(() => undefined)})
+        try {
+            const client = createTestQueryClient()
+            const deleting = run(client, deleteMeetingMutation('meeting-roadmap'), undefined)
+            const refused = expect(deleting).rejects.toThrow('still processing')
+            await vi.advanceTimersByTimeAsync(DELETE_SETTLE_LIMIT_MS)
+            await refused
+            expect(mockState.meetings.meetings.some((meeting) => meeting.id === 'meeting-roadmap')).toBe(true)
+        } finally {
+            unregister()
+            vi.useRealTimers()
+        }
+    })
+
+    it('refuses to delete while native still retranscribes the meeting after its pass ended', async () => {
+        mockState.postCall.retranscribing = 'meeting-roadmap'
+        const client = createTestQueryClient()
+
+        await expect(run(client, deleteMeetingMutation('meeting-roadmap'), undefined)).rejects.toThrow('still processing')
+        expect(mockState.meetings.meetings.some((meeting) => meeting.id === 'meeting-roadmap')).toBe(true)
     })
 
     it('plays a meeting from its recording, and has nothing to play without one', async () => {

@@ -16,6 +16,7 @@ import {Menu, MenuItem} from '@/components/ui/Menu'
 import {colorTransition, fieldFocusRing, focusRing} from '@/components/ui/styles'
 import {tween} from '@/styles/motion'
 import {VeilRow} from '@/components/ui/Veil'
+import {useArrivedIds} from '@/lib/arrivedIds'
 import {
     activeTurnIndex,
     displaySpeaker,
@@ -101,6 +102,8 @@ export interface TranscriptListProps {
      * search result opens the transcript there, whether or not it has audio.
      */
     revealLineId?: string
+    /** Names the request for `revealLineId`; a new key brings the line into view again. */
+    revealKey?: string
     /** Shown instead of the rows while there are none. */
     empty?: ReactNode
     /** Above the first row, such as a note that the text is still provisional. */
@@ -343,7 +346,7 @@ interface RowActions {
 
 interface TurnRowProps {
     turn: Turn
-    /** Fades in: a line that arrived while the list was live. */
+    /** Rises under a veil: a line that arrived while the list was live. */
     arriving: boolean
     userName?: string
     editing: boolean
@@ -452,6 +455,7 @@ export function TranscriptList({
     playback,
     followPlayback = false,
     revealLineId,
+    revealKey,
     empty,
     before,
     after,
@@ -466,14 +470,11 @@ export function TranscriptList({
     const refocus = useRef<string | null>(null)
 
     // Rows present at the first render arrive with the screen; a line that
-    // arrives later while the list is live fades in on its own. Once it has,
-    // it stays the same element: #112 turns `live` off after Stop on the
-    // same list, and a row that changed element type would mount again.
-    const [initialIds] = useState(() => new Set(turns.map((turn) => turn.id)))
-    const [arrived] = useState(() => new Set<string>())
-    if (live) {
-        for (const turn of turns) if (!initialIds.has(turn.id)) arrived.add(turn.id)
-    }
+    // arrives later while the list is live rises on its own. Once it has, it
+    // stays the same element: #112 turns `live` off after Stop on the same
+    // list, and a row that changed element type would mount again.
+    const turnIds = useMemo(() => turns.map((turn) => turn.id), [turns])
+    const arrived = useArrivedIds(turnIds, live)
 
     // The callers' functions, kept current without rendering a row again.
     const callbacks = useRef({onSeek, onRenameSpeaker})
@@ -553,15 +554,19 @@ export function TranscriptList({
     }, [playback])
 
     // ---- The line asked for ------------------------------------------------
-    const revealed = useRef(false)
+    // The request last revealed: the list stays mounted while a meeting's
+    // search hits change the line, and the same line asked again is a new key.
+    const revealed = useRef<string | null>(null)
     useEffect(() => {
-        if (revealed.current || !revealLineId) return
+        if (!revealLineId) return
+        const request = `${revealKey ?? ''}:${revealLineId}`
+        if (revealed.current === request) return
         const turn = turns.find((entry) => entry.lineIds.includes(revealLineId))
         const row = turn ? rows.current.get(turn.id) : undefined
         if (!row) return
-        revealed.current = true
+        revealed.current = request
         row.scrollIntoView?.({block: 'center'})
-    }, [turns, revealLineId])
+    }, [turns, revealLineId, revealKey])
 
     // ---- Following a live end ----------------------------------------------
     const atEnd = useRef(true)

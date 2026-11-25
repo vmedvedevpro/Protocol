@@ -534,10 +534,9 @@ impl SummaryService {
             info!("📝 Detected transcript summary language: {}", code);
         }
 
-        let template = match templates::get_template(&template_id) {
+        let template = match template_for_run(&template_id) {
             Ok(template) => template,
-            Err(e) => {
-                let err_msg = format!("Failed to load template '{}': {}", template_id, e);
+            Err(err_msg) => {
                 Self::update_process_failed(&pool, &meeting_id, &err_msg).await;
                 return;
             }
@@ -718,9 +717,23 @@ impl SummaryService {
     }
 }
 
+/// Protocol: the template a summary run uses, by the id `api_process_transcript`
+/// was given (or the stored default); `get_template` refuses an id outside the
+/// templates folders.
+fn template_for_run(template_id: &str) -> Result<Template, String> {
+    templates::get_template(template_id).map_err(|e| format!("Failed to load template '{}': {}", template_id, e))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_run_refuses_a_template_id_outside_the_templates_folders() {
+        let refused = template_for_run("../../somewhere/file").unwrap_err();
+        assert!(refused.contains("Not a template id"), "{refused}");
+        assert!(template_for_run("standard_meeting").is_ok());
+    }
 
     #[test]
     fn summary_registration_rejects_overlap_and_cleans_up_its_own_token() {

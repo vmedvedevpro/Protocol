@@ -15,7 +15,7 @@ import {command} from './core'
 import type {NativeEvent} from './events'
 // Used only inside callbacks, so the import cycle with people.ts is harmless.
 import {peopleKeys} from './people'
-import {postCallControls} from './postCall'
+import {isRetranscriptionInProgress, postCallControls} from './postCall'
 
 // ---- Meetings ---------------------------------------------------------------
 
@@ -200,18 +200,40 @@ export const renameMeetingMutation = (meetingId: string) =>
     })
 
 /**
+ * How long Delete waits for the meeting's post-call pass to let go of it. A
+ * cancelled retranscription stops after the piece it is on, at most 25 s of
+ * audio (post_meeting.rs, `MAX_PIECE_SAMPLES`), and the runner gives native
+ * the same two minutes to let go of the model (`RUNNER_TIMING.releaseLimitMs`);
+ * a summary stops at its next poll. What still runs past it cannot be
+ * stopped (a speaker identification) or ignores the cancel, so Delete refuses
+ * rather than delete a meeting native still writes into.
+ */
+export const DELETE_SETTLE_LIMIT_MS = 2 * 60 * 1000
+
+const STILL_PROCESSING = 'Protocol is still processing this meeting. Try again when it has finished.'
+
+/**
  * Deleting drops the meeting's own queries rather than refetching them: a
  * screen still showing it would read "Meeting not found". Its post-call
- * pass is cancelled first and the delete waits for it to settle: native's
- * cancel only sets a flag, and a retranscription finishes the piece it is
- * on (up to 25 s of audio) before it stops, so deleting at once would let
- * that piece write into a meeting that is gone.
+ * pass is cancelled first and the delete waits for it to settle (the
+ * Delete button shows the wait): native's cancel only sets a flag, and a
+ * retranscription finishes the piece it is on before it stops, so deleting
+ * at once would let that piece write into a meeting that is gone. A pass
+ * also settles when its own wait for native gives up, so native is asked
+ * once more before the delete.
  */
 export const deleteMeetingMutation = (meetingId: string) =>
     mutationOptions({
         mutationFn: async () => {
             postCallControls.cancel(meetingId)
-            await postCallControls.settled(meetingId)
+            let timer: ReturnType<typeof setTimeout> | undefined
+            const settled = await Promise.race([
+                postCallControls.settled(meetingId).then(() => true),
+                new Promise<false>((resolve) => {
+                    timer = setTimeout(() => resolve(false), DELETE_SETTLE_LIMIT_MS)
+                }),
+            ]).finally(() => clearTimeout(timer))
+            if (!settled || await isRetranscriptionInProgress(meetingId).catch(() => false)) throw new Error(STILL_PROCESSING)
             return deleteMeeting(meetingId)
         },
         onSuccess: async (_reply, _variables, _result, {client}) => {

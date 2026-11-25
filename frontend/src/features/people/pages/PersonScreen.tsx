@@ -1,7 +1,6 @@
-import {type ReactNode, useState} from 'react'
+import {type ReactNode, type RefObject, useEffect, useMemo, useRef, useState} from 'react'
 import {DotsThreeIcon, GitMergeIcon, PencilSimpleIcon, TrashIcon} from '@phosphor-icons/react'
-import {useMutation, useQuery} from '@tanstack/react-query'
-import {AnimatePresence} from 'motion/react'
+import {useMutation, useQuery, useQueryClient} from '@tanstack/react-query'
 import * as m from 'motion/react-m'
 import {Link, useNavigate, useParams} from 'react-router-dom'
 import styled, {css} from 'styled-components'
@@ -11,6 +10,7 @@ import {
     describeVoiceSource,
     forgetVoiceMutation,
     learnPersonVoiceMutation,
+    peopleKeys,
     type PersonProfile,
     personProfileQuery,
     updatePersonNotesMutation,
@@ -23,8 +23,10 @@ import {Menu, MenuItem, MenuSeparator} from '@/components/ui/Menu'
 import {Spinner} from '@/components/ui/Spinner'
 import {colorTransition, focusRing} from '@/components/ui/styles'
 import {TextArea} from '@/components/ui/TextField'
+import {Veil} from '@/components/ui/Veil'
 import {toast} from '@/components/ui/toastStore'
-import {useAutosave} from '@/lib/autosave'
+import {useArrivedIds} from '@/lib/arrivedIds'
+import {useAutosave, useSaving} from '@/lib/autosave'
 import {dayWhen, parseDate} from '@/lib/dates'
 import {paths} from '@/lib/paths'
 import {tween} from '@/styles/motion'
@@ -110,7 +112,9 @@ const Badge = styled.span`
     color: ${({theme}) => theme.colors.muted};
 `
 
+// The card's colour is behind the veil of a row that arrives on it (Veil).
 const Card = styled.div`
+    --surface: ${({theme}) => theme.colors.surface};
     border-radius: ${({theme}) => theme.radii.xl};
     background: ${({theme}) => theme.colors.surface};
 `
@@ -182,6 +186,7 @@ const When = styled.span`
 `
 
 const ItemRow = styled(m.div)`
+    position: relative;
     ${rowStyle};
     align-items: flex-start;
     gap: ${({theme}) => theme.space[2.5]};
@@ -258,6 +263,14 @@ export function PersonScreen({personId}: { personId: string }) {
     const navigate = useNavigate()
     const profile = useQuery(personProfileQuery(personId))
     const [sheet, setSheet] = useState<'edit' | 'merge' | 'delete' | null>(null)
+    // Notes typed just before a merge or delete go out first: a merge moves
+    // them to the contact kept, and once the contact is gone a save has
+    // nowhere to land.
+    const flushNotes = useRef<(() => void) | null>(null)
+    const endContact = (name: 'merge' | 'delete') => {
+        flushNotes.current?.()
+        setSheet(name)
+    }
     const sheetOpen = (name: typeof sheet) => ({
         open: sheet === name,
         onOpenChange: (open: boolean) => setSheet(open ? name : null),
@@ -294,9 +307,9 @@ export function PersonScreen({personId}: { personId: string }) {
                     )}
                 >
                     <MenuItem icon={<PencilSimpleIcon/>} onSelect={() => setSheet('edit')}>Edit details</MenuItem>
-                    <MenuItem icon={<GitMergeIcon/>} onSelect={() => setSheet('merge')}>Merge with another contact…</MenuItem>
+                    <MenuItem icon={<GitMergeIcon/>} onSelect={() => endContact('merge')}>Merge with another contact…</MenuItem>
                     <MenuSeparator/>
-                    <MenuItem icon={<TrashIcon/>} onSelect={() => setSheet('delete')}>Delete contact…</MenuItem>
+                    <MenuItem icon={<TrashIcon/>} onSelect={() => endContact('delete')}>Delete contact…</MenuItem>
                 </Menu>
             </Head>
             <Body>
@@ -304,7 +317,7 @@ export function PersonScreen({personId}: { personId: string }) {
                 <Voice person={person}/>
                 <OpenItems person={person}/>
                 <Meetings person={person}/>
-                <Notes person={person}/>
+                <Notes person={person} flushRef={flushNotes}/>
             </Body>
             <ContactSheet {...sheetOpen('edit')} contact={person}/>
             <MergeContactSheet
@@ -415,6 +428,12 @@ function OpenItems({person}: { person: PersonProfile }) {
     const update = useMutation(updateActionItemMutation)
     const first = firstName(person.displayName)
 
+    // Items there when the list first loads arrive with the screen; one that
+    // shows up later (Undo brings it back) rises under a veil, and one
+    // checked off goes at once: text never fades (Veil).
+    const itemIds = useMemo(() => items.data?.map((item) => item.id), [items.data])
+    const arrived = useArrivedIds(itemIds)
+
     const setDone = (item: ActionItem, done: boolean) => update.mutate({...item, done}, {
         onSuccess: () => done && toast.success('Marked as done', {
             description: item.text,
@@ -429,13 +448,13 @@ function OpenItems({person}: { person: PersonProfile }) {
             <Card>
                 {items.isError && <Empty role="alert">Couldn’t load the action items: {items.error.message}</Empty>}
                 {items.isSuccess && items.data.length === 0 && <Empty>Nothing open for {first}.</Empty>}
-                <AnimatePresence initial={false}>
-                    {(items.data ?? []).map((item) => (
+                {(items.data ?? []).map((item) => {
+                    const arriving = arrived.has(item.id)
+                    return (
                         <ItemRow
                             key={item.id}
-                            initial={{opacity: 0, y: 4}}
-                            animate={{opacity: 1, y: 0}}
-                            exit={{opacity: 0, transition: tween('base', 'exit')}}
+                            initial={arriving ? {y: 4} : false}
+                            animate={{y: 0}}
                             transition={tween('base', 'enter')}
                         >
                             <Check
@@ -448,9 +467,10 @@ function OpenItems({person}: { person: PersonProfile }) {
                                 <OneLine>{item.text}</OneLine>
                                 <Sub>{[item.dueText, item.meetingTitle].filter(Boolean).join(' · ')}</Sub>
                             </ItemLink>
+                            {arriving && <Veil/>}
                         </ItemRow>
-                    ))}
-                </AnimatePresence>
+                    )
+                })}
             </Card>
         </Section>
     )
@@ -480,9 +500,25 @@ function Meetings({person}: { person: PersonProfile }) {
 /**
  * Private notes, saved as the user types and never sent to AI. The field
  * keeps its own text: a save writes into the cached profile, never back
- * into the field.
+ * into the field. So the field starts only once no save of these notes is
+ * on its way (`useSaving`, the #130 review): a save flushed as the screen
+ * closed lands after the screen opens again, and the cached text is older.
  */
-function Notes({person}: { person: PersonProfile }) {
+function Notes({person, flushRef}: { person: PersonProfile, flushRef: RefObject<(() => void) | null> }) {
+    const saving = useSaving(`person-notes:${person.id}`)
+    const [ready, setReady] = useState(false)
+    if (!saving && !ready) setReady(true)
+    return (
+        <Section aria-labelledby="person-notes">
+            <SectionHeader id="person-notes" title="Private notes"/>
+            {ready ? <NotesField person={person} flushRef={flushRef}/> : <Spinner delayed/>}
+            <Footnote>Only for you. Saved as you type, and never sent to AI.</Footnote>
+        </Section>
+    )
+}
+
+function NotesField({person, flushRef}: { person: PersonProfile, flushRef: RefObject<(() => void) | null> }) {
+    const client = useQueryClient()
     // A save still running when the screen closes keeps its toast: the error
     // is the mutation's, not this field's.
     const save = useMutation({
@@ -490,24 +526,31 @@ function Notes({person}: { person: PersonProfile }) {
         onError: (error) => toast.error('Couldn’t save the notes', {description: error.message}),
     })
     const [text, setText] = useState(person.notes ?? '')
-    // As a meeting's notes: saved when typing pauses, and at once when the screen closes.
-    const autosave = useAutosave((value: string) => save.mutate(value))
+    // As a meeting's notes: saved when typing pauses, and at once when the
+    // screen closes. A merge or delete removes the profile from the cache
+    // before the screen closes: the contact is gone, so there is nothing to
+    // save to (what was typed went out as the sheet opened).
+    const autosave = useAutosave((value: string) => {
+        if (client.getQueryData(peopleKeys.profile(person.id))) save.mutate(value)
+    })
+    useEffect(() => {
+        flushRef.current = autosave.flush
+        return () => {
+            flushRef.current = null
+        }
+    }, [autosave, flushRef])
 
     return (
-        <Section aria-labelledby="person-notes">
-            <SectionHeader id="person-notes" title="Private notes"/>
-            <TextArea
-                aria-labelledby="person-notes"
-                tone="soft"
-                rows={3}
-                placeholder="Context, preferences, follow-ups…"
-                value={text}
-                onChange={(event) => {
-                    setText(event.target.value)
-                    autosave.schedule(event.target.value)
-                }}
-            />
-            <Footnote>Only for you. Saved as you type, and never sent to AI.</Footnote>
-        </Section>
+        <TextArea
+            aria-labelledby="person-notes"
+            tone="soft"
+            rows={3}
+            placeholder="Context, preferences, follow-ups…"
+            value={text}
+            onChange={(event) => {
+                setText(event.target.value)
+                autosave.schedule(event.target.value)
+            }}
+        />
     )
 }

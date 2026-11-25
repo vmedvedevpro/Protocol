@@ -5,6 +5,7 @@ import styled from 'styled-components'
 import {
     companionQuery,
     downloadGpuVersion,
+    dismissIntelOffer,
     downloadIntelLibraries,
     INTEL_LIBRARIES_ID,
     intelError,
@@ -18,11 +19,13 @@ import {trackIntelDownload} from '@/api/modelDownloadSync'
 import {downloadKey, PARAKEET_MODEL} from '@/api/models'
 import {Button} from '@/components/ui/Button'
 import {toast} from '@/components/ui/toastStore'
+import {Veil} from '@/components/ui/Veil'
 import {formatModelSize} from '@/lib/sizes'
 import {tween} from '@/styles/motion'
 import {useSpeechModels} from '../../hooks/useSpeechModels'
 
 const Banner = styled(m.section)`
+    position: relative;
     padding: ${({theme}) => theme.space[3]};
     border: 1px solid ${({theme}) => theme.colors.border};
     border-radius: ${({theme}) => theme.radii.xl};
@@ -61,8 +64,7 @@ export function IntelOfferBanner() {
     const availability = useQuery(openVinoAvailabilityQuery).data
     const companion = useQuery(companionQuery).data
     const npu = useQuery(npuQuery).data
-    const dismissed = useIntelOfferDismissedStore((state) => state.dismissed)
-    const dismiss = useIntelOfferDismissedStore((state) => state.dismiss)
+    const dismissed = useIntelOfferDismissedStore((state) => state.value)
 
     const running = (key: string) => downloads[key]?.state === 'downloading'
     const offer = npu ? offerFor({
@@ -96,17 +98,19 @@ export function IntelOfferBanner() {
                 <Banner
                     key="intel-offer"
                     aria-label="Intel GPU and NPU offer"
-                    initial={{opacity: 0, y: -4}}
-                    animate={{opacity: 1, y: 0}}
-                    exit={{opacity: 0, y: -4}}
-                    transition={tween('base')}
+                    // Text never fades: it rises under a veil, which covers it
+                    // again as it goes (Veil).
+                    initial={{y: -4}}
+                    animate={{y: 0}}
+                    transition={tween('base', 'enter')}
                 >
                     <Title>{shown.title}</Title>
                     <Text>{formatModelSize(bytes) ? `${shown.description} · ${formatModelSize(bytes)}` : shown.description}</Text>
                     <Actions>
-                        <Button size="sm" variant="ghost" onClick={() => dismiss(shown.devices)}>Not now</Button>
+                        <Button size="sm" variant="ghost" onClick={() => dismissIntelOffer(shown.devices)}>Not now</Button>
                         <Button size="sm" variant="filled" onClick={switchNow}>Switch</Button>
                     </Actions>
+                    <Veil outset={1}/>
                 </Banner>
             )}
         </AnimatePresence>

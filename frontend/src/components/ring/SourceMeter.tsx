@@ -5,8 +5,9 @@ import styled, {css, useTheme} from 'styled-components'
 import type {AudioSource, LevelFeed} from '@/api/audio'
 import {colorTransition, focusRing} from '@/components/ui/styles'
 import {Tooltip} from '@/components/ui/Tooltip'
+import {Veil} from '@/components/ui/Veil'
 import {VisuallyHidden} from '@/components/ui/VisuallyHidden'
-import {MOTION_OK, SCALE_FROM, tween} from '@/styles/motion'
+import {MOTION_OK, SCALE_FROM, statusSwap} from '@/styles/motion'
 import type {LevelWarning} from './levelAdvice'
 import {LevelMeter} from './LevelMeter'
 
@@ -46,21 +47,24 @@ const Button = styled.button<{ $muted: boolean, $warning: boolean }>`
     cursor: pointer;
     ${colorTransition};
 
+    /* The fill is the colour behind the content's veil as it swaps. */
+    background: var(--surface);
+
     ${({$muted}) => ($muted
         ? css`
-            background: ${({theme}) => theme.colors.text};
+            --surface: ${({theme}) => theme.colors.text};
             color: ${({theme}) => theme.colors.bg};
 
             &:hover {
-                background: ${({theme}) => theme.colors.soft};
+                --surface: ${({theme}) => theme.colors.soft};
             }
         `
         : css`
-            background: ${({theme}) => theme.colors.surface};
+            --surface: ${({theme}) => theme.colors.surface};
             color: ${({theme}) => theme.colors.text};
 
             &:hover {
-                background: ${({theme}) => theme.colors.border};
+                --surface: ${({theme}) => theme.colors.border};
             }
         `)}
 
@@ -81,6 +85,7 @@ const Button = styled.button<{ $muted: boolean, $warning: boolean }>`
 `
 
 const Content = styled(m.span)`
+    position: relative;
     display: inline-flex;
     align-items: center;
     gap: ${({theme}) => theme.space[1.5]};
@@ -127,13 +132,8 @@ export function SourceMeter({source, muted, level, onToggle, warning = null, too
         <Tooltip disabled={!tooltip} content={muted ? `Turn on ${name}` : shown ? WARNINGS[shown].advice : `Mute ${name}`}>
             <Button type="button" aria-pressed={muted} $muted={muted} $warning={!!shown} onClick={onToggle}>
                 <AnimatePresence mode="wait" initial={false}>
-                    <Content
-                        key={state}
-                        initial={{opacity: 0, y: 4}}
-                        animate={{opacity: 1, y: 0}}
-                        exit={{opacity: 0, y: -4}}
-                        transition={tween('fast')}
-                    >
+                    {/* "Muted" never fades: the content swaps under a veil (Veil). */}
+                    <Content key={state} {...statusSwap}>
                         <Icon size={theme.sizes.meter.icon} aria-hidden="true"/>
                         {muted ? (
                             <>
@@ -146,6 +146,7 @@ export function SourceMeter({source, muted, level, onToggle, warning = null, too
                                 <VisuallyHidden>{shown ? `Mute ${name}, ${WARNINGS[shown].name}` : `Mute ${name}`}</VisuallyHidden>
                             </>
                         )}
+                        <Veil duration="fast"/>
                     </Content>
                 </AnimatePresence>
             </Button>

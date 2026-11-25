@@ -1,8 +1,9 @@
-import {screen, waitFor, within} from '@testing-library/react'
+import {act, screen, waitFor, within} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import {describe, expect, it} from 'vitest'
+import {describe, expect, it, vi} from 'vitest'
 import {createActionItem} from '@/api/actionItems'
 import {renderRoute} from '@/features/meetings/testing'
+import {handlers, type MockArgs} from '@/mocks/handlers'
 import {mockState} from '@/mocks/state'
 import {PersonRoute} from './PersonScreen'
 
@@ -45,6 +46,41 @@ describe('PersonScreen', () => {
         await waitFor(() => expect(mockState.people.rows.find((person) => person.id === 'person-marcus')?.notes).toBe('Later'))
     })
 
+    it('starts the notes from a save still on its way when the screen opens again', async () => {
+        const original = handlers.api_update_person_notes
+        let release!: () => void
+        const gate = new Promise<void>((resolve) => {
+            release = resolve
+        })
+        vi.spyOn(handlers, 'api_update_person_notes').mockImplementationOnce(async (args: MockArgs) => {
+            await gate
+            return original(args)
+        })
+        const {router} = renderPerson('person-marcus')
+        await userEvent.type(await screen.findByRole('textbox', {name: 'Private notes'}), 'Later')
+        await act(() => router.navigate('/'))
+
+        await act(() => router.navigate('/person/person-marcus'))
+        await screen.findByRole('heading', {level: 1, name: 'Marcus Lee'})
+        // The cached profile still has the old notes: the field waits for the save.
+        expect(screen.queryByRole('textbox', {name: 'Private notes'})).not.toBeInTheDocument()
+
+        release()
+        expect(await screen.findByRole('textbox', {name: 'Private notes'})).toHaveValue('Later')
+    })
+
+    it('saves notes typed just before a delete to the contact, not after it is gone', async () => {
+        const {router} = renderPerson('person-sam')
+        await userEvent.type(await screen.findByRole('textbox', {name: 'Private notes'}), 'Gone')
+        await userEvent.click(screen.getByRole('button', {name: /More/}))
+        await userEvent.click(screen.getByRole('menuitem', {name: 'Delete contact…'}))
+        await userEvent.click(within(screen.getByRole('dialog', {name: 'Delete Sam Rivera?'})).getByRole('button', {name: 'Delete contact'}))
+
+        await waitFor(() => expect(router.state.location.pathname).toBe('/'))
+        await act(() => new Promise((resolve) => setTimeout(resolve, 50)))
+        expect(screen.queryByText('Couldn’t save the notes')).not.toBeInTheDocument()
+    })
+
     it('checks off an open action item, and Undo brings it back', async () => {
         await createActionItem('meeting-acme-review', {text: 'Send the support terms', ownerLabel: 'Priya Shah', audioTime: 30})
         renderPerson('person-priya')
@@ -57,7 +93,11 @@ describe('PersonScreen', () => {
         expect(await within(items).findByText('Nothing open for Priya.')).toBeInTheDocument()
 
         await userEvent.click(await screen.findByRole('button', {name: 'Undo'}))
-        expect(await within(items).findByRole('link', {name: /Send the support terms/})).toBeInTheDocument()
+        const back = await within(items).findByRole('link', {name: /Send the support terms/})
+        // It comes back under a veil; the row's text itself never fades.
+        const row = back.parentElement as HTMLElement
+        expect(row.style.opacity).toBe('')
+        expect(row.querySelector('span[aria-hidden="true"]')).not.toBeNull()
     })
 
     it('learns a voice while Labs › Voice profiles is on', async () => {

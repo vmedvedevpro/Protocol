@@ -1,7 +1,9 @@
 import {useState} from 'react'
 import {screen, waitFor} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import {MotionGlobalConfig} from 'motion/react'
 import {describe, expect, it} from 'vitest'
+import {settleIpc} from '@/test/ipc'
 import {DotsThreeIcon} from '@phosphor-icons/react'
 import {renderUi} from '@/test/renderUi'
 import {Button, IconButton} from './Button'
@@ -96,5 +98,30 @@ describe('Sheet', () => {
         await userEvent.keyboard('{Escape}')
         await closed()
         expect(menuButton).toHaveFocus()
+    })
+
+    it('opens and closes an instant sheet at once, with no spring and no scrim fade', async () => {
+        // The motion runs here, so a sheet that animates is still there as it leaves.
+        MotionGlobalConfig.skipAnimations = false
+        await import('./motionFeatures')
+        try {
+            const sheet = (open: boolean, instant: boolean) => (
+                <Sheet open={open} onOpenChange={() => {}} title="Search" bare instant={instant}><p>Rows</p></Sheet>
+            )
+            const {rerender} = renderUi(sheet(true, true))
+            await settleIpc()
+            const panel = screen.getByRole('dialog', {name: 'Search'})
+            expect(panel.style.opacity).toBe('1')
+            expect(panel.style.transform).toBe('none')
+
+            rerender(sheet(false, true))
+            expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+
+            rerender(sheet(true, false))
+            rerender(sheet(false, false))
+            expect(screen.getByText('Rows')).toBeInTheDocument()
+        } finally {
+            MotionGlobalConfig.skipAnimations = true
+        }
     })
 })

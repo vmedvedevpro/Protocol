@@ -1,8 +1,9 @@
-import {useEffect, useState} from 'react'
+import {useCallback, useEffect, useRef, useState} from 'react'
 import {useQuery, useQueryClient} from '@tanstack/react-query'
-import styled, {createGlobalStyle} from 'styled-components'
+import styled, {createGlobalStyle, useTheme} from 'styled-components'
 import type {AudioSource} from '@/api/audio'
 import {useSystemAudioWarning} from '@/components/ring/levelAdvice'
+import {px} from '@/components/ui/styles'
 import {useHotkey} from '@/lib/hotkeys'
 import {platform} from '@/lib/platform'
 import {
@@ -37,8 +38,8 @@ const TransparentWindow = createGlobalStyle`
     }
 `
 
-// The window follows the pill's width a moment after it changes: hide what
-// is outside it until then rather than scroll.
+// The window follows the pill's width once it settles: hide what is outside
+// it until then rather than scroll.
 const Window = styled.div`
     display: flex;
     align-items: center;
@@ -46,8 +47,34 @@ const Window = styled.div`
     overflow: hidden;
 `
 
-function fitWindow(width: number) {
-    void resizeMinibar(width).catch((error: unknown) => console.error('Minibar: resizing failed', error))
+/**
+ * Fits the window to the pill's width. While the pill opens or closes its
+ * width changes every frame, and each `resize_minibar` takes the minibar's
+ * lifecycle lock, resizes the window and rebuilds its Windows region. So
+ * the window follows only a settled width: one a whole frame went by
+ * without changing (the observer reports at most once a frame, so a frame
+ * without a report is a frame without a change). A pill that grows has the
+ * window at its widest at once, so it never grows into the clip.
+ */
+function useFitWindow() {
+    const theme = useTheme()
+    const widest = px(theme.sizes.minibar.width)
+    const sent = useRef<number | null>(null)
+    const frame = useRef(0)
+    useEffect(() => () => cancelAnimationFrame(frame.current), [])
+    return useCallback((width: number) => {
+        const send = (next: number) => {
+            if (sent.current === next) return
+            sent.current = next
+            void resizeMinibar(next).catch((error: unknown) => console.error('Minibar: resizing failed', error))
+        }
+        cancelAnimationFrame(frame.current)
+        if (sent.current === null) return send(width)
+        if (width > sent.current) send(widest)
+        frame.current = requestAnimationFrame(() => {
+            frame.current = requestAnimationFrame(() => send(width))
+        })
+    }, [widest])
 }
 
 /**
@@ -59,6 +86,7 @@ function fitWindow(width: number) {
  */
 export function MinibarPage() {
     const queryClient = useQueryClient()
+    const fitWindow = useFitWindow()
     const [stopping, setStopping] = useState(false)
     // An object, so the same failure twice restarts its timer.
     const [failure, setFailure] = useState<{ text: string } | null>(null)

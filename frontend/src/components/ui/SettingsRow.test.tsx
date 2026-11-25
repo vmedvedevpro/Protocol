@@ -154,6 +154,19 @@ describe('SettingsRadioGroup', () => {
         expect(screen.getByRole('radio', {name: 'Ollama'})).toBeChecked()
     })
 
+    it('rings a tile only while it has keyboard focus', () => {
+        renderUi(
+            <SettingsRadioGroup title="Format" layout="grid" value="md" onValueChange={() => {}}>
+                <SettingsRadioRow value="md" label="Markdown"/>
+                <SettingsRadioRow value="txt" label="Text"/>
+            </SettingsRadioGroup>,
+        )
+
+        for (const name of ['Markdown', 'Text']) {
+            expect(getComputedStyle(screen.getByRole('radio', {name})).outlineStyle).not.toBe('solid')
+        }
+    })
+
     it('leaves every option unchosen for a value none of them has', () => {
         renderUi(
             <SettingsRadioGroup title="Provider" value="removed-provider" onValueChange={() => {}}>

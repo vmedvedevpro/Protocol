@@ -562,7 +562,8 @@ default settings mode; the rest sits behind the Advanced switch.
 | Summary templates | setting | `hooks/meeting-details/useTemplates.ts`, `components/MeetingDetails/TemplateEditorModal.tsx` | #117 | Templates subpage; the editor is #119. #117 adds a stored default template and the native part so the automatic summary uses it instead of the `daily_standup` fallback (owner decision 2026-11-24). |
 | Let AI agents read your meetings | setting | `components/AgentAccessSettings.tsx` | #117 | Advanced › AI agents; `mcp-server.json`. |
 | Connect Claude Code, Claude Desktop, set up by hand | setting | `components/AgentAccessSettings.tsx` | #117 | Connect an agent subpage. |
-| Local AI: loaded models, unload, free memory, disk, network | setting | `components/LocalStackStatus.tsx` | #117 | Advanced › Local AI. |
+| Local AI: loaded models, unload, free memory, disk | setting | `components/LocalStackStatus.tsx` | #117 | Advanced › Local AI. |
+| Local AI › Network ("No telemetry…") | setting | `components/LocalStackStatus.tsx` | dropped | Owner decision 2026-11-25: a statement with no control; the privacy policy says it. |
 | Labs › Waveform scrubbing | setting | `components/LabsSettings.tsx`, `lib/labs.ts` | #117 | localStorage only (`meetily-labs-v1`); used by the player (#113). |
 | Labs › Clean transcript | setting | same | #117 | localStorage only; used by the transcript view and summaries (#113). |
 | Labs › Whisper silence guard | setting | `lib/labs-features.ts` | #117 | Native `whisper_strict_silence.txt`, mirrored in `meetily-labs-v1`. |

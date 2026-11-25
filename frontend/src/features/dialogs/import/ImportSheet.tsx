@@ -299,6 +299,9 @@ function ImportForm({request}: { request: Extract<OpenedDialog, { kind: 'import'
                 ? `${result.segments_count} transcript ${result.segments_count === 1 ? 'line' : 'lines'}.`
                 : 'No speech was found in it.',
         })
+        // The import is over: the next opening starts from an empty form,
+        // which the opening skips while the phase still says importing.
+        resetImport()
         closeDialog('import')
         void navigate(paths.meeting(meetingId))
     }

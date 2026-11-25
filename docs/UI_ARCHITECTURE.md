@@ -359,8 +359,9 @@ theme; the motion from the Motion section.
   from anywhere, a mutation's callback or an event handler outside React;
   `toast.dismiss(id?)` closes one or all. The window's one `Toaster`
   (`Toast.tsx`) draws them under the title strip, newest on top, at most
-  three (a fourth closes the oldest timed one; a persistent one, such as
-  "Copy notes", closes only for another persistent one), above an open
+  three (a fourth closes the oldest older timed one; a persistent one, such
+  as "Copy notes", closes only when every older toast is persistent, and
+  the newest always shows), above an open
   sheet and usable over it. The design draws no toast: it takes the Home banner's look, an icon
   for the tone (none is red, which is the recording's), a medium title, a
   muted line that wraps anywhere (a hash fits), one small action and the
@@ -395,7 +396,7 @@ enter and exit, indicators and springs.
 - Tokens live in `src/styles/motion.ts`: durations `fast` (120 ms: hover,
   press, focus), `base` (200 ms: most changes of state, the theme crossfade)
   and `slow` (320 ms: large surfaces); easings `standard`, `enter` and
-  `exit`; springs `snappy` (indicators) and `gentle` (sheets, panels); and
+  `exit` (both ease-outs: what leaves starts going at once); springs `snappy` (indicators) and `gentle` (sheets, panels); and
   `spinner`: one `turn` (900 ms, linear) and the `delay` (400 ms) before a
   delayed spinner shows. CSS reads `theme.motion.duration.*`,
   `theme.motion.easing.*` and `theme.motion.spinner.*`; motion/react
@@ -424,16 +425,18 @@ enter and exit, indicators and springs.
   download list and microphone card); the window's background otherwise.
   `statusSwap` (`styles/motion.ts`) is the motion of a status change. Overlays with a
   surface of their own (sheets, menus, select lists, tooltips, toasts, the
-  transcript's Latest button) keep their fade, and so does the ring's
-  source button, whose own background changes with its content.
+  transcript's Latest button) keep their fade. The ring's source button
+  swaps "Muted" under a veil in its own fill (`--surface`), whose colour
+  change the veil follows.
 - Animated elements are `m.*` (`import * as m from 'motion/react-m'`) under
   `MotionProvider` (through `UiProviders`). It loads `domAnimation`
   (`components/ui/motionFeatures.ts`) as its own chunk after the first
   render; until then an `m` element keeps the values it mounted with and
   catches up when the chunk arrives. Its `strict` mode rejects the full
   `motion.*`. Import nothing from
-  motion's imperative API (`animate()`, `useAnimate`): it puts the engine back
-  into the first chunk. Layout animations (`layout`, `layoutId`) need
+  motion's imperative API (`animate()`, `useAnimate`) statically: it puts
+  the engine back into the first chunk (+17 kB gzipped). `Collapse` takes
+  `animate` from the motionFeatures chunk by a dynamic import. Layout animations (`layout`, `layoutId`) need
   `domMax`, which is not loaded: an indicator moves by transform instead.
 - Segmented controls and tabs share one track (`SegmentedControl.tsx` in
   `components/ui`), whose motion follows ddoemonn's
@@ -476,21 +479,26 @@ enter and exit, indicators and springs.
   - Home's folder chips: the selected chip's outline is a thumb that
     slides to the chip chosen by transform on `springs.snappy`.
   - Tabs and segmented controls: the thumb slides; the panel below swaps
-    through the veil over `base` (`Crossfade`: the old view is covered, the
-    new one revealed), without sliding. Other views that replace each other
+    through the veil over `base` (`Crossfade`: the new view, drawn over
+    the old one on the colour behind both, covers it at once and is
+    revealed, so the two never show together), without sliding. Other views that replace each other
     in one place use `Crossfade` too.
   - Sheets and dialogs: in from their edge by `y` on `springs.gentle`, the
     scrim fading over `base`; out with `tween('base', 'exit')`. A sheet hangs
-    under the window's header, so it arrives from above.
+    under the window's header, so it arrives from above. ⌘K's search, which
+    a shortcut toggles many times a day, appears and goes at once (Sheet's
+    `instant`), and its rows change in place as the query does.
   - Toasts hang there too and move the same way, from above and back up. A
     toast replaced where it stands swaps its content as a status change
     does.
   - Menus, select lists and tooltips: opacity and a scale from `SCALE_FROM`
     (0.96), with `transform-origin` on the side of their anchor, over
     `fast`. Inside a menu or a select list one highlight slides between the
-    items on `springs.snappy` (`SlidingHighlight`); it stays on the last
+    items on `springs.snappy` (`SlidingHighlight`); an arrow key lands it on
+    the next item at once, the pointer slides it. It stays on the last
     item while the pointer crosses a separator or a group label and lands
-    on the next item past it rather than sliding across, and fades when the pointer
+    on the next item past it rather than sliding across, and fades (by CSS
+    on `data-visible`, never a motion value) when the pointer
     leaves the list or rests on a disabled item, where Enter would do
     nothing.
   - Lists: a new row rises 4 px under a veil over `base`, a removed row
@@ -500,16 +508,21 @@ enter and exit, indicators and springs.
   - Disclosures: `Collapse` grows from nothing to its content's height over
     `base` and shrinks back the same way, at full opacity throughout; its
     button's caret turns over `fast`. The clip holds only while the height
-    moves, so a focus ring at the content's edge shows once it is open.
+    moves, so a focus ring at the content's edge shows once it is open. The
+    gap a flex or grid column puts beside it and a card's hairline on it go
+    with the height (`collapseSpace.ts`), and once open its inline styles
+    are cleared, so the slide ends exactly where the layout does.
   - Status changes (a status line, a badge, a count): `AnimatePresence
     mode="wait"` with the old value leaving and the new one arriving, 4 px
     of `y` (`statusSwap`) under a veil over `fast`, as the shell's update
     status does. The key
     names the meaning, not the text: re-key when the meaning changes, never
     on every value; a value inside one meaning (a download's percent, a
-    count) updates in place. That value also stays outside the
-    `role="status"` live region, beside it, so screen readers announce a
-    change of meaning and not every tick; `StatusLine` does both.
+    count) updates in place. Text and value are one keyed unit, so a new
+    value never arrives beside the leaving text and jumps when it swaps.
+    The `role="status"` live region is a hidden copy of the text that stays
+    mounted, so screen readers announce a change of meaning and not every
+    tick; `StatusLine` does both.
   - Hover, press, focus: CSS on the element. Colour and background change
     over `fast`; a button's press scales it to `SCALE_FROM` inside
     `MOTION_OK`; the focus outline appears at once. Segmented options take neither a fill nor
@@ -910,7 +923,10 @@ quit is saved whatever screen is open. The minibar window mounts none of it.
   minutes: the step's error stands (a completed step fails), and a pass
   that native then rejects fails with Retry rather than holding the queue
   and the updater for good. A second Cancel while cancelling changes
-  nothing. Deleting a meeting cancels its pass first.
+  nothing. Deleting a meeting cancels its pass first and waits up to
+  `DELETE_SETTLE_LIMIT_MS` (2 min, the release limit's reason) for it, the
+  button pending; past that, or while native still retranscribes, Delete
+  refuses with a toast instead of deleting under native's writes.
 - **Recovery** (`api/recovery.ts`, `store/recover.ts`, `RecoverySheet`):
   IndexedDB `MeetilyRecoveryDB` v1 as the old UI wrote it. A recording's
   record is made at its start; every line is added. Once per page load the
@@ -986,9 +1002,11 @@ recording and hides the main window: minimizing the main window does it
   left over `base`; the pill's width changes once.
 - **The window** follows the pill, so no transparent part of it takes
   clicks meant for the windows below: a `ResizeObserver` on the pill sends
-  its width to `resize_minibar` as it opens, closes or its status grows.
-  Native clamps it to 52–512 px, keeps the window's left edge (the pill
-  grows rightwards) unless the open pill would leave the monitor, and clips
+  its width to `resize_minibar` once it settles (a frame without a change),
+  and the widest at once when the pill starts to grow. Native clamps it to
+  52–512 px, keeps the window's left edge (the pill grows rightwards)
+  unless the open pill would leave the monitor, moves it back there once
+  the pill fits again (unless it was dragged meanwhile), and clips
   the window on Windows to the new rounded rectangle (26 px radius). The
   window starts at the closed pill's 170×52, centred at the top of the
   primary monitor: GTK never shrinks a non-resizable window below its first
@@ -1302,7 +1320,9 @@ another meeting starts from fresh state).
   at Home's `?folder=`, a transcript line on the meeting's transcript at
   that line, and an action item on its summary (`paths.meeting(id, {tab,
   at, line})`). The meeting screen reads `?at=` (seconds) and `?line=` (a
-  transcript id) once: the player waits at `at` once the recording has
+  transcript id) as each navigation brings them, then drops them from the
+  URL, so a hit inside the meeting already open (the same one again too)
+  goes there and a tab switch does not: the player waits at `at` once the recording has
   loaded, and `TranscriptList` scrolls the turn holding `line` into view
   (`revealLineId`), with audio or without. Playback is not followed until
   the user plays. An action item has no line of its own on the summary:

@@ -89,6 +89,12 @@ fn load_custom_template(template_id: &str) -> Option<String> {
 /// # Returns
 /// Parsed and validated Template struct
 pub fn get_template(template_id: &str) -> Result<Template, String> {
+    // Protocol: the id is joined into the custom and bundled folders' paths,
+    // so `../x` would read a `.json` outside them. Every caller comes through
+    // here (a summary run, the template commands, the stored default).
+    if !is_plain_file_name(template_id) {
+        return Err(format!("Not a template id: {}", template_id));
+    }
     info!("Loading template: {}", template_id);
 
     // Try custom template first, then bundled, then built-in
@@ -193,6 +199,16 @@ pub fn list_template_ids() -> Vec<String> {
     ids
 }
 
+/// Protocol: an id that names one file in a templates folder and nothing
+/// outside it. Not the saved-id charset: a template dropped in by hand
+/// ("Weekly sync.json") is listed by `list_template_ids` and must load.
+fn is_plain_file_name(id: &str) -> bool {
+    !id.is_empty()
+        && !id.contains(['/', '\\'])
+        && !id.contains("..")
+        && std::path::Path::new(id).file_name() == Some(std::ffi::OsStr::new(id))
+}
+
 /// Sanitize a template id into a safe filename stem (prevents path traversal)
 fn sanitize_template_id(id: &str) -> String {
     let cleaned: String = id
@@ -292,6 +308,16 @@ mod tests {
         let template = template.unwrap();
         assert_eq!(template.name, "Daily Standup");
         assert!(!template.sections.is_empty());
+    }
+
+    #[test]
+    fn an_id_that_leaves_the_templates_folders_is_refused() {
+        for id in ["../x", "..\\x", "a/b", "a\\b", "..", "", "../../somewhere/file"] {
+            let refused = get_template(id).expect_err(id);
+            assert!(refused.starts_with("Not a template id"), "{id:?}: {refused}");
+        }
+        // A hand-dropped file's name is a plain one: refused only as missing.
+        assert!(!get_template("Weekly sync").unwrap_err().starts_with("Not a template id"));
     }
 
     #[test]

@@ -15,7 +15,6 @@ import {
 } from '@phosphor-icons/react'
 import {useQuery} from '@tanstack/react-query'
 import {Command} from 'cmdk'
-import * as m from 'motion/react-m'
 import {useNavigate} from 'react-router-dom'
 import styled from 'styled-components'
 import {foldersQuery, meetingsQuery} from '@/api/meetings'
@@ -31,7 +30,7 @@ import {useHotkey} from '@/lib/hotkeys'
 import {paths} from '@/lib/paths'
 import {formatShortcut} from '@/lib/platform'
 import {closeSearch, openSearch, useSearchLauncher} from '@/lib/searchLauncher'
-import {tween} from '@/styles/motion'
+import {markdownSnippetText} from '@/lib/summaryMarkdown'
 import {THEME_MODES, type ThemeMode, useThemeModeStore} from '@/styles/themeMode'
 import {MIN_QUERY_LENGTH, type SearchResult, type SearchResultKind, searchQuery} from '../api/search'
 
@@ -356,7 +355,8 @@ export function SearchDialog({actions = []}: { actions?: readonly SearchCommand[
                 }
             }
             case 'summary':
-                return {...base, title: result.snippet, sub: result.title, onSelect: () => go(paths.meeting(meetingId, {tab: 'summary'}))}
+                // Native cuts the stored Markdown around the match; the row shows its words.
+                return {...base, title: markdownSnippetText(result.snippet), sub: result.title, onSelect: () => go(paths.meeting(meetingId, {tab: 'summary'}))}
         }
     }
 
@@ -391,11 +391,9 @@ export function SearchDialog({actions = []}: { actions?: readonly SearchCommand[
 
     const waiting = searching && (trimmed !== debounced || results.isFetching)
     const nothing = groups.length === 0 && !waiting && !results.isError
-    // Each new set of rows arrives with a fade and a small rise.
-    const listKey = trimmed ? `results:${debounced}` : 'commands'
 
     return (
-        <Sheet open={open} onOpenChange={(next) => !next && closeSearch()} title="Search and commands" bare>
+        <Sheet open={open} onOpenChange={(next) => !next && closeSearch()} title="Search and commands" bare instant>
             <Root label="Search meetings, people and commands" shouldFilter={false} loop value={current} onValueChange={setSelected}>
                 <Field>
                     <MagnifyingGlassIcon aria-hidden/>
@@ -408,30 +406,28 @@ export function SearchDialog({actions = []}: { actions?: readonly SearchCommand[
                     {waiting ? <Spinner delayed/> : <Kbd aria-hidden>esc</Kbd>}
                 </Field>
                 <List>
-                    <m.div key={listKey} initial={{opacity: 0, y: 4}} animate={{opacity: 1, y: 0}} transition={tween('base', 'enter')}>
-                        {results.isError && searching && (
-                            <Note role="alert">Search is unavailable: {results.error.message}</Note>
-                        )}
-                        {nothing && (
-                            <Note>
-                                {searching ? `Nothing found for “${trimmed}”.` : 'Type another letter to search your meetings.'}
-                            </Note>
-                        )}
-                        {groups.map((group) => (
-                            <Group key={group.title} heading={group.title}>
-                                {group.rows.map((row) => (
-                                    <Item key={row.value} value={row.value} onSelect={row.onSelect}>
-                                        <Tile aria-hidden>{row.icon}</Tile>
-                                        <Words>
-                                            <Title>{row.title}{row.hidden && <VisuallyHidden>{row.hidden}</VisuallyHidden>}</Title>
-                                            {row.sub && <Sub>{row.sub}</Sub>}
-                                        </Words>
-                                        {row.trailing}
-                                    </Item>
-                                ))}
-                            </Group>
-                        ))}
-                    </m.div>
+                    {results.isError && searching && (
+                        <Note role="alert">Search is unavailable: {results.error.message}</Note>
+                    )}
+                    {nothing && (
+                        <Note>
+                            {searching ? `Nothing found for “${trimmed}”.` : 'Type another letter to search your meetings.'}
+                        </Note>
+                    )}
+                    {groups.map((group) => (
+                        <Group key={group.title} heading={group.title}>
+                            {group.rows.map((row) => (
+                                <Item key={row.value} value={row.value} onSelect={row.onSelect}>
+                                    <Tile aria-hidden>{row.icon}</Tile>
+                                    <Words>
+                                        <Title>{row.title}{row.hidden && <VisuallyHidden>{row.hidden}</VisuallyHidden>}</Title>
+                                        {row.sub && <Sub>{row.sub}</Sub>}
+                                    </Words>
+                                    {row.trailing}
+                                </Item>
+                            ))}
+                        </Group>
+                    ))}
                 </List>
                 <Hints aria-hidden>
                     <span>↑↓ to move</span>

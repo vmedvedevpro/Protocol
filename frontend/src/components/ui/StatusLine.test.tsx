@@ -22,14 +22,28 @@ describe('StatusLine', () => {
 
     it('updates a value in place and swaps the line when the meaning changes', async () => {
         const {rerender} = renderUi(<StatusLine status={{key: 'downloading', text: 'Downloading…', value: '42%'}}/>)
-        const text = screen.getByText('Downloading…')
+        const live = screen.getByRole('status')
+        const value = screen.getByText('42%')
 
         rerender(<StatusLine status={{key: 'downloading', text: 'Downloading…', value: '43%'}}/>)
-        expect(screen.getByText('Downloading…')).toBe(text)
-        expect(screen.getByText('43%')).toBeInTheDocument()
+        expect(screen.getByText('43%')).toBe(value)
 
         rerender(<StatusLine status={{key: 'ready', text: 'Update 0.7.0 is ready'}}/>)
-        await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Update 0.7.0 is ready'))
-        expect(screen.queryByText('43%')).not.toBeInTheDocument()
+        // The live region stays mounted, so the new meaning is announced.
+        expect(screen.getByRole('status')).toBe(live)
+        expect(live).toHaveTextContent('Update 0.7.0 is ready')
+        await waitFor(() => expect(screen.queryByText('43%')).not.toBeInTheDocument())
+    })
+
+    it('brings a value in with its own text, as one unit that leaves and arrives', async () => {
+        const {container, rerender} = renderUi(<StatusLine status={{key: 'checking', text: 'Checking…', busy: true}}/>)
+
+        rerender(<StatusLine status={{key: 'up-to-date', text: 'Up to date, checked', value: 'just now'}}/>)
+        const value = await screen.findByText('just now')
+        // The element that rises and is veiled holds both, so a new value
+        // never stands beside a leaving text and jumps when the text swaps.
+        const text = screen.getByText('Up to date, checked', {ignore: '[role="status"], script, style'})
+        expect(text.parentElement).toContainElement(value)
+        expect(container).not.toHaveTextContent('Checking…')
     })
 })
