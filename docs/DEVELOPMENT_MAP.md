@@ -1457,7 +1457,8 @@ https URLs (`isProtocolAllowed` in WebKit's `GStreamerCommon.cpp`) and fails
 `asset://` with a FormatError before any request, so on Linux the reply also
 carries `playbackUrl` from `recording_stream.rs`: a loopback HTTP server bound to
 127.0.0.1 that serves only files native registered, each under a random 256-bit
-token, with Range support; the CSP's `media-src` allows `http://127.0.0.1:*`.
+token, with Range support, at most 32 connections at once; only Linux's CSP
+(`tauri.linux.conf.json`) adds `http://127.0.0.1:*` to `media-src`.
 WebKitGTK copies a streamed recording into an unlinked, 0600 temp file in
 `/var/tmp` while its player exists (GStreamer's download buffering), so memory
 stays flat for long recordings. Verified on WebKitGTK 2.52.6 under Xvfb with

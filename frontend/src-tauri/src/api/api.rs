@@ -375,11 +375,14 @@ pub async fn api_get_meeting_audio<R: Runtime>(
         })
         .map(|path| path.to_string_lossy().to_string())
     });
+    // Without a stream the meeting still has its audio: the player shows its
+    // own error, and Improve and Identify speakers stay.
     #[cfg(target_os = "linux")]
-    let playback_url = match &playback {
-        Some(path) => Some(crate::recording_stream::stream_url(std::path::Path::new(path))?),
-        None => None,
-    };
+    let playback_url = playback.as_ref().and_then(|path| {
+        crate::recording_stream::stream_url(std::path::Path::new(path))
+            .map_err(|e| log::error!("{}", e))
+            .ok()
+    });
     #[cfg(not(target_os = "linux"))]
     let playback_url = None;
     let audio = MeetingAudio {

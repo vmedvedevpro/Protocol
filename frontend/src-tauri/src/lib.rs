@@ -55,6 +55,7 @@ pub mod groq;
 pub mod openrouter;
 pub mod live_assistant;
 pub mod meeting_detection;
+mod meeting_folder;
 // Ignored test commands that measure transcription (#75); test builds only.
 #[cfg(test)]
 mod measure;
@@ -64,7 +65,6 @@ pub mod model_integrity;
 pub mod parakeet_engine;
 pub mod paths;
 pub mod quit;
-mod meeting_folder;
 #[cfg(target_os = "linux")]
 mod recording_stream;
 pub mod speech_choice;

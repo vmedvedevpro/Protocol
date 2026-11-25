@@ -16,12 +16,9 @@ fn folder_name(stored: &str) -> Option<&str> {
         .filter(|name| *name != "." && *name != "..")
 }
 
-/// `<recordings>/<name of stored>` when the stored folder is gone and that
-/// one exists; `None` when the stored folder is there or nothing matches.
+/// `<recordings>/<name of stored>` when that folder exists. The caller has
+/// found the stored folder gone.
 pub fn relocated(stored: &str, recordings: &Path) -> Option<PathBuf> {
-    if Path::new(stored).is_dir() {
-        return None;
-    }
     let candidate = recordings.join(folder_name(stored)?);
     candidate.is_dir().then_some(candidate)
 }
@@ -49,15 +46,5 @@ mod tests {
             Some(recordings.path().join("Standup_2025-10-02"))
         );
         assert_eq!(relocated(r"C:\Users\User\Music\protocol-recordings\Gone_2025-10-03", recordings.path()), None);
-    }
-
-    #[test]
-    fn leaves_a_folder_that_is_still_there() {
-        let recordings = tempfile::tempdir().unwrap();
-        let elsewhere = tempfile::tempdir().unwrap();
-        let name = elsewhere.path().file_name().unwrap().to_str().unwrap();
-        std::fs::create_dir(recordings.path().join(name)).unwrap();
-
-        assert_eq!(relocated(elsewhere.path().to_str().unwrap(), recordings.path()), None);
     }
 }

@@ -359,20 +359,17 @@ pub async fn load_recording_preferences<R: Runtime>(
 fn preferences_from_store_value(value: Option<serde_json::Value>) -> RecordingPreferences {
     if let Some(value) = value {
         match serde_json::from_value::<RecordingPreferences>(value) {
-            Ok(p) => {
+            Ok(mut p) => {
                 info!("Loaded recording preferences from store");
                 // Update macOS backend to current value if needed
                 #[cfg(target_os = "macos")]
-                let p = {
-                    let mut p = p;
+                {
                     let backend = crate::audio::capture::get_current_backend();
                     p.system_audio_backend = Some(backend.to_string());
-                    p
-                };
+                }
                 // Settings carried from another OS (`C:\…` on Linux, `/home/…`
                 // on Windows) name no folder here: a path that is not absolute
                 // on this OS would resolve against the working directory.
-                let mut p = p;
                 if !p.save_folder.is_absolute() {
                     warn!(
                         "Recordings folder {:?} is not a path on this system, using the default",
