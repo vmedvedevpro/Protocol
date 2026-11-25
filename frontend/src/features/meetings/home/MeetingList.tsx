@@ -1,4 +1,4 @@
-import {type KeyboardEvent, memo, type ReactNode, useMemo, useState} from 'react'
+import {type KeyboardEvent, memo, type ReactNode, useMemo} from 'react'
 import {Link} from 'react-router-dom'
 import styled, {css} from 'styled-components'
 import type {MeetingListItem} from '@/api/meetings'
@@ -7,6 +7,7 @@ import {colorTransition, focusRing} from '@/components/ui/styles'
 import {paths} from '@/lib/paths'
 import {VeilRow} from '@/components/ui/Veil'
 import {ProcessingLine} from '../components/processing/ProcessingLine'
+import {useArrivedIds} from '@/lib/arrivedIds'
 import {dateGroup, formatLength, parseDate, rowWhen} from '@/lib/dates'
 
 const Scroller = styled.div`
@@ -171,8 +172,9 @@ export function MeetingList({meetings, shows, folderNames, onRename, empty}: Mee
     }, [shown])
 
     // Meetings there at the first render arrive with the screen, whichever
-    // folder shows; only one added later fades in.
-    const [initialIds] = useState(() => new Set(meetings.map((meeting) => meeting.id)))
+    // folder shows; only one added later rises on its own.
+    const meetingIds = useMemo(() => meetings.map((meeting) => meeting.id), [meetings])
+    const arrived = useArrivedIds(meetingIds)
 
     return (
         <Scroller>
@@ -185,7 +187,7 @@ export function MeetingList({meetings, shows, folderNames, onRename, empty}: Mee
                                 key={meeting.id}
                                 meeting={meeting}
                                 folderName={meeting.group_id ? folderNames.get(meeting.group_id) : undefined}
-                                arriving={!initialIds.has(meeting.id)}
+                                arriving={arrived.has(meeting.id)}
                                 onRename={onRename}
                             />
                         ))}

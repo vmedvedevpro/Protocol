@@ -1,8 +1,8 @@
 import {type ReactNode, useContext, useLayoutEffect, useRef} from 'react'
-import {animate, type AnimationPlaybackControls, AnimatePresence, PresenceContext, usePresence, useReducedMotionConfig} from 'motion/react'
+import {type AnimationPlaybackControls, AnimatePresence, PresenceContext, usePresence, useReducedMotionConfig} from 'motion/react'
 import styled from 'styled-components'
 import {tween} from '@/styles/motion'
-import {clearStyle, closedStyle, type CollapseSpace, collapseSpace, openStyle} from './collapseSpace'
+import {closedStyle, type CollapseSpace, collapseSpace, openStyle} from './collapseSpace'
 
 // The clip is a block formatting context, so the margins of the content's
 // first and last children stay inside it and count in the measured height.
@@ -10,6 +10,9 @@ const Clip = styled.div`
     display: flow-root;
 `
 
+// The closed state goes on at once, before the first paint: an animate()
+// of no duration would apply it only on motion's next frame, and the
+// content would show open for one.
 const setStyle = (element: HTMLElement, style: Record<string, number>) => {
     for (const [key, value] of Object.entries(style)) element.style.setProperty(key.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`), `${value}px`)
 }
@@ -20,6 +23,12 @@ const setStyle = (element: HTMLElement, style: Record<string, number>) => {
  * the inline styles are cleared once open, so nothing changes after the
  * animation ends. Clips only while the height moves: once open, a focus
  * ring at the content's edge shows again.
+ *
+ * `animate` comes from the chunk MotionProvider loads (motionFeatures):
+ * imported here, motion's whole engine would move into the first chunk
+ * (+17 kB gzipped). motion/mini is no drop-in: it needs WAAPI, which jsdom
+ * lacks, and ignores MotionGlobalConfig. Once that chunk is loaded, as it
+ * is from startup, its import resolves within the same task.
  */
 function Content({children}: { children: ReactNode }) {
     // Open from the first render, the content arrives without an animation.
@@ -29,6 +38,9 @@ function Content({children}: { children: ReactNode }) {
     const reduced = useReducedMotionConfig()
     const space = useRef<CollapseSpace | null>(null)
     const running = useRef<AnimationPlaybackControls | null>(null)
+    // The open or close in charge: one that a newer one interrupts while
+    // the engine loads never starts.
+    const generation = useRef(0)
 
     // A layout effect, so the closed state is on before the first paint.
     useLayoutEffect(() => {
@@ -41,21 +53,29 @@ function Content({children}: { children: ReactNode }) {
         }
         element.style.overflow = 'hidden'
         const transition = reduced ? {duration: 0} : tween('base')
+        // Measured now, while the layout is the one this change starts from.
+        const target = isPresent ? openStyle(space.current, element) : closedStyle(space.current)
         // An open or close that the next one interrupts is stopped and
         // finishes nothing, so the newer one stays in charge.
+        const run = ++generation.current
         running.current?.stop()
-        const animation = isPresent
-            ? animate(element, openStyle(space.current, element), transition)
-            : animate(element, closedStyle(space.current), transition)
-        running.current = animation
-        void animation.then(() => {
-            if (running.current !== animation) return
-            if (isPresent) clearStyle(element)
-            else safeToRemove?.()
+        void import('./motionFeatures').then(({animate}) => {
+            if (run !== generation.current) return
+            const animation = animate(element, target, transition)
+            running.current = animation
+            void animation.then(() => {
+                if (running.current !== animation) return
+                // Open: back to the stylesheet, so the content ends where the layout puts it.
+                if (isPresent) element.removeAttribute('style')
+                else safeToRemove?.()
+            })
         })
     }, [isPresent]) // eslint-disable-line react-hooks/exhaustive-deps -- runs once per open and close
 
-    useLayoutEffect(() => () => running.current?.stop(), [])
+    useLayoutEffect(() => () => {
+        generation.current += 1
+        running.current?.stop()
+    }, [])
 
     return <Clip ref={clip}>{children}</Clip>
 }

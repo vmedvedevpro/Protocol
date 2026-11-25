@@ -32,6 +32,10 @@ describe('SourceMeter', () => {
         const button = screen.getByRole('button', {name: 'Muted computer audio'})
         expect(button).toHaveAttribute('aria-pressed', 'true')
         expect(screen.getByText('Muted')).toBeVisible()
+        // "Muted" swaps in under a veil; the text itself never fades.
+        const content = screen.getByText('Muted').parentElement as HTMLElement
+        expect(content.style.opacity).toBe('')
+        expect(content.querySelector(':scope > span[aria-hidden="true"]')).not.toBeNull()
 
         await userEvent.tab()
         expect(await screen.findByRole('tooltip')).toHaveTextContent('Turn on computer audio')

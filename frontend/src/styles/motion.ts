@@ -27,10 +27,9 @@ export const easings = {
     /** Something arriving. */
     enter: [0, 0, 0.2, 1],
     /**
-     * Something leaving: an ease-out like every exit, so it starts going at
-     * once. The old ease-in ([0.4, 0, 1, 1]) held it still at first, the
-     * moment the user watches, and read as lag (review-animations' standard
-     * curve for UI).
+     * Something leaving: an ease-out, which starts moving at once. An ease-in
+     * ([0.4, 0, 1, 1] before) held it still at first, the moment the user
+     * watches, and read as lag.
      */
     exit: [0.23, 1, 0.32, 1],
 } as const satisfies Record<string, Bezier>

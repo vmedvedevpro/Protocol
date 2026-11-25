@@ -425,16 +425,18 @@ enter and exit, indicators and springs.
   download list and microphone card); the window's background otherwise.
   `statusSwap` (`styles/motion.ts`) is the motion of a status change. Overlays with a
   surface of their own (sheets, menus, select lists, tooltips, toasts, the
-  transcript's Latest button) keep their fade, and so does the ring's
-  source button, whose own background changes with its content.
+  transcript's Latest button) keep their fade. The ring's source button
+  swaps "Muted" under a veil in its own fill (`--surface`), whose colour
+  change the veil follows.
 - Animated elements are `m.*` (`import * as m from 'motion/react-m'`) under
   `MotionProvider` (through `UiProviders`). It loads `domAnimation`
   (`components/ui/motionFeatures.ts`) as its own chunk after the first
   render; until then an `m` element keeps the values it mounted with and
   catches up when the chunk arrives. Its `strict` mode rejects the full
   `motion.*`. Import nothing from
-  motion's imperative API (`animate()`, `useAnimate`): it puts the engine back
-  into the first chunk. Layout animations (`layout`, `layoutId`) need
+  motion's imperative API (`animate()`, `useAnimate`) statically: it puts
+  the engine back into the first chunk (+17 kB gzipped). `Collapse` takes
+  `animate` from the motionFeatures chunk by a dynamic import. Layout animations (`layout`, `layoutId`) need
   `domMax`, which is not loaded: an indicator moves by transform instead.
 - Segmented controls and tabs share one track (`SegmentedControl.tsx` in
   `components/ui`), whose motion follows ddoemonn's

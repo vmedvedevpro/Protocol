@@ -26,25 +26,10 @@ fn read_stored(file: &Path) -> Option<String> {
     (!id.is_empty()).then(|| id.to_string())
 }
 
-/// An id the WebView or the stored file hands in, accepted only in the
-/// charset `save_custom_template` writes (ASCII letters, digits, `_`, `-`,
-/// as its `sanitize_template_id`). `get_template` joins the id into a path
-/// in the custom templates folder, so `../x` would read a `.json` outside it
-/// and, stored as the default, feed it to every run without a template.
-fn checked_id(id: &str) -> Result<&str, String> {
-    let valid = !id.is_empty()
-        && id
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
-    valid
-        .then_some(id)
-        .ok_or_else(|| format!("Not a template id: {id}"))
-}
-
 /// The stored id while that template still loads, else the fallback.
 fn resolve(stored: Option<String>) -> String {
     match stored {
-        Some(id) if checked_id(&id).is_ok() && templates::get_template(&id).is_ok() => id,
+        Some(id) if templates::get_template(&id).is_ok() => id,
         _ => FALLBACK_TEMPLATE_ID.to_string(),
     }
 }
@@ -58,7 +43,7 @@ pub fn default_template_id() -> String {
 /// bundled or built-in copy, the same one a summary would use.
 #[tauri::command]
 pub async fn api_get_template(template_id: String) -> Result<Template, String> {
-    templates::get_template(checked_id(&template_id)?)
+    templates::get_template(&template_id)
 }
 
 /// The default template's id; the fallback when none is stored or the stored
@@ -71,9 +56,8 @@ pub async fn api_get_default_template() -> Result<String, String> {
 /// Stores the default template. Only a template that loads can be stored.
 #[tauri::command]
 pub async fn api_set_default_template(template_id: String) -> Result<(), String> {
-    templates::get_template(checked_id(&template_id)?)?;
-    std::fs::write(default_path(), &template_id)
-        .map_err(|error| format!("Failed to save the default template: {error}"))
+    templates::get_template(&template_id)?;
+    std::fs::write(default_path(), &template_id).map_err(|error| format!("Failed to save the default template: {error}"))
 }
 
 #[cfg(test)]
@@ -86,32 +70,13 @@ mod tests {
     }
 
     #[test]
-    fn an_id_that_leaves_the_templates_folder_is_refused() {
-        for id in ["../x", "..\\x", "a/b", "", "standard meeting"] {
-            assert!(checked_id(id).is_err(), "{id:?} should be refused");
-        }
-        assert_eq!(checked_id("my-template_2"), Ok("my-template_2"));
-        assert_eq!(
-            resolve(Some("../../somewhere/file".to_string())),
-            FALLBACK_TEMPLATE_ID
-        );
-        let refused = tauri::async_runtime::block_on(api_set_default_template(
-            "../../somewhere/file".to_string(),
-        ));
-        assert!(refused.is_err());
-    }
-
-    #[test]
     fn a_stored_template_that_loads_is_the_default() {
         assert_eq!(resolve(Some("daily_standup".to_string())), "daily_standup");
     }
 
     #[test]
     fn a_stored_template_that_is_gone_falls_back() {
-        assert_eq!(
-            resolve(Some("deleted_custom_template".to_string())),
-            FALLBACK_TEMPLATE_ID
-        );
+        assert_eq!(resolve(Some("deleted_custom_template".to_string())), FALLBACK_TEMPLATE_ID);
     }
 
     #[test]

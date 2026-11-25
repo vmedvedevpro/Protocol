@@ -16,6 +16,7 @@ import {Menu, MenuItem} from '@/components/ui/Menu'
 import {colorTransition, fieldFocusRing, focusRing} from '@/components/ui/styles'
 import {tween} from '@/styles/motion'
 import {VeilRow} from '@/components/ui/Veil'
+import {useArrivedIds} from '@/lib/arrivedIds'
 import {
     activeTurnIndex,
     displaySpeaker,
@@ -345,7 +346,7 @@ interface RowActions {
 
 interface TurnRowProps {
     turn: Turn
-    /** Fades in: a line that arrived while the list was live. */
+    /** Rises under a veil: a line that arrived while the list was live. */
     arriving: boolean
     userName?: string
     editing: boolean
@@ -469,14 +470,11 @@ export function TranscriptList({
     const refocus = useRef<string | null>(null)
 
     // Rows present at the first render arrive with the screen; a line that
-    // arrives later while the list is live fades in on its own. Once it has,
-    // it stays the same element: #112 turns `live` off after Stop on the
-    // same list, and a row that changed element type would mount again.
-    const [initialIds] = useState(() => new Set(turns.map((turn) => turn.id)))
-    const [arrived] = useState(() => new Set<string>())
-    if (live) {
-        for (const turn of turns) if (!initialIds.has(turn.id)) arrived.add(turn.id)
-    }
+    // arrives later while the list is live rises on its own. Once it has, it
+    // stays the same element: #112 turns `live` off after Stop on the same
+    // list, and a row that changed element type would mount again.
+    const turnIds = useMemo(() => turns.map((turn) => turn.id), [turns])
+    const arrived = useArrivedIds(turnIds, live)
 
     // The callers' functions, kept current without rendering a row again.
     const callbacks = useRef({onSeek, onRenameSpeaker})

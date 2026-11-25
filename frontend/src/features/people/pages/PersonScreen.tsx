@@ -1,4 +1,4 @@
-import {type ReactNode, type RefObject, useEffect, useRef, useState} from 'react'
+import {type ReactNode, type RefObject, useEffect, useMemo, useRef, useState} from 'react'
 import {DotsThreeIcon, GitMergeIcon, PencilSimpleIcon, TrashIcon} from '@phosphor-icons/react'
 import {useMutation, useQuery, useQueryClient} from '@tanstack/react-query'
 import * as m from 'motion/react-m'
@@ -25,6 +25,7 @@ import {colorTransition, focusRing} from '@/components/ui/styles'
 import {TextArea} from '@/components/ui/TextField'
 import {Veil} from '@/components/ui/Veil'
 import {toast} from '@/components/ui/toastStore'
+import {useArrivedIds} from '@/lib/arrivedIds'
 import {useAutosave, useSaving} from '@/lib/autosave'
 import {dayWhen, parseDate} from '@/lib/dates'
 import {paths} from '@/lib/paths'
@@ -429,16 +430,9 @@ function OpenItems({person}: { person: PersonProfile }) {
 
     // Items there when the list first loads arrive with the screen; one that
     // shows up later (Undo brings it back) rises under a veil, and one
-    // checked off goes at once: text never fades (Veil). `arrived` keeps a
-    // row's arrival for its whole life, not just the render it came in.
-    const [shown, setShown] = useState<{ ids: Set<string>, arrived: Set<string> } | null>(null)
-    if (items.isSuccess) {
-        const ids = items.data.map((item) => item.id)
-        if (shown === null) setShown({ids: new Set(ids), arrived: new Set()})
-        else if (ids.length !== shown.ids.size || ids.some((id) => !shown.ids.has(id))) {
-            setShown({ids: new Set(ids), arrived: new Set([...shown.arrived, ...ids.filter((id) => !shown.ids.has(id))])})
-        }
-    }
+    // checked off goes at once: text never fades (Veil).
+    const itemIds = useMemo(() => items.data?.map((item) => item.id), [items.data])
+    const arrived = useArrivedIds(itemIds)
 
     const setDone = (item: ActionItem, done: boolean) => update.mutate({...item, done}, {
         onSuccess: () => done && toast.success('Marked as done', {
@@ -455,7 +449,7 @@ function OpenItems({person}: { person: PersonProfile }) {
                 {items.isError && <Empty role="alert">Couldn’t load the action items: {items.error.message}</Empty>}
                 {items.isSuccess && items.data.length === 0 && <Empty>Nothing open for {first}.</Empty>}
                 {(items.data ?? []).map((item) => {
-                    const arriving = shown?.arrived.has(item.id) ?? false
+                    const arriving = arrived.has(item.id)
                     return (
                         <ItemRow
                             key={item.id}

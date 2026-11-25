@@ -55,10 +55,3 @@ export const openStyle = (space: CollapseSpace, element: HTMLElement) => ({
     borderBottomWidth: space.borderBottom,
     [space.side]: 0,
 })
-
-/** Back to the stylesheet once open, so the content ends exactly where the layout puts it. */
-export function clearStyle(element: HTMLElement) {
-    for (const key of ['height', 'border-top-width', 'border-bottom-width', 'margin-top', 'margin-bottom', 'overflow']) {
-        element.style.removeProperty(key)
-    }
-}

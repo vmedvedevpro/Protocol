@@ -2,6 +2,7 @@ import type {ReactNode, Ref} from 'react'
 import * as m from 'motion/react-m'
 import styled from 'styled-components'
 import {type DurationName, tween} from '@/styles/motion'
+import {colorTransition} from './styles'
 
 const Cover = styled(m.span)<{ $outset: number }>`
     position: absolute;
@@ -10,6 +11,8 @@ const Cover = styled(m.span)<{ $outset: number }>`
     border-radius: inherit;
     pointer-events: none;
     background: var(--surface, ${({theme}) => theme.colors.bg});
+    /* A surface whose fill changes as its content swaps (a muted meter) changes its veil's with it. */
+    ${colorTransition};
 `
 
 export interface VeilProps {

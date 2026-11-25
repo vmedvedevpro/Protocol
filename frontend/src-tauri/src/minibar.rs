@@ -102,8 +102,7 @@ fn fit_minibar_shape<R: Runtime>(window: &tauri::WebviewWindow<R>, width: f64) {
 
         unsafe {
             let style = GetWindowLongPtrW(hwnd, GWL_STYLE);
-            let cleaned =
-                style & !(WS_CAPTION as isize | WS_THICKFRAME as isize | WS_BORDER as isize);
+            let cleaned = style & !(WS_CAPTION as isize | WS_THICKFRAME as isize | WS_BORDER as isize);
             SetWindowLongPtrW(hwnd, GWL_STYLE, cleaned);
             SetWindowPos(
                 hwnd,

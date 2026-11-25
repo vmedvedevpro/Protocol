@@ -406,31 +406,28 @@ export function SearchDialog({actions = []}: { actions?: readonly SearchCommand[
                     {waiting ? <Spinner delayed/> : <Kbd aria-hidden>esc</Kbd>}
                 </Field>
                 <List>
-                    {/* The rows change as the user types: they are just there, never fading or rising. */}
-                    <>
-                        {results.isError && searching && (
-                            <Note role="alert">Search is unavailable: {results.error.message}</Note>
-                        )}
-                        {nothing && (
-                            <Note>
-                                {searching ? `Nothing found for “${trimmed}”.` : 'Type another letter to search your meetings.'}
-                            </Note>
-                        )}
-                        {groups.map((group) => (
-                            <Group key={group.title} heading={group.title}>
-                                {group.rows.map((row) => (
-                                    <Item key={row.value} value={row.value} onSelect={row.onSelect}>
-                                        <Tile aria-hidden>{row.icon}</Tile>
-                                        <Words>
-                                            <Title>{row.title}{row.hidden && <VisuallyHidden>{row.hidden}</VisuallyHidden>}</Title>
-                                            {row.sub && <Sub>{row.sub}</Sub>}
-                                        </Words>
-                                        {row.trailing}
-                                    </Item>
-                                ))}
-                            </Group>
-                        ))}
-                    </>
+                    {results.isError && searching && (
+                        <Note role="alert">Search is unavailable: {results.error.message}</Note>
+                    )}
+                    {nothing && (
+                        <Note>
+                            {searching ? `Nothing found for “${trimmed}”.` : 'Type another letter to search your meetings.'}
+                        </Note>
+                    )}
+                    {groups.map((group) => (
+                        <Group key={group.title} heading={group.title}>
+                            {group.rows.map((row) => (
+                                <Item key={row.value} value={row.value} onSelect={row.onSelect}>
+                                    <Tile aria-hidden>{row.icon}</Tile>
+                                    <Words>
+                                        <Title>{row.title}{row.hidden && <VisuallyHidden>{row.hidden}</VisuallyHidden>}</Title>
+                                        {row.sub && <Sub>{row.sub}</Sub>}
+                                    </Words>
+                                    {row.trailing}
+                                </Item>
+                            ))}
+                        </Group>
+                    ))}
                 </List>
                 <Hints aria-hidden>
                     <span>↑↓ to move</span>
