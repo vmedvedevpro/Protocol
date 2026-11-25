@@ -272,6 +272,19 @@ The module also reads one template whole (`api_get_template`) for its sections
 and the editor; the frontend domain is `frontend/src/api/templates.ts`. Tests:
 native `summary::template_settings::tests`, frontend `src/api/templates.test.ts`.
 
+A cloud provider's models (Settings › Summary model and first launch) come
+only from its API: `anthropic/`, `openai/` and `groq/` ask with the user's key
+through `cloud_models.rs`, which has no built-in list and no cache. Anthropic's
+Models API pages its answer (default 20), so `get_anthropic_models` asks for
+1000 a page and follows `after_id`. A missing or rejected key (401, 403), no
+answer within 10 s, another status or an unreadable answer is an `Err`
+(`ModelListError`, tagged by `kind`), which the model row words by cause
+(`src/api/summaryProviders.ts`); the UI keeps one query per key fingerprint,
+so a list fetched with one key is never shown for another. `openrouter/` lists
+the public catalog without a key. Tests: `cargo test -p protocol --lib --
+cloud_models anthropic:: groq:: openai::` (a local HTTP server stands in for
+the providers), frontend `SummaryModelPage.test.tsx`.
+
 `diarization/mod.rs` owns persisted engine settings and offline command dispatch.
 Nemotron is Auto-detect only; manual counts belong to Pyannote. Rerunning speaker
 identification must preserve transcript text, row identity, and timestamps.

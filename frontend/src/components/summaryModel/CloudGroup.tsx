@@ -1,4 +1,4 @@
-import {type ReactNode, useEffect, useRef, useState} from 'react'
+import {type ReactNode, useState} from 'react'
 import {useQuery} from '@tanstack/react-query'
 import styled from 'styled-components'
 import {errorMessage} from '@/api/core'
@@ -6,7 +6,7 @@ import {Select} from '@/components/ui/Select'
 import {SettingsGroup, SettingsRow} from '@/components/ui/SettingsRow'
 import {Spinner} from '@/components/ui/Spinner'
 import {TextField} from '@/components/ui/TextField'
-import {type CloudProvider, providerModelsQuery, SUMMARY_PROVIDERS} from '@/api/summaryProviders'
+import {type CloudProvider, listsWithoutKey, providerModelsQuery, SUMMARY_PROVIDERS} from '@/api/summaryProviders'
 import {useDebouncedSave} from '@/lib/useDebouncedSave'
 import {TYPING_SETTLE_MS} from './draft'
 
@@ -32,24 +32,31 @@ interface CloudGroupProps {
  * A cloud provider: its key and a model from its list, in Settings ›
  * Summary model and on first launch. The key stays in the caller's draft
  * until it saves the choice (`saveSummaryModelMutation`), which keeps it in
- * native storage; it is never part of a query key.
+ * native storage; the models query holds only its fingerprint.
+ *
+ * The select lists only what the provider answered for the key: without a
+ * key it stays empty and disabled (OpenRouter's public catalog aside), and a
+ * failed listing says why in the row (`ModelListError`).
  */
 export function CloudGroup({provider, apiKey, onApiKey, model, onModel, children}: CloudGroupProps) {
     const {label} = SUMMARY_PROVIDERS[provider]
-    // The list is asked with the key once typing it has rested; the key is
-    // no part of the query's key, so a new one asks again by refetching.
+    // The list is asked with the key once typing it has rested; each key
+    // has its own query, so a new key starts pending, never with another's list.
     const [key, setKey] = useState(apiKey.trim())
     const typing = useDebouncedSave(setKey, TYPING_SETTLE_MS)
     const models = useQuery(providerModelsQuery(provider, key || null))
-    const asked = useRef(key)
-    useEffect(() => {
-        if (asked.current === key) return
-        asked.current = key
-        void models.refetch()
-    }, [key, models])
+    const asks = listsWithoutKey(provider) || key !== ''
     const options = (models.data ?? []).map(({id, label: name}) => ({value: id, label: name}))
-    // A saved model the list no longer has stays choosable.
-    if (model && !options.some(({value}) => value === model)) options.unshift({value: model, label: model})
+    // A saved model the list no longer has stays choosable, once a list is asked for.
+    if (asks && model && !options.some(({value}) => value === model)) options.unshift({value: model, label: model})
+
+    let placeholder = 'Choose a model'
+    if (!asks) placeholder = 'Paste a key first'
+    else if (models.isPending) placeholder = 'Loading models…'
+    else if (models.isError) placeholder = 'No models'
+    let description: string | undefined
+    if (asks && models.isError) description = errorMessage(models.error)
+    else if (asks && models.isSuccess && models.data.length === 0) description = `${label} lists no models for this key.`
 
     return (
         <SettingsGroup title={label} note={`Meetings you summarize are sent to ${label}.`}>
@@ -70,14 +77,14 @@ export function CloudGroup({provider, apiKey, onApiKey, model, onModel, children
             </SettingsRow>
             <SettingsRow
                 label="Model"
-                description={models.isError ? `Couldn’t list the models: ${errorMessage(models.error)}` : undefined}
+                description={description}
                 control={(
                     <Select
                         options={options}
-                        value={model || undefined}
-                        placeholder={models.isPending ? 'Loading models…' : 'Choose a model'}
-                        pending={models.isPending}
-                        disabled={options.length === 0}
+                        value={asks ? model || undefined : undefined}
+                        placeholder={placeholder}
+                        pending={asks && models.isPending}
+                        disabled={!asks || options.length === 0}
                         onValueChange={onModel}
                     />
                 )}

@@ -1225,7 +1225,15 @@ recording and hides the main window: minimizing the main window does it
   downloaded built-in model, and a valid length or custom server; native
   checks the length again. A cloud provider's list is asked with the key
   once typing it has rested (`lib/useDebouncedSave`, a spinner meanwhile) and is
-  keyed by the provider alone, so no key is in a query hash; Ollama's list is
+  keyed by the provider and the key's fingerprint (`keyFingerprint`), so the
+  key itself is in no query hash and a list fetched with one key is never
+  shown for another. Claude, OpenAI and Groq list only what their API answers
+  for the key (native `cloud_models.rs`, Anthropic's every page): without a key
+  nothing is asked and the select stays disabled, and a failed listing
+  rejects with a `ModelListError` (key rejected, provider unreachable,
+  another status, an unreadable answer) that the model row words by cause;
+  there is no built-in list. OpenRouter lists its public catalog without a
+  key. Ollama's list is
   keyed by its endpoint, also once typing rests, and Fetch models asks again.
   Built-in and Ollama models are `ModelRow`s, the speech half's download row
   (`components/ModelRow.tsx`): built-in downloads show the `downloadsQuery`

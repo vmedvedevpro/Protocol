@@ -1,6 +1,6 @@
 import {emit} from '@tauri-apps/api/event'
 import type {NativeEvent} from '@/api/events'
-import {OLLAMA_PULL_PROGRESS_EVENT, type OllamaModel} from '@/api/summaryProviders'
+import {type ModelListFailure, OLLAMA_PULL_PROGRESS_EVENT, type OllamaModel} from '@/api/summaryProviders'
 import type {MockHandler} from './handlers'
 
 /**
@@ -15,6 +15,12 @@ export interface MockSummaryProviders {
     pullStep: number
     /** What the custom server test answers: null passes, a string is the failure. */
     customServerError: string | null
+    /**
+     * How Claude, OpenAI and Groq answer a listing with a key: null lists
+     * the models, a failure rejects as native's `ModelListError` does. A key
+     * that starts with "invalid" is always rejected (401), for the preview.
+     */
+    cloudModelsFailure: ModelListFailure | null
 }
 
 // Fake pulls still running; a new mock state stops those of the previous one.
@@ -30,10 +36,11 @@ export function createMockSummaryProviders(): MockSummaryProviders {
         ],
         pullStep: 10,
         customServerError: null,
+        cloudModelsFailure: null,
     }
 }
 
-/** The lists native answers without a key (anthropic.rs and the others keep them). */
+/** What the providers list for any accepted key. */
 const CLAUDE_MODELS = [
     {id: 'claude-sonnet-4-5-20250929', display_name: 'Claude Sonnet 4.5'},
     {id: 'claude-haiku-4-5-20251001', display_name: 'Claude Haiku 4.5'},
@@ -57,12 +64,21 @@ function send<T>(event: NativeEvent<T>, payload: T) {
 
 const TICK_MS = 200
 
+/** A keyed listing as native answers it (cloud_models.rs): an error object, never a built-in list. */
+function listed<T>(providers: MockSummaryProviders, apiKey: unknown, models: T[]): T[] {
+    const key = typeof apiKey === 'string' ? apiKey.trim() : ''
+    if (!key) throw {kind: 'missingKey'} satisfies ModelListFailure
+    if (key.startsWith('invalid')) throw {kind: 'keyRejected', status: 401} satisfies ModelListFailure
+    if (providers.cloudModelsFailure) throw structuredClone(providers.cloudModelsFailure)
+    return structuredClone(models)
+}
+
 export function summaryProvidersHandlers(state: {summaryProviders: MockSummaryProviders}): Record<string, MockHandler> {
     const pulling = new Set<string>()
     return {
-        get_anthropic_models: () => structuredClone(CLAUDE_MODELS),
-        get_openai_models: () => structuredClone(OPENAI_MODELS),
-        get_groq_models: () => structuredClone(GROQ_MODELS),
+        get_anthropic_models: ({apiKey}) => listed(state.summaryProviders, apiKey, CLAUDE_MODELS),
+        get_openai_models: ({apiKey}) => listed(state.summaryProviders, apiKey, OPENAI_MODELS),
+        get_groq_models: ({apiKey}) => listed(state.summaryProviders, apiKey, GROQ_MODELS),
         get_openrouter_models: () => structuredClone(OPENROUTER_MODELS),
         get_ollama_models: () => {
             const ollama = state.summaryProviders

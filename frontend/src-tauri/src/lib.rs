@@ -52,6 +52,7 @@ mod onnx_runtime_build_tests;
 pub mod openai;
 pub mod anthropic;
 pub mod groq;
+pub mod cloud_models;
 pub mod openrouter;
 pub mod live_assistant;
 pub mod meeting_detection;

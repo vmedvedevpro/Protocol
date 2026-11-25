@@ -132,6 +132,8 @@ describe('First launch', () => {
         await userEvent.type(await screen.findByLabelText('API key'), 'sk-ant-first')
         expect(done()).toBeDisabled()
         expect(screen.getByText('Paste a key and pick a model')).toBeInTheDocument()
+        // The list is asked once typing the key has rested.
+        await waitFor(() => expect(screen.getByRole('combobox', {name: 'Model'})).toBeEnabled())
         await userEvent.click(screen.getByRole('combobox', {name: 'Model'}))
         await userEvent.click(await screen.findByRole('option', {name: 'Claude Sonnet 4.5'}))
         await waitFor(() => expect(screen.queryByRole('listbox')).not.toBeInTheDocument())

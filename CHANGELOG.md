@@ -7,6 +7,13 @@ is inherited from the project Protocol forked from; Protocol did not release it.
 
 ## Protocol — unreleased
 
+- **Cloud models come only from the provider**
+  ([#220](https://github.com/vmedvedevpro/Protocol/issues/220)). Claude,
+  OpenAI and Groq list the models their API offers for your key, every one of
+  them. A key the provider rejects, a provider that can't be reached, or
+  another error now shows under the model select, instead of a built-in list
+  of models that might not work.
+
 ## Protocol 1.0.0-rc.1 — 2026-11-26
 
 A release candidate of Protocol 1.0, for trying it before the release: install
