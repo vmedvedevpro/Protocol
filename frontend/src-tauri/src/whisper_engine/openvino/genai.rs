@@ -31,8 +31,29 @@ pub const API_LEVEL: u32 = 1;
 
 /// The library the binding loads first; its imports pull in `openvino_genai.dll`,
 /// `openvino_c.dll`, `openvino.dll` and TBB from the same folder.
+#[cfg(windows)]
 pub const GENAI_C_LIBRARY: &str = "openvino_genai_c.dll";
-const OPENVINO_C_LIBRARY: &str = "openvino_c.dll";
+#[cfg(windows)]
+pub const OPENVINO_C_LIBRARY: &str = "openvino_c.dll";
+
+/// On Linux the binding opens GenAI's C API last: Intel's libraries carry no
+/// RUNPATH (only the tokenizer extension has `$ORIGIN`), so their NEEDED
+/// entries (`libopenvino.so.2641`, `libtbb.so.12`) would be looked up on the
+/// system's search path. [`PRELOAD`] opens the dependencies first by
+/// absolute path, and glibc then satisfies each NEEDED entry with the object
+/// already loaded under that SONAME, whatever its file is called. The files
+/// are named like the archive's unversioned links (`schema::RUNTIMES`).
+#[cfg(not(windows))]
+pub const GENAI_C_LIBRARY: &str = "libopenvino_genai_c.so";
+#[cfg(not(windows))]
+pub const OPENVINO_C_LIBRARY: &str = "libopenvino_c.so";
+
+/// The libraries opened before [`GENAI_C_LIBRARY`], each after what it
+/// needs: TBB, OpenVINO, its C API, GenAI. `libOpenCL.so.1`, which GenAI and
+/// the GPU plugin need too, is the system's OpenCL loader and is found on the
+/// system's path (`ocl-icd-libopencl1`; see `openvino::driver`).
+#[cfg(not(windows))]
+pub const PRELOAD: [&str; 4] = ["libtbb.so", "libopenvino.so", OPENVINO_C_LIBRARY, "libopenvino_genai.so"];
 
 #[derive(Debug, thiserror::Error)]
 pub enum GenAiError {
@@ -216,7 +237,10 @@ fn ucrt() -> Option<&'static Ucrt> {
 /// The variable GenAI loads its tokenizer extension from (`ScopedVar`,
 /// `tokenizers_path.hpp`).
 const TOKENIZERS_VARIABLE: &str = "OPENVINO_TOKENIZERS_PATH_GENAI";
+#[cfg(windows)]
 const TOKENIZERS_LIBRARY: &str = "openvino_tokenizers.dll";
+#[cfg(not(windows))]
+const TOKENIZERS_LIBRARY: &str = "libopenvino_tokenizers.so";
 
 /// Points GenAI at this runtime's tokenizer library. GenAI reads the path
 /// from [`TOKENIZERS_VARIABLE`] through the CRT and keeps a value that is
@@ -238,9 +262,22 @@ fn use_tokenizers_in(folder: &Path) -> Result<(), GenAiError> {
     }
 }
 
+/// On Linux GenAI reads the variable with `getenv` and sets it itself with
+/// `setenv` when it is not set (`ScopedVar`), so setting it here through
+/// the same C environment adds no new kind of access.
+#[cfg(not(windows))]
+fn use_tokenizers_in(folder: &Path) -> Result<(), GenAiError> {
+    std::env::set_var(TOKENIZERS_VARIABLE, folder.join(TOKENIZERS_LIBRARY));
+    Ok(())
+}
+
+/// GCC's `std::filesystem::path` keeps a narrow path's bytes as they are, so
+/// the path goes as its own bytes (UTF-8 under any Linux data folder).
 #[cfg(not(windows))]
 fn genai_path(path: &Path) -> Result<CString, GenAiError> {
-    c_string(&path.to_string_lossy())
+    use std::os::unix::ffi::OsStrExt;
+    CString::new(path.as_os_str().as_bytes())
+        .map_err(|_| GenAiError::Invalid(format!("{} cannot be handed to OpenVINO: it holds a NUL", path.display())))
 }
 
 macro_rules! api {
@@ -309,6 +346,9 @@ pub struct GenAi {
     folder: PathBuf,
     _openvino_c: libloading::Library,
     _genai_c: libloading::Library,
+    /// [`PRELOAD`], kept loaded for the libraries that need them.
+    #[cfg(not(windows))]
+    _preloaded: Vec<libloading::Library>,
 }
 
 // SAFETY: the struct holds only function pointers into libraries it keeps loaded;
@@ -331,15 +371,20 @@ impl GenAi {
                 )
                 .map(libloading::Library::from)
             };
+            // RTLD_NOW: a symbol a library lacks fails here, not at a later call.
             #[cfg(not(windows))]
-            let library = unsafe { libloading::Library::new(&path) };
+            let library = unsafe {
+                libloading::os::unix::Library::open(Some(&path), libloading::os::unix::RTLD_NOW | libloading::os::unix::RTLD_LOCAL)
+                    .map(libloading::Library::from)
+            };
             library.map_err(|source| GenAiError::Load { path, source })
         };
         if !folder.is_absolute() {
             return Err(GenAiError::Invalid(format!("{} is not an absolute path", folder.display())));
         }
-        #[cfg(windows)]
         use_tokenizers_in(folder)?;
+        #[cfg(not(windows))]
+        let preloaded = PRELOAD.iter().map(|name| open(name)).collect::<Result<Vec<_>, _>>()?;
         let genai_c = open(GENAI_C_LIBRARY)?;
         let openvino_c = open(OPENVINO_C_LIBRARY)?;
         let load_error = |source| GenAiError::Load { path: folder.to_path_buf(), source };
@@ -354,7 +399,15 @@ impl GenAi {
                 free: *openvino_c.get(b"ov_free\0").map_err(load_error)?,
             }
         };
-        Ok(Self { fns, core, folder: folder.to_path_buf(), _openvino_c: openvino_c, _genai_c: genai_c })
+        Ok(Self {
+            fns,
+            core,
+            folder: folder.to_path_buf(),
+            _openvino_c: openvino_c,
+            _genai_c: genai_c,
+            #[cfg(not(windows))]
+            _preloaded: preloaded,
+        })
     }
 
     pub fn folder(&self) -> &Path {
@@ -762,5 +815,30 @@ mod tests {
             }
         }
         println!("{fallbacks} of 2 folders also read through code page {}", msvc_path_code_page());
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod linux_tests {
+    use super::*;
+
+    /// A folder whose files are no libraries is refused by the first one the
+    /// binding opens, without a crash, and names it.
+    #[test]
+    fn a_folder_without_intels_libraries_is_refused() {
+        let folder = tempfile::tempdir().unwrap();
+        for name in PRELOAD.iter().chain([&GENAI_C_LIBRARY]) {
+            std::fs::write(folder.path().join(name), b"not a library").unwrap();
+        }
+        let error = GenAi::load(folder.path()).err().expect("junk loaded as a library");
+        assert!(matches!(&error, GenAiError::Load { path, .. } if path.ends_with("libtbb.so")), "{error}");
+        assert!(GenAi::load(Path::new("relative")).is_err());
+    }
+
+    /// A path goes to GenAI as its bytes, Cyrillic included.
+    #[test]
+    fn a_path_goes_to_genai_as_its_bytes() {
+        let path = Path::new("/home/пользователь/.local/share/protocol/models");
+        assert_eq!(genai_path(path).unwrap().to_bytes(), path.to_str().unwrap().as_bytes());
     }
 }
