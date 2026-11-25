@@ -36,7 +36,7 @@ const Card = styled(m.div)`
     gap: ${({theme}) => theme.space[1.5]};
     max-width: 100%;
     padding: ${({theme}) => theme.space[6]} ${({theme}) => theme.space[8]};
-    border: ${({theme}) => theme.sizes.radio.stroke} dashed ${({theme}) => theme.colors.muted};
+    border: ${({theme}) => theme.sizes.radio.ring} dashed ${({theme}) => theme.colors.muted};
     border-radius: ${({theme}) => theme.radii.xl};
     background: ${({theme}) => theme.colors.raised};
     box-shadow: ${({theme}) => theme.shadows.dialog};

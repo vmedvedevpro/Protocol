@@ -54,7 +54,7 @@ const Drop = styled.div`
     align-items: center;
     gap: ${({theme}) => theme.space[1.5]};
     padding: ${({theme}) => theme.space[4]} ${({theme}) => theme.space[3]};
-    border: ${({theme}) => theme.sizes.radio.stroke} dashed ${({theme}) => theme.colors.border};
+    border: ${({theme}) => theme.sizes.radio.ring} dashed ${({theme}) => theme.colors.border};
     border-radius: ${({theme}) => theme.radii.lg};
     ${({theme}) => theme.text.body};
     color: ${({theme}) => theme.colors.text};

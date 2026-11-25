@@ -136,6 +136,14 @@ describe('MeetingScreen', () => {
         expect(enhanceDialog.result.current).toMatchObject({open: true, request: {meetingId: 'meeting-acme-review'}})
     })
 
+    it('opens Who said this from a speaker’s menu', async () => {
+        renderMeeting('meeting-untitled', '?tab=transcript')
+        const speaker = renderHook(() => useDialog('speaker'))
+        await userEvent.click((await screen.findAllByRole('button', {name: 'Speaker 1'}))[0])
+        await userEvent.click(await screen.findByRole('menuitem', {name: 'Who said this…'}))
+        expect(speaker.result.current.request).toMatchObject({meetingId: 'meeting-untitled', speaker: 'Speaker 1', lineIds: [expect.any(String)]})
+    })
+
     it('identifies the speakers again with a count', async () => {
         renderMeeting('meeting-acme-review', '?tab=transcript')
         await userEvent.click(await screen.findByRole('button', {name: /speakers found\. Change the count/}))

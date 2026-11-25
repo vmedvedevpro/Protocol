@@ -8,6 +8,23 @@ interface SummaryOptionsRequest {
 }
 
 /**
+ * Who said this line: the voice of a turn and its lines. A saved meeting's
+ * `meetingId` changes the database; a recording's `live` renames the voice
+ * in the session instead (features/recording owns how), with the lines it
+ * shows.
+ */
+interface SpeakerRequest {
+    kind: 'speaker'
+    speaker: string
+    lineIds: readonly string[]
+    meetingId?: string
+    live?: {
+        lines: readonly { id: string, text: string, start: number | null, speaker?: string | null }[]
+        rename: (from: string, to: string) => Promise<void>
+    }
+}
+
+/**
  * The dialogs that open over a screen (#119), and what each needs to open.
  * They live in features/dialogs, which no feature imports; a screen opens
  * one here, as it navigates with `paths`, and the shell's `DialogHost`
@@ -20,6 +37,7 @@ export type DialogRequest =
     /** Enhance transcript: retranscribe the meeting's audio with a chosen model. */
     | { kind: 'enhance', meetingId: string }
     | SummaryOptionsRequest
+    | SpeakerRequest
     /**
      * The template editor: edit `templateId`, or a new template without one.
      * `returnTo` reopens Summary options as the editor closes, on the

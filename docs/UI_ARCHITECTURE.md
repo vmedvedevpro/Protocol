@@ -1131,10 +1131,10 @@ another meeting starts from fresh state).
   are read back after each save, and a saved summary edit is written into
   the cached summary. A new run's summary remounts the editor (keyed by
   the run's end).
-- **Writing the summary** (`meeting/summaryRun.ts`): a provider must be
+- **Writing the summary** (`components/summary/writeSummary.ts`): a provider must be
   chosen, and a built-in model downloaded and whole, or a toast leads to
-  Settings; then `startSummary`. Writing it again over the user's edits
-  asks first. While it runs the tab says so with Cancel; a failure shows
+  Settings; then `startSummary`. Write the summary again opens Summary
+  options (#119), which says when it replaces the user's edits. While it runs the tab says so with Cancel; a failure shows
   native's words with Try again. Each `summary-progress` of the meeting
   reads the summary again. Notes do not feed the summary natively, so the
   footnote says "Written from the transcript."
@@ -1188,6 +1188,42 @@ another meeting starts from fresh state).
   mock's handlers with what native does in the same write:
   `rename_meeting_speaker` makes a contact of a new name, and
   `api_list_action_items` answers with owners linked to their contacts.
+
+## Dialogs over a screen
+
+- `features/dialogs` (#119) holds the sheets that open over any screen:
+  Import a recording, Export, Improve the transcript, Summary options, the
+  template editor and Who said this line. No feature imports it. A screen
+  opens one with `openDialog(request)` from `src/lib/dialogs.ts` (a
+  Zustand store, as `paths` is for routes), and `DialogHost`, which the
+  shell mounts under the router, shows the one open: one at a time, each
+  request kept after it closes so the exit animates. A request's `seq`
+  keys its form, so every opening starts afresh; asked again while open
+  (a second file dropped on Import), it keeps its `seq` and takes the new
+  request. A request can carry what its caller owns: Who said this during
+  a recording gets the session's lines and its rename function, so the
+  dialog never imports features/recording.
+- Long work stays native and holds its own busy reason: the import
+  (`start_import_audio_command`) and the retranscription. Each sheet
+  registers its listeners before the start call, cannot be dismissed while
+  the work runs, and Stop asks native to cancel; the native event, not the
+  promise, ends it. Import's phase lives in a store of its own
+  (`import/importState.ts`), since the footer and the form both read it.
+- Files dragged over the main window dim it (`import/DropOverlay.tsx`,
+  Tauri's `tauri://drag-*` events of that window); the first audio or
+  video file dropped opens Import with it.
+- Export renders the document Copy builds (`components/transcript/meetingText.ts`,
+  `lib/summaryMarkdown.ts`, moved down from features/meetings): Markdown,
+  with Obsidian wikilinks to named voices on request (the choice is
+  `meetily_export_link_style`), text, JSON, Word (`docx`) and PDF
+  (`jspdf`, Helvetica: no Cyrillic yet), written with the fs plugin after
+  the save dialog. Summary options writes again through
+  `components/summary/writeSummary.ts`, which the meeting screen shares,
+  with a template and instructions for the one run; the language it picks
+  is kept for the meeting.
+- Mock: `src/mocks/dialogs.ts` answers the fs write, the import (a fake run
+  with native's stages), the meeting's vocabulary and one line's
+  reassignment.
 
 ## Mock IPC
 

@@ -35,6 +35,9 @@ describe('RecordingPage', () => {
         expect(screen.getByText('3 voices')).toBeInTheDocument()
 
         await userEvent.click(within(transcript).getByRole('button', {name: /Speaker 2/}))
+        // The label opens its menu: Who said this… (#119), then Rename speaker.
+        expect(await screen.findByRole('menuitem', {name: 'Who said this…'})).toBeInTheDocument()
+        await userEvent.click(screen.getByRole('menuitem', {name: 'Rename speaker'}))
         await userEvent.keyboard('Priya{Enter}')
         await waitFor(() => expect(session.get().lines[1].speaker).toBe('Priya'))
         // A line still to come keeps the name.

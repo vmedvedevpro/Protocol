@@ -117,11 +117,11 @@ const Dot = styled.span`
     flex: none;
     align-items: center;
     justify-content: center;
-    width: ${({theme}) => theme.sizes.radio.ring};
-    height: ${({theme}) => theme.sizes.radio.ring};
+    width: ${({theme}) => theme.sizes.radio.size};
+    height: ${({theme}) => theme.sizes.radio.size};
     margin-top: ${({theme}) => theme.space[0.5]};
     box-sizing: border-box;
-    border: ${({theme}) => theme.sizes.radio.stroke} solid ${({theme}) => theme.colors.muted};
+    border: ${({theme}) => theme.sizes.radio.ring} solid ${({theme}) => theme.colors.muted};
     border-radius: 50%;
     ${colorTransition};
 

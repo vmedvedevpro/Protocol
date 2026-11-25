@@ -2,6 +2,7 @@ import {EnhanceSheet} from './enhance/EnhanceSheet'
 import {ExportSheet} from './export/ExportSheet'
 import {DropOverlay} from './import/DropOverlay'
 import {ImportSheet} from './import/ImportSheet'
+import {SpeakerSheet} from './speaker/SpeakerSheet'
 import {SummaryOptionsSheet} from './summary/SummaryOptionsSheet'
 import {TemplateSheet} from './template/TemplateSheet'
 
@@ -20,6 +21,7 @@ export function DialogHost() {
             <EnhanceSheet/>
             <SummaryOptionsSheet/>
             <TemplateSheet/>
+            <SpeakerSheet/>
             <DropOverlay/>
         </>
     )

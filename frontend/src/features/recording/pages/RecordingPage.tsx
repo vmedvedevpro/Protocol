@@ -1,16 +1,17 @@
-import {useMemo, useState} from 'react'
-import {SparkleIcon} from '@phosphor-icons/react'
+import {useCallback, useMemo, useState} from 'react'
+import {SparkleIcon, UserSwitchIcon} from '@phosphor-icons/react'
 import styled from 'styled-components'
 import {errorMessage} from '@/api/core'
 import {useUserName} from '@/api/preferences'
 import {NotesEditor} from '@/components/editor/NotesEditor'
-import {TranscriptList} from '@/components/transcript/TranscriptList'
+import {type SpeakerTarget, TranscriptList} from '@/components/transcript/TranscriptList'
 import {Screen} from '@/components/screen/Screen'
 import {Button} from '@/components/ui/Button'
 import {TabList, TabPanels, Tabs} from '@/components/ui/SegmentedControl'
 import {Spinner} from '@/components/ui/Spinner'
 import {StatusLine} from '@/components/ui/StatusLine'
 import {toast} from '@/components/ui/toastStore'
+import {openDialog} from '@/lib/dialogs'
 import {useHotkey} from '@/lib/hotkeys'
 import {summarizeSoFar} from '../api/assistant'
 import {toTranscriptLine} from '../api/transcript'
@@ -146,6 +147,19 @@ function TranscriptPanel() {
     const lines = useSessionStore((state) => state.lines)
     const userName = useUserName()
     const shown = useMemo(() => lines.map(toTranscriptLine), [lines])
+    // Who said this… (features/dialogs, #119) renames the voice in the
+    // session. The lines are read at the click: a function that changed with
+    // every new line would re-render every turn.
+    const speakerActions = useCallback((target: SpeakerTarget) => [{
+        id: 'who-said-this',
+        label: 'Who said this…',
+        icon: <UserSwitchIcon aria-hidden/>,
+        onSelect: () => openDialog({
+            kind: 'speaker',
+            ...target,
+            live: {lines: useSessionStore.getState().lines.map(toTranscriptLine), rename: renameSpeaker},
+        }),
+    }], [])
 
     return (
         <Column>
@@ -155,6 +169,7 @@ function TranscriptPanel() {
                 live
                 userName={userName || undefined}
                 onRenameSpeaker={renameSpeaker}
+                speakerActions={speakerActions}
                 empty={(
                     <Empty>
                         <EmptyTitle><Listening><Spinner/>Listening…</Listening></EmptyTitle>

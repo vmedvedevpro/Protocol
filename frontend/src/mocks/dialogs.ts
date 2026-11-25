@@ -116,6 +116,14 @@ export function dialogsHandlers(state: MockState): Record<string, MockHandler> {
             state.speech.vocabulary.meetings[String(meetingId)] = list
             return list
         },
+        // diarization/mod.rs: one line gets another voice; the other voices of an overlap stay.
+        reassign_transcript_speaker: ({meetingId, transcriptId, to, from}: MockArgs) => {
+            const line = state.meetings.transcripts[String(meetingId)]?.find((entry) => entry.id === transcriptId)
+            if (!line) throw `Transcript line not found: ${String(transcriptId)}`
+            const parts = (line.speaker ?? '').split(' + ')
+            line.speaker = [...new Set(parts.map((part) => (part === from ? String(to) : part)))].join(' + ')
+            return {speaker: line.speaker, count: 1, removedName: false}
+        },
         select_and_validate_audio_command: () => state.dialogs.pickedFile,
         validate_audio_file_command: ({path}: MockArgs) => {
             const file = String(path)
