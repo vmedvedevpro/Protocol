@@ -42,6 +42,12 @@ changes are included here.
   ([#96](https://github.com/vmedvedevpro/Protocol/issues/96)). Match system
   follows the system's mode in every window. A saved Midnight or Charcoal
   becomes Dark, and Vanilla becomes Light.
+- **Whisper on the graphics card on Linux**
+  ([#176](https://github.com/vmedvedevpro/Protocol/issues/176)). The
+  AppImage and the deb run Whisper through Vulkan on an Intel, AMD or NVIDIA
+  graphics card, and on the processor without one. If the graphics card's
+  driver ever closes Protocol, the next start stays on the processor and
+  Settings says so, with Try again.
 
 ### Changed
 
