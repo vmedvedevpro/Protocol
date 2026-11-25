@@ -122,7 +122,7 @@ async fn start_recording<R: Runtime>(
         app.clone(),
         mic_device_name,
         system_device_name,
-        meeting_name.clone(),
+        meeting_name,
     )
     .await
     {

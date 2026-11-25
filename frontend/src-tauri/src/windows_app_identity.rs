@@ -10,21 +10,12 @@
 //! Windows requires the call before the process shows any UI or touches its
 //! Jump List, so `lib.rs` makes it first thing in `run()`, before Tauri
 //! creates a window.
-//!
-//! Desktop notifications used the same AUMID and also registered it under
-//! `HKCU\Software\Classes\AppUserModelId` with a name and icon for their
-//! toasts. That key went with them (#126); one written by an earlier version
-//! stays in the registry, unread.
+
+use windows_sys::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID;
 
 /// Tauri's bundle identifier (`tauri.conf.json`), which the installer writes
 /// to its shortcuts as their AUMID.
 const APP_USER_MODEL_ID: &str = "io.github.vmedvedevpro.protocol";
-
-#[link(name = "shell32")]
-extern "system" {
-    /// <https://learn.microsoft.com/windows/win32/api/shobjidl_core/nf-shobjidl_core-setcurrentprocessexplicitappusermodelid>
-    fn SetCurrentProcessExplicitAppUserModelID(app_id: *const u16) -> i32;
-}
 
 /// Bind this process to the installer shortcuts' AUMID. Best-effort: on
 /// failure the app runs as before, only with its own taskbar button.
