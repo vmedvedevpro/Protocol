@@ -8,7 +8,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { REPOSITORY, assetUrl, parseSha256Sums, platformsOf, releaseAssets } from './release-lib.mjs';
+import { REPOSITORY, assetUrl, parseSha256Sums, platformsOf, releaseAssets, unwrapMarkdown } from './release-lib.mjs';
 
 export function renderNotes({ version, notes, sums, firstRelease = false, attestations = false, repository = REPOSITORY }) {
   const assets = releaseAssets(version);
@@ -22,7 +22,7 @@ export function renderNotes({ version, notes, sums, firstRelease = false, attest
     if (!platforms.includes(platform)) throw new Error(`the checksums list no ${platform} assets`);
   }
   const macos = platforms.includes('macos') ? link(dmg) : 'Follows when its build finishes';
-  return `Protocol is a local-first meeting recorder and transcriber, forked from
+  return unwrapMarkdown(`Protocol is a local-first meeting recorder and transcriber, forked from
 [Meetily – Actually Free](https://github.com/TylerBuza/Meetily-ActuallyFree).${firstRelease ? ' This is its first release.' : ''}
 
 ## What's new
@@ -91,7 +91,7 @@ ${sums.trim()}
   after updates (\`/BACKEND=auto\` returns to the automatic choice).
 
 **Full changelog:** [CHANGELOG.md](https://github.com/${repository}/blob/v${version}/CHANGELOG.md)
-`;
+`);
 }
 
 function main() {

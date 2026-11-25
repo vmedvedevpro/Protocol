@@ -18,6 +18,7 @@ import {
   parsePlatforms,
   parseSha256Sums,
   parseVersion,
+  unwrapMarkdown,
   platformsOf,
   readVersionFiles,
   requiredAssets,
@@ -203,4 +204,48 @@ test('SHA256SUMS lines are sorted GNU format and parse back', () => {
   assert.deepEqual(parseSha256Sums(text).map((entry) => entry.name), ['a.dmg', 'b.exe']);
   assert.throws(() => parseSha256Sums(`${hash('a')}  dir/a.dmg\n`), /invalid/);
   assert.throws(() => parseSha256Sums(`${hash('A')}  a.dmg\n`), /invalid/);
+});
+
+test('unwrapMarkdown joins wrapped paragraphs and list items and keeps every block', () => {
+  const source = [
+    'A paragraph wrapped',
+    'for the source.',
+    '',
+    '### Heading',
+    '- **Item**',
+    '  ([#8](https://example.com/8)). It goes',
+    '  on here.',
+    '  - Nested item',
+    '    continues.',
+    '',
+    '  A second paragraph',
+    '  of the item.',
+    '',
+    '| a | b |',
+    '| --- | --- |',
+    '```',
+    'code line one',
+    'code line two',
+    '```',
+    'Hard break  ',
+    'stays.',
+  ].join('\n');
+  assert.equal(unwrapMarkdown(source), [
+    'A paragraph wrapped for the source.',
+    '',
+    '### Heading',
+    '- **Item** ([#8](https://example.com/8)). It goes on here.',
+    '  - Nested item continues.',
+    '',
+    '  A second paragraph of the item.',
+    '',
+    '| a | b |',
+    '| --- | --- |',
+    '```',
+    'code line one',
+    'code line two',
+    '```',
+    'Hard break  ',
+    'stays.',
+  ].join('\n'));
 });

@@ -315,3 +315,30 @@ export function parseSha256Sums(text) {
     return { hash: match[1], name: match[2] };
   });
 }
+
+// GitHub renders each newline of a release body as a line break, so text
+// wrapped for the source (the CHANGELOG and the notes template) would show
+// its wraps. Joins the lines of every paragraph and list item; blank lines,
+// headings, list markers, tables, quotes, HTML, code blocks and hard breaks
+// (two trailing spaces or a backslash) stay as they are.
+export function unwrapMarkdown(text) {
+  const lines = [];
+  let inFence = false;
+  for (const line of text.split('\n')) {
+    const fence = /^\s*```/.test(line);
+    const previous = lines.at(-1);
+    if (!inFence && !fence && joinsPrevious(previous, line)) {
+      lines[lines.length - 1] = `${previous.trimEnd()} ${line.trim()}`;
+    } else {
+      lines.push(line);
+    }
+    if (fence) inFence = !inFence;
+  }
+  return lines.join('\n');
+}
+
+function joinsPrevious(previous, line) {
+  if (previous === undefined || previous.trim() === '' || line.trim() === '') return false;
+  if (/^\s*([-*+]\s|\d+[.)]\s|#|\||>|<)/.test(line)) return false;
+  return !/^\s*(#|\||```)/.test(previous) && !/( {2}|\\)$/.test(previous);
+}
