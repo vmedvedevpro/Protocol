@@ -8,10 +8,11 @@ import {
     useRef,
     useState,
 } from 'react'
-import {ArrowDownIcon} from '@phosphor-icons/react'
+import {ArrowDownIcon, PencilSimpleIcon} from '@phosphor-icons/react'
 import {AnimatePresence} from 'motion/react'
 import * as m from 'motion/react-m'
 import styled, {css} from 'styled-components'
+import {Menu, MenuItem} from '@/components/ui/Menu'
 import {colorTransition, fieldFocusRing, focusRing} from '@/components/ui/styles'
 import {tween} from '@/styles/motion'
 import {
@@ -34,6 +35,26 @@ import {
  */
 export interface PlaybackClock {
     subscribe(listener: (seconds: number) => void): () => void
+}
+
+/** The voice of a turn, for the actions on it (`speakerActions`). */
+export interface SpeakerTarget {
+    /** The label as stored: "Speaker 2", "Priya Shah", "You", "A + B". */
+    speaker: string
+    /** The turn's id, its first line's. */
+    turnId: string
+    /** Every line the turn joins, first to last. */
+    lineIds: readonly string[]
+}
+
+/** One entry of a voice's menu. */
+export interface SpeakerAction {
+    /** Unique within the menu. */
+    id: string
+    label: string
+    /** A Phosphor `*Icon`. */
+    icon?: ReactNode
+    onSelect: () => void
 }
 
 export interface TranscriptListProps {
@@ -64,6 +85,14 @@ export interface TranscriptListProps {
      * caller says why. Called like `onSeek`, the latest one.
      */
     onRenameSpeaker?: (from: string, to: string) => Promise<unknown>
+    /**
+     * The actions on a voice, offered in a menu from its label: opening its
+     * contact (#118), Who said this (#119). With `onRenameSpeaker` the menu
+     * ends with Rename speaker; a voice with no action but the rename starts
+     * it from the label at once. Called as each row renders, so pass a
+     * stable function: a new one renders every row again.
+     */
+    speakerActions?: (target: SpeakerTarget) => readonly SpeakerAction[]
     /** Highlights the turn being played. */
     playback?: PlaybackClock
     /** While true, the highlighted turn is kept in view unless the user scrolled a moment ago. */
@@ -316,18 +345,39 @@ interface TurnRowProps {
     editing: boolean
     canSeek: boolean
     canRename: boolean
+    speakerActions?: TranscriptListProps['speakerActions']
     actions: RowActions
 }
 
-const TurnRow = memo(function TurnRow({turn, arriving, userName, editing, canSeek, canRename, actions}: TurnRowProps) {
+const TurnRow = memo(function TurnRow({turn, arriving, userName, editing, canSeek, canRename, speakerActions, actions}: TurnRowProps) {
     const speaker = turn.speaker
     const time = turn.start === null ? null : formatClock(turn.start)
     // A single voice can be named here; the user's own and overlapping ones cannot.
     const renameable = canRename && !!speaker && !isUserSpeaker(speaker) && speakerParts(speaker).length === 1
 
+    const menu = speaker && speakerActions ? speakerActions({speaker, turnId: turn.id, lineIds: turn.lineIds}) : []
+
     let name: ReactNode = null
     if (speaker && editing && renameable) {
         name = <RenameField from={speaker} onSubmit={actions.rename} onDone={() => actions.edit(null)}/>
+    } else if (speaker && menu.length > 0) {
+        name = (
+            <Menu
+                align="start"
+                trigger={(
+                    <SpeakerButton type="button" data-speaker="" $unnamed={isUnnamedSpeaker(speaker)}>
+                        {displaySpeaker(speaker, userName)}
+                    </SpeakerButton>
+                )}
+            >
+                {menu.map((action) => (
+                    <MenuItem key={action.id} icon={action.icon} onSelect={action.onSelect}>{action.label}</MenuItem>
+                ))}
+                {renameable && (
+                    <MenuItem icon={<PencilSimpleIcon/>} onSelect={() => actions.edit(turn.id)}>Rename speaker</MenuItem>
+                )}
+            </Menu>
+        )
     } else if (speaker && renameable) {
         name = (
             <SpeakerButton
@@ -375,7 +425,8 @@ const TurnRow = memo(function TurnRow({turn, arriving, userName, editing, canSee
     before.userName === after.userName &&
     before.editing === after.editing &&
     before.canSeek === after.canSeek &&
-    before.canRename === after.canRename)
+    before.canRename === after.canRename &&
+    before.speakerActions === after.speakerActions)
 
 /**
  * A transcript, saved or live: one row per turn with its time, the voice
@@ -393,6 +444,7 @@ export function TranscriptList({
     clean,
     onSeek,
     onRenameSpeaker,
+    speakerActions,
     playback,
     followPlayback = false,
     empty,
@@ -555,6 +607,7 @@ export function TranscriptList({
                             editing={editing === turn.id}
                             canSeek={!!onSeek}
                             canRename={!!onRenameSpeaker}
+                            speakerActions={speakerActions}
                             actions={actions}
                         />
                     ))}

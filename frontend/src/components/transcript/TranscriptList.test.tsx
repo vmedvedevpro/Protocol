@@ -2,7 +2,7 @@ import {act, screen, waitFor, within} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import {describe, expect, it, vi} from 'vitest'
 import {renderUi} from '@/test/renderUi'
-import {type PlaybackClock, TranscriptList} from './TranscriptList'
+import {type PlaybackClock, type SpeakerTarget, TranscriptList} from './TranscriptList'
 import type {TranscriptLine} from './turns'
 
 const LINES: TranscriptLine[] = [
@@ -141,5 +141,45 @@ describe('TranscriptList', () => {
         expect(first).not.toHaveBeenCalled()
         expect(latest).toHaveBeenCalledWith(4)
         expect(screen.getByText('Thanks for the time.')).toBeInTheDocument()
+    })
+    it('offers the actions on a voice in a menu, with the rename last', async () => {
+        const open = vi.fn()
+        const onRename = vi.fn().mockResolvedValue(undefined)
+        const lines: TranscriptLine[] = [...LINES, {id: 'e', text: 'I can have it by Friday.', start: 700, end: 704, speaker: 'Priya Shah'}]
+        // A stable function, as the prop asks.
+        const speakerActions = (target: SpeakerTarget) =>
+            target.speaker === 'Priya Shah' || target.speaker === 'You'
+                ? [{id: 'open', label: `Open ${target.speaker}`, onSelect: () => open(target)}]
+                : []
+        renderUi(<TranscriptList label="Transcript" lines={lines} onRenameSpeaker={onRename} speakerActions={speakerActions}/>)
+
+        await userEvent.click(screen.getByRole('button', {name: 'Priya Shah'}))
+        const menu = await screen.findByRole('menu')
+        expect(within(menu).getAllByRole('menuitem').map((item) => item.textContent)).toEqual(['Open Priya Shah', 'Rename speaker'])
+        await userEvent.click(within(menu).getByRole('menuitem', {name: 'Open Priya Shah'}))
+        expect(open).toHaveBeenCalledWith({speaker: 'Priya Shah', turnId: 'e', lineIds: ['e']})
+
+        // The user's own voice has its actions, never a rename.
+        await userEvent.click(screen.getAllByRole('button', {name: 'You'})[0])
+        expect(within(await screen.findByRole('menu')).getAllByRole('menuitem').map((item) => item.textContent)).toEqual(['Open You'])
+        await userEvent.keyboard('{Escape}')
+
+        // A voice with no action but the rename still renames from its label.
+        expect(screen.getByRole('button', {name: 'Name Speaker 2'})).toBeInTheDocument()
+    })
+
+    it('renames from the menu and comes back to the label', async () => {
+        const onRename = vi.fn().mockResolvedValue(undefined)
+        const speakerActions = () => [{id: 'who', label: 'Who said this…', onSelect: () => undefined}]
+        renderUi(<TranscriptList label="Transcript" lines={LINES} onRenameSpeaker={onRename} speakerActions={speakerActions}/>)
+
+        await userEvent.click(screen.getByRole('button', {name: 'Speaker 2'}))
+        await userEvent.click(await screen.findByRole('menuitem', {name: 'Rename speaker'}))
+        const field = await screen.findByRole('textbox', {name: 'Name Speaker 2'})
+        await waitFor(() => expect(field).toHaveFocus())
+        await userEvent.type(field, 'Tom Becker{Enter}')
+
+        expect(onRename).toHaveBeenCalledWith('Speaker 2', 'Tom Becker')
+        await waitFor(() => expect(screen.getByRole('button', {name: 'Speaker 2'})).toHaveFocus())
     })
 })

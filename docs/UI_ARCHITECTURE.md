@@ -1032,6 +1032,35 @@ another meeting starts from fresh state).
   dialog's engine-specific wording (`diarization_get_status` is #117's;
   Nemotron ignores the count natively).
 
+## People and search
+
+- `src/api/people.ts` is the people domain (`person.rs`, `voice_profiles.rs`):
+  contacts, a contact's profile (meetings together, speaking time, the
+  action items they own), their private notes, merge and delete, the Labs
+  voices and the Labs switch for them (`voiceProfilesEnabledQuery`, which
+  Settings › Labs uses too). A rename, merge or delete relabels transcript
+  lines and moves or unlinks action items natively, so those mutations
+  invalidate the meetings' and the items' queries with the people; a merge
+  or delete drops the gone contact's profile. Notes save as the user types
+  (one scope per contact, in order) and write the stored text into the
+  cached profile rather than reading it again over the field.
+- Native links a voice to a contact through `person_speakers` when a voice is
+  named: a name equal to a contact's, case and outer spaces aside, joins
+  them, any other name becomes a new contact, and generated labels ("You",
+  "Speaker N", overlaps) never do (`isPersonLabel`). No command lists a
+  meeting's links, so `personForSpeaker` and `meetingSpeakerPeople` map a
+  label by the same name rule.
+- A voice's label in `TranscriptList` opens a menu of `speakerActions`, the
+  caller's (`SpeakerTarget` in: the label, the turn and its lines;
+  `SpeakerAction` out: id, label, icon, onSelect), ending with Rename speaker
+  where the voice can be renamed. A voice with no action but the rename
+  starts it from the label at once. The function is called as rows render,
+  so it must be stable. #118 adds "Open <contact>", #119 "Who said this…".
+- Mock: `src/mocks/people.ts` derives who spoke where from the transcripts,
+  as `person_speakers` follows the labels, makes a contact of any named voice
+  that is not one yet, and links an action item to the contact its owner
+  names before `api_list_action_items` answers.
+
 ## Mock IPC
 
 Outside Tauri, `pnpm dev`, Storybook and every test run on
