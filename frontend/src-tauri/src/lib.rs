@@ -618,6 +618,7 @@ pub fn run() {
             meeting_detection::set_meeting_detection_settings,
             diarization::diarization_models_available,
             diarization::download_diarization_models,
+            diarization::cancel_diarization_download,
             optional_models::uninstall_optional_model,
             diarization::diarize_meeting,
             diarization::rename_meeting_speaker,

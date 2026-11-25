@@ -683,8 +683,16 @@ pub async fn download_diarization_models<R: tauri::Runtime>(
     static DOWNLOAD_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
     let _download_guard = DOWNLOAD_LOCK.try_lock().map_err(|_| "A diarization download is already running".to_string())?;
     download::download_models_for_engine(&app, &target).await.map_err(|e| {
-        log::error!("Diarization model download failed: {}", e);
-        e.to_string()
+        let message = e.to_string();
+        // The event ends the download's record in every window, which a
+        // rejected call alone would not.
+        if message == download::CANCELLED {
+            download::emit_end(&app, "cancelled", message.clone());
+        } else {
+            log::error!("Diarization model download failed: {}", message);
+            download::emit_end(&app, "error", message.clone());
+        }
+        message
     })?;
     // Finish the opt-in download in the native task. A WebView reload during
     // setup must not discard the preference save along with its JS callback.
@@ -696,6 +704,12 @@ pub async fn download_diarization_models<R: tauri::Runtime>(
         let _ = app.emit("diarization-engine-changed", "nemotron");
     }
     Ok(())
+}
+
+/// Stop a running diarization download; it ends with `download::CANCELLED`.
+#[tauri::command]
+pub fn cancel_diarization_download() {
+    download::request_cancel();
 }
 
 /// Rename every transcript segment belonging to one speaker in a meeting.

@@ -140,7 +140,7 @@ export function useModelDownloadSync() {
     // Nemotron: native activates it after its download and says so.
     useNativeEvent(DIARIZATION_DOWNLOAD_PROGRESS_EVENT, ({percent, status, message}) => {
         const key = downloadKey('nemotron', NEMOTRON)
-        if (status === 'done') return end(key, diarizationKeys.status())
+        if (status === 'done' || status === 'cancelled') return end(key, diarizationKeys.status())
         if (status === 'error') {
             set(key, {state: 'failed', error: message ?? 'The download failed.'})
             return refresh(diarizationKeys.status())

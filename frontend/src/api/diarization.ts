@@ -59,6 +59,12 @@ export const setNemotronThreshold = (status: DiarizationStatus, nemotronThreshol
  */
 export const downloadNemotron = () => command<null>('download_diarization_models', {engine: 'nemotron'})
 
+/** What a cancelled download rejects with (download.rs `CANCELLED`). */
+export const DIARIZATION_DOWNLOAD_CANCELLED = 'Download cancelled'
+
+/** Stops Nemotron's download; it rejects with `DIARIZATION_DOWNLOAD_CANCELLED` and leaves nothing behind. */
+export const cancelNemotronDownload = () => command<null>('cancel_diarization_download')
+
 export const openSpeakerModelFolder = () => command<null>('open_diarization_model_directory')
 
 /** Native chose an engine itself: Nemotron after its download, Pyannote after its removal. */
@@ -73,7 +79,8 @@ export interface DiarizationDownloadProgress {
     total: number
     /** The whole download, 0 to 100; 100 only with `done`. */
     percent: number
-    status: 'downloading' | 'verifying' | 'skipped' | 'done' | 'error'
+    /** `error` and `cancelled` end a download that did not finish. */
+    status: 'downloading' | 'verifying' | 'skipped' | 'done' | 'error' | 'cancelled'
     message?: string
 }
 

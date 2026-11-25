@@ -5,6 +5,8 @@ import styled from 'styled-components'
 import {errorMessage} from '@/api/core'
 import {
     activeEngine,
+    cancelNemotronDownload,
+    DIARIZATION_DOWNLOAD_CANCELLED,
     diarizationStatusQuery,
     downloadNemotron,
     NEMOTRON,
@@ -45,6 +47,9 @@ const Link = styled.button`
     ${focusRing};
 `
 
+/** What Nemotron is for, which its name cannot say. */
+const BETTER = 'Better when people talk over each other'
+
 const CC_BY_4_0 = 'https://creativecommons.org/licenses/by/4.0/'
 
 function Credit({href, children}: {href: string, children: ReactNode}) {
@@ -78,11 +83,12 @@ function ThresholdRow({threshold}: {threshold: number}) {
 }
 
 /**
- * Who said what: Pyannote, built in, or NVIDIA Nemotron, downloaded on
- * demand. Choosing Nemotron before it is installed downloads it, and native
- * chooses it once the download is verified; until then Pyannote stays.
- * Its row is a `ModelRow`; removal goes back to Pyannote first
- * (`uninstall_optional_model`).
+ * Who said what: Pyannote, built in, or NVIDIA Nemotron, installed on
+ * demand. Nemotron is a choice only once it is installed, so choosing never
+ * downloads anything (owner decision 2026-11-25); until then its `ModelRow`
+ * offers Install with its size, its progress and Cancel. Native chooses
+ * Nemotron once the download is verified, as the user asked for it; a
+ * removal goes back to Pyannote first (`uninstall_optional_model`).
  */
 export function SpeakersGroup() {
     const status = useQuery(diarizationStatusQuery)
@@ -99,11 +105,12 @@ export function SpeakersGroup() {
             .then(() => toast.success('Speakers are now identified with NVIDIA Nemotron'))
             .catch((error) => {
                 const message = errorMessage(error)
-                toast.error(message.startsWith('Model downloaded') ? 'Nemotron downloaded, but couldn’t be turned on' : 'Nemotron didn’t download', {description: message})
+                if (message === DIARIZATION_DOWNLOAD_CANCELLED) return
+                toast.error(message.startsWith('Model downloaded') ? 'Nemotron installed, but couldn’t be turned on' : 'Nemotron didn’t install', {description: message})
             })
     }
+    const cancel = () => void cancelNemotronDownload().catch((error) => toast.error('Couldn’t cancel the download', {description: errorMessage(error)}))
     const pick = (next: SpeakerEngine) => {
-        if (next === 'nemotron' && !installed) return getNemotron()
         choose.mutate(next, {onError: (error) => toast.error('Couldn’t change the speaker engine', {description: errorMessage(error)})})
     }
 
@@ -116,12 +123,7 @@ export function SpeakersGroup() {
                 disabled={!status.data}
             >
                 <SettingsRadioRow value="pyannote" label="Pyannote" badge="Built in"/>
-                <SettingsRadioRow
-                    value="nemotron"
-                    label="NVIDIA Nemotron"
-                    description={installed ? 'Better when people talk over each other' : 'Better when people talk over each other. Choosing it downloads it'}
-                    badge={installed ? 'Installed' : undefined}
-                />
+                {installed && <SettingsRadioRow value="nemotron" label="NVIDIA Nemotron" description={BETTER}/>}
             </SettingsRadioGroup>
             <SettingsGroup>
                 <ModelRow
@@ -129,15 +131,16 @@ export function SpeakersGroup() {
                     engine="nemotron"
                     model={{name: NEMOTRON, status: installed ? 'Available' : 'Missing', size_bytes: size}}
                     use={engine === 'nemotron' && installed ? 'Identifies speakers in new meetings' : null}
-                    description=""
+                    description={installed ? '' : BETTER}
                     downloads={downloads}
                     onDownload={getNemotron}
+                    onCancel={cancel}
                     onRemove={() => uninstallOptionalModel('nemotron').catch((error) =>
                         toast.error('Couldn’t remove NVIDIA Nemotron', {description: errorMessage(error)}))}
                     removeDetail={`${size ? `This frees about ${formatModelSize(size)}. ` : ''}Pyannote identifies speakers from then on.`}
                 >
                     {engine === 'nemotron' && !installed && downloads[downloadKey('nemotron', NEMOTRON)]?.state !== 'downloading' && (
-                        <Warning role="alert">Nemotron is chosen but not downloaded, so speakers can’t be identified. Download it, or choose Pyannote</Warning>
+                        <Warning role="alert">Nemotron is chosen but not downloaded, so speakers can’t be identified. Install it, or choose Pyannote</Warning>
                     )}
                 </ModelRow>
                 {engine === 'nemotron' && installed && <ThresholdRow threshold={status.data?.nemotron_threshold ?? THRESHOLD.default}/>}

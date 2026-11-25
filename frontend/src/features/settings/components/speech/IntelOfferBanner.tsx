@@ -87,7 +87,7 @@ export function IntelOfferBanner() {
             : trackIntelDownload(queryClient, 'intelLibraries', INTEL_LIBRARIES_ID, downloadIntelLibraries)
                 .then(() => toast.success("Intel's libraries are installed", {description: 'Parakeet gets ready for the Intel NPU once, then runs on it.'}))
         void done.catch((error) => {
-            if (!isIntelCancelled(error)) toast.error('The switch didn’t finish', {description: intelError(error)})
+            if (!isIntelCancelled(error)) toast.error('The installation didn’t finish', {description: intelError(error)})
         })
     }
 
@@ -108,7 +108,7 @@ export function IntelOfferBanner() {
                     <Text>{formatModelSize(bytes) ? `${shown.description} · ${formatModelSize(bytes)}` : shown.description}</Text>
                     <Actions>
                         <Button size="sm" variant="ghost" onClick={() => dismissIntelOffer(shown.devices)}>Not now</Button>
-                        <Button size="sm" variant="filled" onClick={switchNow}>Switch</Button>
+                        <Button size="sm" variant="filled" onClick={switchNow}>Install</Button>
                     </Actions>
                     <Veil outset={1}/>
                 </Banner>

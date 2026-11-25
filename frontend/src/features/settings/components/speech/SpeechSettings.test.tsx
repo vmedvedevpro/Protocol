@@ -54,17 +54,38 @@ describe('Settings › AI, speech', () => {
         await waitFor(() => expect(within(vocabulary).queryByRole('button', {name: 'Remove Priya Shah'})).not.toBeInTheDocument())
     })
 
-    it('downloads Nemotron when it is chosen, and native chooses it once it is there', async () => {
+    it('offers Nemotron to install instead of as a choice, and native chooses it once it is there', async () => {
         mockState.diarization.downloadStep = 100
         renderSection('ai')
-        const nemotron = await screen.findByRole('radio', {name: /NVIDIA Nemotron/})
         await waitFor(() => expect(screen.getByRole('radio', {name: /Pyannote/})).toBeChecked())
+        expect(screen.queryByRole('radio', {name: /NVIDIA Nemotron/})).not.toBeInTheDocument()
 
-        await userEvent.click(nemotron)
+        await userEvent.click(await screen.findByRole('button', {name: 'Install NVIDIA Nemotron'}))
 
+        const nemotron = await screen.findByRole('radio', {name: /NVIDIA Nemotron/})
         await waitFor(() => expect(nemotron).toBeChecked())
         expect(mockState.diarization).toMatchObject({engine: 'nemotron', nemotronInstalled: true})
         expect(await screen.findByRole('slider', {name: 'Speech threshold'})).toBeInTheDocument()
+    })
+
+    it('cancels Nemotron’s install, and it stays offered', async () => {
+        renderSection('ai')
+        await userEvent.click(await screen.findByRole('button', {name: 'Install NVIDIA Nemotron'}))
+        await userEvent.click(await screen.findByRole('button', {name: 'Cancel downloading NVIDIA Nemotron'}))
+
+        expect(await screen.findByRole('button', {name: 'Install NVIDIA Nemotron'})).toBeInTheDocument()
+        expect(mockState.diarization).toMatchObject({engine: 'pyannote', nemotronInstalled: false})
+        expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    })
+
+    it('only switches between installed speaker engines', async () => {
+        mockState.diarization.nemotronInstalled = true
+        renderSection('ai')
+        await userEvent.click(await screen.findByRole('radio', {name: /NVIDIA Nemotron/}))
+        await waitFor(() => expect(mockState.diarization.engine).toBe('nemotron'))
+
+        await userEvent.click(screen.getByRole('radio', {name: /Pyannote/}))
+        await waitFor(() => expect(mockState.diarization.engine).toBe('pyannote'))
     })
 
     it('removes Nemotron after asking, and Pyannote identifies speakers again', async () => {
@@ -94,7 +115,7 @@ describe('Settings › Speech models', () => {
         mockState.models.downloadStep = 100
         renderPage()
         const whisper = await screen.findByRole('region', {name: 'Whisper'})
-        await userEvent.click(await within(whisper).findByRole('button', {name: 'Download Small'}))
+        await userEvent.click(await within(whisper).findByRole('button', {name: 'Install Small'}))
 
         await waitFor(() => expect(mockState.models.whisper.small).toBe('Available'))
         await userEvent.click(await within(whisper).findByRole('button', {name: 'Remove Small'}))
@@ -102,7 +123,7 @@ describe('Settings › Speech models', () => {
         await userEvent.click(within(sheet).getByRole('button', {name: 'Remove'}))
 
         await waitFor(() => expect(mockState.models.whisper.small).toBe('Missing'))
-        expect(await within(whisper).findByRole('button', {name: 'Download Small'})).toBeInTheDocument()
+        expect(await within(whisper).findByRole('button', {name: 'Install Small'})).toBeInTheDocument()
     })
 
     it('says what the pair for this computer is used for', async () => {
@@ -138,7 +159,7 @@ describe('Settings › AI, the Intel offer', () => {
         const offer = await screen.findByRole('region', {name: 'Intel GPU and NPU offer'})
         expect(within(offer).getByText('Protocol can use your Intel GPU')).toBeInTheDocument()
 
-        await userEvent.click(within(offer).getByRole('button', {name: 'Switch'}))
+        await userEvent.click(within(offer).getByRole('button', {name: 'Install'}))
 
         await waitFor(() => expect(mockState.speech.postCallConfig).toEqual({provider: 'whisper', model: GPU_VERSION_ID}))
         await waitFor(() => expect(screen.queryByRole('region', {name: 'Intel GPU and NPU offer'})).not.toBeInTheDocument())

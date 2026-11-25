@@ -16,6 +16,7 @@ use anyhow::{anyhow, Result};
 use futures_util::StreamExt;
 use serde::Serialize;
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{AppHandle, Emitter, Runtime};
 
 #[derive(Clone, Serialize)]
@@ -39,6 +40,34 @@ pub struct DownloadProgress {
 
 fn emit<R: Runtime>(app: &AppHandle<R>, p: DownloadProgress) {
     let _ = app.emit("diarization-download-progress", p);
+}
+
+/// The error a cancelled download ends with.
+pub const CANCELLED: &str = "Download cancelled";
+
+/// Set by `cancel_diarization_download`, cleared when a Nemotron download
+/// starts; a transfer checks it between chunks and removes its `.part`.
+static CANCEL: AtomicBool = AtomicBool::new(false);
+
+pub fn request_cancel() {
+    CANCEL.store(true, Ordering::SeqCst);
+}
+
+/// The last event of a download that did not finish: `error` or `cancelled`.
+pub fn emit_end<R: Runtime>(app: &AppHandle<R>, status: &str, message: String) {
+    emit(
+        app,
+        DownloadProgress {
+            file: String::new(),
+            file_index: 0,
+            file_count: 0,
+            downloaded: 0,
+            total: 0,
+            percent: 0.0,
+            status: status.into(),
+            message: Some(message),
+        },
+    );
 }
 
 /// Overall progress while a file has not been checked yet. It stays below
@@ -190,6 +219,7 @@ pub async fn download_pyannote_models<R: Runtime>(app: &AppHandle<R>) -> Result<
 
 /// Download the pinned NVIDIA Nemotron-3 ONNX export and its model license.
 pub async fn download_nemotron_models<R: Runtime>(app: &AppHandle<R>) -> Result<()> {
+    CANCEL.store(false, Ordering::SeqCst);
     let dir = super::diarization_user_model_dir();
     tokio::fs::create_dir_all(&dir).await?;
 
@@ -285,6 +315,11 @@ async fn download_single_file<R: Runtime>(
     let mut stream = response.bytes_stream();
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(|e| anyhow!("Download of {} interrupted: {}", name, e))?;
+        if CANCEL.load(Ordering::SeqCst) {
+            drop(file);
+            let _ = tokio::fs::remove_file(&part).await;
+            return Err(anyhow!(CANCELLED));
+        }
         if let Err(error) = check.update(&chunk) {
             drop(file);
             let _ = tokio::fs::remove_file(&part).await;

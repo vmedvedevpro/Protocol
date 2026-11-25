@@ -167,7 +167,6 @@ export function ForThisComputer() {
                     model={{name: offered.id, status: 'Missing', size_bytes: offered.downloadSize}}
                     description="A faster Whisper for this computer, used after meetings"
                     downloads={downloads}
-                    downloadLabel="Switch"
                     onDownload={switchToGpu}
                     onCancel={() => cancelIntel(offered.id)}
                 />

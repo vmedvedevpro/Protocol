@@ -330,7 +330,7 @@ such a command only on its platform
 | Item | Kind | Old file | Owner | Notes |
 | --- | --- | --- | --- | --- |
 | `diarization_get_status` | command | `components/DiarizationSettings.tsx`, `components/LabsSettings.tsx`, `contexts/OptionalModelDownloadsContext.tsx` +1 | #117 | AI › Speakers; also Labs and speaker dialogs. |
-| `download_diarization_models` | command | `components/DiarizationSettings.tsx`, `contexts/OptionalModelDownloadsContext.tsx` | #117 | Nemotron download; native activates the engine on success. |
+| `download_diarization_models` | command | `components/DiarizationSettings.tsx`, `contexts/OptionalModelDownloadsContext.tsx` | #117 | Nemotron's Install; native activates the engine on success. Choosing the engine no longer downloads it (#123): it is a choice only once installed. The new `cancel_diarization_download` cancels it; native ends a download that did not finish with an `error` or `cancelled` progress event. |
 | `open_diarization_model_directory` | command | `components/DiarizationSettings.tsx` | #117 | Model files and credits › Open folder. |
 | `set_diarization_config` | command | `components/DiarizationSettings.tsx` | #117 | Speech threshold. |
 | `set_diarization_engine` | command | `components/DiarizationSettings.tsx` | #117 | Pyannote or Nemotron. |
