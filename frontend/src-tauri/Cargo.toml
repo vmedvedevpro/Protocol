@@ -244,6 +244,8 @@ libloading = "0.8.9"
 whisper-rs = { version = "0.16.0", features = ["raw-api"] }
 ort = { version = "=2.0.0-rc.15", default-features = false, features = ["load-dynamic"] }
 libloading = "0.8.9"
+# Already in the tree through tao/gtk; names the app for the tray (src/tray.rs).
+glib = "0.18"
 
 [dev-dependencies]
 tempfile = "3.3.0"

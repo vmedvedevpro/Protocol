@@ -5,18 +5,31 @@
 //! runs the same native Stop as the tray's Stop item, waits until the main
 //! window has saved the meeting (`audio::save_handoff`), and then leaves through
 //! `updater::quit_app`, which installs a downloaded update only when nothing is
-//! busy. **Cancel** leaves the recording running. Without a recording a quit
-//! goes straight to `quit_app`, as before.
+//! busy. **Cancel** leaves the recording running.
+//!
+//! Without a recording, other work the busy registry reports (`updater::busy`:
+//! the post-call pass, a retranscription, a summary, an import, a model
+//! download…) asks "Protocol is still busy: … Quit anyway?" first, since the
+//! exit would cut it off. Setup being unfinished is not work and does not ask.
+//! With nothing busy a quit goes straight to `quit_app`.
 //!
 //! The WebView owns the meeting and transcript rows, so the exit waits for its
 //! answer. A failed or skipped save, or no answer within
 //! `save_handoff::ANSWER_WINDOW`, keeps Protocol open and says so: a quit never
 //! exits before the save is confirmed.
 //!
+//! On Unix, SIGTERM and SIGINT (logout, shutdown, `kill`, Ctrl+C in a
+//! terminal) are a quit too ([`quit_on_termination_signals`]): they take the
+//! same path, so busy work asks as on tray Quit and the exit ends in
+//! `RunEvent::Exit`, which marks the session clean (`crash_report`). Without
+//! this the default action killed the process and the next start reported an
+//! unclean shutdown (#121). SIGKILL cannot be caught.
+//!
 //! One quit runs at a time. Another quit while the question is open or the
 //! meeting is being saved only brings the main window forward.
 
 use crate::audio::save_handoff::{self, Handoff, SaveOutcome};
+use crate::updater::busy::BusyReason;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 use tauri::{AppHandle, Manager, Runtime};
 use tauri_plugin_dialog::{DialogExt, MessageDialogBuilder, MessageDialogButtons, MessageDialogKind};
@@ -25,6 +38,7 @@ const TITLE: &str = "Protocol";
 const QUESTION: &str = "A recording is in progress. Stop and save it, then quit?";
 const STOP_AND_QUIT: &str = "Stop and quit";
 const CANCEL: &str = "Cancel";
+const QUIT_ANYWAY: &str = "Quit anyway";
 const NOT_SAVED: &str = "Protocol didn't quit because it couldn't confirm that the recording was saved. Check the meeting list, then quit again.";
 
 /// Recording work a quit must not cut off, read from its owners.
@@ -48,6 +62,47 @@ impl Recording {
     }
 }
 
+/// The first busy reason a quit must ask about besides the recording, which
+/// [`Recording`] covers with its own question. `Onboarding` only means setup is
+/// unfinished; its downloads report `ModelDownload` themselves.
+fn other_work(busy: &[BusyReason]) -> Option<BusyReason> {
+    busy.iter().copied().find(|reason| {
+        !matches!(
+            reason,
+            BusyReason::Recording | BusyReason::RecordingStopping | BusyReason::RecordingSave | BusyReason::Onboarding
+        )
+    })
+}
+
+fn busy_work() -> Option<BusyReason> {
+    other_work(&crate::updater::busy::current())
+}
+
+/// The clause after "Protocol is still busy:", worded like the frontend's
+/// update sentences (`lib/updateText.ts`).
+fn busy_clause(reason: BusyReason) -> &'static str {
+    match reason {
+        BusyReason::Import => "an audio import is running",
+        BusyReason::Retranscription => "a meeting is being retranscribed",
+        BusyReason::Diarization => "speakers are being identified",
+        BusyReason::Summary => "a summary is being generated",
+        BusyReason::PostCall => "a meeting is being processed",
+        BusyReason::ModelDownload => "a model is downloading",
+        BusyReason::ModelCompile => "a speech model is being prepared for the GPU",
+        BusyReason::Recording | BusyReason::RecordingStopping | BusyReason::RecordingSave => {
+            "a recording is being saved"
+        }
+        BusyReason::Onboarding | BusyReason::SpeechEngine => "the speech engine is busy",
+    }
+}
+
+fn busy_question(reason: BusyReason) -> String {
+    format!(
+        "Protocol is still busy: {}. If you quit now, it stops and its progress is lost. Quit anyway?",
+        busy_clause(reason)
+    )
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Plan {
     /// Nothing to save and nothing to install: exit.
@@ -59,13 +114,17 @@ pub(crate) enum Plan {
     StopAndSave,
     /// Ask; on Stop and quit, wait for the Stop or the save already under way.
     WaitForSave,
+    /// Ask; on Quit anyway, leave and cut the work off.
+    Busy(BusyReason),
 }
 
-pub(crate) fn plan(recording: Recording, update_ready: bool) -> Plan {
+pub(crate) fn plan(recording: Recording, busy: Option<BusyReason>, update_ready: bool) -> Plan {
     if recording.running && !recording.stopping {
         Plan::StopAndSave
     } else if recording.stopping || recording.saving {
         Plan::WaitForSave
+    } else if let Some(reason) = busy {
+        Plan::Busy(reason)
     } else if update_ready {
         Plan::Install
     } else {
@@ -95,7 +154,7 @@ pub(crate) fn action(flow: Flow, plan: Plan) -> Action {
     match (flow, plan) {
         (Flow::Asking | Flow::Saving, _) => Action::BringForward,
         (Flow::Idle, Plan::Exit | Plan::Install) => Action::Quit,
-        (Flow::Idle, Plan::StopAndSave | Plan::WaitForSave) => Action::Ask,
+        (Flow::Idle, Plan::StopAndSave | Plan::WaitForSave | Plan::Busy(_)) => Action::Ask,
     }
 }
 
@@ -134,7 +193,7 @@ pub fn saving_to_quit() -> bool {
 
 pub fn holds_exit<R: Runtime>(app: &AppHandle<R>) -> bool {
     !crate::updater::is_quitting()
-        && holds(*flow(), plan(Recording::now(), crate::updater::installs_on_quit(app)))
+        && holds(*flow(), plan(Recording::now(), busy_work(), crate::updater::installs_on_quit(app)))
 }
 
 /// Tray Quit, and on macOS ⌘Q and Dock Quit.
@@ -144,7 +203,7 @@ pub fn request<R: Runtime>(app: &AppHandle<R>) {
         crate::updater::quit_app(app);
         return;
     }
-    let plan = plan(Recording::now(), crate::updater::installs_on_quit(app));
+    let plan = plan(Recording::now(), busy_work(), crate::updater::installs_on_quit(app));
     let action = {
         let mut flow = flow();
         let action = action(*flow, plan);
@@ -166,28 +225,65 @@ pub fn request<R: Runtime>(app: &AppHandle<R>) {
     }
 }
 
+/// Routes SIGTERM and SIGINT to [`request`] for the app's lifetime. A second
+/// signal while the question is open only brings the window forward.
+#[cfg(unix)]
+pub fn quit_on_termination_signals<R: Runtime>(app: &AppHandle<R>) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        use tokio::signal::unix::{signal, SignalKind};
+        let (mut terminate, mut interrupt) = match (signal(SignalKind::terminate()), signal(SignalKind::interrupt())) {
+            (Ok(terminate), Ok(interrupt)) => (terminate, interrupt),
+            (Err(error), _) | (_, Err(error)) => {
+                log::warn!("[quit] cannot listen for termination signals: {error}");
+                return;
+            }
+        };
+        loop {
+            let name = tokio::select! {
+                _ = terminate.recv() => "SIGTERM",
+                _ = interrupt.recv() => "SIGINT",
+            };
+            log::info!("[quit] {name}: quitting as from the tray");
+            request(&app);
+        }
+    });
+}
+
 async fn confirm_and_quit<R: Runtime>(app: AppHandle<R>) {
     loop {
         bring_forward(&app).await;
-        if !ask(&app).await {
-            log::info!("[quit] cancelled; the recording goes on");
-            set_flow(Flow::Idle);
-            return;
+        // Read again on every round: the work may have ended or started
+        // (meeting detection can start a recording while the last one is saved).
+        match plan(Recording::now(), busy_work(), false) {
+            Plan::StopAndSave | Plan::WaitForSave => {
+                if !ask(&app, QUESTION, STOP_AND_QUIT).await {
+                    log::info!("[quit] cancelled; the recording goes on");
+                    set_flow(Flow::Idle);
+                    return;
+                }
+                set_flow(Flow::Saving);
+                if let Err(problem) = stop_and_save(&app).await {
+                    log::warn!("[quit] staying open: {problem}");
+                    set_flow(Flow::Idle);
+                    tell(&app, NOT_SAVED).await;
+                    return;
+                }
+                log::info!("[quit] the recording is saved");
+                set_flow(Flow::Asking);
+            }
+            Plan::Busy(reason) => {
+                if !ask(&app, &busy_question(reason), QUIT_ANYWAY).await {
+                    log::info!("[quit] cancelled; {reason:?} goes on");
+                    set_flow(Flow::Idle);
+                    return;
+                }
+                log::info!("[quit] quitting during {reason:?}");
+                break;
+            }
+            Plan::Exit | Plan::Install => break,
         }
-        set_flow(Flow::Saving);
-        if let Err(problem) = stop_and_save(&app).await {
-            log::warn!("[quit] staying open: {problem}");
-            set_flow(Flow::Idle);
-            tell(&app, NOT_SAVED).await;
-            return;
-        }
-        // Meeting detection can start a recording while the last one is saved.
-        if !matches!(plan(Recording::now(), false), Plan::StopAndSave | Plan::WaitForSave) {
-            break;
-        }
-        set_flow(Flow::Asking);
     }
-    log::info!("[quit] the recording is saved; quitting");
     crate::updater::quit_app(&app);
 }
 
@@ -201,7 +297,7 @@ async fn bring_forward<R: Runtime>(app: &AppHandle<R>) {
 }
 
 async fn stop_and_save<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
-    if plan(Recording::now(), false) == Plan::StopAndSave {
+    if plan(Recording::now(), None, false) == Plan::StopAndSave {
         stop(app).await?;
     }
     // A Stop from the window, the tray or the compact bar may still run; it
@@ -241,11 +337,11 @@ fn dialog<R: Runtime>(app: &AppHandle<R>, text: &str) -> MessageDialogBuilder<R>
     }
 }
 
-/// True for Stop and quit; Cancel, Escape and closing the dialog say no.
-async fn ask<R: Runtime>(app: &AppHandle<R>) -> bool {
+/// True for the quit button; Cancel, Escape and closing the dialog say no.
+async fn ask<R: Runtime>(app: &AppHandle<R>, question: &str, quit: &str) -> bool {
     let (answer, answered) = tokio::sync::oneshot::channel();
-    dialog(app, QUESTION)
-        .buttons(MessageDialogButtons::OkCancelCustom(STOP_AND_QUIT.into(), CANCEL.into()))
+    dialog(app, question)
+        .buttons(MessageDialogButtons::OkCancelCustom(quit.into(), CANCEL.into()))
         .show(move |confirmed| {
             let _ = answer.send(confirmed);
         });
@@ -270,29 +366,57 @@ mod tests {
     const SAVING: Recording = Recording { running: false, stopping: false, saving: true };
 
     #[test]
-    fn only_recording_work_asks_and_an_update_never_skips_the_question() {
+    fn recording_work_asks_first_and_an_update_never_skips_the_question() {
         for update_ready in [false, true] {
-            assert_eq!(plan(RUNNING, update_ready), Plan::StopAndSave);
-            assert_eq!(plan(STOPPING, update_ready), Plan::WaitForSave);
-            assert_eq!(plan(SAVING, update_ready), Plan::WaitForSave);
+            for busy in [None, Some(BusyReason::PostCall)] {
+                assert_eq!(plan(RUNNING, busy, update_ready), Plan::StopAndSave);
+                assert_eq!(plan(STOPPING, busy, update_ready), Plan::WaitForSave);
+                assert_eq!(plan(SAVING, busy, update_ready), Plan::WaitForSave);
+            }
         }
-        assert_eq!(plan(IDLE, false), Plan::Exit);
-        assert_eq!(plan(IDLE, true), Plan::Install);
+        assert_eq!(plan(IDLE, None, false), Plan::Exit);
+        assert_eq!(plan(IDLE, None, true), Plan::Install);
+    }
+
+    #[test]
+    fn busy_work_without_a_recording_asks_before_the_exit_cuts_it_off() {
+        // #121: tray Quit during the post-call pass quit at once.
+        for update_ready in [false, true] {
+            assert_eq!(
+                plan(IDLE, Some(BusyReason::Retranscription), update_ready),
+                Plan::Busy(BusyReason::Retranscription)
+            );
+        }
+        assert_eq!(action(Flow::Idle, Plan::Busy(BusyReason::Summary)), Action::Ask);
+        assert!(holds(Flow::Idle, Plan::Busy(BusyReason::Summary)), "macOS ⌘Q asks too");
+    }
+
+    #[test]
+    fn only_work_the_recording_question_does_not_cover_counts_as_busy() {
+        use BusyReason::*;
+        assert_eq!(other_work(&[]), None);
+        assert_eq!(other_work(&[Onboarding]), None, "unfinished setup is not work");
+        assert_eq!(other_work(&[Recording, RecordingStopping, RecordingSave]), None);
+        assert_eq!(other_work(&[Recording, PostCall, ModelDownload]), Some(PostCall));
+        assert_eq!(other_work(&[Onboarding, ModelDownload]), Some(ModelDownload));
+        for reason in [Import, Retranscription, Diarization, Summary, PostCall, ModelDownload, ModelCompile] {
+            assert!(busy_question(reason).contains(busy_clause(reason)));
+        }
     }
 
     #[test]
     fn a_stop_already_running_is_waited_for_and_never_started_twice() {
         // The stop's drain can outlive the capture flag.
         let draining = Recording { running: false, stopping: true, saving: false };
-        assert_eq!(plan(draining, false), Plan::WaitForSave);
+        assert_eq!(plan(draining, None, false), Plan::WaitForSave);
         // A new recording while the last meeting is still saved is stopped too.
         let new_recording = Recording { running: true, stopping: false, saving: true };
-        assert_eq!(plan(new_recording, false), Plan::StopAndSave);
+        assert_eq!(plan(new_recording, None, false), Plan::StopAndSave);
     }
 
     #[test]
     fn a_second_quit_neither_asks_again_nor_stops_again() {
-        for plan in [Plan::Exit, Plan::Install, Plan::StopAndSave, Plan::WaitForSave] {
+        for plan in [Plan::Exit, Plan::Install, Plan::StopAndSave, Plan::WaitForSave, Plan::Busy(BusyReason::Import)] {
             assert_eq!(action(Flow::Asking, plan), Action::BringForward);
             assert_eq!(action(Flow::Saving, plan), Action::BringForward);
         }
