@@ -1,6 +1,6 @@
 import {type FormEvent, useEffect, useState} from 'react'
 import {CaretDownIcon, DownloadSimpleIcon, WaveformIcon, XIcon} from '@phosphor-icons/react'
-import {useQuery, useQueryClient} from '@tanstack/react-query'
+import {type QueryClient, useQuery, useQueryClient} from '@tanstack/react-query'
 import {useNavigate} from 'react-router-dom'
 import styled from 'styled-components'
 import {
@@ -17,6 +17,7 @@ import {
 } from '@/api/audioImport'
 import {errorMessage} from '@/api/core'
 import {useNativeEvent} from '@/api/events'
+import {postCallControls} from '@/api/postCall'
 import {folderKeys, foldersQuery, meetingKeys, saveMeetingSummaryLanguage, setMeetingFolder} from '@/api/meetings'
 import {useMeetingLanguageStore, useSummaryLanguageStore} from '@/api/preferences'
 import {Button, IconButton} from '@/components/ui/Button'
@@ -190,12 +191,22 @@ export function ImportSheet() {
     const request = slot.request?.kind === 'import' ? slot.request : null
     const open = slot.open && request !== null
     const client = useQueryClient()
+    const navigate = useNavigate()
+    const pinnedSummaryLanguage = useSummaryLanguageStore((state) => state.value)
     const phase = useImportState((state) => state.phase)
     const running = isRunning(phase)
+    const [completeHeard, setCompleteHeard] = useState(false)
 
-    // Heard whatever the sheet shows: an import the sheet no longer follows
-    // still adds a meeting to the list.
-    useNativeEvent(IMPORT_COMPLETE_EVENT, () => void client.invalidateQueries({queryKey: meetingKeys.lists()}))
+    // Heard here, whatever the sheet shows: DialogHost keeps the sheet
+    // mounted while another dialog takes the slot, so an import the form no
+    // longer follows is still filed, opened and handed to the post-call
+    // steps.
+    useNativeEvent(IMPORT_COMPLETE_EVENT, (result) => {
+        void client.invalidateQueries({queryKey: meetingKeys.lists()})
+        if (isRunning(useImportState.getState().phase)) {
+            void finishImport(result, pinnedSummaryLanguage, client, (meetingId) => void navigate(paths.meeting(meetingId)))
+        }
+    }, {onListening: () => setCompleteHeard(true)})
 
     return (
         <Sheet
@@ -220,7 +231,7 @@ export function ImportSheet() {
                 </>
             )}
         >
-            {request && <ImportForm key={request.seq} request={request}/>}
+            {request && <ImportForm key={request.seq} request={request} completeHeard={completeHeard}/>}
         </Sheet>
     )
 }
@@ -242,18 +253,57 @@ async function checkFile(read: () => Promise<AudioFileInfo | null>) {
     }
 }
 
+/**
+ * The import is complete: the meeting is filed and given the pinned summary
+ * language, then speakers and the automatic summary run as after a
+ * recording (#206). The post-call runner owns those steps, so closing the
+ * sheet, or the window to the tray, does not stop them.
+ */
+async function finishImport(
+    result: ImportResult,
+    pinnedSummaryLanguage: string | null,
+    client: QueryClient,
+    openMeeting: (meetingId: string) => void,
+) {
+    const meetingId = result.meeting_id
+    const {folder} = useImportState.getState()
+    const [filed, language] = await Promise.allSettled([
+        folder ? setMeetingFolder(meetingId, folder.id) : null,
+        pinnedSummaryLanguage ? saveMeetingSummaryLanguage(meetingId, pinnedSummaryLanguage) : null,
+    ])
+    if (filed.status === 'rejected') {
+        toast.warning(`Couldn’t file the meeting in ${folder?.name}`, {description: errorMessage(filed.reason)})
+    }
+    if (language.status === 'rejected') {
+        toast.warning('Couldn’t apply the default summary language', {description: 'The meeting was imported; choose its summary language in Summary options.'})
+    }
+    // After the summary language, which the summary step reads.
+    if (result.segments_count > 0) postCallControls.afterImport(meetingId)
+    await Promise.all([
+        client.invalidateQueries({queryKey: meetingKeys.lists()}),
+        client.invalidateQueries({queryKey: folderKeys.all}),
+    ])
+    toast.success('Recording imported', {
+        description: result.segments_count > 0
+            ? `${result.segments_count} transcript ${result.segments_count === 1 ? 'line' : 'lines'}.`
+            : 'No speech was found in it.',
+    })
+    // The import is over: the next opening starts from an empty form,
+    // which the opening skips while the phase still says importing.
+    resetImport()
+    closeDialog('import')
+    openMeeting(meetingId)
+}
+
 async function stopImport() {
     useImportState.setState({phase: {step: 'cancelling'}})
     // Rejects when native already finished; its event then settles the sheet.
     await cancelImport().catch(() => undefined)
 }
 
-function ImportForm({request}: { request: Extract<OpenedDialog, { kind: 'import' }> }) {
-    const navigate = useNavigate()
-    const client = useQueryClient()
+function ImportForm({request, completeHeard}: { request: Extract<OpenedDialog, { kind: 'import' }>, completeHeard: boolean }) {
     const folders = useQuery(foldersQuery)
     const meetingLanguage = useMeetingLanguageStore((state) => state.value)
-    const pinnedSummaryLanguage = useSummaryLanguageStore((state) => state.value)
     const models = useSpeechModels()
 
     const {phase, file, title} = useImportState()
@@ -277,41 +327,9 @@ function ImportForm({request}: { request: Extract<OpenedDialog, { kind: 'import'
         if (request.path) void checkFile(() => checkAudioFile(request.path as string))
     }, [request.path])
 
-    const finish = async (result: ImportResult) => {
-        const meetingId = result.meeting_id
-        const folder = folderId === NO_FOLDER ? null : folders.data?.find((item) => item.id === folderId) ?? null
-        const [filed, language] = await Promise.allSettled([
-            folder ? setMeetingFolder(meetingId, folder.id) : null,
-            pinnedSummaryLanguage ? saveMeetingSummaryLanguage(meetingId, pinnedSummaryLanguage) : null,
-        ])
-        if (filed.status === 'rejected') {
-            toast.warning(`Couldn’t file the meeting in ${folder?.name}`, {description: errorMessage(filed.reason)})
-        }
-        if (language.status === 'rejected') {
-            toast.warning('Couldn’t apply the default summary language', {description: 'The meeting was imported; choose its summary language in Summary options.'})
-        }
-        await Promise.all([
-            client.invalidateQueries({queryKey: meetingKeys.lists()}),
-            client.invalidateQueries({queryKey: folderKeys.all}),
-        ])
-        toast.success('Recording imported', {
-            description: result.segments_count > 0
-                ? `${result.segments_count} transcript ${result.segments_count === 1 ? 'line' : 'lines'}.`
-                : 'No speech was found in it.',
-        })
-        // The import is over: the next opening starts from an empty form,
-        // which the opening skips while the phase still says importing.
-        resetImport()
-        closeDialog('import')
-        void navigate(paths.meeting(meetingId))
-    }
-
     const counted = () => setListening((count) => count + 1)
     useNativeEvent(IMPORT_PROGRESS_EVENT, (progress) => {
         if (phase.step === 'importing') useImportState.setState({phase: {step: 'importing', progress}})
-    }, {onListening: counted})
-    useNativeEvent(IMPORT_COMPLETE_EVENT, (result) => {
-        if (busy) void finish(result)
     }, {onListening: counted})
     useNativeEvent(IMPORT_ERROR_EVENT, ({error}) => {
         if (!busy) return
@@ -324,15 +342,17 @@ function ImportForm({request}: { request: Extract<OpenedDialog, { kind: 'import'
         }
     }, {onListening: counted})
     // Native can fail at once (a file gone since its check), so the three
-    // listeners must exist before the start. They register as the sheet
-    // opens, long before a file is chosen and Import pressed.
-    const listeners = listening >= 3
+    // listeners must exist before the start: these two register as the
+    // sheet opens, long before a file is chosen and Import pressed, and the
+    // sheet's own complete listener before that.
+    const listeners = listening >= 2 && completeHeard
 
     const submit = async (event: FormEvent) => {
         event.preventDefault()
         if (phase.step === 'failed') return useImportState.setState({phase: {step: file ? 'ready' : 'pick'}})
         if (!file || phase.step !== 'ready' || !listeners) return
-        useImportState.setState({phase: {step: 'importing', progress: null}})
+        const folder = folderId === NO_FOLDER ? null : folders.data?.find((item) => item.id === folderId) ?? null
+        useImportState.setState({phase: {step: 'importing', progress: null}, folder: folder && {id: folder.id, name: folder.name}})
         try {
             await startImport({
                 sourcePath: file.path,

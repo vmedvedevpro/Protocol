@@ -20,6 +20,11 @@ interface ImportState {
     file: AudioFileInfo | null
     /** The meeting's title, the file's name until the user types one. */
     title: string
+    /**
+     * The folder chosen when Import was pressed; the sheet files the meeting
+     * in it when native says the import is complete, whatever the form shows.
+     */
+    folder: { id: string, name: string } | null
 }
 
 /**
@@ -27,9 +32,9 @@ interface ImportState {
  * whatever the sheet shows, and the sheet's footer and its form both read
  * it. A drop onto the open sheet changes the file here.
  */
-export const useImportState = create<ImportState>(() => ({phase: {step: 'pick'}, file: null, title: ''}))
+export const useImportState = create<ImportState>(() => ({phase: {step: 'pick'}, file: null, title: '', folder: null}))
 
 export const isRunning = (phase: ImportPhase) => phase.step === 'importing' || phase.step === 'cancelling'
 
 /** Back to an empty form; the sheet leaves a running import alone. */
-export const resetImport = () => useImportState.setState({phase: {step: 'pick'}, file: null, title: ''})
+export const resetImport = () => useImportState.setState({phase: {step: 'pick'}, file: null, title: '', folder: null})

@@ -64,11 +64,13 @@ describe('the post-call jobs', () => {
 
 describe('the post-call controls', () => {
     it('forward to the registered runner, and to nothing once it is gone', async () => {
-        const runner = {cancel: vi.fn(), retry: vi.fn(), skip: vi.fn(), settled: vi.fn(() => Promise.resolve())}
+        const runner = {cancel: vi.fn(), retry: vi.fn(), skip: vi.fn(), afterImport: vi.fn(), settled: vi.fn(() => Promise.resolve())}
         const unregister = registerPostCallControls(runner)
         postCallControls.cancel('m1')
         postCallControls.retry('m1')
         postCallControls.skip('m1')
+        postCallControls.afterImport('m1')
+        expect(runner.afterImport).toHaveBeenCalledWith('m1')
         expect(runner.cancel).toHaveBeenCalledWith('m1')
         expect(runner.retry).toHaveBeenCalledWith('m1')
         expect(runner.skip).toHaveBeenCalledWith('m1')

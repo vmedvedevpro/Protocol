@@ -281,6 +281,12 @@ export interface PostCallControls {
      */
     skip: (meetingId: string) => void
     /**
+     * An import finished (#206): identify speakers and write the automatic
+     * summary, as after a recording. The pass is the runner's, so it goes on
+     * when the import sheet closes or another dialog takes its place.
+     */
+    afterImport: (meetingId: string) => void
+    /**
      * Resolves once the meeting's pass holds no native work: at once without
      * a pass or after a failure, else when a cancelled step has ended and
      * native has let go of the model (a retranscription finishes the piece it
@@ -304,5 +310,6 @@ export const postCallControls: PostCallControls = {
     cancel: (meetingId) => controls?.cancel(meetingId),
     retry: (meetingId) => controls?.retry(meetingId),
     skip: (meetingId) => controls?.skip(meetingId),
+    afterImport: (meetingId) => controls?.afterImport(meetingId),
     settled: (meetingId) => controls?.settled(meetingId) ?? Promise.resolve(),
 }

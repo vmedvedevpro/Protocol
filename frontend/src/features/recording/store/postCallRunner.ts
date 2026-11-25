@@ -47,6 +47,11 @@ export interface PostCallStart {
     folderPath: string | null
     /** Native saved the audio without an error. */
     audioSaved: boolean
+    /**
+     * The transcript is already the after-meeting one: an import transcribed
+     * the file (#206), so the pass starts at speakers.
+     */
+    imported?: boolean
 }
 
 interface Pass {
@@ -300,18 +305,19 @@ function resume(pass: Pass, step: PostCallStep) {
  * summary model can write (`usableSummaryModel`: first launch can leave it
  * for later, or a built-in model can be missing, and then summaries stay off
  * rather than fail on every meeting). A meeting without audio keeps its
- * live transcript.
+ * live transcript. An imported meeting skips the retranscription: native
+ * copied its file into the meeting folder and transcribed it already.
  */
-export async function startPostCall({meetingId, folderPath, audioSaved}: PostCallStart) {
+export async function startPostCall({meetingId, folderPath, audioSaved, imported = false}: PostCallStart) {
     if (passes.has(meetingId)) return
-    const preferences = await queries().fetchQuery(recordingPreferencesQuery).catch(() => null)
-    const audio = audioSaved && !!folderPath && preferences?.auto_save !== false
+    const preferences = imported ? null : await queries().fetchQuery(recordingPreferencesQuery).catch(() => null)
+    const audio = imported || (audioSaved && !!folderPath && preferences?.auto_save !== false)
     const speakers = audio && (await diarizationAvailable().catch(() => false))
     // A config that cannot be read keeps the step, which then reports why.
     const summary = useAutoSummaryStore.getState().value
         && (await getSummaryModelConfig().then(async (config) => (await usableSummaryModel(config)).ok, () => true))
     const steps: PostCallStep[] = [
-        ...(audio ? ['transcript' as const] : []),
+        ...(audio && !imported ? ['transcript' as const] : []),
         ...(speakers ? ['speakers' as const] : []),
         ...(summary ? ['summary' as const] : []),
     ]
@@ -362,6 +368,9 @@ export const runnerControls = {
         pass.steps = pass.steps.filter((step) => step !== job.step)
         postCallJobs.queue(meetingId, pass.steps)
         resume(pass, after[0])
+    },
+    afterImport(meetingId: string) {
+        void startPostCall({meetingId, folderPath: null, audioSaved: true, imported: true})
     },
     settled(meetingId: string): Promise<void> {
         const pass = passes.get(meetingId)

@@ -1488,7 +1488,15 @@ another meeting starts from fresh state).
   registers its listeners before the start call, cannot be dismissed while
   the work runs, and Stop asks native to cancel; the native event, not the
   promise, ends it. Import's phase lives in a store of its own
-  (`import/importState.ts`), since the footer and the form both read it.
+  (`import/importState.ts`), since the footer and the form both read it,
+  with the folder chosen at Import. `ImportSheet` itself, which DialogHost
+  keeps mounted while another dialog takes the slot, hears
+  `import-complete`: it files the meeting, sets the pinned summary language,
+  then hands the meeting to the post-call runner through
+  `postCallControls.afterImport` (#206), which identifies speakers and
+  writes the automatic summary as after a recording, without the
+  retranscription; closing the sheet, or the window to the tray, does not
+  stop them.
 - Files dragged over the main window dim it (`import/DropOverlay.tsx`,
   Tauri's `tauri://drag-*` events of that window); the first audio or
   video file dropped opens Import with it.

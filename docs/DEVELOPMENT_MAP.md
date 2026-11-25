@@ -339,7 +339,12 @@ Read [PR34_NEMOTRON.md](PR34_NEMOTRON.md) before changing that contract.
 
 Frontend post-call sequencing lives in
 `frontend/src/features/recording/store/postCallRunner.ts`, mounted above
-navigation through `RecordingRuntime` in the shell; screens read the job
+navigation through `RecordingRuntime` in the shell. A recording's save starts
+it with retranscription, speakers and the summary; an import (#206) starts it
+through `postCallControls.afterImport` from Import's sheet once the meeting is
+filed, with speakers and the summary only, since the import transcribed the
+file (tests: the import cases of `postCallRunner.test.ts` and
+`ImportSheet.test.tsx`); screens read the job
 (`src/api/postCall.ts`) and ask the runner to cancel, retry or skip. The old
 UI (`162e8be`) had it in `components/MeetingDetails/PostCallProcessingWorker.tsx`
 and `contexts/PostCallJobsContext.tsx`. Completion and

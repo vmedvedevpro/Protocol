@@ -39,6 +39,10 @@ is inherited from the project Protocol forked from; Protocol did not release it.
   again after you named a speaker could not split that speaker any more. A
   name now stays with the voice it belongs to and the other voices get their
   own labels. A line you moved to someone on its own keeps that person.
+- **Speakers and the summary after an import**
+  ([#217](https://github.com/vmedvedevpro/Protocol/issues/217)). An imported
+  recording now has its speakers identified and, when the automatic summary
+  is on, its summary written, as a finished recording does.
 
 ## Protocol 1.0.0-rc.1 — 2026-11-26
 
