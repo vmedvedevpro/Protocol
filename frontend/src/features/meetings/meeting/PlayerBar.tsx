@@ -218,6 +218,11 @@ const Unavailable = styled.p`
     color: ${({theme}) => theme.colors.muted};
 `
 
+// A carried-over Windows path has no spaces to break at.
+const Folder = styled.span`
+    overflow-wrap: anywhere;
+`
+
 const rateLabel = (rate: number) => `${rate}×`
 
 interface PlayerBarProps {
@@ -230,6 +235,11 @@ interface PlayerBarProps {
     peaks?: readonly number[] | null
     /** The speeds the speed button steps through (`SLOW_PLAYBACK_RATES` with the waveform on). */
     rates?: readonly number[]
+    /**
+     * Where the meeting was saved, when that folder is gone and the
+     * recordings folder has none of its name (`MeetingAudio.missingFolder`).
+     */
+    missingFolder?: string | null
 }
 
 /**
@@ -239,7 +249,7 @@ interface PlayerBarProps {
  * speed. The position and the scrubber follow the player's clock through
  * refs, so playback renders nothing.
  */
-export function PlayerBar({player, status, playing, duration, rate, peaks, rates = PLAYBACK_RATES}: PlayerBarProps) {
+export function PlayerBar({player, status, playing, duration, rate, peaks, rates = PLAYBACK_RATES, missingFolder}: PlayerBarProps) {
     const position = useRef<HTMLSpanElement>(null)
     const scrubber = useRef<HTMLInputElement>(null)
     const track = useRef<HTMLDivElement>(null)
@@ -262,7 +272,9 @@ export function PlayerBar({player, status, playing, duration, rate, peaks, rates
             <Bar role="group" aria-label="Playback">
                 <Unavailable>
                     <SpeakerSlashIcon aria-hidden/>
-                    {status === 'error' ? 'The recording couldn’t be played.' : 'No audio was saved for this meeting.'}
+                    {status === 'error' ? 'The recording couldn’t be played.' : missingFolder ? (
+                        <Folder>The recording isn’t where it was saved: {missingFolder}</Folder>
+                    ) : 'No audio was saved for this meeting.'}
                 </Unavailable>
             </Bar>
         )

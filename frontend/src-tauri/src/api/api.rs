@@ -303,6 +303,10 @@ pub struct MeetingAudio {
     /// serve media to it (WebKitGTK, see recording_stream.rs); `None`
     /// elsewhere, where the page streams `path` through the asset protocol.
     pub playback_url: Option<String>,
+    /// The folder the meeting was saved in, when it is gone and the
+    /// recordings folder has no folder of its name either: the recording is
+    /// not where it was saved, rather than never saved.
+    pub missing_folder: Option<String>,
 }
 
 const PLAYABLE_EXTENSIONS: [&str; 8] = ["mp4", "m4a", "mp3", "wav", "aac", "flac", "ogg", "webm"];
@@ -323,6 +327,7 @@ pub async fn api_get_meeting_audio<R: Runtime>(
         mic_path: None,
         system_path: None,
         playback_url: None,
+        missing_folder: None,
     };
     let folder: Option<String> = sqlx::query_scalar("SELECT folder_path FROM meetings WHERE id = ?")
         .bind(&meeting_id)
@@ -331,9 +336,25 @@ pub async fn api_get_meeting_audio<R: Runtime>(
         .map_err(|e| format!("Failed to look up the meeting folder: {}", e))?
         .flatten();
     let Some(folder) = folder else { return Ok(none) };
-    let dir = std::path::PathBuf::from(folder);
+    let mut dir = std::path::PathBuf::from(&folder);
     if !dir.is_dir() {
-        return Ok(none);
+        // Carried over from another computer: the folder was copied into this
+        // one's recordings folder under the same name (meeting_folder.rs).
+        // The new path is written back, since retranscription, speakers, the
+        // summary and Open recording folder all read folder_path too.
+        let recordings = crate::audio::recording_preferences::configured_recordings_folder(&app).await;
+        let Some(moved) = crate::meeting_folder::relocated(&folder, &recordings) else {
+            return Ok(MeetingAudio { missing_folder: Some(folder), ..none });
+        };
+        sqlx::query("UPDATE meetings SET folder_path = ? WHERE id = ? AND folder_path = ?")
+            .bind(moved.to_string_lossy().to_string())
+            .bind(&meeting_id)
+            .bind(&folder)
+            .execute(state.db_manager.pool())
+            .await
+            .map_err(|e| format!("Failed to update the meeting folder: {}", e))?;
+        log::info!("Meeting {} folder found by name in the recordings folder: {}", meeting_id, moved.display());
+        dir = moved;
     }
 
     let existing = |name: &str| {
@@ -366,6 +387,7 @@ pub async fn api_get_meeting_audio<R: Runtime>(
         mic_path: existing("mic.mp4"),
         system_path: existing("system.mp4"),
         playback_url,
+        missing_folder: None,
     };
     if audio.path.is_some() || audio.mic_path.is_some() || audio.system_path.is_some() {
         app.asset_protocol_scope()

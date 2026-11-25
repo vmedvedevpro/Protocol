@@ -78,6 +78,8 @@ export interface MeetingAudio {
      * URLs; see recording_stream.rs); null elsewhere.
      */
     playbackUrl: string | null
+    /** Where it was saved, when that folder is gone (moved from another computer) and none of its name is in the recordings folder. */
+    missingFolder: string | null
 }
 
 export const meetingKeys = {

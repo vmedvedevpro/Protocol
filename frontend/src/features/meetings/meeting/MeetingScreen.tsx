@@ -164,7 +164,8 @@ export function MeetingScreen({meetingId}: { meetingId: string }) {
     // Native says whether the meeting has a recording; whether this WebView
     // can play it only switches the player off. Improve and Identify speakers
     // read the file in native code, so a playback error leaves them in place.
-    const audioPath = useQuery(meetingAudioQuery(meetingId)).data?.path ?? null
+    const audio = useQuery(meetingAudioQuery(meetingId)).data
+    const audioPath = audio?.path ?? null
     const hasAudio = !!audioPath
     const playable = playback.status !== 'unavailable' && playback.status !== 'error'
     // Labs: the waveform and slow speeds in the player, the clean text with its Clean/Verbatim switch.
@@ -271,6 +272,7 @@ export function MeetingScreen({meetingId}: { meetingId: string }) {
             {...playback}
             peaks={scrubbing ? peaks : null}
             rates={scrubbing ? SLOW_PLAYBACK_RATES : undefined}
+            missingFolder={audio?.missingFolder}
         />}>
             <MeetingHeader
                 title={title}

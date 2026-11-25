@@ -1466,6 +1466,20 @@ WAV, M4A and a two-hour AAC `audio.mp4` (playing, and seeking to 1:56:00);
 meeting has audio comes from native, not from playback: a recording the WebView
 cannot play only switches the player off.
 
+Meetings carried over from another computer keep the absolute `folder_path`
+they were saved with (a `C:\…` path on Linux). When that folder is gone,
+`api_get_meeting_audio` looks for a folder of the same name in the current
+recordings folder (`meeting_folder.rs`) and, when there is one, writes its path
+back to `meetings.folder_path`, since retranscription, speakers, the summary
+and Open recording folder read that column too; otherwise it reports
+`missingFolder` and the player says "The recording isn't where it was saved"
+with the folder, not "No audio was saved". A recordings folder setting that is
+not an absolute path on this OS falls back to the default folder on load
+(`preferences_from_store_value`, not written back). Tests:
+`meeting_folder::tests` and
+`another_systems_recordings_folder_falls_back_to_the_default`; checked on Linux
+with a `C:\…` folder path and a `C:\…` recordings folder.
+
 ### AI agents: the MCP server (#8)
 
 `mcp-server/` (`protocol-mcp`) serves the meeting library to AI agents over
