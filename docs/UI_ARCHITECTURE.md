@@ -406,13 +406,17 @@ enter and exit, indicators and springs.
 - Only `transform` and `opacity` animate, plus colours in state feedback and
   the theme change. Width, height, top, left and margin never animate: each
   frame would lay the window out again. Something that has to grow appears
-  with a small rise under a veil, and the layout moves once. The one exception
-  is `Collapse`, a disclosure's content ("What's included?", advanced
-  settings) or a banner's slot: it grows its height under a clip, because
-  what follows it has to slide rather than jump, and its text must not
-  fade, since text that ends an opacity animation is rasterized again and
-  visibly blinks. It is a short block in a sheet, a settings card or atop
-  Home, so laying it out each frame is cheap.
+  with a small rise under a veil, and the layout moves once. There are two
+  exceptions. One is `Collapse`, a disclosure's content ("What's included?",
+  advanced settings) or a banner's slot: it grows its height under a clip,
+  because what follows it has to slide rather than jump, and its text must
+  not fade, since text that ends an opacity animation is rasterized again
+  and visibly blinks. It is a short block in a sheet, a settings card or
+  atop Home, so laying it out each frame is cheap. The other exception is
+  the thumb of Home's folder chips: chips differ in width, so its width and
+  height follow the chosen chip's on the same spring as its position. A
+  `scaleX` would stretch its rounded ends; it is one absolutely positioned
+  box with no text, so its layout touches nothing around it.
 - Text never fades itself. Under an opacity below 1 Chromium draws text
   without subpixel antialiasing and draws it again when the fade ends, a
   visible blink. So content that holds text keeps its 4 px rise
@@ -486,7 +490,8 @@ enter and exit, indicators and springs.
     keyed by the bar's label, so starting keeps the pending Record button
     and pausing replays nothing; the bar and the ring stay mounted.
   - Home's folder chips: the selected chip's outline is a thumb that
-    slides to the chip chosen by transform on `springs.snappy`.
+    slides to the chip chosen by transform on `springs.snappy`, taking
+    the chip's size on the same spring.
   - Tabs and segmented controls: the thumb slides, except that a change
     made with the keyboard lands at once (so does the Switch's knob), as
     the menus' highlight does; the panel below swaps

@@ -3,6 +3,7 @@ import {screen, waitFor} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import {describe, expect, it, vi} from 'vitest'
 import type {Folder} from '@/api/meetings'
+import {playAnimations, watchStyles} from '@/test/motion'
 import {renderUi} from '@/test/renderUi'
 import {FolderBar} from './FolderBar'
 
@@ -34,5 +35,33 @@ describe('FolderBar', () => {
         // The same element moved by transform: the outline slides, it does not jump to a new chip.
         await waitFor(() => expect(thumb.style.transform).toBe(`translateX(${2 * CHIP_WIDTH}px)`))
         expect(screen.getByTestId('folder-thumb')).toBe(thumb)
+    })
+
+    it('grows or shrinks the thumb to the chosen chip while it slides, not before', async () => {
+        await playAnimations()
+        // Chips of unequal widths, side by side: All 40 px, Acme Corp 80 px, Design Team 120 px.
+        const widthOf = (element: HTMLElement) => {
+            const chips = Array.from(element.parentElement?.querySelectorAll('[aria-pressed]') ?? [])
+            return (Math.max(0, chips.indexOf(element)) + 1) * 40
+        }
+        vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(function (this: HTMLElement) {
+            return widthOf(this)
+        })
+        vi.spyOn(HTMLElement.prototype, 'offsetLeft', 'get').mockImplementation(function (this: HTMLElement) {
+            const chips = Array.from(this.parentElement?.querySelectorAll<HTMLElement>('[aria-pressed]') ?? [])
+            return chips.slice(0, Math.max(0, chips.indexOf(this))).reduce((left, chip) => left + widthOf(chip), 0)
+        })
+        renderUi(<Bar/>)
+        const thumb = screen.getByTestId('folder-thumb')
+        expect(thumb).toHaveStyle({width: '40px'})
+
+        const styles = watchStyles(thumb)
+        await userEvent.click(screen.getByRole('button', {name: 'Design Team'}))
+        await waitFor(() => expect(thumb).toHaveStyle({width: '120px'}), {timeout: 2000})
+
+        // Every width on the way lies between the two chips', as the position does.
+        const widths = styles.valuesOf(thumb, 'width').map(Number.parseFloat)
+        expect(widths.length).toBeGreaterThan(2)
+        expect(widths.slice(0, -1).every((width) => width > 40 && width < 120)).toBe(true)
     })
 })
