@@ -74,8 +74,11 @@ that model lists ask Hugging Face for sizes whether the switch is on or not
 - **Quit.** Tray Quit, and on macOS ⌘Q and Dock Quit, install a downloaded
   update without relaunch when nothing is busy; the next start runs the new
   version. Otherwise they quit as before. A quit during a recording first asks
-  to stop and save it (#32, `quit.rs`); after **Stop and quit** has saved the
-  meeting, the install follows the same gate. macOS and Linux skip the install
+  to stop and save it (#32, `quit.rs`), and one during other busy work asks
+  whether to quit anyway (#121); after **Stop and quit** has saved the
+  meeting, the install follows the same gate. On Unix SIGTERM and SIGINT ask
+  the same questions but never install: a logout would kill the installer
+  midway. macOS and Linux skip the install
   on quit when the app's folder is not writable instead of raising an
   administrator prompt. On Windows only tray Quit installs: closing the window
   hides it to the tray.

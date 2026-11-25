@@ -132,7 +132,7 @@ describe('MeetingScreen', () => {
         await user.click(screen.getByRole('menuitem', {name: 'Copy transcript'}))
         await screen.findByText('Transcript copied')
         const copied = await navigator.clipboard.readText()
-        expect(copied).toMatch(/^# Acme pilot security review\n\n_.+_\n\n## Transcript\n\n\[\d\d:\d\d\] \*\*/)
+        expect(copied).toMatch(/^# Acme pilot security review\n\n[^_\n]+\n\n## Transcript\n\n\[\d\d:\d\d\] \*\*/)
     })
 
     it('moves the meeting to another folder', async () => {

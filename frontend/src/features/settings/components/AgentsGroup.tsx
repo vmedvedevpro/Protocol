@@ -60,7 +60,7 @@ export function AgentsGroup({platform = currentPlatform}: {platform?: Platform})
     )
 }
 
-/** Where the database, the models and, by default, the recordings are. */
+/** Where the meetings database and the models are; recordings have their own folder (Settings › Recording). */
 export function DiskGroup() {
     const folder = useQuery(dataFolderQuery)
     const open = useMutation({
@@ -71,7 +71,7 @@ export function DiskGroup() {
         <SettingsGroup>
             <SettingsRow
                 label="Disk"
-                description={folder.data ? `Models and recordings · ${folder.data}` : 'Models and recordings'}
+                description={folder.data ? `Meetings database and models · ${folder.data}` : 'Meetings database and models'}
                 control={<Button size="sm" pending={open.isPending} onClick={() => open.mutate()}>Show folder</Button>}
             />
         </SettingsGroup>

@@ -331,7 +331,9 @@ theme; the motion from the Motion section.
 - Settings search needs no list of settings: under a `SettingsSearchScope`
   each `SettingsRow`, `SettingsNavRow` and `SettingsRadioRow` checks its own
   label, string description, badge and value against every word of the
-  query (`settingsSearch.ts`). A row that does not match renders nothing,
+  query (`settingsSearch.ts`): each word must start a word of that text, so
+  "model" finds "Model updates" and "models" but no text that only contains
+  it inside a word (#121). A row that does not match renders nothing,
   so its control remounts when it shows again; a group with no row left
   (`[data-settings-row]`) hides by CSS `:has()`, titled with the scope
   before its own title ("AI · Summaries") and without its note. The card's
@@ -1146,7 +1148,10 @@ recording and hides the main window: minimizing the main window does it
   (`SpeechModels`, its `SETTINGS_PAGES` entry) shows the pair for this
   computer with its Intel paths, then every Parakeet and Whisper model with
   its download, Cancel, Retry, Remove after a sheet, a damaged copy's
-  Download again and the catalog's update; every download row there,
+  Download again, a stopped built-in download's share with Resume
+  (`incomplete`: native resumes it with a Range request) and the
+  catalog's update; a cancel reads the list again once native has removed
+  the partial file, which it does only before the cancel resolves; every download row there,
   Nemotron's and the Intel ones included, is a `ModelRow` (shared with
   the summary models since #117's AI half); native reads missing sizes
   (`model_catalog_request_sizes`). Tests: `components/speech/*.test.tsx`;
@@ -1226,7 +1231,14 @@ another meeting starts from fresh state).
   (no input listed means no microphone) and, on macOS, the Audio Capture
   record or this session's probe (`home/audioAccess.ts`); Check again asks
   the system again and reads both anew. Linux asks for nothing and shows
-  none.
+  none. The summary model banner (`home/SummaryModelBanner.tsx`, read by
+  `home/missingSummaryModel.ts`, #121)
+  shows while the built-in model in use is not on this computer and no
+  download of it runs: a first-launch download cut by a quit, a failed one,
+  or a removed file. It names a stopped download's share and resumes it
+  from the partial file native keeps (Resume download), or downloads it.
+  First launch does not restart downloads on its own after a restart: a
+  model the user removed would come back.
 - **Update toasts.** `UpdateToasts`, mounted once in the shell, toasts a
   release when it becomes available, a download finished in this session
   (one restored at launch is the banner's alone) and an update that just

@@ -72,6 +72,19 @@ export function deviceLabel(stored: string): string {
     return stored.replace(/\s*\((input|output)\)$/i, '')
 }
 
+/**
+ * The device a recording would open: the saved one while it is connected,
+ * else the system default (`device: null`), which native falls back to too
+ * (`start_recording` in recording_commands.rs). `missing` names a saved
+ * device that is not connected (carried-over settings, an unplugged
+ * headset); the preference keeps it, so it is used again once it is back.
+ * Until the list is known the saved device counts as connected.
+ */
+export function deviceInUse(saved: string | null | undefined, devices: readonly AudioDevice[] | undefined): {device: string | null, missing: string | null} {
+    if (!saved || !devices || devices.some((device) => deviceValue(device) === saved)) return {device: saved ?? null, missing: null}
+    return {device: null, missing: deviceLabel(saved)}
+}
+
 export const deviceKeys = {
     all: ['devices'] as const,
     list: () => [...deviceKeys.all, 'list'] as const,

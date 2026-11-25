@@ -349,6 +349,8 @@ pub fn run() {
             if let Err(error) = crash_report::start_session() {
                 log::error!("Failed to initialize crash reporting: {error}");
             }
+            #[cfg(unix)]
+            quit::quit_on_termination_signals(_app.handle());
             #[cfg(any(windows, target_os = "linux"))]
             onnx_runtime::initialize(_app.handle());
             log::info!("Application setup complete");

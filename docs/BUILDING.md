@@ -68,6 +68,75 @@ needs network access:
     the other's files, and each build downloads its runtime again.
 - The Silero VAD model (`vendor/silero-rs/build.rs`), embedded into the app.
 
+## Build from source (Linux)
+
+The release workflow builds Linux on Ubuntu 22.04
+(`.github/workflows/release-build-linux.yml`); that build is the reference.
+A local build on a current distribution works with the notes below (checked
+on Kubuntu 26.10, x86_64, #121).
+
+Packages, as the workflow installs them (Debian and Ubuntu names), plus Rust
+and Node.js 20+:
+
+```sh
+sudo apt-get install -y --no-install-recommends \
+  libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf \
+  libasound2-dev libx11-dev libxtst-dev libxrandr-dev libdbus-1-dev libssl-dev pkg-config \
+  libclang-dev
+```
+
+The workflows pin pnpm to 11.9.0 (`pnpm/action-setup`). Without
+a global pnpm, install it locally or run it through npx:
+
+```sh
+npm install --prefix ~/.local/share/pnpm-cli pnpm@11.9.0
+export PATH=$HOME/.local/share/pnpm-cli/node_modules/.bin:$PATH
+(cd frontend && pnpm install --frozen-lockfile)
+```
+
+The two sidecars are built and copied as on Windows, with the Linux triple:
+
+```sh
+cargo build --release --locked -p llama-helper -p protocol-mcp
+mkdir -p frontend/src-tauri/binaries
+cp target/release/llama-helper frontend/src-tauri/binaries/llama-helper-x86_64-unknown-linux-gnu
+cp target/release/protocol-mcp frontend/src-tauri/binaries/protocol-mcp-x86_64-unknown-linux-gnu
+```
+
+**OpenSSL 4 hosts.** llama.cpp's vendored cpp-httplib (`llama-cpp-sys-2`) does
+not compile against OpenSSL 4, whose `X509_get_subject_name` returns a
+`const X509_NAME*`; Ubuntu 22.04 has OpenSSL 3 and never sees it. The
+summary sidecar does not need llama.cpp's HTTPS support, so tell CMake not to
+look for OpenSSL (`llama-cpp-sys-2`'s build script passes `CMAKE_*` variables
+through). CMake caches the first result, so clean the crate once after the
+failed build:
+
+```sh
+export CMAKE_DISABLE_FIND_PACKAGE_OpenSSL=ON
+cargo clean -p llama-cpp-sys-2 --release
+cargo build --release --locked -p llama-helper -p protocol-mcp
+```
+
+Then build the app as the workflow does, from `frontend/`:
+
+```sh
+pnpm exec tauri build --ci --no-bundle -- --locked                          # the binary alone
+pnpm exec tauri build --ci --bundles deb --config src-tauri/tauri.deb.conf.json -- --locked
+```
+
+A `--no-bundle` binary looks for its resources (ONNX Runtime, the sidecars,
+the templates) where a package puts them, under `/usr/lib/<productName>/`, and
+logs `Bundled ONNX Runtime unavailable` when run from `target/release`. To run
+a local build, extract the deb (`dpkg-deb -x`) and start `usr/bin/protocol`
+from the extracted tree.
+
+**AppImage.** Bundling an AppImage fails on Kubuntu 26.10 hosts: linuxdeploy's
+GTK plugin stops with `cp: '…/10_gsettings-desktop-schemas.gschema.override'
+and '…' are the same file`, because that gschema override is a symlink there.
+It also needs `APPIMAGE_EXTRACT_AND_RUN=1` and `NO_STRIP=true` on such hosts.
+The deb builds; the AppImage (and its updatable path) comes from the release
+workflow on Ubuntu 22.04.
+
 Frontend checks, as run in CI:
 
 ```powershell

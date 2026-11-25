@@ -26,6 +26,6 @@ describe('copied text', () => {
 
     it('heads the document with the title and the date', () => {
         expect(meetingDocument('Standup', null, [['Summary', 'Body']])).toBe('# Standup\n\n## Summary\n\nBody')
-        expect(meetingDocument('Standup', new Date(2026, 10, 25), [])).toMatch(/^# Standup\n\n_.*2026.*_$/)
+        expect(meetingDocument('Standup', new Date(2026, 10, 25), [])).toMatch(/^# Standup\n\n[^_*]*2026[^_*]*$/)
     })
 })

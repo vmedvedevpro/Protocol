@@ -122,12 +122,13 @@ describe('Recording › Computer audio', () => {
 })
 
 describe('Recording › devices', () => {
-    it('stores the chosen microphone with its type, and shows a missing one as such', async () => {
+    it('stores the chosen microphone with its type, and shows the default for a missing one, saying so', async () => {
         mockState.devices.recordingPreferences = {...stored(), preferred_system_device: 'USB Headset (output)'}
         renderRecording()
 
         const output = await screen.findByRole('combobox', {name: 'System audio'})
-        await waitFor(() => expect(output).toHaveTextContent('USB Headset (not connected)'))
+        await waitFor(() => expect(output).toHaveTextContent('Default output'))
+        expect(screen.getByText('USB Headset isn’t connected, so the default is used')).toBeInTheDocument()
         await userEvent.click(screen.getByRole('combobox', {name: 'Microphone'}))
         await userEvent.click(await screen.findByRole('option', {name: 'Studio Display Microphone'}))
 

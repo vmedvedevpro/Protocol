@@ -208,11 +208,26 @@ the meeting row; the next start offered the meeting for recovery from IndexedDB
 (only with at least one transcript line), with audio rebuilt from the
 checkpoints.
 
-`quit.rs` owns user quits: tray Quit, and on macOS ⌘Q and Dock Quit
-(`RunEvent::ExitRequested { code: None }`, held back by `quit::holds_exit`).
-`plan` reads recording state (running, stopping, or saving through the
-handoff) and whether a downloaded update would install. With no recording work
-the quit goes to `updater::quit_app` as before. Otherwise the main window leaves
+`quit.rs` owns user quits: tray Quit, on macOS ⌘Q and Dock Quit
+(`RunEvent::ExitRequested { code: None }`, held back by `quit::holds_exit`),
+and on Unix SIGTERM and SIGINT (logout, shutdown, `kill`, Ctrl+C;
+`quit_on_termination_signals`, tokio's signal streams), so a signal ends in
+`RunEvent::Exit` and the crash session is marked clean instead of being
+reported as an unclean shutdown on the next start (#121). The first signal
+asks as tray Quit does; a second one exits at once (on a logout nobody
+answers, and the session manager's SIGKILL would follow), and no signal
+installs a downloaded update, which a logout would kill midway
+(`on_signal`). After **Stop and quit** saved the meeting, only a recording
+started meanwhile asks again; other busy work does not, since the user
+already chose to quit. `plan` reads
+recording state (running, stopping, or saving through the handoff), the other
+work `updater::busy::current` reports, and whether a downloaded update would
+install. Busy work without a recording (the post-call pass, a
+retranscription, speaker identification, a summary, an import, a model
+download or GPU compile; unfinished setup does not count) asks "Protocol is
+still busy: <the work>. Quit anyway?" with **Quit anyway** and **Cancel** (#121: tray
+Quit during the post-call pass used to quit at once). With nothing busy the
+quit goes to `updater::quit_app` as before. With recording work the main window leaves
 compact mode and comes forward, and a native dialog (tauri-plugin-dialog, a
 task dialog on Windows) asks "A recording is in progress. Stop and save it, then
 quit?" with **Stop and quit** and **Cancel**. Stop and quit runs the tray's
@@ -232,9 +247,9 @@ answers let the app exit, handoff ids and the answer window) and
 `frontend/src/features/recording/store/save.test.tsx` (the answer for each
 ending, no meeting page and no post-call pass when quitting, the `stop_id`
 hand-over). Limits: Stop and quit does not run
-speaker identification or the automatic summary; import, retranscription,
-post-call processing and model downloads are not asked about and end with the
-process as before (a summary cut off this way stays pending); Windows shutdown
+speaker identification or the automatic summary; **Quit anyway** ends busy
+work with the process (a summary cut off this way stays pending, a built-in
+model download resumes from its partial file); Windows shutdown
 and log-off exit without asking (tao ends the process on `WM_ENDSESSION`); only
 the latest handoff is tracked, so a second Stop during a save is answered
 `notSaved`.
@@ -1207,7 +1222,7 @@ busy. The feature note is [AUTO_UPDATE.md](AUTO_UPDATE.md).
 | `updater/install.rs` | Install gate (engine lifecycle lock, busy re-check), exit preparation, per-platform install |
 | `updater/engine.rs`, `cache.rs`, `schedule.rs`, `prefs.rs`, `support.rs`, `journal.rs` | Plugin calls and error mapping, the verified download cache and install marker, check timing and backoff, `updater.json` preferences, which installs can update, `updater.log` |
 | `model_catalog/service.rs` | The model list and model update check, run from the same scheduler tick and switch (see [MODEL_CATALOG.md](MODEL_CATALOG.md)) |
-| `tray.rs`, `quit.rs` | Check for Updates, the available or ready version, Restart to Update; Quit through `quit::request`, which saves a running recording first and then calls `updater::quit_app` |
+| `tray.rs`, `quit.rs` | Check for Updates, the available or ready version, Restart to Update; Quit through `quit::request`, which saves a running recording first, asks about other busy work, and then calls `updater::quit_app` |
 | `contexts/UpdaterContext.tsx`, `lib/updater.ts` | Snapshot mirror, commands, every user-visible sentence |
 | `components/updater/*` | Sidebar pill and panel, Settings › About block, toasts, `UpdaterActivityReporter` |
 

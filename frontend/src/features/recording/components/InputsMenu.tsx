@@ -4,6 +4,7 @@ import {GearIcon} from '@phosphor-icons/react'
 import {
     audioDevicesQuery,
     type AudioDevice,
+    deviceInUse,
     deviceValue,
     recordingPreferencesQuery,
     updateRecordingPreferencesMutation,
@@ -28,8 +29,10 @@ interface InputsMenuProps {
  * Change inputs: the microphone and the output whose sound is recorded. While
  * idle a choice is the next recording's; during one the device switches at
  * once, and if it cannot, the old one keeps recording. Either way the choice
- * is stored (Settings › Recording shows the same). macOS records the
- * current output, so it offers no output choice.
+ * is stored (Settings › Recording shows the same). A saved device that is
+ * not connected shows the default checked, which a recording opens, and is
+ * named beside it. macOS records the current output, so it offers no output
+ * choice.
  */
 export function InputsMenu({trigger, onOpenSettings}: InputsMenuProps) {
     const phase = useSessionStore((state) => state.phase)
@@ -40,8 +43,9 @@ export function InputsMenu({trigger, onOpenSettings}: InputsMenuProps) {
 
     const inputs = devices.data?.filter((device) => device.device_type === 'Input') ?? []
     const outputs = devices.data?.filter((device) => device.device_type === 'Output') ?? []
-    const mic = preferences.data?.preferred_mic_device ?? DEFAULT
-    const output = preferences.data?.preferred_system_device ?? DEFAULT
+    const mic = deviceInUse(preferences.data?.preferred_mic_device, devices.data)
+    const output = deviceInUse(preferences.data?.preferred_system_device, devices.data)
+    const systemDefault = (missing: string | null) => (missing ? `System default (${missing} isn’t connected)` : 'System default')
 
     const choose = async (kind: 'mic' | 'system', value: string) => {
         const device = [...inputs, ...outputs].find((each) => deviceValue(each) === value)
@@ -59,16 +63,16 @@ export function InputsMenu({trigger, onOpenSettings}: InputsMenuProps) {
     return (
         <Menu trigger={trigger} side="top" align="start">
             <MenuGroup label="Microphone">
-                <MenuRadioGroup value={mic} onValueChange={(value) => void choose('mic', value)}>
+                <MenuRadioGroup value={mic.device ?? DEFAULT} onValueChange={(value) => void choose('mic', value)}>
                     {/* The default cannot be switched to mid-recording: native needs a device's name. */}
-                    <MenuRadioItem value={DEFAULT} disabled={live}>System default</MenuRadioItem>
+                    <MenuRadioItem value={DEFAULT} disabled={live}>{systemDefault(mic.missing)}</MenuRadioItem>
                     {options(inputs)}
                 </MenuRadioGroup>
             </MenuGroup>
             {platform !== 'macos' && (
                 <MenuGroup label="Computer audio">
-                    <MenuRadioGroup value={output} onValueChange={(value) => void choose('system', value)}>
-                        <MenuRadioItem value={DEFAULT} disabled={live}>System default</MenuRadioItem>
+                    <MenuRadioGroup value={output.device ?? DEFAULT} onValueChange={(value) => void choose('system', value)}>
+                        <MenuRadioItem value={DEFAULT} disabled={live}>{systemDefault(output.missing)}</MenuRadioItem>
                         {options(outputs)}
                     </MenuRadioGroup>
                 </MenuGroup>
