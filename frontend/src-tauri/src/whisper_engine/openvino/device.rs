@@ -385,6 +385,9 @@ mod tests {
         assert!(!offer_by_address(None, intel_at_02));
     }
 
+    // Linux only: sysfs names devices `0000:00:02.0`, and Windows refuses a
+    // `:` in a file name, so the fixture folder cannot exist there.
+    #[cfg(target_os = "linux")]
     #[test]
     fn the_vendor_is_read_from_sysfs() {
         let devices = tempfile::tempdir().unwrap();
