@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="frontend/src-tauri/icon-source.png" alt="Protocol logo" width="120" />
+  <img src="frontend/src-tauri/icons/128x128@2x.png" alt="Protocol logo" width="120" />
 </p>
 
 <h1 align="center">Protocol</h1>
