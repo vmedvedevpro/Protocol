@@ -249,7 +249,7 @@ ending, no meeting page and no post-call pass when quitting, the `stop_id`
 hand-over). Limits: Stop and quit does not run
 speaker identification or the automatic summary; **Quit anyway** ends busy
 work with the process (a summary cut off this way stays pending, a built-in
-model download resumes from its partial file); Windows shutdown
+model download or a Whisper one resumes from its partial file); Windows shutdown
 and log-off exit without asking (tao ends the process on `WM_ENDSESSION`); only
 the latest handoff is tracked, so a second Stop during a save is answered
 `notSaved`.
@@ -562,7 +562,7 @@ cross IPC as text, so the UI matches the phrases "was deleted", "could not be
 deleted" and "Nothing was deleted".
 
 - Download: `Check` hashes while streaming and refuses bytes past the pinned
-  size; `Check::resume` re-reads a kept partial first (Parakeet, GGUF). Diarization
+  size; `Check::resume` re-reads a kept partial first (Parakeet, GGUF, Whisper). Diarization
   keeps its `.part` + rename flow on the same checker. A mismatch deletes the
   file, or says it could not; the shared download toast (`categorizeError`)
   shows each outcome, and a wrong `Content-Length` (Whisper, GGUF) as "the

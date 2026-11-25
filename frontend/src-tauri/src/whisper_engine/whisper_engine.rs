@@ -43,6 +43,16 @@ pub enum ModelStatus {
     Downloading { progress: u8 },
     Error(String),
     Corrupted { file_size: u64, expected_min_size: u64 },
+    /// A download that stopped part way (quit, crash, lost connection): the
+    /// file is kept, and the next download resumes from it.
+    Incomplete { file_size: u64, expected_size: u64 },
+}
+
+/// What a download writes beside the file, and whether it may continue the
+/// partial file there (the record's commit is the partial's).
+struct Download {
+    record: Option<(PathBuf, installed::InstallRecord)>,
+    resume: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -260,6 +270,17 @@ impl WhisperEngine {
             // record is an unfinished download.
             let pinned = Self::expected_pin(entry, &model_path);
             let pinned_size = pinned.map(|pinned| pinned.size);
+            // The full size of a download that stopped part way: an
+            // unfinished download records the version it fetches; one from a
+            // build that wrote no record until the end has none, and its file
+            // is the 0.3.0 pin's. A smaller file under a complete record is a
+            // damaged install, not a download to resume.
+            let record_path = installed::record_path_for_file(&model_path);
+            let unfinished_size = match installed::partial(entry, &record_path) {
+                Some(record) => installed::record_pins(entry, &record).first().map(|pinned| pinned.size),
+                None if !record_path.exists() => pinned_size,
+                None => None,
+            };
             // Any other size is unfinished or damaged; 0 when no version is
             // on record.
             let expected_size = pinned_size.unwrap_or(0);
@@ -289,24 +310,21 @@ impl WhisperEngine {
                                 }
                             }
                         } else if file_size_mb > 0 {
-                            // File exists but is smaller than expected
                             // Check if this model is currently being downloaded
-                            let models_guard = self.available_models.read().await;
-                            if let Some(existing_model) = models_guard.get(name) {
-                                match &existing_model.status {
-                                    ModelStatus::Downloading { progress } => {
-                                        log::debug!("Model {} appears to be downloading ({} MB so far, {}% complete)",
-                                                  filename, file_size_mb, progress);
-                                        ModelStatus::Downloading { progress: *progress }
-                                    }
-                                    _ => {
-                                        log::warn!("Model file {} exists but is corrupted ({} bytes, expected {} bytes)",
-                                                 filename, file_size_bytes, expected_size);
-                                        ModelStatus::Corrupted {
-                                            file_size: file_size_bytes,
-                                            expected_min_size: expected_size,
-                                        }
-                                    }
+                            let downloading = match self.available_models.read().await.get(name).map(|model| &model.status) {
+                                Some(ModelStatus::Downloading { progress }) => Some(*progress),
+                                _ => None,
+                            };
+                            if let Some(progress) = downloading {
+                                log::debug!("Model {} appears to be downloading ({} MB so far, {}% complete)",
+                                          filename, file_size_mb, progress);
+                                ModelStatus::Downloading { progress }
+                            } else if let Some(expected) = unfinished_size.filter(|&expected| file_size_bytes < expected) {
+                                log::info!("Model file {} is an unfinished download ({} of {} bytes); it can resume",
+                                         filename, file_size_bytes, expected);
+                                ModelStatus::Incomplete {
+                                    file_size: file_size_bytes,
+                                    expected_size: expected,
                                 }
                             } else {
                                 log::warn!("Model file {} exists but is corrupted ({} bytes, expected {} bytes)",
@@ -551,6 +569,9 @@ impl WhisperEngine {
             },
             ModelStatus::Corrupted { .. } => {
                 Err(anyhow!("Model {} is corrupted and cannot be loaded", model_name))
+            }
+            ModelStatus::Incomplete { .. } => {
+                Err(anyhow!("Model {} has not finished downloading", model_name))
             }
         }
     }
@@ -1140,7 +1161,8 @@ impl WhisperEngine {
 
     /// Resolves the catalog entry `model_name` on `hub` (its current commit,
     /// or its pinned one, and the file's size and SHA-256 there) and downloads
-    /// that commit's file. Whisper downloads start over, so nothing is resumed.
+    /// that commit's file. An unfinished download keeps its own commit (see
+    /// installed::plan_download) and resumes from the bytes on disk.
     async fn download_from(
         &self,
         hub: &str,
@@ -1152,26 +1174,31 @@ impl WhisperEngine {
         let Some(entry) = model_catalog::entry(Engine::Whisper, model_name) else {
             return Err(anyhow!("Unsupported model: {}", model_name));
         };
-        let resolved = huggingface::resolve(api, hub, &entry).await?;
-        let file = &resolved.files[0];
-        let record_path = installed::record_path_for_file(&self.models_dir.join(&file.name));
-        let record = installed::InstallRecord::from_resolved(&entry.id, &resolved, true);
-        self.download_pinned(model_name, file.pinned, &file.url, client, Some((record_path, record)), progress_callback)
+        let record_path = installed::record_path_for_file(&self.models_dir.join(&entry.single_file().name));
+        let plan = installed::plan_download(api, hub, &entry, &record_path).await?;
+        let file = &plan.resolved.files[0];
+        let record = installed::InstallRecord::from_resolved(&entry.id, &plan.resolved, true);
+        let download = Download { record: Some((record_path, record)), resume: plan.keep_partial };
+        self.download_pinned(model_name, file.pinned, &file.url, client, download, progress_callback)
             .await
     }
 
-    /// Downloads `model_url` as the file `pinned` of `model_name` and, once it
-    /// matched, writes `record` beside it. Tests pass a local URL, their own
-    /// pin and a client without the system proxy.
+    /// Downloads `model_url` as the file `pinned` of `model_name`, from the
+    /// bytes already on disk when `download.resume` allows and the server
+    /// answers the Range request, and writes `download.record` beside it:
+    /// unfinished before the first byte, complete once the file matched.
+    /// Tests pass a local URL, their own pin and a client without the system
+    /// proxy.
     async fn download_pinned(
         &self,
         model_name: &str,
         pinned: &'static model_integrity::Pinned,
         model_url: &str,
         client: Client,
-        record: Option<(PathBuf, installed::InstallRecord)>,
+        download: Download,
         progress_callback: Option<Box<dyn Fn(u8) + Send>>,
     ) -> Result<()> {
+        let Download { record, resume } = download;
         // Check if download is already in progress for this model
         {
             let active = self.active_downloads.read().await;
@@ -1213,19 +1240,42 @@ impl WhisperEngine {
             }
         }
         
+        // The bytes a resumed download keeps: only a partial of this version.
+        let existing_size = match fs::metadata(&file_path).await {
+            Ok(metadata) if resume && metadata.len() < pinned.size => metadata.len(),
+            _ => 0,
+        };
+        let mut request = client.get(model_url);
+        if existing_size > 0 {
+            log::info!("Resuming download from byte {}", existing_size);
+            request = request.header(reqwest::header::RANGE, format!("bytes={}-", existing_size));
+        }
+
         log::info!("Sending GET request to: {}", model_url);
-        let response = client.get(model_url).send().await
+        let response = request.send().await
             .map_err(|e| anyhow!("Failed to start download: {}", e))?;
         
         log::info!("Received response with status: {}", response.status());
-        if !response.status().is_success() {
+        let resuming = existing_size > 0 && response.status() == reqwest::StatusCode::PARTIAL_CONTENT;
+        if resuming {
+            let content_range = response.headers().get(reqwest::header::CONTENT_RANGE)
+                .and_then(|value| value.to_str().ok())
+                .unwrap_or_default();
+            if !content_range.starts_with(&format!("bytes {}-", existing_size))
+                || !content_range.ends_with(&format!("/{}", pinned.size))
+            {
+                let error = anyhow!("Server returned unexpected resume range: {}", content_range);
+                return Err(self.fail_download(model_name, error).await);
+            }
+        } else if !response.status().is_success() {
             // Remove from active downloads on error
             let mut active = self.active_downloads.write().await;
             active.remove(model_name);
             return Err(anyhow!("Download failed with status: {}", response.status()));
         }
         
-        let total_size = response.content_length().unwrap_or(0);
+        // A resumed response carries the rest; progress counts the whole file.
+        let total_size = response.content_length().map_or(0, |length| length + if resuming { existing_size } else { 0 });
         log::info!("Response successful, content length: {} bytes ({:.1} MB)", total_size, total_size as f64 / (1024.0 * 1024.0));
         
         if total_size == 0 {
@@ -1240,16 +1290,39 @@ impl WhisperEngine {
             return Err(self.fail_download(model_name, error).await);
         }
         
-        // The file is rewritten in place; its old marker and record must not
-        // outlive it.
+        // The hash covers the whole file, so a resumed transfer first reads
+        // back the bytes it keeps.
+        let mut integrity = if resuming {
+            let cancel_flag = self.cancel_download_flag.clone();
+            let name = model_name.to_string();
+            let cancelled = move || cancel_flag.try_read().is_ok_and(|flag| flag.as_deref() == Some(name.as_str()));
+            match model_integrity::Check::resume(pinned, &file_path, cancelled).await {
+                Ok(check) => check,
+                Err(error) => return Err(self.fail_download(model_name, error).await),
+            }
+        } else {
+            model_integrity::Check::new(pinned)
+        };
+
+        // The file changes in place; its old marker must not outlive it. The
+        // unfinished record names the version these bytes belong to, so a
+        // stopped download resumes from the same commit.
         model_integrity::clear_mark(&file_path);
-        if let Some((record_path, _)) = &record {
-            installed::remove_record(record_path);
+        if let Some((record_path, record)) = &record {
+            let unfinished = installed::InstallRecord { complete: false, ..record.clone() };
+            if let Err(error) = installed::write_record(record_path, &unfinished) {
+                let error = anyhow!("Failed to record the download of {}: {}", model_name, error);
+                return Err(self.fail_download(model_name, error).await);
+            }
         }
-        let mut file = fs::File::create(&file_path).await
-            .map_err(|e| anyhow!("Failed to create file: {}", e))?;
+        let mut file = if resuming {
+            fs::OpenOptions::new().append(true).open(&file_path).await
+        } else {
+            fs::File::create(&file_path).await
+        }
+        .map_err(|e| anyhow!("Failed to open file: {}", e))?;
         
-        log::info!("File created successfully at: {}", file_path.display());
+        log::info!("File opened at: {}", file_path.display());
         
         // Stream download with real progress reporting
         log::info!("Starting streaming download...");
@@ -1257,8 +1330,7 @@ impl WhisperEngine {
 
         use futures_util::StreamExt;
         let mut stream = response.bytes_stream();
-        let mut downloaded = 0u64;
-        let mut integrity = model_integrity::Check::new(pinned);
+        let mut downloaded = if resuming { existing_size } else { 0 };
         let mut last_progress_report = 0u8;
         let mut last_report_time = std::time::Instant::now();
 
@@ -1414,6 +1486,9 @@ impl WhisperEngine {
 
         let filename = format!("ggml-{}.bin", model_name);
         let file_path = self.models_dir.join(&filename);
+        // A cancelled download is discarded: the next one starts at the
+        // current version, not the commit this one recorded.
+        installed::remove_record(&installed::record_path_for_file(&file_path));
         if file_path.exists() {
             if let Err(e) = fs::remove_file(&file_path).await {
                 log::warn!("Failed to clean up cancelled download file: {}", e);
@@ -1451,7 +1526,7 @@ mod tests {
         };
         let url = model_integrity::testing::serve_once(body).await;
         let client = Client::builder().no_proxy().build().unwrap();
-        let result = engine.download_pinned("test", pinned, &url, client, None, Some(callback)).await;
+        let result = engine.download_pinned("test", pinned, &url, client, Download { record: None, resume: false }, Some(callback)).await;
         let reports = reports.lock().unwrap().clone();
         (result, reports)
     }
@@ -1480,6 +1555,80 @@ mod tests {
         assert!(!dir.path().join("ggml-test.bin").exists());
         assert!(!reports.is_empty(), "the stream reported no progress");
         assert!(reports.iter().all(|&(progress, _)| progress < 100), "{reports:?}");
+    }
+
+    #[tokio::test]
+    async fn a_stopped_download_resumes_from_the_bytes_on_disk() {
+        let dir = tempfile::tempdir().unwrap();
+        let engine = WhisperEngine::new_with_models_dir(Some(dir.path().to_path_buf())).unwrap();
+        let body: Vec<u8> = (0..300_000u32).map(|i| (i % 251) as u8).collect();
+        let pinned = model_integrity::testing::pin_of("ggml-resume.bin", &body);
+        std::fs::write(dir.path().join(pinned.file), &body[..120_000]).unwrap();
+
+        let (url, range) = model_integrity::testing::serve_range_once(body.clone()).await;
+        let client = Client::builder().no_proxy().build().unwrap();
+        engine.download_pinned("test", pinned, &url, client, Download { record: None, resume: true }, None).await.unwrap();
+
+        assert_eq!(range.await.unwrap().as_deref(), Some("bytes=120000-"));
+        assert_eq!(std::fs::read(dir.path().join(pinned.file)).unwrap(), body);
+    }
+
+    #[tokio::test]
+    async fn a_partial_file_without_a_resumable_version_starts_over() {
+        let dir = tempfile::tempdir().unwrap();
+        let engine = WhisperEngine::new_with_models_dir(Some(dir.path().to_path_buf())).unwrap();
+        let body: Vec<u8> = (0..300_000u32).map(|i| (i % 251) as u8).collect();
+        let pinned = model_integrity::testing::pin_of("ggml-restart.bin", &body);
+        std::fs::write(dir.path().join(pinned.file), vec![9u8; 120_000]).unwrap();
+
+        let (url, range) = model_integrity::testing::serve_range_once(body.clone()).await;
+        let client = Client::builder().no_proxy().build().unwrap();
+        engine.download_pinned("test", pinned, &url, client, Download { record: None, resume: false }, None).await.unwrap();
+
+        assert_eq!(range.await.unwrap(), None);
+        assert_eq!(std::fs::read(dir.path().join(pinned.file)).unwrap(), body);
+    }
+
+    #[tokio::test]
+    async fn discovery_reports_an_interrupted_download_as_incomplete() {
+        let _catalog = crate::model_catalog::testing::built_in_catalog();
+        let dir = tempfile::tempdir().unwrap();
+        let engine = WhisperEngine::new_with_models_dir(Some(dir.path().to_path_buf())).unwrap();
+        let pinned = legacy_pin("tiny-q5_1");
+        let path = dir.path().join(pinned.file);
+        // What a quit at about 5 % leaves: the first bytes, no record.
+        let file = std::fs::File::create(&path).unwrap();
+        file.set_len(2 * 1024 * 1024).unwrap();
+        drop(file);
+
+        engine.discover_models().await.unwrap();
+        let status = engine.available_models.read().await["tiny-q5_1"].status.clone();
+        assert!(
+            matches!(status, ModelStatus::Incomplete { file_size, expected_size }
+                if file_size == 2 * 1024 * 1024 && expected_size == pinned.size),
+            "{status:?}"
+        );
+        assert!(path.exists(), "the partial file stays for the resume");
+
+        // Under a complete record the same file is a damaged install.
+        let entry = model_catalog::entry(Engine::Whisper, "tiny-q5_1").unwrap();
+        let record_path = installed::record_path_for_file(&path);
+        let legacy = installed::legacy_model(Engine::Whisper, "tiny-q5_1").unwrap();
+        let resolved = huggingface::Resolved {
+            repo: entry.repo.clone(),
+            commit: legacy.commit.to_string(),
+            files: vec![huggingface::ResolvedFile {
+                name: pinned.file.to_string(),
+                path: entry.single_file().path.clone(),
+                url: String::new(),
+                pinned,
+                git_oid: String::new(),
+            }],
+        };
+        installed::write_record(&record_path, &installed::InstallRecord::from_resolved(&entry.id, &resolved, true)).unwrap();
+        engine.discover_models().await.unwrap();
+        let status = engine.available_models.read().await["tiny-q5_1"].status.clone();
+        assert!(matches!(status, ModelStatus::Corrupted { .. }), "{status:?}");
     }
 
     #[tokio::test]

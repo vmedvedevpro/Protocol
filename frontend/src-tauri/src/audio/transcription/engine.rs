@@ -409,6 +409,9 @@ pub async fn get_or_init_whisper<R: Runtime>(
                 crate::whisper_engine::ModelStatus::Corrupted { .. } => {
                     return Err(format!("Model '{}' is corrupted. Please delete it and download again from the settings.", model_to_load));
                 }
+                crate::whisper_engine::ModelStatus::Incomplete { .. } => {
+                    return Err(format!("Model '{}' has not finished downloading. Please resume its download in the settings.", model_to_load));
+                }
             }
         }
         None => {
