@@ -7,7 +7,8 @@
     "linux": {
       "deb": {
         "depends": [
-          "ffmpeg"
+          "ffmpeg",
+          "libvulkan1"
         ]
       }
     }
