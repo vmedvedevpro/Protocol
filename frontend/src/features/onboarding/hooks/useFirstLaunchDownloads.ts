@@ -1,6 +1,16 @@
 import {useEffect, useMemo} from 'react'
 import {type QueryClient, useQuery, useQueryClient} from '@tanstack/react-query'
 import {
+    type CompanionStatus,
+    companionQuery,
+    gpuOffered,
+    INTEL_LIBRARIES_ID,
+    npuQuery,
+    openVinoAvailabilityQuery,
+    type ParakeetNpuStatus,
+} from '@/api/intel'
+import {trackIntelDownload} from '@/api/modelDownloadSync'
+import {
     builtInModelsQuery,
     downloadKey,
     type Downloads,
@@ -32,6 +42,19 @@ type Lists = Partial<Record<ModelEngine, {name: string, status: SpeechModelStatu
 
 const LISTS = {parakeet: parakeetModelsQuery, whisper: whisperModelsQuery, builtIn: builtInModelsQuery}
 
+/**
+ * The Intel downloads as lists: the Intel GPU version is installed with
+ * its libraries; Intel's libraries are, for a present NPU, once it no
+ * longer waits for them (native checks them before Parakeet).
+ */
+function intelLists(companion: CompanionStatus | null | undefined, npu: ParakeetNpuStatus | undefined): Lists {
+    const libraries = !!npu?.present && npu.state !== 'needs_runtime'
+    return {
+        intelGpu: companion ? [{name: companion.id, status: companion.installed ? 'Available' : 'Missing'}] : [],
+        intelLibraries: [{name: INTEL_LIBRARIES_ID, status: libraries ? 'Available' : 'Missing'}],
+    }
+}
+
 function stateOf(download: FirstLaunchDownload, lists: Lists, downloads: Downloads): ModelState {
     const status = lists[download.engine]?.find(({name}) => name === download.model)?.status
     return modelState(status, downloads[downloadKey(download.engine, download.model)])
@@ -52,9 +75,10 @@ function startDownloads(queryClient: QueryClient, downloads: FirstLaunchDownload
     if (runs.has(queryClient)) return
     runs.set(queryClient, (async () => {
         for (const download of downloads) {
-            const lists: Lists = Object.fromEntries(
-                Object.entries(LISTS).map(([engine, query]) => [engine, queryClient.getQueryData(query.queryKey)]),
-            )
+            const lists: Lists = {
+                ...Object.fromEntries(Object.entries(LISTS).map(([engine, query]) => [engine, queryClient.getQueryData(query.queryKey)])),
+                ...intelLists(queryClient.getQueryData(companionQuery.queryKey), queryClient.getQueryData(npuQuery.queryKey)),
+            }
             const now = stateOf(download, lists, queryClient.getQueryData(downloadsQuery.queryKey) ?? {})
             if (now.kind === 'ready') continue
             try {
@@ -72,8 +96,10 @@ function startDownloads(queryClient: QueryClient, downloads: FirstLaunchDownload
 
 /**
  * The first launch downloads with their states, and the run that starts
- * them once the lists and the recommended summary model are known. `rows` is
- * empty until then.
+ * them once the lists, this computer's Intel hardware and the recommended
+ * summary model are known. `rows` is empty until then. The hardware path
+ * rests on facts that hold for the run (an Intel GPU is offered its
+ * version, an NPU is present), so the list keeps its rows as they finish.
  */
 export function useFirstLaunchDownloads(): DownloadRow[] {
     const queryClient = useQueryClient()
@@ -81,13 +107,26 @@ export function useFirstLaunchDownloads(): DownloadRow[] {
     const parakeet = useQuery(parakeetModelsQuery)
     const whisper = useQuery(whisperModelsQuery)
     const builtIn = useQuery(builtInModelsQuery)
+    const availability = useQuery(openVinoAvailabilityQuery)
+    const companion = useQuery(companionQuery)
+    const npu = useQuery(npuQuery)
     const downloads = useQuery(downloadsQuery).data
 
     const summary = recommended.data
     const displayName = builtIn.data?.find(({name}) => name === summary)?.display_name
+    // The Intel queries answer null (or no NPU) where there is nothing, so pending is the only wait.
+    const hardwareRead = !availability.isPending && !companion.isPending && !npu.isPending
+    const gpuVersion = gpuOffered(availability.data, companion.data) ? companion.data.id : null
+    const npuLibraries = !!npu.data?.present
     const list = useMemo(
-        () => (summary ? firstLaunchDownloads({name: summary, displayName: displayName ?? summary}) : []),
-        [summary, displayName],
+        () => (summary && hardwareRead
+            ? firstLaunchDownloads({name: summary, displayName: displayName ?? summary}, {
+                gpuVersion,
+                npuLibraries,
+                track: (engine, id, run) => trackIntelDownload(queryClient, engine, id, run),
+            })
+            : []),
+        [summary, displayName, hardwareRead, gpuVersion, npuLibraries, queryClient],
     )
     // A list that failed to load counts as read: the download reports its own failure.
     const listsRead = !parakeet.isPending && !whisper.isPending && !builtIn.isPending
@@ -96,7 +135,7 @@ export function useFirstLaunchDownloads(): DownloadRow[] {
         if (listsRead && list.length > 0) startDownloads(queryClient, list)
     }, [listsRead, list, queryClient])
 
-    const lists: Lists = {parakeet: parakeet.data, whisper: whisper.data, builtIn: builtIn.data}
+    const lists: Lists = {parakeet: parakeet.data, whisper: whisper.data, builtIn: builtIn.data, ...intelLists(companion.data, npu.data)}
     const states = list.map((download) => stateOf(download, lists, downloads))
     return list.map((download, index) => {
         const state = states[index]
