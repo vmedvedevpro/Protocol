@@ -156,6 +156,19 @@ describe('MeetingScreen', () => {
         expect(enhanceDialog.result.current).toMatchObject({open: true, request: {meetingId: 'meeting-acme-review'}})
     })
 
+    it('keeps Improve and Identify speakers when the recording cannot be played here', async () => {
+        // The WebView refuses the file (WebKitGTK did, #121): native still has it.
+        vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(function (this: HTMLMediaElement) {
+            queueMicrotask(() => this.dispatchEvent(new Event('error')))
+        })
+        renderMeeting('meeting-acme-review')
+        expect(await screen.findByText(/couldn’t be played/)).toBeInTheDocument()
+
+        await userEvent.click(screen.getByRole('button', {name: /More actions/}))
+        expect(await screen.findByRole('menuitem', {name: 'Improve the transcript…'})).toBeInTheDocument()
+        expect(screen.getByRole('menuitem', {name: 'Identify speakers again'})).toBeInTheDocument()
+    })
+
     it('opens Who said this from a speaker’s menu', async () => {
         renderMeeting('meeting-untitled', '?tab=transcript')
         const speaker = renderHook(() => useDialog())
