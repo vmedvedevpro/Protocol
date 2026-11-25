@@ -2,7 +2,7 @@ import {Fragment, type ReactNode} from 'react'
 import styled from 'styled-components'
 import {openLink} from '@/api/links'
 import {focusRing} from '@/components/ui/styles'
-import {parseReleaseNotes} from './releaseNotes'
+import {parseReleaseNotes} from './parseReleaseNotes'
 
 const INLINE = /\*\*(.+?)\*\*|`([^`]+)`|\[([^\]]+)\]\(([^)\s]+)\)/g
 

@@ -1,6 +1,6 @@
 import {describe, expect, it} from 'vitest'
 import {createMockUpdateRelease} from '@/mocks/updater'
-import {parseReleaseNotes} from './releaseNotes'
+import {parseReleaseNotes} from './parseReleaseNotes'
 
 describe('parseReleaseNotes', () => {
     it('reads the changelog’s paragraphs, headings and wrapped list items', () => {
