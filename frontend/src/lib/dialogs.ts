@@ -39,6 +39,13 @@ export type DialogRequest =
     | SummaryOptionsRequest
     | SpeakerRequest
     /**
+     * Identify speakers: find the meeting's voices again from its audio,
+     * with a count or detecting it. `identify` is the meeting screen's run
+     * (features/meetings owns it, its toasts and its running state); the
+     * sheet only asks for the count and confirms.
+     */
+    | { kind: 'identify-speakers', identify: (count: number | null) => void }
+    /**
      * The template editor: edit `templateId`, or a new template without one.
      * `returnTo` reopens Summary options as the editor closes, on the
      * template it saved.

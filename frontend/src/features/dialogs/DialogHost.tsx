@@ -1,5 +1,6 @@
 import {EnhanceSheet} from './enhance/EnhanceSheet'
 import {ExportSheet} from './export/ExportSheet'
+import {IdentifySpeakersSheet} from './identify/IdentifySpeakersSheet'
 import {DropOverlay} from './import/DropOverlay'
 import {ImportSheet} from './import/ImportSheet'
 import {SpeakerSheet} from './speaker/SpeakerSheet'
@@ -22,6 +23,7 @@ export function DialogHost() {
             <SummaryOptionsSheet/>
             <TemplateSheet/>
             <SpeakerSheet/>
+            <IdentifySpeakersSheet/>
             <DropOverlay/>
         </>
     )
