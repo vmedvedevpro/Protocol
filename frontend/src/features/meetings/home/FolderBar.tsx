@@ -1,5 +1,6 @@
 import {useLayoutEffect, useRef, useState} from 'react'
 import {DotsThreeIcon, PencilSimpleIcon, PlusIcon, TrashIcon} from '@phosphor-icons/react'
+import {AnimatePresence} from 'motion/react'
 import * as m from 'motion/react-m'
 import styled from 'styled-components'
 import type {Folder} from '@/api/meetings'
@@ -7,7 +8,7 @@ import {IconButton} from '@/components/ui/Button'
 import {Menu, MenuItem} from '@/components/ui/Menu'
 import {colorTransition, focusRing} from '@/components/ui/styles'
 import {Tooltip} from '@/components/ui/Tooltip'
-import {springs} from '@/styles/motion'
+import {springs, tween} from '@/styles/motion'
 
 const Bar = styled.div`
     position: relative;
@@ -105,6 +106,33 @@ const NewChip = styled.button`
     }
 `
 
+// The folder actions button's place after New folder. It stays while All is
+// selected, so choosing a folder moves nothing: the chips wrap the same with
+// the button or without it, and the slot is a chip's size, which the 28 px
+// button overflows evenly instead of making the row 2 px taller than its
+// 26 px chips.
+const ActionsSlot = styled.div`
+    display: flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: ${({theme}) => theme.sizes.chip};
+    height: ${({theme}) => theme.sizes.chip};
+`
+
+// An icon with no text, so it may fade (UI_ARCHITECTURE › Motion), as the
+// title bar's Back button does.
+const Appear = styled(m.span)`
+    display: flex;
+`
+
+const appear = {
+    initial: {opacity: 0},
+    animate: {opacity: 1},
+    exit: {opacity: 0},
+    transition: tween('fast'),
+}
+
 interface FolderBarProps {
     folders: readonly Folder[]
     /** The folder the list shows, or null for all meetings. */
@@ -153,19 +181,25 @@ export function FolderBar({folders, selected, onSelect, onNew, onRename, onDelet
                     <PlusIcon size={12} aria-hidden/>
                 </NewChip>
             </Tooltip>
-            {current && (
-                <Menu
-                    trigger={(
-                        <IconButton label={`Folder actions: ${current.name}`}>
-                            <DotsThreeIcon aria-hidden/>
-                        </IconButton>
+            <ActionsSlot data-testid="folder-actions">
+                <AnimatePresence initial={false}>
+                    {current && (
+                        <Appear key="actions" {...appear}>
+                            <Menu
+                                trigger={(
+                                    <IconButton label={`Folder actions: ${current.name}`}>
+                                        <DotsThreeIcon aria-hidden/>
+                                    </IconButton>
+                                )}
+                                align="start"
+                            >
+                                <MenuItem icon={<PencilSimpleIcon aria-hidden/>} onSelect={() => onRename(current)}>Rename folder…</MenuItem>
+                                <MenuItem icon={<TrashIcon aria-hidden/>} onSelect={() => onDelete(current)}>Delete folder…</MenuItem>
+                            </Menu>
+                        </Appear>
                     )}
-                    align="start"
-                >
-                    <MenuItem icon={<PencilSimpleIcon aria-hidden/>} onSelect={() => onRename(current)}>Rename folder…</MenuItem>
-                    <MenuItem icon={<TrashIcon aria-hidden/>} onSelect={() => onDelete(current)}>Delete folder…</MenuItem>
-                </Menu>
-            )}
+                </AnimatePresence>
+            </ActionsSlot>
         </Bar>
     )
 }
