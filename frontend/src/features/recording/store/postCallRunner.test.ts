@@ -46,6 +46,13 @@ describe('the post-call pass', () => {
         expect(postCallJobs.get(MEETING)).toBeNull()
     })
 
+    it('leaves the summary out while no summary model is chosen', async () => {
+        mockState.preferences.summaryModel = null
+        await start()
+        expect(postCallJobs.get(MEETING)?.steps).toEqual(['transcript', 'speakers'])
+        await waitFor(() => expect(postCallJobs.get(MEETING)).toBeNull())
+    })
+
     it('waits on a failed step for Retry or Skip', async () => {
         useAutoSummaryStore.getState().set(false)
         const diarize = vi.spyOn(handlers, 'diarize_meeting').mockImplementationOnce(() => {

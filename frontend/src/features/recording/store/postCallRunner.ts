@@ -283,18 +283,23 @@ function resume(pass: Pass, step: PostCallStep) {
 
 /**
  * Queues the pass of a saved meeting: retranscription and speakers when its
- * audio was saved, the summary when the automatic summary is on. A meeting
- * without audio keeps its live transcript.
+ * audio was saved, the summary when the automatic summary is on and a
+ * summary model is chosen (first launch can leave it for later, and then
+ * summaries stay off rather than fail on every meeting). A meeting without
+ * audio keeps its live transcript.
  */
 export async function startPostCall({meetingId, folderPath, audioSaved}: PostCallStart) {
     if (passes.has(meetingId)) return
     const preferences = await queries().fetchQuery(recordingPreferencesQuery).catch(() => null)
     const audio = audioSaved && !!folderPath && preferences?.auto_save !== false
     const speakers = audio && (await diarizationAvailable().catch(() => false))
+    // A config that cannot be read keeps the step, which then reports why.
+    const summary = useAutoSummaryStore.getState().value
+        && (await getSummaryModelConfig().then((config) => !!config?.provider && !!config.model, () => true))
     const steps: PostCallStep[] = [
         ...(audio ? ['transcript' as const] : []),
         ...(speakers ? ['speakers' as const] : []),
-        ...(useAutoSummaryStore.getState().value ? ['summary' as const] : []),
+        ...(summary ? ['summary' as const] : []),
     ]
     if (steps.length === 0) return
     let end!: () => void
