@@ -20,11 +20,16 @@ use std::time::Duration;
 use tauri::{AppHandle, Manager, Runtime, WebviewUrl, WebviewWindowBuilder};
 
 const MINIBAR_LABEL: &str = "minibar";
-const MINIBAR_WIDTH: f64 = 680.0;
-// Matches the bar's rendered height. The window is clipped to this rounded
-// rectangle so Windows does not draw a square frame around it.
-const MINIBAR_HEIGHT: f64 = 72.0;
-const MINIBAR_RADIUS: f64 = 24.0;
+// The bar is a pill (features/recording/minibar): small by default, it opens
+// rightwards from its left edge on hover. The window holds the open pill, the
+// widest status included; the theme's `sizes.minibar` repeats these values.
+const MINIBAR_WIDTH: f64 = 512.0;
+// Matches the pill's height. The window is clipped to this rounded rectangle
+// so Windows does not draw a square frame around it.
+const MINIBAR_HEIGHT: f64 = 52.0;
+const MINIBAR_RADIUS: f64 = 26.0;
+// The closed pill (ring, timer, Stop), which the bar is centred on.
+const MINIBAR_CLOSED_WIDTH: f64 = 170.0;
 const IPC_CLOSE_DELAY: Duration = Duration::from_millis(500);
 
 // Serialize window lifecycle changes so a queued minimize request cannot race a
@@ -230,12 +235,13 @@ pub async fn enter_compact_mode<R: Runtime>(
                 .build()
                 .map_err(|e| format!("Failed to create compact bar: {}", e))?;
 
-        // Park it top-centre, clear of the title bars of whatever is behind it.
+        // Park the closed pill top-centre, clear of the title bars of whatever
+        // is behind it; the open pill must still fit on the screen.
         if let Ok(Some(monitor)) = window.primary_monitor() {
             let size = monitor.size();
             let scale = monitor.scale_factor();
             let screen_w = size.width as f64 / scale;
-            let x = (screen_w - MINIBAR_WIDTH) / 2.0;
+            let x = ((screen_w - MINIBAR_CLOSED_WIDTH) / 2.0).min(screen_w - MINIBAR_WIDTH);
             let _ = window.set_position(tauri::LogicalPosition::new(x.max(0.0), 12.0));
         }
 
