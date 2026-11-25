@@ -62,11 +62,18 @@ export const listTemplates = () => command<TemplateInfo[]>('api_list_templates')
 /** Whether the user's own file supplies a template (`custom` above). */
 export const isCustomTemplate = (templateId: string) => command<boolean>('api_is_custom_template', {templateId})
 
-/** Sorted by id, as native lists them; a template that fails to load is left out natively. */
+/**
+ * The default first, then by name: native lists them by id, which reads as
+ * no order at all. Every list of templates reads this one, so the order is
+ * the same everywhere; a change of default refetches it. A template that
+ * fails to load is left out natively.
+ */
 export async function listTemplatesWithOrigin(): Promise<TemplateListItem[]> {
-    const templates = await listTemplates()
+    const [templates, defaultId] = await Promise.all([listTemplates(), getDefaultTemplate().catch(() => null)])
     const custom = await Promise.all(templates.map(({id}) => isCustomTemplate(id)))
-    return templates.map((template, index) => ({...template, custom: custom[index]}))
+    return templates
+        .map((template, index) => ({...template, custom: custom[index]}))
+        .sort((a, b) => Number(b.id === defaultId) - Number(a.id === defaultId) || a.name.localeCompare(b.name) || a.id.localeCompare(b.id))
 }
 
 /** One template whole, from the same copy a summary would use. */
@@ -115,7 +122,8 @@ export const deleteCustomTemplateMutation = mutationOptions({
     onSuccess: (_reply, _templateId, _result, {client}) => invalidateTemplates(client),
 })
 
+/** The list puts the default first, so it is read again too. */
 export const setDefaultTemplateMutation = mutationOptions({
     mutationFn: setDefaultTemplate,
-    onSuccess: (_reply, _templateId, _result, {client}) => client.invalidateQueries({queryKey: templateKeys.default()}),
+    onSuccess: (_reply, _templateId, _result, {client}) => invalidateTemplates(client),
 })

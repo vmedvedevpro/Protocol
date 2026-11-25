@@ -27,18 +27,18 @@ const DISCOVERY: Template = {
 }
 
 describe('summary templates', () => {
-    it('lists the built-in templates by id, none of them custom', async () => {
+    it('lists the built-in templates with the default first, then by name, none of them custom', async () => {
         const client = createTestQueryClient()
 
         const list = await client.fetchQuery(templatesQuery)
 
         expect(list.map(({id}) => id)).toEqual([
+            'standard_meeting',
+            'sales_marketing_client_call',
             'daily_standup',
             'project_sync',
             'psychatric_session',
             'retrospective',
-            'sales_marketing_client_call',
-            'standard_meeting',
         ])
         expect(list.find(({id}) => id === 'standard_meeting')).toEqual({
             id: 'standard_meeting',
@@ -83,6 +83,7 @@ describe('summary templates', () => {
 
         expect(client.getQueryState(templateKeys.default())?.isInvalidated).toBe(true)
         expect(await client.fetchQuery(defaultTemplateQuery)).toBe('daily_standup')
+        expect((await client.fetchQuery(templatesQuery))[0].id).toBe('daily_standup')
     })
 
     it('falls back when the custom default is deleted', async () => {
