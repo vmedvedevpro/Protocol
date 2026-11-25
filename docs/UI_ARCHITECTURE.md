@@ -344,8 +344,9 @@ theme; the motion from the Motion section.
   from anywhere, a mutation's callback or an event handler outside React;
   `toast.dismiss(id?)` closes one or all. The window's one `Toaster`
   (`Toast.tsx`) draws them under the title strip, newest on top, at most
-  three (a fourth closes the oldest), above an open sheet and usable over
-  it. The design draws no toast: it takes the Home banner's look, an icon
+  three (a fourth closes the oldest timed one; a persistent one, such as
+  "Copy notes", closes only for another persistent one), above an open
+  sheet and usable over it. The design draws no toast: it takes the Home banner's look, an icon
   for the tone (none is red, which is the recording's), a medium title, a
   muted line that wraps anywhere (a hash fits), one small action and the
   close button. Radix's toast gives the behaviour: the time on screen
@@ -802,7 +803,9 @@ quit is saved whatever screen is open. The minibar window mounts none of it.
   `get_recording_state`, the name and `get_transcript_history` bring the
   timer, mutes, title and lines back; the notes come from `af-live-notes`;
   the crash copy is found again by its title, or a new one is made. When
-  `is_recording` itself fails the bar says recording is unavailable.
+  `is_recording` itself fails the bar says recording is unavailable; when
+  only `get_recording_state` fails the session still joins, keeping the
+  timer, pause and mutes it last knew.
 - **Live lines** (`transcript-update`) are kept in order by start time, once
   per sequence id, with this recording's speaker names replayed
   (`lib/speakerEdits.ts`, `meetily-speaker-edits:<recoveryId>`), and each is
@@ -834,19 +837,26 @@ quit is saved whatever screen is open. The minibar window mounts none of it.
   when a speaker engine is installed, then the automatic summary when it is
   on. One meeting at a time; each step waits for the one before. A failed
   step waits for Retry or Skip; a skipped one leaves the list. Cancel stops
-  native between chunks. A retranscription past 30 minutes is cancelled.
-  Its listeners are registered (`listenNative`, awaited) before the start,
+  native between chunks, and reaches a summary that is still starting. A
+  retranscription past 30 minutes and a summary past 60 are cancelled and
+  fail with Retry (`RUNNER_TIMING` gives each limit its reason). Its
+  listeners are registered (`listenNative`, awaited) before the start,
   since a missing audio file fails at once; after a cancel, an error or the
   limit the step waits until `is_retranscription_in_progress_command` says
   native let go of the model, so the next meeting or a Retry does not fail
-  with "Retranscription already in progress".
+  with "Retranscription already in progress". That wait ends after 2
+  minutes: the step's error stands (a completed step fails), and a pass
+  that native then rejects fails with Retry rather than holding the queue
+  and the updater for good. A second Cancel while cancelling changes
+  nothing. Deleting a meeting cancels its pass first.
 - **Recovery** (`api/recovery.ts`, `store/recover.ts`, `RecoverySheet`):
   IndexedDB `MeetilyRecoveryDB` v1 as the old UI wrote it. A recording's
   record is made at its start; every line is added. Once per page load the
   sheet offers unsaved meetings updated within 7 days and more than 2 s ago
   that have lines (one without lines has nothing to save, so it is not
   offered); Recover saves it with audio rebuilt from the checkpoints when
-  there are some, Delete asks first. Old copies are pruned (7 days, saved
+  there are some, Delete asks first; the rebuild and save report
+  `recordingSave` to the updater. Old copies are pruned (7 days, saved
   ones after a day), never while recording.
 - **The bar** (`RecordingBar`): idle, Record and the inputs; starting and
   finishing, what is happening; recording, the ring (pause, Space on the
@@ -861,7 +871,7 @@ quit is saved whatever screen is open. The minibar window mounts none of it.
   12 000 characters and, to steer it, the first 3 000 characters of the
   notes, the old UI's budgets, since native sends the context to the model
   in one request; not saved).
-- **Busy and the updater**: the save reports `recordingSave` and a running
+- **Busy and the updater**: the save and a recovery report `recordingSave` and a running
   or queued pass `postCall` (Native data above; `usePostCallBusy` reads it
   from the jobs); a failed pass waiting for the user holds nothing.
 - `store/queries.ts`: the store works outside React, on the query client
@@ -1001,7 +1011,8 @@ another meeting starts from fresh state).
   the user, that still has one, whether the run ended there or while the
   user was elsewhere. It reads the summary from native again, so a second
   call finds no section and changes nothing; calls for one meeting share
-  one promise. Home runs the backfill of older summaries once per session.
+  one promise. Home runs the backfill of older summaries once per session;
+  one whose list call failed runs again on the next visit.
 - **The meeting screen.** The header (title; when, how long, folder) and
   its menu: Rename (also F2), Move to folder, Copy transcript, Copy summary,
   Open recording folder, Identify speakers again with a count, Delete.

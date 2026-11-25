@@ -1,6 +1,7 @@
 import {act, screen, waitFor, within} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import {afterEach, describe, expect, it, vi} from 'vitest'
+import {handlers} from '@/mocks/handlers'
 import {emitMockEvent} from '@/mocks/ipc'
 import type {MockRecording} from '@/mocks/live'
 import {mockState} from '@/mocks/state'
@@ -58,6 +59,29 @@ describe('RecordingRuntime', () => {
         expect(session.get().clock.seconds).toBeGreaterThanOrEqual(89)
         expect(session.get().lines.map((each) => each.text)).toEqual(['Morning everyone.'])
         expect(session.get().notes?.markdown).toBe('Agenda')
+    })
+
+    it('joins a running recording even when native cannot say its state', async () => {
+        mockState.live.recording = {
+            meetingName: 'Weekly Standup — Nov 25',
+            folderPath: '/recordings/standup',
+            micDevice: null,
+            systemDevice: null,
+            startedAt: Date.now() - 95_000,
+            pausedAt: null,
+            pausedMs: 0,
+            micMuted: false,
+            systemMuted: false,
+            lines: [],
+        } satisfies MockRecording
+        vi.spyOn(handlers, 'get_recording_state').mockImplementation(() => {
+            throw 'Recording manager lock poisoned'
+        })
+
+        renderRecording(<RecordingRuntime/>)
+
+        await waitFor(() => expect(session.get().phase).toBe('recording'))
+        expect(session.get()).toMatchObject({title: 'Weekly Standup — Nov 25', recoveryId: expect.stringMatching(/^meeting-/)})
     })
 
     it('stops the recording when the speech model needs the user, and offers Speech models', async () => {
@@ -130,6 +154,32 @@ describe('RecordingRuntime', () => {
         expect(mockState.live.checkpoints).toEqual({})
         expect(toastTitles()).toContain('Meeting recovered')
         expect(await listRecoverable(Date.now() + 60_000)).toEqual([expect.objectContaining({meetingId: 'meeting-2'})])
+    })
+
+    it('tells the updater while a recovery rebuilds the audio and saves', async () => {
+        await beginRecovery({meetingId: 'meeting-1', title: 'Design sync', startTime: Date.now() - 600_000})
+        await setRecoveryFolder('meeting-1', '/recordings/design-sync')
+        await storeRecoveryLine('meeting-1', line(1, 'Hello.'))
+        mockState.live.checkpoints['/recordings/design-sync'] = true
+        let rebuilt!: () => void
+        const recoverAudio = handlers.recover_audio_from_checkpoints
+        vi.spyOn(handlers, 'recover_audio_from_checkpoints').mockImplementationOnce(async (args) => {
+            await new Promise<void>((resolve) => {
+                rebuilt = resolve
+            })
+            return recoverAudio(args)
+        })
+        vi.useFakeTimers({toFake: ['Date']})
+        vi.setSystemTime(Date.now() + 10_000)
+
+        renderRecording(<RecordingRuntime/>)
+        const sheet = await screen.findByRole('dialog', {name: 'An interrupted meeting'})
+        await userEvent.click(within(sheet).getByRole('button', {name: 'Recover'}))
+
+        await waitFor(() => expect(mockState.live.uiActivity).toEqual(['recordingSave']))
+        rebuilt()
+        await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+        await waitFor(() => expect(mockState.live.uiActivity).toEqual([]))
     })
 
     it('deletes an interrupted meeting only after a confirm', async () => {

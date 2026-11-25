@@ -32,7 +32,7 @@ import {beginSession, noteRecoveryFolder} from './begin'
 import {links} from './links'
 import {restoreLiveNotes} from './liveNotes'
 import {stopRecording} from './save'
-import {addLine, finishSession, holdClock, renameVoice, session, type SessionFolder} from './session'
+import {addLine, clockSeconds, finishSession, holdClock, renameVoice, session, type SessionFolder} from './session'
 import {startRecording} from './start'
 
 /** `recording-started`. */
@@ -125,12 +125,15 @@ export async function syncWithNative() {
     if (current.phase === 'starting' || current.phase === 'finishing') return
 
     const [state, name, history] = await Promise.all([
-        getRecordingState(),
+        // Native records either way: without its state the session still
+        // joins, keeping what it last knew of the timer, the pause and mutes.
+        getRecordingState().catch(() => null),
         getRecordingMeetingName().catch(() => null),
         getTranscriptHistory().catch(() => []),
     ])
     const now = Date.now()
-    const startedAt = current.startedAt ?? now - (state.recording_duration ?? state.active_duration ?? 0) * 1000
+    const seconds = state ? state.active_duration ?? 0 : clockSeconds(current, now)
+    const startedAt = current.startedAt ?? now - (state?.recording_duration ?? seconds) * 1000
     const title = current.title || name || ''
     let recoveryId = current.recoveryId
     if (!recoveryId) {
@@ -143,11 +146,12 @@ export async function syncWithNative() {
             void noteRecoveryFolder(recoveryId)
         }
     }
+    const paused = state ? state.is_paused : current.phase === 'paused'
     session.set({
-        phase: state.is_paused ? 'paused' : 'recording',
+        phase: paused ? 'paused' : 'recording',
         step: null,
-        clock: {seconds: state.active_duration ?? 0, at: now},
-        muted: {mic: state.is_microphone_muted, system: state.is_system_audio_muted},
+        clock: {seconds, at: now},
+        muted: state ? {mic: state.is_microphone_muted, system: state.is_system_audio_muted} : current.muted,
         recoveryId,
         startedAt,
         title,

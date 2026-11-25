@@ -81,8 +81,22 @@ function show(tone: ToastTone, title: string, options: ToastOptions = {}): strin
             toasts: toasts.map((shown) => shown.id === id ? toast : shown),
             replaced: {text: [title, options.description].filter(Boolean).join('. '), seq: ++lastReplacement},
         }
-        : {toasts: [toast, ...toasts].slice(0, MAX_TOASTS), replaced})
+        : {toasts: trim([toast, ...toasts]), replaced})
     return id
+}
+
+/**
+ * Keeps `MAX_TOASTS`, newest first. The oldest timed toast goes first; a
+ * persistent one (`Infinity`, such as "Copy notes") goes only for another
+ * persistent one, since it may be the only way back to what it offers.
+ */
+function trim(toasts: ToastData[]): ToastData[] {
+    const kept = [...toasts]
+    while (kept.length > MAX_TOASTS) {
+        const timed = kept.findLastIndex((shown) => Number.isFinite(shown.duration))
+        kept.splice(timed >= 0 ? timed : kept.length - 1, 1)
+    }
+    return kept
 }
 
 /** Closes one toast, or every toast without an id. */

@@ -1,5 +1,6 @@
-import {describe, expect, it} from 'vitest'
+import {describe, expect, it, vi} from 'vitest'
 import {getActionItems} from '@/api/actionItems'
+import {handlers} from '@/mocks/handlers'
 import {mockState} from '@/mocks/state'
 import {backfillActionItems, hasActionSection, syncFinishedSummary} from './actionItemSync'
 
@@ -35,5 +36,15 @@ describe('backfillActionItems', () => {
         expect(await backfillActionItems()).toBeGreaterThan(0)
         expect(markdownOf('meeting-acme-review')).not.toContain('## Action items')
         expect(await backfillActionItems()).toBe(0)
+    })
+
+    it('runs again after a list call that failed', async () => {
+        sessionStorage.clear()
+        vi.spyOn(handlers, 'api_list_unsynced_action_meetings').mockImplementationOnce(() => {
+            throw 'database is locked'
+        })
+        expect(await backfillActionItems()).toBe(0)
+
+        expect(await backfillActionItems()).toBeGreaterThan(0)
     })
 })

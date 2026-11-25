@@ -74,7 +74,17 @@ export async function backfillActionItems(): Promise<number> {
     } catch {
         // Without session storage the backfill may run again next launch.
     }
-    const ids = await getUnsyncedActionMeetings().catch(() => [] as string[])
+    // The flag is claimed before the call, so two Homes mounting at once run
+    // it once; a failed call gives the claim back for the next mount.
+    const ids = await getUnsyncedActionMeetings().catch(() => null)
+    if (!ids) {
+        try {
+            sessionStorage.removeItem(BACKFILL_KEY)
+        } catch {
+            // Nothing was stored to give back.
+        }
+        return 0
+    }
     let changed = 0
     for (const meetingId of ids.slice(0, BACKFILL_LIMIT)) {
         try {

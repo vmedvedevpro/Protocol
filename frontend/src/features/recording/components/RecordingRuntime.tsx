@@ -37,27 +37,30 @@ import {
     syncWithNative,
 } from '../store/runtime'
 import {registerQueryClient} from '../store/queries'
+import {useRecovering} from '../store/recover'
 import {saveAfterStop} from '../store/save'
 import {useSessionStore} from '../store/session'
 import {RecoverySheet} from './RecoverySheet'
 
 /**
  * Reports the WebView's own work to the updater while it lasts: the save
- * after Stop, and post-call passes. Renewed within native's lease; `[]` when
- * it ends.
+ * after Stop or of a recovered meeting, and post-call passes. Renewed within
+ * native's lease; `[]` when it ends.
  */
 function useUiActivityReport() {
     const finishing = useSessionStore((state) => state.phase === 'finishing')
+    const recovering = useRecovering()
+    const saving = finishing || recovering
     const postCall = usePostCallBusy()
 
     useEffect(() => {
-        const list: UiActivity[] = [...(finishing ? ['recordingSave' as const] : []), ...(postCall ? ['postCall' as const] : [])]
+        const list: UiActivity[] = [...(saving ? ['recordingSave' as const] : []), ...(postCall ? ['postCall' as const] : [])]
         const send = () => void setUiActivity(list).catch(() => undefined)
         send()
         if (list.length === 0) return
         const renew = setInterval(send, UI_ACTIVITY_RENEW_MS)
         return () => clearInterval(renew)
-    }, [finishing, postCall])
+    }, [saving, postCall])
 }
 
 /**
