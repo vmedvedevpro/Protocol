@@ -141,6 +141,16 @@ impl Default for RecordingPreferences {
     }
 }
 
+/// `protocol-recordings` in `dir`, or in the home folder when the system
+/// names no such folder (Linux without `user-dirs.dirs`). Never in ".": a
+/// relative folder would follow whatever directory the app was started from.
+/// The temp folder is the last resort only when no home folder is known.
+fn recordings_folder_in(dir: Option<PathBuf>) -> PathBuf {
+    dir.or_else(dirs::home_dir)
+        .unwrap_or_else(std::env::temp_dir)
+        .join("protocol-recordings")
+}
+
 /// Get the default recordings folder based on platform
 pub fn get_default_recordings_folder() -> PathBuf {
     #[cfg(target_os = "windows")]
@@ -150,9 +160,7 @@ pub fn get_default_recordings_folder() -> PathBuf {
             music_dir.join("protocol-recordings")
         } else {
             // Fallback to Documents if Music folder is not available
-            dirs::document_dir()
-                .unwrap_or_else(|| PathBuf::from("."))
-                .join("protocol-recordings")
+            recordings_folder_in(dirs::document_dir())
         }
     }
 
@@ -163,18 +171,14 @@ pub fn get_default_recordings_folder() -> PathBuf {
             movies_dir.join("protocol-recordings")
         } else {
             // Fallback to Documents if Movies folder is not available
-            dirs::document_dir()
-                .unwrap_or_else(|| PathBuf::from("."))
-                .join("protocol-recordings")
+            recordings_folder_in(dirs::document_dir())
         }
     }
 
     #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     {
         // Linux/Others: ~/Documents/protocol-recordings
-        dirs::document_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join("protocol-recordings")
+        recordings_folder_in(dirs::document_dir())
     }
 }
 
@@ -660,6 +664,16 @@ pub async fn open_recordings_folder<R: Runtime>(app: AppHandle<R>) -> Result<(),
 mod tests {
     use super::*;
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn default_recordings_folder_is_absolute_without_a_documents_folder() {
+        let folder = recordings_folder_in(None);
+        assert!(folder.is_absolute(), "{folder:?}");
+        if let Some(home) = dirs::home_dir() {
+            assert_eq!(folder, home.join("protocol-recordings"));
+        }
+        assert!(get_default_recordings_folder().is_absolute());
+    }
 
     #[test]
     fn old_preferences_default_system_gain_to_unity() {
