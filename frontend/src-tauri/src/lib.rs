@@ -55,6 +55,7 @@ pub mod groq;
 pub mod openrouter;
 pub mod live_assistant;
 pub mod meeting_detection;
+mod meeting_folder;
 // Ignored test commands that measure transcription (#75); test builds only.
 #[cfg(test)]
 mod measure;
@@ -64,6 +65,8 @@ pub mod model_integrity;
 pub mod parakeet_engine;
 pub mod paths;
 pub mod quit;
+#[cfg(target_os = "linux")]
+mod recording_stream;
 pub mod speech_choice;
 pub mod state;
 pub mod summary;
@@ -441,11 +444,16 @@ pub fn run() {
             //     });
             // }
 
-            // Initialize database (handles first launch detection and conditional setup)
-            tauri::async_runtime::block_on(async {
+            // Initialize database (handles first launch detection and conditional setup).
+            // A database that cannot open leaves AppState unset, as on a first
+            // launch: the window's startup gate then asks native to open it
+            // (initialize_fresh_database), shows native's reason and offers
+            // Retry, instead of the process exiting here with no window.
+            if let Err(e) = tauri::async_runtime::block_on(async {
                 database::setup::initialize_database_on_startup(&_app.handle()).await
-            })
-            .expect("Failed to initialize database");
+            }) {
+                log::error!("The database did not open at startup: {}", e);
+            }
 
             // Initialize bundled templates directory for dynamic template discovery
             log::info!("Initializing bundled templates directory...");

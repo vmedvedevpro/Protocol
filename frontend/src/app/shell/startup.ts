@@ -20,7 +20,7 @@ export const STARTUP_PATIENCE_MS = 8000
  */
 export type StartupPhase = 'checking' | 'slow' | 'failed' | 'databaseFailed' | 'firstLaunch' | 'ready'
 
-export function useStartupPhase(): { phase: StartupPhase, retry: () => void } {
+export function useStartupPhase(): { phase: StartupPhase, reason?: string, retry: () => void } {
     // Retry is the user's: no automatic retries hiding a failure for seconds.
     const status = useQuery({...onboardingStatusQuery, retry: false})
     // Nothing may read meetings before the database exists (PARITY.md,
@@ -48,6 +48,7 @@ export function useStartupPhase(): { phase: StartupPhase, retry: () => void } {
         return {phase: isFirstLaunchDone(status.data) ? 'ready' : 'firstLaunch', retry}
     }
     if (status.isError && !status.isFetching) return {phase: 'failed', retry}
-    if (database.isError && !database.isFetching) return {phase: 'databaseFailed', retry}
+    // Native's words: a database that does not open says why (#121).
+    if (database.isError && !database.isFetching) return {phase: 'databaseFailed', reason: database.error.message, retry}
     return {phase: slow ? 'slow' : 'checking', retry}
 }

@@ -38,13 +38,21 @@ const Retry = styled(m.div)`
     margin-top: ${({theme}) => theme.space[2]};
 `
 
-/** "Checking setup…", and Retry once the check failed or stalls. */
-export function StartupScreen({phase, onRetry}: { phase: Checking, onRetry: () => void }) {
+const Reason = styled.p`
+    max-width: 36ch;
+    ${({theme}) => theme.text.small};
+    color: ${({theme}) => theme.colors.soft};
+    overflow-wrap: anywhere;
+`
+
+/** "Checking setup…", and Retry once the check failed or stalls; `reason` says why it failed. */
+export function StartupScreen({phase, reason, onRetry}: { phase: Checking, reason?: string, onRetry: () => void }) {
     return (
         <Screen>
             <Centre>
                 <Title>Protocol</Title>
                 <StatusLine status={STATUS[phase]}/>
+                {reason && <Reason>{reason}</Reason>}
                 <AnimatePresence>
                     {phase !== 'checking' && (
                         <Retry initial={{y: 4}} animate={{y: 0}} transition={tween('base')}>

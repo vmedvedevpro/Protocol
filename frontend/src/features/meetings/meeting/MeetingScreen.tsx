@@ -161,12 +161,17 @@ export function MeetingScreen({meetingId}: { meetingId: string }) {
         onError: (error) => toast.error('Couldn’t move the meeting', {description: error.message}),
     })
     const {player, state: playback} = useMeetingPlayer(meetingId)
-    const hasAudio = playback.status !== 'unavailable' && playback.status !== 'error'
+    // Native says whether the meeting has a recording; whether this WebView
+    // can play it only switches the player off. Improve and Identify speakers
+    // read the file in native code, so a playback error leaves them in place.
+    const audio = useQuery(meetingAudioQuery(meetingId)).data
+    const audioPath = audio?.path ?? null
+    const hasAudio = !!audioPath
+    const playable = playback.status !== 'unavailable' && playback.status !== 'error'
     // Labs: the waveform and slow speeds in the player, the clean text with its Clean/Verbatim switch.
     const scrubbing = useLab('transcriptScrubbing')
     const cleanLab = useLab('cleanTranscript')
     const [textMode, setTextMode] = useState<TextMode>('clean')
-    const audioPath = useQuery(meetingAudioQuery(meetingId)).data?.path ?? null
     const peaks = useQuery({...waveformQuery(audioPath ?? ''), enabled: scrubbing && !!audioPath}).data
     const speakers = useIdentifySpeakers(meetingId, hasAudio)
     const {write, starting} = useWriteSummary(meetingId)
@@ -267,6 +272,7 @@ export function MeetingScreen({meetingId}: { meetingId: string }) {
             {...playback}
             peaks={scrubbing ? peaks : null}
             rates={scrubbing ? SLOW_PLAYBACK_RATES : undefined}
+            missingFolder={audio?.missingFolder}
         />}>
             <MeetingHeader
                 title={title}
@@ -317,7 +323,7 @@ export function MeetingScreen({meetingId}: { meetingId: string }) {
                                 return (
                                     <TranscriptPanel
                                         meetingId={meetingId}
-                                        playback={hasAudio ? player.clock : undefined}
+                                        playback={playable ? player.clock : undefined}
                                         playing={playback.playing}
                                         revealLine={moment?.line}
                                         revealKey={moment?.key}

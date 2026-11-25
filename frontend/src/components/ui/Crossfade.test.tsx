@@ -56,4 +56,13 @@ describe('Crossfade', () => {
         expect(arriving.backgroundColor).not.toBe('')
         expect(arriving.backgroundColor).not.toBe('rgba(0, 0, 0, 0)')
     })
+
+    it('keeps the views\' z-index inside its own stacking context, under any portal', () => {
+        // A Sheet or a Menu portals to <body> at z-index auto; a view's
+        // z-index 1 on the root stacking context painted over them (#121).
+        renderUi(<Views view="Simple"/>)
+
+        const stack = screen.getByText('Simple').parentElement?.parentElement as HTMLElement
+        expect(getComputedStyle(stack).isolation).toBe('isolate')
+    })
 })

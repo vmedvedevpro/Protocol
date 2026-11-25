@@ -1162,6 +1162,15 @@ both columns; `check-migration-checksums.mjs` recomputes them from git blobs in
 after setting `core.autocrlf` explicitly. The authoritative check is the Rust test
 `embedded_migrations_match_released_checksums` (`database/manager.rs`) over the
 embedded `MIGRATOR`. The Windows column matches the owner's two real databases.
+A database carried to the other platform opens there (#121):
+`DatabaseManager::run_migrations` answers a mismatch in a historical migration
+by rewriting each stored checksum that is exactly the other platform's released
+one to this build's (`accept_other_platform_checksums`, tests
+`opens_a_database_made_by_the_other_platform` and the two after it), as it
+already repairs the people migration; any other mismatch stays an error. A
+database that still does not open no longer ends the process at startup: native
+logs it and leaves the database unset, and the window's startup screen shows
+native's reason with Retry. Verified with the owner's Windows database on Linux.
 A new migration needs an `eol=lf` line in `.gitattributes` and
 `check-migration-checksums.mjs --add-new`, run after `git add`: it hashes the
 staged blob and refuses an untracked migration or one with unstaged changes.
@@ -1435,6 +1444,42 @@ window (#110,
 depends on a recognizable Key Topics heading or legacy section. Verification
 covers frontend/native builds and the Windows installer payload; a local installer
 is not a published release.
+
+### Recording playback (#121)
+
+`api_get_meeting_audio` (`api/api.rs`) finds a meeting's playback file and adds
+its folder to the asset protocol scope; the meeting screen's `<audio>`
+(`frontend/src/features/meetings/meeting/player.ts`) plays it from
+`audioSource` in `frontend/src/api/meetings.ts`. On Windows and macOS that is
+the asset protocol (`convertFileSrc`), which WebView2 and WKWebView stream with
+byte ranges. WebKitGTK's media player accepts only blob, data, file, http and
+https URLs (`isProtocolAllowed` in WebKit's `GStreamerCommon.cpp`) and fails
+`asset://` with a FormatError before any request, so on Linux the reply also
+carries `playbackUrl` from `recording_stream.rs`: a loopback HTTP server bound to
+127.0.0.1 that serves only files native registered, each under a random 256-bit
+token, with Range support, at most 32 connections at once; only Linux's CSP
+(`tauri.linux.conf.json`) adds `http://127.0.0.1:*` to `media-src`.
+WebKitGTK copies a streamed recording into an unlinked, 0600 temp file in
+`/var/tmp` while its player exists (GStreamer's download buffering), so memory
+stays flat for long recordings. Verified on WebKitGTK 2.52.6 under Xvfb with
+WAV, M4A and a two-hour AAC `audio.mp4` (playing, and seeking to 1:56:00);
+`recording_stream::tests` cover the ranges, unknown tokens and paths. Whether a
+meeting has audio comes from native, not from playback: a recording the WebView
+cannot play only switches the player off.
+
+Meetings carried over from another computer keep the absolute `folder_path`
+they were saved with (a `C:\…` path on Linux). When that folder is gone,
+`api_get_meeting_audio` looks for a folder of the same name in the current
+recordings folder (`meeting_folder.rs`) and, when there is one, writes its path
+back to `meetings.folder_path`, since retranscription, speakers, the summary
+and Open recording folder read that column too; otherwise it reports
+`missingFolder` and the player says "The recording isn't where it was saved"
+with the folder, not "No audio was saved". A recordings folder setting that is
+not an absolute path on this OS falls back to the default folder on load
+(`preferences_from_store_value`, not written back). Tests:
+`meeting_folder::tests` and
+`another_systems_recordings_folder_falls_back_to_the_default`; checked on Linux
+with a `C:\…` folder path and a `C:\…` recordings folder.
 
 ### AI agents: the MCP server (#8)
 

@@ -84,4 +84,13 @@ describe('PlayerBar', () => {
         expect(screen.getByText('No audio was saved for this meeting.')).toBeInTheDocument()
         expect(screen.queryByRole('slider')).not.toBeInTheDocument()
     })
+
+    it('says where the recording was saved when that folder is gone', () => {
+        const player = new MeetingPlayer()
+        player.load(null)
+        const folder = String.raw`C:\Users\User\Music\protocol-recordings\Standup_2025-10-02`
+        renderUi(<PlayerBar player={player} {...player.getState()} missingFolder={folder}/>)
+        expect(screen.getByText(`The recording isn’t where it was saved: ${folder}`)).toBeInTheDocument()
+        expect(screen.queryByText('No audio was saved for this meeting.')).not.toBeInTheDocument()
+    })
 })

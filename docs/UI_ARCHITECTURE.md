@@ -309,7 +309,9 @@ theme; the motion from the Motion section.
 - `SegmentedControl`, and `Tabs` with `TabList` and `TabPanels` (see Motion).
   `Crossfade` with `CrossfadeView` swaps any two views in one place the way
   `TabPanels` swaps panels: one grid cell, a `base` veil (see Motion), and
-  the leaving view `inert` while it is covered.
+  the leaving view `inert` while it is covered. The views' z-index orders
+  them only among themselves (`isolation: isolate`), so a Sheet, Menu or
+  Tooltip portal is never painted under a view.
 - `Switch`, `Select`, `TextField` and `TextArea`. `SettingsGroup`,
   `SettingsRow` and `SettingsNavRow` lay out a settings card; a control in a
   row without a name of its own (`label`, `aria-label`, `aria-labelledby`)
@@ -1087,7 +1089,8 @@ recording and hides the main window: minimizing the main window does it
   it runs, since a run that fails before its first step sends no event.
 - `TranscriptList` (`components/transcript/`) shows a transcript, saved
   or live: one row per turn, consecutive lines of one voice less than
-  2.5 s apart joined. Rows off screen are neither laid out nor painted
+  2.5 s apart joined; lines without a speaker (an import) stay one row
+  each, so each can be played from. Rows off screen are neither laid out nor painted
   (`content-visibility: auto`), so a meeting of several hours costs about
   what its visible rows cost, and rows re-render only when what they show
   changes: the callers' `onSeek` and `onRenameSpeaker` are called through a
@@ -1268,7 +1271,12 @@ another meeting starts from fresh state).
   playing, so playback renders nothing. Space plays and pauses unless a
   control has focus; ← and → skip 5 s only while the scrubber has focus;
   the speed steps 1×, 1.25×, 1.5×, 2×. A meeting without audio says so in
-  the bar.
+  the bar. Whether a meeting has audio is native's answer
+  (`meetingAudioQuery`); a recording the WebView cannot play only switches
+  the player off, so Improve and Identify speakers stay. On Linux the
+  recording plays from native's `playbackUrl` instead of the asset
+  protocol, which WebKitGTK's player refuses (DEVELOPMENT_MAP.md ›
+  Recording playback).
 - **Notes and the edited summary** autosave 600 ms after typing stops and
   at once when the tab or the screen closes (`src/lib/autosave.ts`, which
   a contact's private notes use too). The

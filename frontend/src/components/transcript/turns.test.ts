@@ -41,6 +41,17 @@ describe('transcript turns', () => {
         expect(turns.map((turn) => turn.lineIds)).toEqual([['a', 'b'], ['c'], ['d']])
     })
 
+    it('keeps lines without a speaker apart, so each can be played from', () => {
+        // An import has no speaker labels, and Whisper's lines touch.
+        const turns = joinTurns([
+            line('a', null, 0, 4.2, 'First line.'),
+            line('b', null, 4.2, 9, 'Second line.'),
+            line('c', '', 9, 12, 'Third line.'),
+        ])
+
+        expect(turns.map((turn) => [turn.lineIds, turn.start])).toEqual([[['a'], 0], [['b'], 4.2], [['c'], 9]])
+    })
+
     it('finds the turn being played: the last one started, kept through the pause after it', () => {
         const turns = joinTurns([line('a', 'You', 4, 8), line('b', 'Speaker 2', 20, 25), line('c', 'You', 40, 45)])
 

@@ -475,8 +475,8 @@ export function meetingsHandlers(state: { meetings: MockMeetings }): Record<stri
             const meeting = state.meetings.meetings.find((entry) => entry.id === meetingId)
             const playable = !!meeting?.folder_path && (state.meetings.transcripts[meeting.id]?.length ?? 0) > 0
             return playable
-                ? {path: `${MOCK_AUDIO_PREFIX}${meeting.id}`, micPath: null, systemPath: null}
-                : {path: null, micPath: null, systemPath: null}
+                ? {path: `${MOCK_AUDIO_PREFIX}${meeting.id}`, micPath: null, systemPath: null, playbackUrl: null, missingFolder: null}
+                : {path: null, micPath: null, systemPath: null, playbackUrl: null, missingFolder: null}
         },
         open_meeting_folder: ({meetingId}) => {
             const meeting = meetingOf(state.meetings, meetingId)
