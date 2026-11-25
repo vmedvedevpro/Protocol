@@ -1,4 +1,4 @@
-import {type ReactElement, type ReactNode, useState} from 'react'
+import {type ComponentProps, type ReactElement, type ReactNode, useState} from 'react'
 import * as RadixTooltip from '@radix-ui/react-tooltip'
 import {AnimatePresence} from 'motion/react'
 import * as m from 'motion/react-m'
@@ -36,6 +36,22 @@ const Tip = styled(m.div)`
     transform-origin: var(--radix-tooltip-content-transform-origin);
 `
 
+// Radix marks a tooltip opened within the skip window after another
+// `instant-open`: moving along a row of buttons, the next one is there at
+// once, with no entrance. Its exit stays.
+function TipSurface({'data-state': state, ...props}: ComponentProps<typeof Tip> & { 'data-state'?: string }) {
+    return (
+        <Tip
+            {...props}
+            data-state={state}
+            initial={state === 'instant-open' ? false : {opacity: 0, scale: SCALE_FROM}}
+            animate={{opacity: 1, scale: 1}}
+            exit={{opacity: 0, scale: SCALE_FROM}}
+            transition={tween('fast')}
+        />
+    )
+}
+
 interface TooltipProps {
     content: string
     /** A shortcut that does the same, from `formatShortcut`. */
@@ -72,15 +88,10 @@ export function Tooltip({content, shortcut, children, disabled = false}: Tooltip
                             collisionPadding={px(theme.space[2])}
                             aria-label={shortcut ? `${content} (${shortcut})` : content}
                         >
-                            <Tip
-                                initial={{opacity: 0, scale: SCALE_FROM}}
-                                animate={{opacity: 1, scale: 1}}
-                                exit={{opacity: 0, scale: SCALE_FROM}}
-                                transition={tween('fast')}
-                            >
+                            <TipSurface>
                                 {content}
                                 {shortcut && <Kbd tone="fill">{shortcut}</Kbd>}
-                            </Tip>
+                            </TipSurface>
                         </RadixTooltip.Content>
                     </RadixTooltip.Portal>
                 )}

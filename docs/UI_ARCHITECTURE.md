@@ -503,7 +503,9 @@ enter and exit, indicators and springs.
     does.
   - Menus, select lists and tooltips: opacity and a scale from `SCALE_FROM`
     (0.96), with `transform-origin` on the side of their anchor, over
-    `fast`. Inside a menu or a select list one highlight slides between the
+    `fast`. A tooltip that opens within the skip window after another
+    (Radix's `instant-open`, moving along a row of buttons) appears at
+    once. Inside a menu or a select list one highlight slides between the
     items on `springs.snappy` (`SlidingHighlight`); an arrow key lands it on
     the next item at once, the pointer slides it. It stays on the last
     item while the pointer crosses a separator or a group label and lands
