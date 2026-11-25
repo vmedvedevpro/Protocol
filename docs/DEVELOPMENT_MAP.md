@@ -1010,9 +1010,10 @@ parts:
   `ggml_backend_dev_count`, which creates the instance and loads the
   drivers; called before every whisper.cpp context, also the model check's in
   `model_catalog/service.rs`), `load` (a GPU context: device, buffers,
-  weights) and `first_run` (the process's first GPU inference, which compiles
-  ggml's shaders on demand; live, post-meeting, `transcribe_audio`, language
-  detection). A marker found at start keeps the loader closed: Whisper runs on
+  weights) and `first_run` (the first inference of each model loaded on the
+  GPU, which compiles the shaders ggml needs for its operations and weight
+  type on demand; `load` rearms it; live, post-meeting, `transcribe_audio`,
+  language detection). A marker found at start keeps the loader closed: Whisper runs on
   the processor and `whisper.gpuStopped` carries the reason; For this computer
   shows it on the Whisper row with Try again (`whisper_gpu_retry`), which
   removes the marker and takes effect at the next start, since ggml lists its
@@ -1027,6 +1028,7 @@ parts:
 
 Tests: `whisper_engine::vulkan::tests` (the marker, a retry, a clean quit, a
 panicking step, the answers without a loader),
+`whisper_engine::vulkan::linux::tests::the_first_inference_of_each_gpu_model_is_guarded`,
 `acceleration::tests::a_registry_without_gpus_has_no_gpu_device` and
 `a_context_without_the_gpu_reads_as_cpu`, and the For this computer test in
 `SpeechSettings.test.tsx`. On this laptop both binaries have no `DT_NEEDED`
@@ -1055,8 +1057,8 @@ default of 4 threads (the app's `max_threads` is not applied, see above).
 Remaining limits: the
 Linux release leg builds the packages only on `main`, and its runner has no
 GPU, so the GPU path is verified on this laptop only (Intel Arc B390, Mesa);
-no AMD or NVIDIA machine, no hybrid laptop; the guard covers the first
-inference of a process, not later ones.
+no AMD or NVIDIA machine, no hybrid laptop; the guard covers each GPU
+model's first inference, not later ones.
 
 ### Parakeet on the Intel NPU
 

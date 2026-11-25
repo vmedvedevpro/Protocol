@@ -170,6 +170,8 @@ jobs:
             echo "protocol links libvulkan.so.1 and would not start without a Vulkan loader"
             exit 1
           fi
+          # A log line of ggml-vulkan's own (ggml_vk_instance_init): if a
+          # whisper.cpp update rewords it, this check fails on a good build.
           if ! grep -qa 'ggml_vulkan: No devices found' target/release/protocol; then
             echo "protocol has no ggml-vulkan: was it built with --features vulkan?"
             exit 1

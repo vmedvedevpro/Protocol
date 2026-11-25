@@ -35,9 +35,11 @@
 //! **The guard**, the pattern of `parakeet_engine::npu::guard` with a marker of
 //! its own: a broken driver crashes inside these calls, where no `Result`
 //! reaches the app. The steps are the device enumeration (the first Vulkan
-//! instance, which loads the drivers), the first GPU context of a model, and
-//! the first inference of the process, which compiles ggml's shaders (ggml
-//! compiles a pipeline the first time a graph needs it). A marker found at
+//! instance, which loads the drivers), a model's GPU context, and the first
+//! inference of each model loaded on the GPU, which compiles ggml's shaders
+//! (ggml compiles a pipeline the first time a graph needs it, per operation
+//! and weight type, so a model of another quantization compiles new ones).
+//! Later inferences of a model run unguarded. A marker found at
 //! start was left by a process that died in one of them: the GPU then stays
 //! off, Whisper runs on the processor and Settings says why, until the person
 //! retries ([`retry`]), which takes effect at the next start, since ggml reads
@@ -56,7 +58,7 @@ pub enum Step {
     Devices,
     /// A whisper.cpp context on the GPU: the device, its buffers, the weights.
     Load,
-    /// The process's first inference on the GPU, which compiles the shaders.
+    /// A GPU model's first inference, which compiles the shaders it needs.
     FirstRun,
 }
 
@@ -295,8 +297,18 @@ mod linux {
     /// The loader behind a call that only a Vulkan instance can make: ggml
     /// calls the other two exports with a device or a command buffer, which
     /// exist only once `vkCreateInstance` went through this loader.
+    /// Unreachable without a loader: `vkCreateInstance` itself came through
+    /// it. Should it happen, the process aborts with a log line instead of
+    /// panicking, since a panic may not unwind out of the `extern "C"`
+    /// exports that call this.
     pub fn instance_loader() -> &'static Loader {
-        loader().expect("Vulkan called with a device but without a loader")
+        match loader() {
+            Some(loader) => loader,
+            None => {
+                log::error!("[vulkan] ggml-vulkan called a device function without a Vulkan loader");
+                std::process::abort()
+            }
+        }
     }
 
     #[cfg(test)]
@@ -329,31 +341,49 @@ mod linux {
         });
     }
 
-    /// A GPU context of this process has been created.
-    static ON_GPU: AtomicBool = AtomicBool::new(false);
-    /// The process's first inference on the GPU completed.
-    static FIRST_RUN_DONE: AtomicBool = AtomicBool::new(false);
+    /// Whether the loaded model's first GPU inference is still to come.
+    struct Runs {
+        /// A GPU context has been created in this process.
+        on_gpu: AtomicBool,
+        /// The current GPU model has completed an inference.
+        first_run_done: AtomicBool,
+    }
+
+    static RUNS: Runs = Runs { on_gpu: AtomicBool::new(false), first_run_done: AtomicBool::new(false) };
 
     /// Creates a whisper.cpp context inside the guard when it goes to the GPU.
     pub fn load<T>(use_gpu: bool, work: impl FnOnce() -> T) -> T {
+        load_in(&GUARD, &RUNS, use_gpu, work)
+    }
+
+    fn load_in<T>(guard: &std::sync::Mutex<super::Guard>, runs: &Runs, use_gpu: bool, work: impl FnOnce() -> T) -> T {
         if !use_gpu {
             return work();
         }
         let mut work = Some(work);
-        let result = guarded_in(&GUARD, Step::Load, || (work.take().expect("runs once"))());
-        ON_GPU.store(true, Ordering::Release);
+        let result = guarded_in(guard, Step::Load, || (work.take().expect("runs once"))());
+        runs.on_gpu.store(true, Ordering::Release);
+        // ggml compiles a shader the first time a graph needs it, per
+        // operation and weight type, so a model of another quantization
+        // compiles new ones on its first inference: guard that one too.
+        runs.first_run_done.store(false, Ordering::Release);
         // `Err` only when the guard was stopped, and then ggml has no GPU.
         result.unwrap_or_else(|_| (work.take().expect("did not run"))())
     }
 
-    /// Runs an inference, inside the guard while none has completed on the GPU.
+    /// Runs an inference, inside the guard until the loaded GPU model has
+    /// completed one.
     pub fn first_run<T>(work: impl FnOnce() -> T) -> T {
-        if !ON_GPU.load(Ordering::Acquire) || FIRST_RUN_DONE.load(Ordering::Acquire) {
+        first_run_in(&GUARD, &RUNS, work)
+    }
+
+    fn first_run_in<T>(guard: &std::sync::Mutex<super::Guard>, runs: &Runs, work: impl FnOnce() -> T) -> T {
+        if !runs.on_gpu.load(Ordering::Acquire) || runs.first_run_done.load(Ordering::Acquire) {
             return work();
         }
         let mut work = Some(work);
-        let result = guarded_in(&GUARD, Step::FirstRun, || (work.take().expect("runs once"))());
-        FIRST_RUN_DONE.store(true, Ordering::Release);
+        let result = guarded_in(guard, Step::FirstRun, || (work.take().expect("runs once"))());
+        runs.first_run_done.store(true, Ordering::Release);
         result.unwrap_or_else(|_| (work.take().expect("did not run"))())
     }
 
@@ -370,6 +400,31 @@ mod linux {
             assert_eq!(unsafe { version(&mut value) }, INITIALIZATION_FAILED);
             assert!(without_loader(c"vkCreateInstance".as_ptr()).is_none());
             assert!(without_loader(std::ptr::null()).is_none());
+        }
+
+        #[test]
+        fn the_first_inference_of_each_gpu_model_is_guarded() {
+            let dir = tempfile::tempdir().unwrap();
+            let marker = dir.path().join("whisper-vulkan.attempt");
+            let guard = super::super::Guard::new(Some(marker.clone()));
+            let runs = Runs { on_gpu: AtomicBool::new(false), first_run_done: AtomicBool::new(false) };
+            let guarded = |runs: &Runs| first_run_in(&guard, runs, || marker.exists());
+
+            // Nothing on the GPU yet, and a model on the CPU: no marker.
+            assert!(!guarded(&runs));
+            load_in(&guard, &runs, false, || ());
+            assert!(!guarded(&runs));
+
+            // A GPU model: its first inference is guarded, the next is not.
+            assert!(load_in(&guard, &runs, true, || marker.exists()));
+            assert!(guarded(&runs));
+            assert!(!guarded(&runs));
+
+            // Another GPU model compiles its own shaders: guarded again.
+            load_in(&guard, &runs, true, || ());
+            assert!(guarded(&runs));
+            assert!(!guarded(&runs));
+            assert!(!marker.exists());
         }
     }
 }

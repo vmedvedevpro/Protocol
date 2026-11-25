@@ -21,7 +21,7 @@ import {gpuFallbackReason, localStackKeys, localStackQuery, retryWhisperGpu} fro
 import {trackIntelDownload} from '@/api/modelDownloadSync'
 import {PARAKEET_MODEL, POST_CALL_WHISPER_MODEL} from '@/api/models'
 import {Button} from '@/components/ui/Button'
-import {SettingsGroup} from '@/components/ui/SettingsRow'
+import {SettingsGroup, SettingsRow} from '@/components/ui/SettingsRow'
 import {StatusLine} from '@/components/ui/StatusLine'
 import {toast} from '@/components/ui/toastStore'
 import {formatModelSize} from '@/lib/sizes'
@@ -157,20 +157,23 @@ export function ForThisComputer() {
             onCancel={() => cancel(copy)}
             onRemove={() => remove(copy)}
             removeDetail={facts(formatModelSize(copy.size_bytes) && `This frees ${formatModelSize(copy.size_bytes)}`, 'Transcripts after meetings then use the live model') + '.'}
-        >
-            {stack?.whisper.gpuStopped && (
-                <RowControls>
-                    <Warning role="status" title={stack.whisper.gpuStopped}>The graphics card didn’t start last time, so Whisper runs on the processor</Warning>
-                    <Button size="sm" variant="ghost" onClick={retryGpu}>Try again</Button>
-                </RowControls>
-            )}
-        </ModelRow>
+        />
+    )
+
+    // Linux: a row of its own, so it shows whichever Whisper row this computer has, or none.
+    const gpuStoppedRow = stack?.whisper.gpuStopped && (
+        <SettingsRow
+            label="Graphics card"
+            description={<Warning role="status" title={stack.whisper.gpuStopped}>It didn’t start last time, so Whisper runs on the processor</Warning>}
+            control={<Button size="sm" variant="ghost" onClick={retryGpu}>Try again</Button>}
+        />
     )
 
     return (
         <SettingsGroup title="For this computer">
             {parakeetRow}
             {whisperRow}
+            {gpuStoppedRow}
             {librariesRow}
             {offered && !offered.installed && (
                 <ModelRow
