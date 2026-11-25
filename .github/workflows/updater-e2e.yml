@@ -6,32 +6,26 @@ name: Updater end-to-end
 # (src-tauri/src/updater/e2e.rs). Passes when the relaunched copy reports
 # 9.0.1 updated from 9.0.0 and the installed files are the new ones.
 # No secrets, read-only token. See docs/AUTO_UPDATE.md.
-# The windows and linux jobs run on every push to main, like the release dry
-# run, and by hand; pull requests run only pr-checks.yml. A tag needs both
-# green. The macos job runs only by hand (`gh workflow run updater-e2e.yml`):
-# its runner can take up to a day, macOS gates no tag (#164), and the owner
-# keeps it off main pushes. A red macos job is fixed in a follow-up like any
-# other change (WORKFLOWS_OVERVIEW.md).
+# Runs only by hand, before a release, on the main commit to be tagged
+# (`gh workflow run updater-e2e.yml`): the updater is checked when a release
+# is about to depend on it, not on every push (the owner's choice). A tag needs
+# the windows and linux jobs green. The macos job runs only when asked for
+# (`-f macos=true`): its runner can take up to a day and macOS gates no tag
+# (#164); a red macos job is fixed in a follow-up like any other change
+# (WORKFLOWS_OVERVIEW.md).
 on:
-  push:
-    branches: [main]
-    # Documentation-only pushes skip it; the same list as release.yml.
-    paths-ignore:
-      - 'docs/**'
-      - '**/README.md'
-      - 'AGENTS.md'
-      - 'ARCHITECTURE.md'
-      - 'PRIVACY_POLICY.md'
-      - 'LICENSE*'
-      - '.github/**/*.md'
-      - 'frontend/src-tauri/*.md'
   workflow_dispatch:
+    inputs:
+      macos:
+        description: Also run the macOS job (gates no tag; its runner can take up to a day)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 concurrency:
-  # A newer push to main cancels the older main run but not a manual run.
+  # A newer run on the same ref cancels the older one.
   group: updater-e2e-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
@@ -214,10 +208,10 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
-  # Reports on its own and gates no tag; keep it out of every `needs`. Manual
-  # runs only, so a main push does not wait in the macOS runner queue.
+  # Reports on its own and gates no tag; keep it out of every `needs`. Only
+  # when the run asks for it, so a pre-release run does not wait for a runner.
   macos:
-    if: github.event_name == 'workflow_dispatch'
+    if: inputs.macos
     runs-on: macos-15
     timeout-minutes: 150
     env:

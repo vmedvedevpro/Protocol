@@ -14,8 +14,7 @@ on:
     branches: [main]
     # GitHub applies no path filter to tag pushes, so this list only lets a
     # documentation-only push to main skip the dry run. CHANGELOG.md is not in
-    # it: the dry run's notes and latest.json come from it. updater-e2e.yml
-    # keeps the same list.
+    # it: the dry run's notes and latest.json come from it.
     paths-ignore:
       - 'docs/**'
       - '**/README.md'

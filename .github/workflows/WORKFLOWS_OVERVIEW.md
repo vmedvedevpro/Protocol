@@ -16,7 +16,7 @@ or Apple certificate yet).
 | `release-build-windows.yml` | called by `release.yml` | `windows-2022`: CPU + Vulkan installer, native tests, payload check, install/start/uninstall on the runner |
 | `release-build-macos.yml` | called by `release.yml` | `macos-15`: Apple Silicon DMG and updater bundle, native tests, bundle checks, two launches; nothing waits for it |
 | `release-build-linux.yml` | called by `release.yml` | `ubuntu-22.04`: AppImage and deb as two builds (the deb uses the distribution's ffmpeg), package checks, start under Xvfb; native tests do not block yet |
-| `updater-e2e.yml` | pushes to `main` (Windows, Linux), manual runs (also macOS) | On each platform, an old build under a test identity updates itself to a new one from a localhost feed ([AUTO_UPDATE.md](../../docs/AUTO_UPDATE.md)); the macOS job runs only by hand and gates no tag |
+| `updater-e2e.yml` | manual runs, before a release (macOS only with `-f macos=true`) | On each platform, an old build under a test identity updates itself to a new one from a localhost feed ([AUTO_UPDATE.md](../../docs/AUTO_UPDATE.md)); the macOS job gates no tag |
 | `release-published.yml` | release published | Downloads the public assets anonymously and checks checksums, `latest.json`, signatures and `/releases/latest`, for the platforms the release has by then |
 
 Everything a job decides lives in tested scripts under `scripts/release/`
@@ -28,7 +28,8 @@ same way. The Windows build itself is `frontend/scripts/build-universal-windows.
 A pull request runs only `pr-checks.yml` (1–3 minutes); no Rust is built or
 tested there. The push of each merge to `main` runs `pr-checks.yml`, the
 `release.yml` dry run (25–50 minutes; its legs run the native tests on every
-platform, blocking on Windows and macOS) and `updater-e2e.yml` (20–45 minutes).
+platform, blocking on Windows and macOS). `updater-e2e.yml` (20–45 minutes)
+runs only by hand, before a release (step 2 below).
 A push that changes only documentation (`docs/`, any `README.md`, `AGENTS.md`,
 `ARCHITECTURE.md`, `PRIVACY_POLICY.md`, `LICENSE*`, Markdown under `.github/`,
 `frontend/src-tauri/*.md`) runs only `pr-checks.yml`. `CHANGELOG.md` is not on
@@ -80,19 +81,21 @@ prereleases are invisible to them.
    release notes and the text the updater shows. Merge the PR.
 
 2. **Wait for a green `main`, then tag that commit.** The merge starts
-   `pr-checks.yml`, the `release.yml` dry run and `updater-e2e.yml` on the
-   merged commit. Tag only a commit on which every job of these three runs
-   succeeded **except the macOS ones**: `pr-checks.yml`; `validate`,
-   `frontend-checks`, the Windows and Linux legs and `preview` of the dry run;
-   the `windows` and `linux` jobs of `updater-e2e.yml`. The macOS jobs
-   (`build-macos`, `preview-macos`, the `macos` job of `updater-e2e.yml`,
-   which runs only by hand) do not gate a tag, so the run of a workflow can be red or still going
+   `pr-checks.yml` and the `release.yml` dry run on the merged commit; start
+   `updater-e2e.yml` on it by hand (`gh workflow run updater-e2e.yml -R
+   vmedvedevpro/Protocol --ref main`, right after the merge so it runs on that
+   commit). Tag only a commit on which every job of these three runs succeeded
+   **except the macOS ones**: `pr-checks.yml`; `validate`, `frontend-checks`,
+   the Windows and Linux legs and `preview` of the dry run; the `windows` and
+   `linux` jobs of `updater-e2e.yml`. The macOS jobs (`build-macos`,
+   `preview-macos`, and the `macos` job of `updater-e2e.yml` when asked for)
+   do not gate a tag, so the run of a workflow can be red or still going
    because of them alone:
 
    ```powershell
    git fetch origin
    $sha = git rev-parse origin/main   # the release PR's merge commit
-   gh run list -R vmedvedevpro/Protocol --commit $sha --event push --json databaseId,workflowName,status,conclusion
+   gh run list -R vmedvedevpro/Protocol --commit $sha --json databaseId,workflowName,event,status,conclusion
    # For each run: every line must say success (draft and join-macos say skipped).
    gh run view <databaseId> -R vmedvedevpro/Protocol --json jobs --jq '.jobs[] | select(.name | test("macos") | not) | "\(.conclusion) \(.name)"'
    ```
