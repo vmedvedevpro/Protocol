@@ -365,9 +365,6 @@ export const SUMMARY_PROGRESS_EVENT = 'summary-progress' as NativeEvent<SummaryP
 /** How often a running summary is read again, for runs that end without an event. */
 export const SUMMARY_POLL_MS = 5000
 
-/** The template a summary uses until #117 stores a default and #119 picks one per run. */
-export const DEFAULT_SUMMARY_TEMPLATE = 'standard_meeting'
-
 export const getSummary = (meetingId: string) => command<SummaryResponse>('api_get_summary', {meetingId})
 
 /**
@@ -586,7 +583,8 @@ export async function startSummary(request: SummaryRequest): Promise<SummaryStar
         chunkSize: 40000,
         overlap: 1000,
         customPrompt: request.customPrompt ?? '',
-        templateId: request.templateId ?? DEFAULT_SUMMARY_TEMPLATE,
+        // Left out, native uses the stored default template (src/api/templates.ts).
+        templateId: request.templateId,
         summaryLanguage: language,
     })
     return {processId: reply.process_id, languageTie: tie}

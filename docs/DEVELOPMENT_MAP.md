@@ -244,6 +244,19 @@ the latest handoff is tracked, so a second Stop during a save is answered
 Summary-generated title ownership, placeholder rejection and completion refresh
 are documented in [SUMMARY_GENERATED_TITLES.md](SUMMARY_GENERATED_TITLES.md).
 
+A summary run's template is `api_process_transcript`'s `template_id`. Without
+one native takes the stored default (`summary/template_settings.rs`, #117): the
+id in `default_summary_template.txt` in the data root while that template still
+loads, else `standard_meeting`, the template the UI always sent (upstream fell
+back to `daily_standup`). Settings › Summary templates stores it with
+`api_set_default_template`, which accepts only a template that loads, so a
+deleted custom default falls back by itself. The UI's
+`startSummary` (`frontend/src/api/meetings.ts`) leaves the template out unless
+a run picks one, so the automatic summary after a recording uses the default.
+The module also reads one template whole (`api_get_template`) for its sections
+and the editor; the frontend domain is `frontend/src/api/templates.ts`. Tests:
+native `summary::template_settings::tests`, frontend `src/api/templates.test.ts`.
+
 `diarization/mod.rs` owns persisted engine settings and offline command dispatch.
 Nemotron is Auto-detect only; manual counts belong to Pyannote. Rerunning speaker
 identification must preserve transcript text, row identity, and timestamps.

@@ -15,6 +15,7 @@ import {completedOnboarding, createMockDatabase} from './onboarding'
 import {createMockPostCall} from './postCall'
 import {createMockPreferences} from './preferences'
 import {createMockSpeech} from './speech'
+import {createMockTemplates} from './templates'
 import {createMockUpdater, createMockUpdateRelease} from './updater'
 
 /**
@@ -92,6 +93,8 @@ function createMockState() {
         speech: createMockSpeech(),
         // The native Labs switches (src/mocks/labs.ts).
         labs: createMockLabs(),
+        // Summary templates and the stored default (src/mocks/templates.ts).
+        templates: createMockTemplates(),
     }
 }
 

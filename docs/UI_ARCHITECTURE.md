@@ -878,8 +878,11 @@ quit is saved whatever screen is open. The minibar window mounts none of it.
   `[mm:ss] Speaker: text` lines, picks the language (the one chosen for the
   meeting, else the one detected before, else it detects and keeps it, in
   the old `…Fallback:<meetingId>` keys for a meeting without
-  metadata.json) and calls `api_process_transcript` with the
-  `standard_meeting` template until #117 stores a default. Checks of the
+  metadata.json) and calls `api_process_transcript`. It names a template
+  only when the caller picks one for the run (#119); otherwise native uses
+  the stored default (`src/api/templates.ts`: the templates, one read whole,
+  custom ones saved and deleted, and the default, which native keeps in
+  `summary/template_settings.rs`). Checks of the
   model itself (downloaded, installed) are the caller's. The run goes on
   natively, which holds it as busy work for the updater: `summary-progress`
   says it moved on, and `summaryQuery` also reads it again every 5 s while
