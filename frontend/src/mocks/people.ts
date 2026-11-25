@@ -212,11 +212,18 @@ function storeVoice(db: MockDb, person: MockPerson, meetingIds: string[], replac
  */
 export function peopleHandlers(state: MockDb): Record<string, MockHandler> {
     const meetings = meetingsHandlers(state)
-    return {
+    const handlers: Record<string, MockHandler> = {
+        // With removeEmptiedContact, `from`'s contact goes when no meeting
+        // has its lines any more: merged into the new one, or deleted.
         rename_meeting_speaker: async (args) => {
-            const renamed = await meetings.rename_meeting_speaker(args) as { speaker: string }
-            ensureContact(state, renamed.speaker)
-            return renamed
+            const source = personNamed(state, String(args.from ?? ''))
+            const renamed = await meetings.rename_meeting_speaker(args) as { speaker: string, count: number }
+            const target = ensureContact(state, renamed.speaker)
+            const emptied = args.removeEmptiedContact === true && renamed.count > 0 && source && target?.id !== source.id &&
+                meetingsOf(state, source).length === 0
+            if (emptied && target) handlers.api_merge_people({sourceId: source.id, targetId: target.id})
+            else if (emptied) handlers.api_delete_person({personId: source.id})
+            return {...renamed, removedContact: !!emptied}
         },
         api_list_action_items: (args) => {
             linkOwners(state)
@@ -343,4 +350,5 @@ export function peopleHandlers(state: MockDb): Record<string, MockHandler> {
             return null
         },
     }
+    return handlers
 }

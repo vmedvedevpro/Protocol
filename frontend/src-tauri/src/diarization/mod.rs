@@ -721,22 +721,30 @@ pub struct MeetingSpeakerRenameResult {
     pub speaker: String,
     pub count: u64,
     pub removed_name: bool,
+    /// `from`'s contact was removed, having no lines left anywhere.
+    pub removed_contact: bool,
 }
 
+/// `remove_emptied_contact` (the Who said this sheet, after its warning)
+/// also removes `from`'s contact when no meeting has its lines any more
+/// (PeopleRepository::rename_speaker).
 #[tauri::command]
 pub async fn rename_meeting_speaker(
     state: tauri::State<'_, crate::state::AppState>,
     meeting_id: String,
     from: String,
     to: String,
+    remove_emptied_contact: Option<bool>,
 ) -> Result<MeetingSpeakerRenameResult, String> {
+    use crate::database::repositories::person::{PeopleRepository, RemovedContact};
     let _operation_guard = operation_guard().await;
 
-    let outcome = crate::database::repositories::person::PeopleRepository::rename_meeting_speaker(
+    let outcome = PeopleRepository::rename_speaker(
         state.db_manager.pool(),
         &meeting_id,
         &from,
         &to,
+        remove_emptied_contact.unwrap_or(false),
     )
     .await
     .map_err(|e| format!("Failed to rename speaker: {}", e))?;
@@ -744,10 +752,20 @@ pub async fn rename_meeting_speaker(
         "🧑‍🤝‍🧑 Renamed speaker '{}' → '{}' across {} segments of meeting {}",
         from, outcome.speaker, outcome.count, meeting_id
     );
+    // The voices follow the contacts, as api_merge_people and
+    // api_delete_person keep them.
+    match &outcome.removed_contact {
+        Some(RemovedContact::Merged { source_id, target_id, target_name }) => {
+            voice_profiles::contacts_merged(source_id, target_id, target_name)
+        }
+        Some(RemovedContact::Deleted { person_id }) => voice_profiles::contact_deleted(person_id),
+        None => {}
+    }
     Ok(MeetingSpeakerRenameResult {
         speaker: outcome.speaker,
         count: outcome.count,
         removed_name: outcome.removed_name,
+        removed_contact: outcome.removed_contact.is_some(),
     })
 }
 
@@ -774,6 +792,7 @@ pub async fn reassign_transcript_speaker(
         speaker: outcome.speaker,
         count: outcome.count,
         removed_name: outcome.removed_name,
+        removed_contact: false,
     })
 }
 

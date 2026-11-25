@@ -3,7 +3,16 @@ import {useQuery, useQueryClient} from '@tanstack/react-query'
 import styled from 'styled-components'
 import {errorMessage} from '@/api/core'
 import {meetingKeys, meetingTranscriptsQuery, renameMeetingSpeaker} from '@/api/meetings'
-import {isPersonLabel, normalizePersonName, peopleKeys, peopleQuery} from '@/api/people'
+import {
+    isPersonLabel,
+    normalizePersonName,
+    type Person,
+    peopleKeys,
+    peopleQuery,
+    personForSpeaker,
+    personProfileQuery,
+    voiceProfilesQuery,
+} from '@/api/people'
 import {useUserName} from '@/api/preferences'
 import {displaySpeaker, formatClock, isUserSpeaker, lineFromSegment, speakerParts} from '@/components/transcript/turns'
 import {Button} from '@/components/ui/Button'
@@ -25,6 +34,13 @@ const Form = styled.form`
     display: flex;
     flex-direction: column;
     gap: ${({theme}) => theme.space[3]};
+`
+
+// What a save does to a contact it empties; merges have no Undo.
+const Caution = styled.p`
+    margin: 0;
+    ${({theme}) => theme.text.small};
+    color: ${({theme}) => theme.colors.text};
 `
 
 const Quote = styled.blockquote`
@@ -119,6 +135,8 @@ function SpeakerForm({request, onSaving}: { request: Extract<OpenedDialog, { kin
     // A pick the search no longer shows is not a pick.
     const chosen = named.some((choice) => choice.value === pick) || (scope === 'all' && voices.some((voice) => pick === `voice:${voice}`)) ? pick : ''
     const to = chosen.replace(/^(name|voice):/, '')
+    const emptied = useEmptiedContact(!live && !!meetingId && scope === 'all' && !!to ? people.data : undefined, from, to)
+    const caution = emptied && removalNote(emptied, people.data ?? [], to, shown(to))
 
     const submit = async (event: FormEvent) => {
         event.preventDefault()
@@ -129,9 +147,10 @@ function SpeakerForm({request, onSaving}: { request: Extract<OpenedDialog, { kin
                 await live.rename(from, to)
                 toast.success(`${shown(from)} is now ${shown(to)}`)
             } else if (meetingId && scope === 'all') {
-                const result = await renameMeetingSpeaker(meetingId, from, to)
+                const result = await renameMeetingSpeaker(meetingId, from, to, {removeEmptiedContact: !!emptied})
+                const lines = `${result.count} ${result.count === 1 ? 'line' : 'lines'} updated.`
                 toast.success(`${shown(from)} is now ${shown(result.speaker)}`, {
-                    description: `${result.count} ${result.count === 1 ? 'line' : 'lines'} updated.`,
+                    description: result.removedContact ? `${lines} The contact ${emptied?.person.displayName} was removed.` : lines,
                 })
             } else if (meetingId) {
                 for (const lineId of request.lineIds) await reassignTranscriptSpeaker(meetingId, lineId, to, from)
@@ -189,6 +208,46 @@ function SpeakerForm({request, onSaving}: { request: Extract<OpenedDialog, { kin
                     />
                 </SettingsRadioGroup>
             )}
+            {caution && <Caution role="status">{caution}</Caution>}
         </Form>
     )
+}
+
+interface EmptiedContact {
+    person: Person
+    notes: boolean
+    voice: boolean
+}
+
+/**
+ * The contact `from` belongs to when moving every line of it would leave it
+ * in no meeting, with what it keeps besides its lines; native checks the
+ * same again when it saves (PeopleRepository::rename_speaker). `people` is
+ * undefined while the change is not one of every line of a saved meeting.
+ */
+function useEmptiedContact(people: readonly Person[] | undefined, from: string, to: string): EmptiedContact | null {
+    const source = people && personForSpeaker(people, from)
+    const emptied = source && source.meetingCount <= 1 && normalizePersonName(to) !== normalizePersonName(source.displayName) ? source : undefined
+    const profile = useQuery({...personProfileQuery(emptied?.id ?? ''), enabled: !!emptied})
+    const voices = useQuery({...voiceProfilesQuery, enabled: !!emptied})
+    if (!emptied) return null
+    return {
+        person: emptied,
+        notes: !!profile.data?.notes,
+        voice: !!voices.data?.some((voice) => voice.person_id === emptied.id),
+    }
+}
+
+/** "Tom has no other meetings, so the contact is merged into Thomas…", or what is deleted with it. */
+function removalNote({person, notes, voice}: EmptiedContact, people: readonly Person[], to: string, toName: string): string {
+    const lead = `${person.displayName} isn’t in any other meeting, so the contact`
+    // A contact name merges (a new name becomes a contact first); You and a voice are no contact.
+    if (isPersonLabel(to)) {
+        const into = personForSpeaker(people, to) ? toName : `the new contact ${toName}`
+        return `${lead} is merged into ${into}: its notes, details, action items and voice move there.`
+    }
+    const details = !!(person.email || person.company || person.role || person.phone)
+    const lost = [notes && 'private notes', details && 'details', voice && 'voice profile'].filter(Boolean) as string[]
+    const what = lost.length ? `, with its ${lost.length > 1 ? `${lost.slice(0, -1).join(', ')} and ${lost[lost.length - 1]}` : lost[0]}` : ''
+    return `${lead} is deleted${what}. Its action items stay, without the contact.`
 }
