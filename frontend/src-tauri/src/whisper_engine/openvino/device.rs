@@ -177,6 +177,59 @@ pub fn display_adapters() -> Vec<DisplayAdapter> {
         .collect()
 }
 
+/// Whether to offer OpenVINO on Linux before the runtime is installed
+/// (#178): the GPU whisper.cpp would use has a PCI address from Vulkan
+/// (Mesa's drivers offer `VK_EXT_pci_bus_info`), and the kernel lists an
+/// Intel device there (`vendor_of`, read from sysfs by [`sysfs_vendor`]).
+/// Without an address nothing is offered: Linux keeps no adapter names to
+/// match a Vulkan name against, as Windows' registry does.
+pub fn offer_by_address(chosen: Option<ChosenGpu<'_>>, vendor_of: impl Fn(PciAddress) -> Option<u32>) -> bool {
+    chosen
+        .and_then(|chosen| chosen.pci_bus_id)
+        .and_then(PciAddress::from_ggml)
+        .is_some_and(|address| vendor_of(address) == Some(INTEL_VENDOR))
+}
+
+/// The PCI vendor the kernel reports for `address` under `devices`
+/// (`/sys/bus/pci/devices`): its `vendor` file, `0x8086`.
+pub fn sysfs_vendor(devices: &std::path::Path, address: PciAddress) -> Option<u32> {
+    let name = format!("{:04x}:{:02x}:{:02x}.{:x}", address.domain, address.bus, address.device, address.function);
+    let text = std::fs::read_to_string(devices.join(name).join("vendor")).ok()?;
+    u32::from_str_radix(text.trim().trim_start_matches("0x"), 16).ok()
+}
+
+/// What OpenVINO's GPU plugin lacks on Linux, as the package to install, or
+/// `None`. The plugin talks to the GPU through OpenCL alone (it links
+/// `libOpenCL.so.1` and never Level Zero), so it needs Intel's OpenCL driver
+/// (the compute runtime, NEO), which registers itself with the OpenCL loader
+/// as an `.icd` file naming `libigdrcl.so`; `icd_files` are the contents of
+/// those the loader reads. Without it the plugin lists no GPU, and Whisper
+/// would stay on Vulkan with nothing said. The driver's package depends on
+/// the loader's, so it is the one to name; a loader missing all the same
+/// fails GenAI's load, which [`names_missing_loader`] recognises.
+pub fn missing_driver(icd_files: &[String]) -> Option<&'static str> {
+    (!icd_files.iter().any(|content| content.contains("libigdrcl"))).then_some(INTEL_OPENCL_PACKAGE)
+}
+
+/// Whether a load error is the dynamic loader not finding the OpenCL loader
+/// GenAI and the GPU plugin link (`libOpenCL.so.1: cannot open shared object
+/// file`).
+pub fn names_missing_loader(error: &str) -> bool {
+    error.contains("libOpenCL.so.1")
+}
+
+/// The Debian and Ubuntu packages [`missing_driver`] names; the message
+/// that shows them also names the compute runtime for other distributions.
+pub const OPENCL_LOADER_PACKAGE: &str = "ocl-icd-libopencl1";
+pub const INTEL_OPENCL_PACKAGE: &str = "intel-opencl-icd";
+
+/// The sentence Settings shows for [`missing_driver`]'s package.
+pub fn driver_message(package: &str) -> String {
+    format!(
+        "Running Whisper on the Intel GPU needs Intel's OpenCL driver: install the {package} package (intel-compute-runtime on Fedora and Arch), then restart Protocol"
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -296,5 +349,40 @@ mod tests {
         let other = gpu("GPU", "Intel(R) Arc(TM) B390 GPU (iGPU)", true, 0x10de, 0, 2);
         assert_eq!(openvino_device_for(chosen(Some("0000:00:02.0"), B390, true), &[other.clone()]), None);
         assert_eq!(openvino_device_for(chosen(None, B390, true), &[other]), None);
+    }
+
+    #[test]
+    fn on_linux_the_offer_needs_an_intel_device_at_the_gpus_address() {
+        let intel_at_02 = |address: PciAddress| (address == PciAddress { domain: 0, bus: 0, device: 2, function: 0 }).then_some(INTEL_VENDOR);
+        assert!(offer_by_address(chosen(Some("0000:00:02.0"), "Intel(R) Arc(tm) B390 (PTL)", true), intel_at_02));
+        // An NVIDIA card at another address, an Intel name without an address,
+        // a device sysfs does not list, and no GPU offer nothing.
+        assert!(!offer_by_address(chosen(Some("0000:01:00.0"), "NVIDIA GeForce RTX 4060", false), intel_at_02));
+        assert!(!offer_by_address(chosen(None, "Intel(R) Arc(tm) B390 (PTL)", true), intel_at_02));
+        assert!(!offer_by_address(chosen(Some("0000:00:02.0"), "x", true), |_| None));
+        assert!(!offer_by_address(None, intel_at_02));
+    }
+
+    #[test]
+    fn the_vendor_is_read_from_sysfs() {
+        let devices = tempfile::tempdir().unwrap();
+        let dir = devices.path().join("0000:00:02.0");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("vendor"), "0x8086\n").unwrap();
+        let address = PciAddress::from_ggml("0000:00:02.0").unwrap();
+        assert_eq!(sysfs_vendor(devices.path(), address), Some(INTEL_VENDOR));
+        assert_eq!(sysfs_vendor(devices.path(), PciAddress::from_ggml("0000:01:00.0").unwrap()), None);
+    }
+
+    #[test]
+    fn the_missing_opencl_piece_is_named() {
+        let intel = ["/usr/lib/x86_64-linux-gnu/intel-opencl/libigdrcl.so\n".to_string()];
+        assert_eq!(missing_driver(&intel), None);
+        assert_eq!(missing_driver(&[]), Some(INTEL_OPENCL_PACKAGE));
+        // Another vendor's driver (Mesa's rusticl) does not run the GPU plugin.
+        assert_eq!(missing_driver(&["libRusticlOpenCL.so.1".to_string()]), Some(INTEL_OPENCL_PACKAGE));
+        assert!(names_missing_loader("libOpenCL.so.1: cannot open shared object file: No such file or directory"));
+        assert!(!names_missing_loader("libopenvino.so: invalid ELF header"));
+        assert!(driver_message(INTEL_OPENCL_PACKAGE).contains("install the intel-opencl-icd package"));
     }
 }
