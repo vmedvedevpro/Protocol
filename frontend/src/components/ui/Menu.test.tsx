@@ -108,7 +108,7 @@ describe('Menu', () => {
         await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument())
     })
 
-    it('keeps the highlight on the last item while the pointer crosses a divider', async () => {
+    it('keeps the highlight on the last item while the pointer crosses a divider, then lands past it', async () => {
         // jsdom lays nothing out: give each row of the menu its place by order.
         vi.spyOn(HTMLElement.prototype, 'offsetTop', 'get').mockImplementation(function (this: HTMLElement) {
             const siblings = this.parentElement ? Array.from(this.parentElement.children) : []
@@ -120,9 +120,12 @@ describe('Menu', () => {
 
         await user.click(screen.getByRole('button', {name: 'More actions'}))
         const moveTo = await screen.findByRole('menuitem', {name: 'Move to folder'})
+        await user.hover(screen.getByRole('menuitem', {name: 'Rename'}))
         await user.hover(moveTo)
         await waitFor(() => expect(highlight().style.transform).toBe(`translateY(${2 * ROW_HEIGHT}px)`))
         expect(highlight()).toHaveAttribute('data-visible', 'true')
+        // Between neighbours it slides.
+        expect(highlight()).toHaveAttribute('data-move', 'slide')
 
         // Off the item onto the divider: Radix un-highlights the item, the
         // highlight stays where it was.
@@ -131,14 +134,49 @@ describe('Menu', () => {
         expect(highlight()).toHaveAttribute('data-visible', 'true')
         expect(highlight().style.transform).toBe(`translateY(${2 * ROW_HEIGHT}px)`)
 
-        // Onto the next item: it slides straight there.
+        // Onto the next item: it lands there rather than sliding across the divider.
         await user.hover(screen.getByRole('menuitem', {name: 'Export'}))
         await waitFor(() => expect(highlight().style.transform).toBe(`translateY(${4 * ROW_HEIGHT}px)`))
+        expect(highlight()).toHaveAttribute('data-move', 'land')
 
         // Out of the menu (user-event cannot point outside an open menu,
         // which blocks pointer events there): it fades.
         fireEvent.pointerLeave(screen.getByRole('menu'))
         expect(highlight()).toHaveAttribute('data-visible', 'false')
+    })
+
+    it('lands rather than slides from one group to the next, never crossing a group label', async () => {
+        renderUi(
+            <Menu trigger={<IconButton label="Inputs" tooltip={false}><DotsThreeIcon/></IconButton>}>
+                <MenuGroup label="Microphone">
+                    <MenuItem onSelect={() => {}}>Headset</MenuItem>
+                </MenuGroup>
+                <MenuGroup label="Computer audio">
+                    <MenuItem onSelect={() => {}}>Speakers</MenuItem>
+                    <MenuItem onSelect={() => {}}>Display</MenuItem>
+                </MenuGroup>
+            </Menu>,
+        )
+        const user = userEvent.setup()
+        await user.click(screen.getByRole('button', {name: 'Inputs'}))
+
+        await user.hover(await screen.findByRole('menuitem', {name: 'Headset'}))
+        await user.hover(screen.getByText('Computer audio'))
+        await user.hover(screen.getByRole('menuitem', {name: 'Speakers'}))
+        await waitFor(() => expect(screen.getByRole('menuitem', {name: 'Speakers'})).toHaveFocus())
+        expect(highlight()).toHaveAttribute('data-move', 'land')
+
+        await user.hover(screen.getByRole('menuitem', {name: 'Display'}))
+        await waitFor(() => expect(screen.getByRole('menuitem', {name: 'Display'})).toHaveFocus())
+        expect(highlight()).toHaveAttribute('data-move', 'slide')
+    })
+
+    it('draws its shadow on a surface that does not scroll; the rows scroll inside', async () => {
+        renderUi(<Actions/>)
+        await userEvent.click(screen.getByRole('button', {name: 'More actions'}))
+        const menu = await screen.findByRole('menu')
+        expect(getComputedStyle(menu).overflowY).not.toBe('auto')
+        expect(getComputedStyle(menu.firstElementChild!).overflowY).toBe('auto')
     })
 
     it('hides the highlight over a disabled item, where Enter would do nothing', async () => {

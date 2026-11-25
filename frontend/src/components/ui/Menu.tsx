@@ -22,14 +22,27 @@ import {popoverItem, popoverSurface, px} from './styles'
 // (https://21st.dev/@originui/components/dropdown-menu/labeled-grouped-items).
 
 // Radix sets the transform origin on the side of the button the menu opened
-// from; the menu grows from there. It is the items' offset parent, for the
-// highlight.
+// from; the menu grows from there. The surface draws the border and the
+// shadow once and never scrolls: as its own scroll container (overflow on
+// both axes) the shadow was painted with the scrolled layer and showed cut
+// or doubled at the edges. Rows scroll inside it, as a select's list does.
 const Surface = styled(m.div)`
-    position: relative;
     ${popoverSurface};
+    display: flex;
+    flex-direction: column;
+    max-width: var(--radix-dropdown-menu-content-available-width);
     max-height: var(--radix-dropdown-menu-content-available-height);
-    overflow-y: auto;
+    padding: 0;
     transform-origin: var(--radix-dropdown-menu-content-transform-origin);
+`
+
+// The items' offset parent, for the highlight, and what scrolls.
+const Rows = styled.div`
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    padding: ${({theme}) => theme.space[1]};
+    overflow-y: auto;
 `
 
 // An item's icon is muted beside its text, as in shadcn's menu.
@@ -89,7 +102,9 @@ const Shortcut = styled.span`
     color: ${({theme}) => theme.colors.muted};
 `
 
+// Above the highlight, which never slides across it (DIVIDER_SELECTOR).
 const GroupLabel = styled(RadixMenu.Label)`
+    position: relative;
     padding: ${({theme}) => theme.space[1.5]} ${({theme}) => theme.space[2]};
     ${({theme}) => theme.text.body};
     font-weight: ${({theme}) => theme.fontWeights.medium};
@@ -134,8 +149,10 @@ function MenuSurface({children, ref, onFocus, ...props}: SurfaceProps) {
                 handlers.onFocus(event)
             }}
         >
-            {highlight}
-            {children}
+            <Rows>
+                {highlight}
+                {children}
+            </Rows>
         </Surface>
     )
 }
@@ -270,7 +287,7 @@ export function MenuGroup({label, children}: MenuGroupProps) {
     const labelId = useId()
     return (
         <RadixMenu.Group aria-labelledby={label ? labelId : undefined}>
-            {label && <GroupLabel id={labelId}>{label}</GroupLabel>}
+            {label && <GroupLabel id={labelId} data-highlight-divider="">{label}</GroupLabel>}
             {children}
         </RadixMenu.Group>
     )

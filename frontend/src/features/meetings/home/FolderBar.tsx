@@ -1,12 +1,16 @@
+import {useLayoutEffect, useRef, useState} from 'react'
 import {DotsThreeIcon, PencilSimpleIcon, PlusIcon, TrashIcon} from '@phosphor-icons/react'
+import * as m from 'motion/react-m'
 import styled from 'styled-components'
 import type {Folder} from '@/api/meetings'
 import {IconButton} from '@/components/ui/Button'
 import {Menu, MenuItem} from '@/components/ui/Menu'
 import {colorTransition, focusRing} from '@/components/ui/styles'
 import {Tooltip} from '@/components/ui/Tooltip'
+import {springs} from '@/styles/motion'
 
 const Bar = styled.div`
+    position: relative;
     display: flex;
     flex: none;
     flex-wrap: wrap;
@@ -16,15 +20,17 @@ const Bar = styled.div`
     border-bottom: 1px solid ${({theme}) => theme.colors.border};
 `
 
-// The selected chip is the only filled one; hover changes the text alone.
+// The thumb under the selected chip is the only filled shape; hover changes
+// the text alone. Chips paint above the thumb.
 const Chip = styled.button<{ $selected: boolean }>`
+    position: relative;
     max-width: 100%;
     height: ${({theme}) => theme.sizes.chip};
     padding: 0 ${({theme}) => theme.space[2.5]};
     overflow: hidden;
-    border: 1px solid ${({theme, $selected}) => ($selected ? theme.colors.border : 'transparent')};
+    border: 1px solid transparent;
     border-radius: ${({theme}) => theme.radii.sm};
-    background: ${({theme, $selected}) => ($selected ? theme.colors.raised : 'transparent')};
+    background: transparent;
     color: ${({theme, $selected}) => ($selected ? theme.colors.text : theme.colors.muted)};
     ${({theme}) => theme.text.label};
     white-space: nowrap;
@@ -37,6 +43,44 @@ const Chip = styled.button<{ $selected: boolean }>`
         color: ${({theme}) => theme.colors.text};
     }
 `
+
+// The selected chip's outline and fill, moved by transform to the chip
+// chosen, as SegmentedControl's thumb is; its size is the chip's, set at once.
+const Thumb = styled(m.span)`
+    position: absolute;
+    top: 0;
+    left: 0;
+    border: 1px solid ${({theme}) => theme.colors.border};
+    border-radius: ${({theme}) => theme.radii.sm};
+    background: ${({theme}) => theme.colors.raised};
+    pointer-events: none;
+`
+
+interface ThumbBox {
+    x: number
+    y: number
+    width: number
+    height: number
+}
+
+/** Where the thumb goes: the selected chip's box in the bar, measured again when the bar's size changes. */
+function useThumb(selected: string | null, folders: readonly Folder[]) {
+    const bar = useRef<HTMLDivElement>(null)
+    const [box, setBox] = useState<ThumbBox | null>(null)
+    useLayoutEffect(() => {
+        const element = bar.current
+        if (!element) return
+        const measure = () => {
+            const chip = element.querySelector<HTMLElement>('[data-folder-chip][aria-pressed="true"]')
+            setBox(chip && {x: chip.offsetLeft, y: chip.offsetTop, width: chip.offsetWidth, height: chip.offsetHeight})
+        }
+        const observer = new ResizeObserver(measure)
+        observer.observe(element)
+        measure()
+        return () => observer.disconnect()
+    }, [selected, folders])
+    return {bar, box}
+}
 
 const NewChip = styled.button`
     display: flex;
@@ -76,13 +120,26 @@ interface FolderBarProps {
  */
 export function FolderBar({folders, selected, onSelect, onNew, onRename, onDelete}: FolderBarProps) {
     const current = folders.find((folder) => folder.id === selected)
+    const {bar, box} = useThumb(selected, folders)
     return (
-        <Bar role="group" aria-label="Folders">
-            <Chip type="button" aria-pressed={!current} $selected={!current} onClick={() => onSelect(null)}>All</Chip>
+        <Bar ref={bar} role="group" aria-label="Folders">
+            {/* Mounted at its first place without moving; from there it slides. */}
+            {box && (
+                <Thumb
+                    aria-hidden
+                    data-testid="folder-thumb"
+                    style={{width: box.width, height: box.height}}
+                    initial={false}
+                    animate={{x: box.x, y: box.y}}
+                    transition={springs.snappy}
+                />
+            )}
+            <Chip type="button" data-folder-chip aria-pressed={!current} $selected={!current} onClick={() => onSelect(null)}>All</Chip>
             {folders.map((folder) => (
                 <Tooltip key={folder.id} content={`${folder.name}: ${folder.meetingCount} ${folder.meetingCount === 1 ? 'meeting' : 'meetings'}`}>
                     <Chip
                         type="button"
+                        data-folder-chip
                         aria-pressed={folder.id === selected}
                         $selected={folder.id === selected}
                         onClick={() => onSelect(folder.id)}

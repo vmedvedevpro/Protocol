@@ -460,6 +460,10 @@ enter and exit, indicators and springs.
 - What animates and how:
   - Screens and first launch's steps arrive with a 4 px rise under a veil
     over `base`; the one they replace goes at once.
+  - Home's folder chips: the selected chip's outline is a thumb that
+    slides to the chip chosen by transform on `springs.snappy`.
+  - Menus draw the border and shadow on a surface that never scrolls; the
+    rows scroll inside it.
   - Tabs and segmented controls: the thumb slides; the panel below swaps
     through the veil over `base` (`Crossfade`: the old view is covered, the
     new one revealed), without sliding. Other views that replace each other
@@ -474,7 +478,8 @@ enter and exit, indicators and springs.
     (0.96), with `transform-origin` on the side of their anchor, over
     `fast`. Inside a menu or a select list one highlight slides between the
     items on `springs.snappy` (`SlidingHighlight`); it stays on the last
-    item while the pointer crosses a separator, and fades when the pointer
+    item while the pointer crosses a separator or a group label and lands
+    on the next item past it rather than sliding across, and fades when the pointer
     leaves the list or rests on a disabled item, where Enter would do
     nothing.
   - Lists: a new row rises 4 px under a veil over `base`, a removed row
