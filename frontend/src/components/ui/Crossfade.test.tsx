@@ -41,4 +41,19 @@ describe('Crossfade', () => {
         expect(screen.getByText('Simple').parentElement).toHaveAttribute('inert')
         expect(screen.getByText('Sections').parentElement).not.toHaveAttribute('inert')
     })
+
+    it('covers the leaving view with the arriving one, so the two never show at once', async () => {
+        MotionGlobalConfig.skipAnimations = false
+        await import('./motionFeatures')
+        const {rerender} = renderUi(<Views view="Simple"/>)
+        await settleIpc()
+
+        rerender(<Views view="Sections"/>)
+
+        const leaving = getComputedStyle(screen.getByText('Simple').parentElement as HTMLElement)
+        const arriving = getComputedStyle(screen.getByText('Sections').parentElement as HTMLElement)
+        expect(Number(arriving.zIndex)).toBeGreaterThan(Number(leaving.zIndex))
+        expect(arriving.backgroundColor).not.toBe('')
+        expect(arriving.backgroundColor).not.toBe('rgba(0, 0, 0, 0)')
+    })
 })

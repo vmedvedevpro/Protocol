@@ -16,8 +16,15 @@ const Scroller = styled.div`
     padding: ${({theme}) => theme.space[1.5]} ${({theme}) => theme.space[2]} ${({theme}) => theme.space[2.5]};
 `
 
+// A group reads as one when the space before its heading is clearly more
+// than the rhythm of its rows: two rows' text is 12 px apart (their padding).
+// Before every heading after the first, 16 px and the heading's own 8 px
+// make 24 px, twice that, while the heading stays 4 px from its own rows.
+// (It was 14 px, which read as one more row gap.)
 const Section = styled.section`
-    margin-bottom: ${({theme}) => theme.space[1.5]};
+    & + & {
+        margin-top: ${({theme}) => theme.space[4]};
+    }
 `
 
 const Heading = styled.h2`

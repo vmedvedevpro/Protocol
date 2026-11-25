@@ -4,6 +4,8 @@ import {MotionConfig} from 'motion/react'
 import styled from 'styled-components'
 import {Button} from './Button'
 import {Collapse} from './Collapse'
+import {SettingsGroup, SettingsRow} from './SettingsRow'
+import {Switch} from './Switch'
 
 const Column = styled.div`
     display: flex;
@@ -41,6 +43,26 @@ function Disclosure() {
     )
 }
 
+// Settings › Recording › Saving: a Collapse inside a row, after the row's
+// line and its gap, and one on the card, under its hairline. Both slide to
+// where the layout ends; neither snaps by the gap or the hairline at the end.
+function SettingsCard() {
+    const [on, setOn] = useState(true)
+    return (
+        <div style={{width: 420}}>
+            <SettingsGroup title="Saving">
+                <SettingsRow label="Save audio" description="For playback" control={<Switch checked={on} onCheckedChange={setOn}/>}>
+                    <Collapse open={!on}><Text>Audio isn’t being saved.</Text></Collapse>
+                </SettingsRow>
+                <Collapse open={on}>
+                    <SettingsRow label="Where recordings are saved" description="Saved as MP4"/>
+                </Collapse>
+                <SettingsRow label="Format" description="MP4"/>
+            </SettingsGroup>
+        </div>
+    )
+}
+
 const meta = {
     title: 'UI/Collapse',
     component: Disclosure,
@@ -59,3 +81,6 @@ export const ReducedMotion: Story = {
     globals: {theme: 'light'},
     decorators: [(Story) => <MotionConfig reducedMotion="always"><Story/></MotionConfig>],
 }
+
+/** In a settings card: the row's gap and the card's hairline go with the height. */
+export const InSettingsCard: Story = {globals: {theme: 'light'}, render: () => <SettingsCard/>}

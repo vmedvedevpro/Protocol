@@ -476,8 +476,9 @@ enter and exit, indicators and springs.
   - Home's folder chips: the selected chip's outline is a thumb that
     slides to the chip chosen by transform on `springs.snappy`.
   - Tabs and segmented controls: the thumb slides; the panel below swaps
-    through the veil over `base` (`Crossfade`: the old view is covered, the
-    new one revealed), without sliding. Other views that replace each other
+    through the veil over `base` (`Crossfade`: the new view, drawn over
+    the old one on the colour behind both, covers it at once and is
+    revealed, so the two never show together), without sliding. Other views that replace each other
     in one place use `Crossfade` too.
   - Sheets and dialogs: in from their edge by `y` on `springs.gentle`, the
     scrim fading over `base`; out with `tween('base', 'exit')`. A sheet hangs
@@ -500,16 +501,21 @@ enter and exit, indicators and springs.
   - Disclosures: `Collapse` grows from nothing to its content's height over
     `base` and shrinks back the same way, at full opacity throughout; its
     button's caret turns over `fast`. The clip holds only while the height
-    moves, so a focus ring at the content's edge shows once it is open.
+    moves, so a focus ring at the content's edge shows once it is open. The
+    gap a flex or grid column puts beside it and a card's hairline on it go
+    with the height (`collapseSpace.ts`), and once open its inline styles
+    are cleared, so the slide ends exactly where the layout does.
   - Status changes (a status line, a badge, a count): `AnimatePresence
     mode="wait"` with the old value leaving and the new one arriving, 4 px
     of `y` (`statusSwap`) under a veil over `fast`, as the shell's update
     status does. The key
     names the meaning, not the text: re-key when the meaning changes, never
     on every value; a value inside one meaning (a download's percent, a
-    count) updates in place. That value also stays outside the
-    `role="status"` live region, beside it, so screen readers announce a
-    change of meaning and not every tick; `StatusLine` does both.
+    count) updates in place. Text and value are one keyed unit, so a new
+    value never arrives beside the leaving text and jumps when it swaps.
+    The `role="status"` live region is a hidden copy of the text that stays
+    mounted, so screen readers announce a change of meaning and not every
+    tick; `StatusLine` does both.
   - Hover, press, focus: CSS on the element. Colour and background change
     over `fast`; a button's press scales it to `SCALE_FROM` inside
     `MOTION_OK`; the focus outline appears at once. Segmented options take neither a fill nor

@@ -8,6 +8,9 @@ import {mockState} from '@/mocks/state'
 import {renderRoute} from '../testing'
 import {MeetingRoute} from './MeetingScreen'
 
+// A StatusLine says its text twice: the live region is the copy that counts.
+const LIVE = {selector: '[role="status"]'}
+
 const renderMeeting = (meetingId: string, query = '') => renderRoute(`/meetings/${meetingId}${query}`, [
     {path: '/', element: <p>Home</p>},
     {path: '/meetings/:meetingId', element: <MeetingRoute/>},
@@ -84,7 +87,7 @@ describe('MeetingScreen', () => {
         const start = hold('api_process_transcript')
         renderMeeting('meeting-untitled')
         await userEvent.click(await screen.findByRole('button', {name: 'Generate summary'}))
-        expect(await screen.findByText('Writing the summary…')).toBeInTheDocument()
+        expect(await screen.findByText('Writing the summary…', LIVE)).toBeInTheDocument()
 
         start.release()
         expect(await screen.findByRole('region', {name: 'Action items'})).toBeInTheDocument()
