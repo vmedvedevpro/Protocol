@@ -4,11 +4,12 @@ import {AnimatePresence} from 'motion/react'
 import * as m from 'motion/react-m'
 import {type ReactNode, useEffect, useState} from 'react'
 import styled, {useTheme} from 'styled-components'
-import {springs, tween} from '@/styles/motion'
+import {springs, statusSwap, tween} from '@/styles/motion'
 import {Button, IconButton} from './Button'
 import {Spinner} from './Spinner'
 import {focusRing} from './styles'
 import {TOAST_DURATION_MS, type ToastData, type ToastTone, toast, useToastStore} from './toastStore'
+import {Veil} from './Veil'
 import {VisuallyHidden} from './VisuallyHidden'
 
 // The design draws no toast; this one takes the look of the Home banner
@@ -50,10 +51,13 @@ const Item = styled(m.li)`
     background: ${({theme}) => theme.colors.raised};
     box-shadow: ${({theme}) => theme.shadows.popover};
     color: ${({theme}) => theme.colors.text};
+    /* The colour of the veil its content swaps under. */
+    --surface: ${({theme}) => theme.colors.raised};
     ${focusRing};
 `
 
 const Content = styled(m.div)`
+    position: relative;
     display: flex;
     flex: 1;
     align-items: flex-start;
@@ -108,15 +112,6 @@ const ICONS: Record<ToastTone, ReactNode> = {
     loading: <Spinner/>,
 }
 
-// A change of meaning in place (loading, then the outcome) swaps the
-// content as a status line does.
-const swap = {
-    initial: {opacity: 0, y: 4},
-    animate: {opacity: 1, y: 0},
-    exit: {opacity: 0, y: -4},
-    transition: tween('fast'),
-}
-
 function ToastItem({data}: { data: ToastData }) {
     const theme = useTheme()
     const offset = `-${theme.space[2]}`
@@ -143,7 +138,9 @@ function ToastItem({data}: { data: ToastData }) {
                 transition={springs.gentle}
             >
                 <AnimatePresence mode="wait" initial={false}>
-                    <Content key={`${data.tone}:${data.title}`} {...swap}>
+                    {/* A change of meaning in place (loading, then the outcome) swaps
+                        the content as a status line does: a rise under a veil. */}
+                    <Content key={`${data.tone}:${data.title}`} {...statusSwap}>
                         {icon && <Icon>{icon}</Icon>}
                         <Text>
                             <Title>{data.title}</Title>
@@ -156,6 +153,7 @@ function ToastItem({data}: { data: ToastData }) {
                                 </Actions>
                             )}
                         </Text>
+                        <Veil duration="fast"/>
                     </Content>
                 </AnimatePresence>
                 <Close>

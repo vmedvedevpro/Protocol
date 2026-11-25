@@ -1,6 +1,8 @@
 import {act, screen, waitFor, within} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import {describe, expect, it, vi} from 'vitest'
+import {settleIpc} from '@/test/ipc'
+import {playAnimations, watchStyles} from '@/test/motion'
 import {renderUi} from '@/test/renderUi'
 import {MAX_TOASTS, toast} from './toastStore'
 
@@ -75,6 +77,32 @@ describe('Toast', () => {
         // Announced once, then gone, so no live region lingers in the window.
         expect(await screen.findByText('Found 3 speakers. 42 lines labelled.', {selector: '[role="status"]'})).toBeInTheDocument()
         await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument(), {timeout: 2000})
+    })
+
+    it('swaps its text in place under a veil, never fading the text itself', async () => {
+        await playAnimations()
+        renderUi(<span/>)
+        await settleIpc()
+        let id = ''
+        act(() => {
+            id = toast.loading('Identifying speakers…')
+        })
+        await waitFor(() => expect(toastNamed('Identifying speakers…')).toBeDefined())
+
+        const styles = watchStyles()
+        act(() => {
+            toast.success('Found 3 speakers', {id})
+        })
+        await waitFor(() => expect(toastNamed('Found 3 speakers')).toBeDefined())
+
+        const content = within(toasts()[0]).getByText('Found 3 speakers').closest('li > div') as HTMLElement
+        const veil = content.lastElementChild as HTMLElement
+        expect(veil).toHaveAttribute('aria-hidden', 'true')
+        expect(getComputedStyle(veil).position).toBe('absolute')
+        await waitFor(() => expect(veil.style.opacity).toBe('0'))
+        // Text under an opacity below 1 is drawn again when the fade ends, a blink.
+        expect(styles.valuesOf(content, 'opacity').filter(Boolean)).toEqual([])
+        expect(styles.valuesOf(content, 'transform').length).toBeGreaterThan(1)
     })
 
     it(`keeps at most ${MAX_TOASTS}, closing the oldest`, async () => {
