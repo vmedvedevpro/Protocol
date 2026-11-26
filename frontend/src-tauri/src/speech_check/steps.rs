@@ -344,12 +344,14 @@ async fn whisper_picked(_model: &str) -> (Device, String, Vec<(String, String)>)
 }
 
 /// Whether `model` is on this computer: the Intel GPU version's folder, or
-/// a ggml file that verified.
+/// a ggml file that verified. Intel GPU versions exist on Windows and Linux
+/// only; on macOS their names are in no model list, so they read as missing.
 fn whisper_installed(models: &[crate::whisper_engine::whisper_engine::ModelInfo], model: &str) -> bool {
-    match crate::speech_choice::gpu_version(model) {
-        Some(version) => crate::speech_choice::installed(&version).is_some(),
-        None => models.iter().any(|info| info.name == model && matches!(info.status, crate::whisper_engine::whisper_engine::ModelStatus::Available)),
+    #[cfg(any(windows, target_os = "linux"))]
+    if let Some(version) = crate::speech_choice::gpu_version(model) {
+        return crate::speech_choice::installed(&version).is_some();
     }
+    models.iter().any(|info| info.name == model && matches!(info.status, crate::whisper_engine::whisper_engine::ModelStatus::Available))
 }
 
 /// The installed file or folder `model` loads from, for its version.
