@@ -83,7 +83,10 @@ pub fn install(name: &str) {
             }
             return Some(message.clone());
         }
-        if message.message_type() != gio::DBusMessageType::MethodReturn {
+        // A reply ends the call either way; an error reply is let through
+        // unchanged, but must not leave its call pending for good.
+        let message_type = message.message_type();
+        if message_type != gio::DBusMessageType::MethodReturn && message_type != gio::DBusMessageType::Error {
             return Some(message.clone());
         }
         let Some(destination) = message.destination() else {
@@ -94,7 +97,7 @@ pub fn install(name: &str) {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .remove(&key);
-        if !was_pending {
+        if !was_pending || message_type != gio::DBusMessageType::MethodReturn {
             return Some(message.clone());
         }
         // An outgoing message is locked; send a modified copy instead.
