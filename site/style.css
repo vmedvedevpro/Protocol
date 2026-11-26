@@ -38,6 +38,9 @@ body {
     font-family: 'Geist Variable', system-ui, sans-serif; /* fonts.sans */
     color: var(--text);
     background: var(--bg);
+    /* As the app's GlobalStyle: macOS draws Geist thinner, as in Protocol. */
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
 }
 
 /* The extra space under the block lifts it a little above the true middle,
