@@ -65,7 +65,7 @@ describe('App startup', () => {
         })
         renderApp()
 
-        expect(await screen.findByText('Unable to check setup status. Please retry.')).toBeInTheDocument()
+        expect(await screen.findByText('Unable to check setup status. Please retry.', LIVE)).toBeInTheDocument()
         status.mockRestore()
         await userEvent.click(screen.getByRole('button', {name: 'Retry'}))
 
