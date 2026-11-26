@@ -68,6 +68,7 @@ const TICK_MS = 200
 function listed<T>(providers: MockSummaryProviders, apiKey: unknown, models: T[]): T[] {
     const key = typeof apiKey === 'string' ? apiKey.trim() : ''
     if (!key) throw {kind: 'missingKey'} satisfies ModelListFailure
+    if (/[^\x21-\x7e]/.test(key)) throw {kind: 'invalidKey'} satisfies ModelListFailure
     if (key.startsWith('invalid')) throw {kind: 'keyRejected', status: 401} satisfies ModelListFailure
     if (providers.cloudModelsFailure) throw structuredClone(providers.cloudModelsFailure)
     return structuredClone(models)

@@ -9,10 +9,11 @@ is inherited from the project Protocol forked from; Protocol did not release it.
 
 - **Cloud models come only from the provider**
   ([#220](https://github.com/vmedvedevpro/Protocol/issues/220)). Claude,
-  OpenAI and Groq list the models their API offers for your key, every one of
-  them. A key the provider rejects, a provider that can't be reached, or
-  another error now shows under the model select, instead of a built-in list
-  of models that might not work.
+  OpenAI and Groq list the chat models their API offers for your key, from
+  every page of the list. A key the provider rejects, a provider that can't be
+  reached, or another error now shows under the model select, with Try again
+  when asking again can help, instead of a built-in list of models that might
+  not work.
 - **First launch asks the meeting language**
   ([#220](https://github.com/vmedvedevpro/Protocol/issues/220)). It starts at
   your system's language when the transcript after the meeting supports it,

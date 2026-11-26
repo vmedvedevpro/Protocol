@@ -51,12 +51,14 @@ export interface ProviderModel {
  */
 export type ModelListFailure =
     | {kind: 'missingKey'}
+    | {kind: 'invalidKey'}
     | {kind: 'keyRejected', status: number}
     | {kind: 'unreachable', reason: string}
     | {kind: 'status', status: number, reason: string | null}
     | {kind: 'invalidResponse', reason: string}
+    | {kind: 'clientUnavailable', reason: string}
 
-const FAILURE_KINDS = new Set<string>(['missingKey', 'keyRejected', 'unreachable', 'status', 'invalidResponse'])
+const FAILURE_KINDS = new Set<string>(['missingKey', 'invalidKey', 'keyRejected', 'unreachable', 'status', 'invalidResponse', 'clientUnavailable'])
 
 const isModelListFailure = (detail: unknown): detail is ModelListFailure =>
     typeof detail === 'object' && detail !== null && FAILURE_KINDS.has(String((detail as {kind?: unknown}).kind))
@@ -67,16 +69,29 @@ export function modelListFailureText(provider: CloudProvider, failure: ModelList
     switch (failure.kind) {
         case 'missingKey':
             return 'Paste a key to see the models.'
+        case 'invalidKey':
+            return 'This key has characters a key can’t have, such as a line break or a space. Paste it again.'
         case 'keyRejected':
             return `${label} didn’t accept this key (status ${failure.status}). Check that it’s pasted in full and still active.`
         case 'unreachable':
             return `Couldn’t reach ${label}: ${failure.reason}.`
         case 'status':
-            return `${label} answered with status ${failure.status}${failure.reason ? ` ${failure.reason}` : ''}. Try again later.`
+            return `${label} answered with status ${failure.status}${failure.reason ? ` ${failure.reason}` : ''}.`
         case 'invalidResponse':
             return `Couldn’t read ${label}’s list of models: ${failure.reason}.`
+        case 'clientUnavailable':
+            return `Couldn’t prepare the request to ${label}: ${failure.reason}.`
     }
 }
+
+/**
+ * Whether asking again with the same key can help: the provider was not
+ * reached or answered badly, OpenRouter's plain failures included. A
+ * missing, malformed or rejected key needs the user to change the key, and
+ * a client that cannot be built here would fail the same way again.
+ */
+export const isRetryableModelListError = (error: unknown) =>
+    !(error instanceof ModelListError) || ['unreachable', 'status', 'invalidResponse'].includes(error.failure.kind)
 
 /** A listing that failed, worded by its cause; `failure` keeps the cause. */
 export class ModelListError extends Error {

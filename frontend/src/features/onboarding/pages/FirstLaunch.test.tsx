@@ -7,6 +7,7 @@ import {useModelDownloadSync} from '@/api/modelDownloadSync'
 import {downloadKey, PARAKEET_MODEL, POST_CALL_WHISPER_MODEL} from '@/api/models'
 import {onboardingStatusQuery} from '@/api/onboarding'
 import {MEETING_LANGUAGE_KEY, USER_NAME_KEY, usePreferencesSync} from '@/api/preferences'
+import {TYPING_SETTLE_MS} from '@/components/summaryModel/draft'
 import {handlers} from '@/mocks/handlers'
 import {GPU_VERSION_ID} from '@/mocks/intel'
 import {createMockModels} from '@/mocks/models'
@@ -135,7 +136,7 @@ describe('First launch', () => {
         expect(done()).toBeDisabled()
         expect(screen.getByText('Paste a key and pick a model')).toBeInTheDocument()
         // The list is asked once typing the key has rested.
-        await waitFor(() => expect(screen.getByRole('combobox', {name: 'Model'})).toBeEnabled())
+        await waitFor(() => expect(screen.getByRole('combobox', {name: 'Model'})).toBeEnabled(), {timeout: TYPING_SETTLE_MS + 2_000})
         await userEvent.click(screen.getByRole('combobox', {name: 'Model'}))
         await userEvent.click(await screen.findByRole('option', {name: 'Claude Sonnet 4.5'}))
         await waitFor(() => expect(screen.queryByRole('listbox')).not.toBeInTheDocument())

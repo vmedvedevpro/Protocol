@@ -26,9 +26,13 @@ struct OpenAIApiResponse {
 /// Check if model is a chat-capable model (filter out embedding, tts, etc.)
 fn is_chat_model(model_id: &str) -> bool {
     let id = model_id.to_lowercase();
-    // Include gpt-*, o1-*, o3-*, o4-* models
+    // Include gpt-*, o1, o1-*, o3, o3-*, o4-* models: the reasoning models'
+    // plain ids (`o1`, `o3`) carry no dash, and with no built-in list a model
+    // the filter drops cannot be chosen at all.
     // Exclude embedding, tts, whisper, dall-e, babbage, davinci (non-chat models)
-    (id.starts_with("gpt-")
+    (id == "o1"
+        || id == "o3"
+        || id.starts_with("gpt-")
         || id.starts_with("o1-")
         || id.starts_with("o3-")
         || id.starts_with("o4-")
@@ -45,7 +49,7 @@ fn is_chat_model(model_id: &str) -> bool {
 }
 
 async fn list_models(base: &str, api_key: &str) -> Result<Vec<OpenAIModel>, ModelListError> {
-    let request = cloud_models::client()
+    let request = cloud_models::client()?
         .get(format!("{base}/v1/models"))
         .header("Authorization", format!("Bearer {api_key}"));
     let response: OpenAIApiResponse = cloud_models::fetch_json(request).await?;
@@ -81,6 +85,16 @@ mod tests {
         )])
         .await;
         assert_eq!(list_models(&server.base, "sk").await.unwrap(), vec![OpenAIModel { id: "gpt-4o".into() }]);
+    }
+
+    #[test]
+    fn keeps_the_reasoning_models_plain_ids() {
+        for id in ["o1", "o3", "o1-pro", "o3-mini", "o4-mini", "gpt-4o", "chatgpt-4o-latest"] {
+            assert!(is_chat_model(id), "{id}");
+        }
+        for id in ["o1x", "text-embedding-3-small", "gpt-4o-mini-tts", "gpt-4o-realtime-preview", "whisper-1"] {
+            assert!(!is_chat_model(id), "{id}");
+        }
     }
 
     #[tokio::test]

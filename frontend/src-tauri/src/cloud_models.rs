@@ -25,6 +25,9 @@ pub(crate) const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 pub enum ModelListError {
     /// No key was given; nothing was asked.
     MissingKey,
+    /// The key has characters no key has (a line break, a space, a letter
+    /// outside ASCII), so it cannot go in a header; nothing was asked.
+    InvalidKey,
     /// The provider did not accept the key (401 or 403).
     KeyRejected { status: u16 },
     /// No answer: no connection, DNS, TLS, or the request timed out.
@@ -33,12 +36,15 @@ pub enum ModelListError {
     Status { status: u16, reason: Option<String> },
     /// The answer was not the list the provider documents.
     InvalidResponse { reason: String },
+    /// The HTTP client could not be set up here; nothing was asked.
+    ClientUnavailable { reason: String },
 }
 
 impl fmt::Display for ModelListError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::MissingKey => write!(f, "no API key"),
+            Self::InvalidKey => write!(f, "the key has characters a key cannot have"),
             Self::KeyRejected { status } => write!(f, "the key was not accepted (status {status})"),
             Self::Unreachable { reason } => write!(f, "the provider could not be reached: {reason}"),
             Self::Status { status, reason } => match reason {
@@ -46,29 +52,39 @@ impl fmt::Display for ModelListError {
                 None => write!(f, "the provider answered with status {status}"),
             },
             Self::InvalidResponse { reason } => write!(f, "the provider's answer could not be read: {reason}"),
+            Self::ClientUnavailable { reason } => write!(f, "the request could not be prepared: {reason}"),
         }
     }
 }
 
-/// The trimmed key, or `MissingKey` for none or a blank one.
+/// The trimmed key; `MissingKey` for none or a blank one, and `InvalidKey`
+/// for one with a character outside printable ASCII, which every provider's
+/// keys are made of. Such a key (a pasted line break, a space, a lookalike
+/// letter) cannot go in a header: reqwest would fail while building the
+/// request, which must not read as "could not be reached".
 pub(crate) fn require_key(api_key: Option<String>) -> Result<String, ModelListError> {
-    match api_key {
-        Some(key) if !key.trim().is_empty() => Ok(key.trim().to_string()),
-        _ => Err(ModelListError::MissingKey),
+    let key = api_key.as_deref().map(str::trim).unwrap_or_default();
+    if key.is_empty() {
+        return Err(ModelListError::MissingKey);
     }
+    if !key.chars().all(|c| c.is_ascii_graphic()) {
+        return Err(ModelListError::InvalidKey);
+    }
+    Ok(key.to_string())
 }
 
 /// A client with the request limit; each listing builds its own, as before.
-pub(crate) fn client() -> reqwest::Client {
+/// A client that cannot be built is an error, not a client without the limit.
+pub(crate) fn client() -> Result<reqwest::Client, ModelListError> {
     reqwest::Client::builder()
         .timeout(REQUEST_TIMEOUT)
         .build()
-        .unwrap_or_else(|_| reqwest::Client::new())
+        .map_err(|error| ModelListError::ClientUnavailable { reason: error.to_string() })
 }
 
 /// Sends `request` and reads its JSON body, mapping each failure to its cause.
 pub(crate) async fn fetch_json<T: DeserializeOwned>(request: reqwest::RequestBuilder) -> Result<T, ModelListError> {
-    let response = request.send().await.map_err(|error| ModelListError::Unreachable { reason: transport_reason(error) })?;
+    let response = request.send().await.map_err(send_error)?;
     let status = response.status();
     if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
         return Err(ModelListError::KeyRejected { status: status.as_u16() });
@@ -81,6 +97,16 @@ pub(crate) async fn fetch_json<T: DeserializeOwned>(request: reqwest::RequestBui
     }
     let body = response.bytes().await.map_err(|error| ModelListError::Unreachable { reason: transport_reason(error) })?;
     serde_json::from_slice(&body).map_err(|error| ModelListError::InvalidResponse { reason: error.to_string() })
+}
+
+/// Why sending failed. A request that could not be built never left: the
+/// URLs are constants, so the header with the key is what reqwest refused
+/// (`require_key` stops the keys it knows of first).
+fn send_error(error: reqwest::Error) -> ModelListError {
+    if error.is_builder() {
+        return ModelListError::InvalidKey;
+    }
+    ModelListError::Unreachable { reason: transport_reason(error) }
 }
 
 /// A transport failure in a few words, without the URL reqwest appends.
@@ -171,7 +197,7 @@ mod tests {
 
     async fn fetch(status: u16, body: &str) -> Result<Body, ModelListError> {
         let server = serve(vec![json(status, body)]).await;
-        fetch_json(client().get(format!("{}/v1/models", server.base))).await
+        fetch_json(client().unwrap().get(format!("{}/v1/models", server.base))).await
     }
 
     #[tokio::test]
@@ -202,13 +228,30 @@ mod tests {
     async fn a_closed_port_is_unreachable() {
         // Bind and drop: the port is free and nothing listens on it.
         let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
-        let error = fetch_json::<Body>(client().get(format!("http://127.0.0.1:{port}/v1/models"))).await.unwrap_err();
+        let error = fetch_json::<Body>(client().unwrap().get(format!("http://127.0.0.1:{port}/v1/models"))).await.unwrap_err();
         assert_eq!(error, ModelListError::Unreachable { reason: "no connection".to_string() });
     }
 
     #[tokio::test]
     async fn a_listing_is_read() {
         assert_eq!(fetch(200, r#"{"data":[{"id":"a"}]}"#).await.unwrap().data.len(), 1);
+    }
+
+    #[test]
+    fn a_key_with_characters_no_key_has_asks_nothing() {
+        for key in ["sk-ant-abc\ndef", "sk ant", "sk-ant-ключ", "sk-ant-\u{200b}x"] {
+            assert_eq!(require_key(Some(key.into())), Err(ModelListError::InvalidKey), "{key:?}");
+        }
+        // Surrounding white space, a trailing line break included, is trimmed.
+        assert_eq!(require_key(Some("sk-ant-abc\n".into())), Ok("sk-ant-abc".to_string()));
+    }
+
+    #[tokio::test]
+    async fn a_header_reqwest_refuses_is_an_invalid_key() {
+        // What `require_key` guards against, sent anyway: reqwest refuses to build it.
+        let server = serve(vec![]).await;
+        let request = client().unwrap().get(format!("{}/v1/models", server.base)).header("x-api-key", "a\nb");
+        assert_eq!(fetch_json::<Body>(request).await.unwrap_err(), ModelListError::InvalidKey);
     }
 
     #[test]

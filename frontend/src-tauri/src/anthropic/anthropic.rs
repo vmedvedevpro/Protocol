@@ -42,7 +42,7 @@ fn is_chat_model(model_id: &str) -> bool {
 
 /// Every page of the key's models from `base`, the API's origin.
 async fn list_models(base: &str, api_key: &str) -> Result<Vec<AnthropicModel>, ModelListError> {
-    let client = cloud_models::client();
+    let client = cloud_models::client()?;
     let mut models = Vec::new();
     let mut after_id: Option<String> = None;
     for _ in 0..MAX_PAGES {

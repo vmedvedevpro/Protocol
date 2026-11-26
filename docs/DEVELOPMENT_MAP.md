@@ -276,9 +276,11 @@ A cloud provider's models (Settings › Summary model and first launch) come
 only from its API: `anthropic/`, `openai/` and `groq/` ask with the user's key
 through `cloud_models.rs`, which has no built-in list and no cache. Anthropic's
 Models API pages its answer (default 20), so `get_anthropic_models` asks for
-1000 a page and follows `after_id`. A missing or rejected key (401, 403), no
-answer within 10 s, another status or an unreadable answer is an `Err`
-(`ModelListError`, tagged by `kind`), which the model row words by cause
+1000 a page and follows `after_id`. A missing key, one with a character no
+key has (a pasted line break, a space, non-ASCII), a rejected key (401, 403),
+no answer within 10 s, another status, an unreadable answer or a client that
+cannot be built is an `Err` (`ModelListError`, tagged by `kind`), which the
+model row words by cause, offering Try again when the same key may work
 (`src/api/summaryProviders.ts`); the UI keeps one query per key fingerprint,
 so a list fetched with one key is never shown for another. `openrouter/` lists
 the public catalog without a key. Tests: `cargo test -p protocol --lib --

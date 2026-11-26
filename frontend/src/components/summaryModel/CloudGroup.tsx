@@ -2,11 +2,12 @@ import {type ReactNode, useState} from 'react'
 import {useQuery} from '@tanstack/react-query'
 import styled from 'styled-components'
 import {errorMessage} from '@/api/core'
+import {Button} from '@/components/ui/Button'
 import {Select} from '@/components/ui/Select'
 import {SettingsGroup, SettingsRow} from '@/components/ui/SettingsRow'
 import {Spinner} from '@/components/ui/Spinner'
 import {TextField} from '@/components/ui/TextField'
-import {type CloudProvider, listsWithoutKey, providerModelsQuery, SUMMARY_PROVIDERS} from '@/api/summaryProviders'
+import {type CloudProvider, isRetryableModelListError, listsWithoutKey, providerModelsQuery, SUMMARY_PROVIDERS} from '@/api/summaryProviders'
 import {useDebouncedSave} from '@/lib/useDebouncedSave'
 import {TYPING_SETTLE_MS} from './draft'
 
@@ -16,6 +17,13 @@ const Settling = styled.span`
     flex: none;
     width: 12px;
     color: ${({theme}) => theme.colors.muted};
+`
+
+const Controls = styled.span`
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: ${({theme}) => theme.space[2]};
 `
 
 interface CloudGroupProps {
@@ -57,6 +65,8 @@ export function CloudGroup({provider, apiKey, onApiKey, model, onModel, children
     let description: string | undefined
     if (asks && models.isError) description = errorMessage(models.error)
     else if (asks && models.isSuccess && models.data.length === 0) description = `${label} lists no models for this key.`
+    // Not reached or a bad answer: the same key may work in a moment. A rejected key is fixed in the field.
+    const retry = asks && models.isError && isRetryableModelListError(models.error)
 
     return (
         <SettingsGroup title={label} note={`Meetings you summarize are sent to ${label}.`}>
@@ -79,14 +89,21 @@ export function CloudGroup({provider, apiKey, onApiKey, model, onModel, children
                 label="Model"
                 description={description}
                 control={(
-                    <Select
-                        options={options}
-                        value={asks ? model || undefined : undefined}
-                        placeholder={placeholder}
-                        pending={asks && models.isPending}
-                        disabled={!asks || options.length === 0}
-                        onValueChange={onModel}
-                    />
+                    <Controls>
+                        {retry && (
+                            <Button size="sm" variant="ghost" pending={models.isFetching} onClick={() => void models.refetch()}>
+                                Try again
+                            </Button>
+                        )}
+                        <Select
+                            options={options}
+                            value={asks ? model || undefined : undefined}
+                            placeholder={placeholder}
+                            pending={asks && models.isPending}
+                            disabled={!asks || options.length === 0}
+                            onValueChange={onModel}
+                        />
+                    </Controls>
                 )}
             />
             {children}

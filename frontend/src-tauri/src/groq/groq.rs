@@ -36,7 +36,7 @@ fn is_chat_model(model_id: &str) -> bool {
 }
 
 async fn list_models(base: &str, api_key: &str) -> Result<Vec<GroqModel>, ModelListError> {
-    let request = cloud_models::client()
+    let request = cloud_models::client()?
         .get(format!("{base}/v1/models"))
         .header("Authorization", format!("Bearer {api_key}"));
     let response: GroqApiResponse = cloud_models::fetch_json(request).await?;
