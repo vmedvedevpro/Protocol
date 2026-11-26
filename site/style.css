@@ -239,8 +239,10 @@ footer nav {
     gap: var(--space-1) var(--space-4);
 }
 
+/* The underline is the link's own colour: `muted` reads as a link in both
+   themes, where `border` was too faint to tell links from text. */
 footer a {
-    text-decoration-color: var(--border);
+    text-decoration-color: currentColor;
     text-underline-offset: 3px;
 }
 
