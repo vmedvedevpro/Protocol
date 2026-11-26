@@ -129,6 +129,7 @@ pub fn install_panic_hook() {
         }
         append_legacy_crash_log(&data_root, &occurred_at, info, &backtrace);
         log::error!("Protocol encountered a panic; a local crash record was written");
+        crate::app_log::record_panic(info);
         previous(info);
     }));
 }
@@ -196,6 +197,34 @@ pub fn dismiss_pending_crash_report() -> Result<(), String> {
         &crate::paths::install_data_root(),
     )))
     .map_err(|error| format!("Failed to dismiss crash report: {error}"))
+}
+
+/// The pending report as stored, for Save logs (`app_log/bundle.rs`).
+pub(crate) fn pending_report_json() -> Option<Vec<u8>> {
+    fs::read(pending_path(&crash_root(&crate::paths::install_data_root()))).ok()
+}
+
+/// The same facts a crash report holds about this computer, as text, for
+/// Save logs' `system.txt`.
+pub(crate) fn system_summary() -> String {
+    let session = current_session_record();
+    format!(
+        "Protocol {}\n\
+         Operating system: {} {}\n\
+         Architecture: {}\n\
+         Acceleration backend: {}\n\
+         Processor cores (rounded up): {}\n\
+         Memory (GiB, rounded up): {}\n\
+         Saved at: {}\n",
+        session.app_version,
+        session.operating_system,
+        session.os_version.as_deref().unwrap_or("(version unknown)"),
+        session.architecture,
+        session.backend,
+        session.cpu_core_bucket,
+        session.memory_gib_bucket,
+        chrono::Local::now().to_rfc3339(),
+    )
 }
 
 fn crash_root(data_root: &Path) -> PathBuf {
