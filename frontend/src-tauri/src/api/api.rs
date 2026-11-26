@@ -960,12 +960,11 @@ pub async fn api_save_transcript<R: Runtime>(
 
     // Log parsed segments count and first segment details
     if let Some(first_seg) = transcripts_to_save.first() {
-        log_debug!("First parsed segment: {} chars, audio_start_time={:?}, audio_end_time={:?}, duration={:?}, speaker={:?}",
+        log_debug!("First parsed segment: {} chars, audio_start_time={:?}, audio_end_time={:?}, duration={:?}",
                    first_seg.text.chars().count(),
                    first_seg.audio_start_time,
                    first_seg.audio_end_time,
-                   first_seg.duration,
-                   first_seg.speaker);
+                   first_seg.duration);
     }
     let with_speaker = transcripts_to_save.iter().filter(|s| s.speaker.as_ref().map(|x| !x.is_empty()).unwrap_or(false)).count();
     log_info!(
@@ -1092,7 +1091,7 @@ pub async fn open_meeting_folder<R: Runtime>(
                     return Err(format!("Recording folder not found: {}", folder_path));
                 }
 
-                crate::paths::reveal(path, false).map_err(|e| format!("Failed to open folder: {}", e))?;
+                crate::paths::open_in_system(path.as_os_str(), false).map_err(|e| format!("Failed to open folder: {}", e))?;
 
                 log_info!("Successfully opened folder: {}", folder_path);
                 Ok(())
@@ -1142,7 +1141,7 @@ pub async fn open_external_url(url: String) -> Result<(), String> {
 
     #[cfg(not(target_os = "windows"))]
     {
-        crate::paths::reveal(std::path::Path::new(&url), false)
+        crate::paths::open_in_system(std::ffi::OsStr::new(&url), false)
             .map_err(|error| format!("Failed to open URL: {error}"))
     }
 }

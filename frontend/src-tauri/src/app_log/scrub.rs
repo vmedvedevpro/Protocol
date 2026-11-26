@@ -13,15 +13,22 @@ static PROVIDER_KEY: Lazy<Regex> = Lazy::new(|| {
 });
 static BEARER: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"(?i)\bbearer\s+[A-Za-z0-9._~+/=\-]{8,}").unwrap());
-/// `api_key=…`, `"token": "…"`, and `api_key: Some("…")` as `{:?}` prints a
-/// struct. The value needs a character other than a digit, so llama.cpp's
-/// `BOS token = 1` stays.
+/// `api_key=…`, `password=…`, and `api_key: Some("…")` as `{:?}` prints a
+/// struct, whatever the value: a numeric password or PIN is still one.
 static NAMED_SECRET: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(
-        r#"(?i)\b(api[_-]?key|x-api-key|access[_-]?token|refresh[_-]?token|token|secret|password|authorization)(\s*["']?\s*[:=]\s*(?:Some\()?["']?)[^\s"',;&})]*[^\s"',;&})0-9][^\s"',;&})]*"#,
-    )
+    Regex::new(&format!(
+        r#"(?i)\b(api[_-]?key|x-api-key|access[_-]?token|refresh[_-]?token|secret|password|authorization){SEPARATOR}[^\s"',;&}})]+"#
+    ))
     .unwrap()
 });
+/// A bare `token = …`, as `"token": "…"` stores one. Its value needs a
+/// character other than a digit, since llama.cpp logs `BOS token = 1` (a
+/// token id, not a credential).
+static TOKEN: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(&format!(r#"(?i)\b(token){SEPARATOR}[^\s"',;&}})]*[^\s"',;&}})0-9][^\s"',;&}})]*"#)).unwrap()
+});
+/// What joins a secret's name to its value: `=`, `: `, `": "` or `: Some("`.
+const SEPARATOR: &str = r#"(\s*["']?\s*[:=]\s*(?:Some\()?["']?)"#;
 /// A bare `?key=` or `&key=` in a URL, as Gemini-style endpoints take it.
 static QUERY_KEY: Lazy<Regex> = Lazy::new(|| Regex::new(r#"(?i)([?&]key=)[^&#\s"']+"#).unwrap());
 /// The `user:password@` of a URL.
@@ -43,6 +50,7 @@ pub fn secrets(line: &str) -> Cow<'_, str> {
     let text = sub(&PROVIDER_KEY, Cow::Borrowed(line), "${1}<redacted>");
     let text = sub(&BEARER, text, "Bearer <redacted>");
     let text = sub(&NAMED_SECRET, text, "${1}${2}<redacted>");
+    let text = sub(&TOKEN, text, "${1}${2}<redacted>");
     let text = sub(&QUERY_KEY, text, "${1}<redacted>");
     sub(&USERINFO, text, "${1}<redacted>@")
 }
@@ -162,9 +170,19 @@ mod tests {
             secrets(r#"url ?api_key=12345a&model=x, "token": "abc", password=hunter2, api_key: Some("abc123")"#),
             r#"url ?api_key=<redacted>&model=x, "token": "<redacted>", password=<redacted>, api_key: Some("<redacted>")"#
         );
-        let plain = "decoded 512 tokens in 3 s; max_tokens=200; BOS token = 1 '<s>'";
+        let plain = "decoded 512 tokens in 3 s; max_tokens=200; BOS token = 1 '<s>'; EOS token: 2";
         assert_eq!(secrets(plain), plain);
         assert!(matches!(secrets(plain), Cow::Borrowed(_)));
+    }
+
+    /// Only a bare `token` keeps a digits-only value: a numeric password,
+    /// secret, key or access token is masked.
+    #[test]
+    fn digits_only_secrets_are_hidden_except_a_token_id() {
+        assert_eq!(
+            secrets(r#"password=123456 secret: "4242" api_key=987654 access_token=111 x-api-key: 5 token=7"#),
+            r#"password=<redacted> secret: "<redacted>" api_key=<redacted> access_token=<redacted> x-api-key: <redacted> token=7"#
+        );
     }
 
     #[test]

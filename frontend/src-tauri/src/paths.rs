@@ -76,10 +76,12 @@ fn os_data_root() -> PathBuf {
     root
 }
 
-/// Shows `target` in the file manager: a folder opened, or with `select` a
-/// file selected in Explorer and Finder (Linux has no common way to select
-/// one, so its folder opens). `open` and `xdg-open` take a URL the same way.
-pub fn reveal(target: &Path, select: bool) -> std::io::Result<()> {
+/// Opens `target` with the system: a folder in the file manager, a link in
+/// the browser (`open` and `xdg-open` take a URL as they take a path; Windows
+/// opens links through `ShellExecuteW` in `open_external_url`). With `select`,
+/// a file is shown selected in Explorer and Finder; Linux has no common way to
+/// select one, so its folder opens.
+pub fn open_in_system(target: &std::ffi::OsStr, select: bool) -> std::io::Result<()> {
     use std::process::Command;
     #[cfg(windows)]
     let mut command = {
@@ -87,7 +89,10 @@ pub fn reveal(target: &Path, select: bool) -> std::io::Result<()> {
         let mut command = Command::new("explorer.exe");
         if select {
             // raw_arg: Explorer reads /select,"path" and not a quoted whole.
-            command.raw_arg(format!("/select,\"{}\"", target.display()));
+            let mut argument = std::ffi::OsString::from("/select,\"");
+            argument.push(target);
+            argument.push("\"");
+            command.raw_arg(argument);
         } else {
             command.arg(target);
         }
@@ -105,7 +110,8 @@ pub fn reveal(target: &Path, select: bool) -> std::io::Result<()> {
     #[cfg(target_os = "linux")]
     let mut command = {
         let mut command = Command::new("xdg-open");
-        command.arg(if select { target.parent().unwrap_or(Path::new(".")) } else { target });
+        let folder = Path::new(target).parent().unwrap_or(Path::new("."));
+        command.arg(if select { folder.as_os_str() } else { target });
         command
     };
     let mut child = command.spawn()?;

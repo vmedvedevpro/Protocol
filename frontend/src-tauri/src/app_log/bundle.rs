@@ -3,13 +3,10 @@
 
 use super::scrub::Identity;
 use std::fs;
-use std::io::{self, Write};
+use std::io;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tauri::{AppHandle, Runtime};
-use tempfile::NamedTempFile;
-use zip::write::SimpleFileOptions;
-use zip::{CompressionMethod, ZipWriter};
 
 const README: &str = "Protocol logs
 
@@ -66,7 +63,7 @@ pub fn write_bundle(destination: &Path, sources: &Sources, identity: &Identity) 
         files.push((format!("updater/{}", file_name(&path)), path));
     }
 
-    write_zip(destination, |zip| {
+    crate::zip_util::write_zip(destination, |zip| {
         let mut add = |name: &str, text: &str| zip.add(name, identity.scrub(text).as_bytes());
         add("README.txt", README)?;
         add("system.txt", &sources.system)?;
@@ -85,50 +82,6 @@ pub fn write_bundle(destination: &Path, sources: &Sources, identity: &Identity) 
         }
         Ok(())
     })
-}
-
-/// The ZIP being written by [`write_zip`].
-pub(crate) struct ZipEntries<'a> {
-    zip: ZipWriter<&'a mut fs::File>,
-    count: usize,
-}
-
-impl ZipEntries<'_> {
-    pub fn add(&mut self, name: &str, bytes: &[u8]) -> io::Result<()> {
-        let options = SimpleFileOptions::default()
-            .compression_method(CompressionMethod::Deflated)
-            .unix_permissions(0o600);
-        self.zip.start_file(name, options)?;
-        self.zip.write_all(bytes)?;
-        self.count += 1;
-        Ok(())
-    }
-}
-
-/// Writes a ZIP that `fill` adds the files to, through a temporary file
-/// beside `destination`, so a failed save leaves no half file; returns how
-/// many files it holds. Save logs and the crash report write theirs here.
-pub(crate) fn write_zip(
-    destination: &Path,
-    fill: impl FnOnce(&mut ZipEntries<'_>) -> io::Result<()>,
-) -> io::Result<usize> {
-    if !destination.extension().is_some_and(|value| value.eq_ignore_ascii_case("zip")) {
-        return Err(io::Error::new(io::ErrorKind::InvalidInput, "Only a .zip file can be written"));
-    }
-    let parent = destination.parent().filter(|parent| !parent.as_os_str().is_empty()).unwrap_or(Path::new("."));
-    if !parent.is_dir() {
-        return Err(io::Error::new(io::ErrorKind::NotFound, "The folder to save in does not exist"));
-    }
-    let mut temporary = NamedTempFile::new_in(parent)?;
-    let count = {
-        let mut entries = ZipEntries { zip: ZipWriter::new(temporary.as_file_mut()), count: 0 };
-        fill(&mut entries)?;
-        entries.zip.finish()?;
-        entries.count
-    };
-    temporary.as_file().sync_all()?;
-    temporary.persist(destination).map_err(|error| error.error)?;
-    Ok(count)
 }
 
 fn file_name(path: &Path) -> String {
@@ -183,10 +136,10 @@ pub async fn save_logs_zip<R: Runtime>(app: AppHandle<R>, destination: String) -
 #[tauri::command]
 pub fn show_saved_logs(path: String) -> Result<(), String> {
     let path = PathBuf::from(path);
-    if !path.is_file() || !path.extension().is_some_and(|value| value.eq_ignore_ascii_case("zip")) {
+    if !path.is_file() || !crate::zip_util::is_zip(&path) {
         return Err("The saved logs file is no longer there".to_string());
     }
-    crate::paths::reveal(&path, true).map_err(|error| format!("Could not open the file manager: {error}"))
+    crate::paths::open_in_system(path.as_os_str(), true).map_err(|error| format!("Could not open the file manager: {error}"))
 }
 
 #[cfg(test)]

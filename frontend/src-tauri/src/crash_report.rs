@@ -423,7 +423,7 @@ fn append_legacy_crash_log(
 
 fn write_report_zip(destination: &Path, report: &CrashReport) -> io::Result<()> {
     let report_json = serde_json::to_vec_pretty(report).map_err(io::Error::other)?;
-    crate::app_log::bundle::write_zip(destination, |zip| {
+    crate::zip_util::write_zip(destination, |zip| {
         zip.add("report.json", &report_json)?;
         zip.add("README.txt", README.as_bytes())
     })

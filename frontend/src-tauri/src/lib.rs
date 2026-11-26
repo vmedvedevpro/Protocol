@@ -81,6 +81,7 @@ mod linux_desktop;
 pub mod updater;
 pub mod utils;
 pub mod whisper_engine;
+mod zip_util;
 #[cfg(windows)]
 mod windows_app_identity;
 

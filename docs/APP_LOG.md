@@ -21,11 +21,14 @@ panic hook and plugin start.
 The WebView's errors are filtered twice. `logWebViewError` drops
 Chromium's "ResizeObserver loop" note (nothing failed; the layout settles a
 frame later) and a repeat of the same kind, message and stack within 5 s,
-since a render loop or a timer repeats one error many times a second. Native
-`log_webview_error` then logs at most 30 a minute (`WEBVIEW_ERRORS_PER_MINUTE`;
-one failing screen logs a few, and more would push earlier launches out of
-the kept files) and, at the first error after that minute, one line with the
-number it dropped.
+since a render loop or a timer repeats one error many times a second. It
+remembers at most 100 errors and forgets them all past that, so an error
+whose text changes every time does not grow the map for the page's life.
+Native `log_webview_error` then logs at most 30 a minute
+(`WEBVIEW_ERRORS_PER_MINUTE`; one failing screen logs a few, and more would
+push earlier launches out of the kept files). The first error past that is
+dropped with one warning that further WebView errors are not logged until
+the minute ends, so a burst that then stops is still seen.
 
 The logger is [flexi_logger](https://docs.rs/flexi_logger/0.31.10) 0.31.10
 (`app_log/mod.rs`), pinned: 0.32.0 was a week old when this was written.
@@ -41,8 +44,9 @@ A line reads `2026-11-26T09:30:00.123+03:00 INFO  target: message`, in local
 time so a tester's "it broke at half past nine" finds it. As each line is
 formatted, `scrub::secrets` masks provider keys (`sk-`, `sk_`, `gsk_`),
 bearer tokens, `key=value` and `key: Some("…")` secrets, a bare `?key=` query
-parameter and a URL's `user:password@`. A secret's value needs a character
-other than a digit, so llama.cpp's `BOS token = 1` stays. The patterns are a
+parameter and a URL's `user:password@`. A digits-only value is masked too (a
+numeric password or PIN), except after a bare `token`, so llama.cpp's
+`BOS token = 1` stays. The patterns are a
 second line behind the audit below: a pattern cannot tell a transcript from
 any other text.
 
@@ -97,10 +101,14 @@ keeps the reason.
 flexi_logger reports later write and rotation failures only through its
 error channel, which can be stderr, stdout, nothing, or a file. The file is
 the one way the app can read them back, so it stays:
-`<temporary folder>/protocol-log-errors-<pid>.txt` (`errors_file()`). It is
-outside the log folder because that folder is the one failing, often on a
-full disk the temporary folder is not on, and it is per process, so a second
-launch does not read the first's. flexi_logger never panics over it
+`<OS cache folder>/io.github.vmedvedevpro.protocol/log-errors/protocol-log-errors-<pid>.txt`
+(`errors_file()`; the data root's `cache` when the OS has none), the folder
+Tauri's `app_cache_dir` names, which `init` cannot ask for since it runs
+before Tauri. It is outside the log folder, which is the one failing, and
+not in the shared temporary folder, where another user could plant a link at
+its predictable name. It is per process, so a second launch does not read
+the first's, and `init` deletes a file left with its own id, since Windows
+reuses process ids. flexi_logger never panics over it
 (`panic_if_error_channel_is_broken(false)`). `get_log_status` returns the
 start reason or the last error in that file, and the Bug reports row shows it
 in place of its description. Save logs still saves what is there, with the
@@ -155,8 +163,12 @@ reaches a terminal only, and never the files.
 `save_logs_zip` (`app_log/bundle.rs`) first waits for the queued lines:
 flexi_logger's flush does not wait, so `flush_and_wait` logs a line of its
 own, flushes, and waits up to 2 s for that line in the newest file, since
-the writer takes lines in order. It then writes, through a temporary file
-beside the destination (`write_zip`, which the crash report's ZIP uses too):
+the writer takes lines in order. The line names the process and the save
+(`Saving the logs (process 4242, save 1)`): every launch appends to the same
+newest file and counts its saves from 1, so a save number alone would find
+an earlier launch's line and not wait. It then writes, through a temporary
+file beside the destination (`zip_util::write_zip`, which the crash report's
+ZIP uses too, and `zip_util::is_zip`, the one `.zip` check):
 
 | Entry | Content |
 | --- | --- |
@@ -179,8 +191,8 @@ dialog is the crash report's (`src/api/saveDialog.ts`, with its GTK `.zip`
 re-ask); the default name is `Protocol-logs-<local date>.zip`. After saving,
 the group names the file and offers **Show in folder**: Explorer and Finder
 select it (`explorer /select,`, `open -R`), Linux opens its folder with
-`xdg-open` (`paths::reveal`, which also opens the meeting and recordings
-folders and, outside Windows, a link).
+`xdg-open` (`paths::open_in_system`, which also opens the meeting and
+recordings folders and, outside Windows, a link).
 
 ## CLI modes
 
@@ -193,20 +205,28 @@ code that never runs `main` and starts `env_logger` itself.
 
 - `cargo test -p protocol --lib -- app_log llm_client`: rotation and the
   count limit at a small cap, a launch continuing the newest file, secret
-  masking in a written line, the probe of an unwritable folder, the WebView
-  error limit, JSON errors without their value, addresses without
+  masking in a written line (digits-only values but a token id), the probe
+  of an unwritable folder, the WebView error limit and its one warning, a
+  save's wait past an earlier launch's marker, the error file's place and
+  its last line for Settings, JSON errors without their value, addresses without
   credentials, scrubbing (Linux and Windows homes in every spelling,
   whole-word user names, common logins), the ZIP's entries, an unreadable
   file, missing folders, the `.zip`-only destination, and a logged summary
   error stopping before the provider's reply.
 - `cargo test -p protocol --test app_log_panic`: a panic's thread, place and
   message reach the file (its own binary, for the global logger).
+- `cargo test -p protocol --test app_log_save`: `flush_and_wait` against a
+  temporary folder whose newest file already holds an earlier launch's save
+  marker ends on this launch's own marker, well before its timeout, with
+  the lines logged before it in the file. The writer thread is rarely slow
+  enough for a skipped wait to show there; the unit test above is what fails
+  if an earlier launch's marker ends the wait.
 - `node --test "scripts/log-audit/test/*.test.mjs"` and
   `node scripts/log-audit/check-log-lines.mjs`.
 - Frontend: `LogsGroup.test.tsx` (save, cancel, the failure state, the file
   name), `RouteError.test.tsx` (the alert and its focus, the minibar's
   error), `src/api/logs.test.ts` (window errors, the repeat and
-  ResizeObserver filter); stories `Shell/RouteError` (Light, Dark, Minibar).
+  ResizeObserver filter, forgetting past 100 errors); stories `Shell/RouteError` (Light, Dark, Minibar).
 
 ## Limits
 
@@ -216,5 +236,8 @@ code that never runs `main` and starts `env_logger` itself.
 - A struct printed under a neutral name is outside the checker's reach.
 - The panic message is the panic's own text; an `expect` on an error that
   carries content would print it (cut at 500 characters).
-- A write failure that also fails to reach the error file (the temporary
-  folder full or unwritable too) is reported nowhere but stderr.
+- A write failure that also fails to reach the error file (the cache folder
+  full or unwritable too, as on a full disk it shares with the log folder)
+  is reported nowhere but stderr.
+- Error files of earlier processes with other ids stay in the cache folder;
+  flexi_logger creates one only on an error.

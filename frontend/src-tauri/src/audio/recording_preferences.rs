@@ -719,7 +719,7 @@ pub async fn open_recordings_folder<R: Runtime>(app: AppHandle<R>) -> Result<(),
 
     let folder_path = preferences.save_folder.to_string_lossy().to_string();
 
-    crate::paths::reveal(&preferences.save_folder, false).map_err(|e| format!("Failed to open folder: {}", e))?;
+    crate::paths::open_in_system(preferences.save_folder.as_os_str(), false).map_err(|e| format!("Failed to open folder: {}", e))?;
 
     info!("Opened recordings folder: {}", folder_path);
     Ok(())
