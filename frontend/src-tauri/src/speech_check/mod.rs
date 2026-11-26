@@ -29,7 +29,7 @@ pub mod score;
 mod steps;
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard};
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Runtime};
@@ -123,25 +123,69 @@ static CANCEL: AtomicBool = AtomicBool::new(false);
 /// A recording started during the run: nothing is given back to its engines.
 static RECORDING_STARTED: AtomicBool = AtomicBool::new(false);
 
+/// Where a status change goes: the WebView's event in the app, a list in tests.
+trait Emit {
+    fn changed(&self, status: &Status);
+}
+
+impl<R: Runtime> Emit for AppHandle<R> {
+    fn changed(&self, status: &Status) {
+        let _ = self.emit(CHANGED_EVENT, status);
+    }
+}
+
+/// The status, held. `CANCEL` and `RECORDING_STARTED` change only under this
+/// lock too, so a start's reset and a cancel never cross.
+fn lock_status() -> MutexGuard<'static, Status> {
+    STATUS.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 fn status() -> Status {
-    STATUS.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone()
+    lock_status().clone()
 }
 
-fn set_status<R: Runtime>(app: &AppHandle<R>, status: Status) {
-    *STATUS.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = status.clone();
-    let _ = app.emit(CHANGED_EVENT, status);
+/// Sets and emits `status` under one hold of the lock, so the events reach
+/// the WebView in the order of the changes.
+fn set_status(emit: &impl Emit, status: Status) {
+    let mut current = lock_status();
+    *current = status;
+    emit.changed(&current);
 }
 
-fn is_running() -> bool {
-    matches!(status(), Status::Running { .. })
+/// The step running now, keeping a Cancel that came in meanwhile.
+fn set_running_step(emit: &impl Emit, step: StepKind, done: Vec<StepReport>) {
+    let mut current = lock_status();
+    if let Status::Running { step: running, done: so_far, .. } = &mut *current {
+        *running = Some(step);
+        *so_far = done;
+        emit.changed(&current);
+    }
+}
+
+pub fn is_running() -> bool {
+    matches!(*lock_status(), Status::Running { .. })
+}
+
+/// Marks a running check as cancelling; false when nothing runs, so a
+/// Cancel that arrives after the finish changes nothing.
+fn mark_cancelling(status: &mut Status) -> bool {
+    match status {
+        Status::Running { cancelling, .. } => {
+            CANCEL.store(true, Ordering::SeqCst);
+            *cancelling = true;
+            true
+        }
+        _ => false,
+    }
 }
 
 /// Called by a recording's start before it takes the lifecycle lock.
 pub fn cancel_for_recording() {
-    if is_running() {
+    let mut current = lock_status();
+    if let Status::Running { .. } = &*current {
         log::info!("[speech check] a recording starts: cancelling the check");
         RECORDING_STARTED.store(true, Ordering::SeqCst);
-        CANCEL.store(true, Ordering::SeqCst);
+        mark_cancelling(&mut current);
     }
 }
 
@@ -170,8 +214,7 @@ fn refusal() -> Option<String> {
 /// The note left by a run that Protocol closed during, read at startup.
 pub fn startup() {
     let Some(note) = note::take_interrupted() else { return };
-    let status = interrupted(&note);
-    *STATUS.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = status;
+    *lock_status() = interrupted(&note);
 }
 
 fn interrupted(note: &Note) -> Status {
@@ -228,40 +271,50 @@ pub async fn speech_check_resume<R: Runtime>(app: AppHandle<R>) -> Result<(), St
 
 #[tauri::command]
 pub fn speech_check_cancel<R: Runtime>(app: AppHandle<R>) {
-    if let Status::Running { step, steps, done, .. } = status() {
-        CANCEL.store(true, Ordering::SeqCst);
-        set_status(&app, Status::Running { step, steps, done, cancelling: true });
+    let mut current = lock_status();
+    if mark_cancelling(&mut current) {
+        app.changed(&current);
     }
 }
 
 /// Back to idle: the report is put away, an interrupted run's note too.
 #[tauri::command]
 pub fn speech_check_dismiss<R: Runtime>(app: AppHandle<R>) {
-    if !is_running() {
+    let mut current = lock_status();
+    if !matches!(*current, Status::Running { .. }) {
         note::remove();
-        set_status(&app, Status::Idle);
+        *current = Status::Idle;
+        app.changed(&current);
     }
 }
 
 fn start<R: Runtime>(app: AppHandle<R>, plan: Plan, resumed: Option<Note>) -> Result<(), String> {
-    {
-        let mut current = STATUS.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        if matches!(*current, Status::Running { .. }) {
-            return Err("The speech check is already running".into());
-        }
-        if let Some(refused) = refusal() {
-            return Err(refused);
-        }
-        *current = Status::Running { step: None, steps: plan.steps(), done: Vec::new(), cancelling: false };
-    }
-    CANCEL.store(false, Ordering::SeqCst);
-    RECORDING_STARTED.store(false, Ordering::SeqCst);
-    let busy = busy::hold(BusyReason::SpeechCheck);
+    let busy = begin(&app, &plan)?;
     tauri::async_runtime::spawn(async move {
         let _busy = busy;
         run(&app, plan, resumed).await;
     });
     Ok(())
+}
+
+/// The start under one hold of the status: refused while a check or other
+/// speech work runs; otherwise the flags are reset before anything can set
+/// them, the busy hold is taken, and Running is emitted at once, so the group
+/// shows "Getting ready" with Cancel while the engines are put away.
+fn begin(emit: &impl Emit, plan: &Plan) -> Result<busy::BusyGuard, String> {
+    let mut current = lock_status();
+    if matches!(*current, Status::Running { .. }) {
+        return Err("The speech check is already running".into());
+    }
+    if let Some(refused) = refusal() {
+        return Err(refused);
+    }
+    CANCEL.store(false, Ordering::SeqCst);
+    RECORDING_STARTED.store(false, Ordering::SeqCst);
+    let busy = busy::hold(BusyReason::SpeechCheck);
+    *current = Status::Running { step: None, steps: plan.steps(), done: Vec::new(), cancelling: false };
+    emit.changed(&current);
+    Ok(busy)
 }
 
 /// The app's engines as the check found them.
@@ -331,7 +384,7 @@ async fn give_back(held: Held, warnings: &mut Vec<String>) {
     let _ = whisper_reloaded;
 }
 
-async fn run<R: Runtime>(app: &AppHandle<R>, plan: Plan, resumed: Option<Note>) {
+async fn run(emit: &impl Emit, plan: Plan, resumed: Option<Note>) {
     let held = take_engines().await;
     let system = tokio::task::spawn_blocking(hardware::system).await.unwrap_or_default();
     let mut note = match resumed {
@@ -371,7 +424,7 @@ async fn run<R: Runtime>(app: &AppHandle<R>, plan: Plan, resumed: Option<Note>) 
                 } else if plan.declined.contains(&kind) {
                     StepReport::new(kind, StepStatus::NotChecked).with_reason("The model was not downloaded for the check")
                 } else {
-                    set_status(app, Status::Running { step: Some(kind), steps: plan.steps(), done: note.done.clone(), cancelling: false });
+                    set_running_step(emit, kind, note.done.clone());
                     note.running = Some(kind);
                     note::write(&note);
                     log::info!("[speech check] checking {}", kind.title());
@@ -417,7 +470,7 @@ async fn run<R: Runtime>(app: &AppHandle<R>, plan: Plan, resumed: Option<Note>) 
     let report = build_report(&note, steps, outcome);
     note::remove();
     let text = report.render();
-    set_status(app, Status::Finished { report, text });
+    set_status(emit, Status::Finished { report, text });
 }
 
 fn empty_report() -> Report {
@@ -453,22 +506,113 @@ mod tests {
         }
     }
 
-    #[test]
-    fn a_recording_start_cancels_a_running_check_only() {
-        CANCEL.store(false, Ordering::SeqCst);
-        cancel_for_recording();
-        assert!(!CANCEL.load(Ordering::SeqCst), "nothing runs, nothing to cancel");
-        *STATUS.lock().unwrap() = Status::Running { step: Some(StepKind::Whisper), steps: StepKind::ALL.to_vec(), done: Vec::new(), cancelling: false };
-        cancel_for_recording();
-        assert!(CANCEL.load(Ordering::SeqCst));
-        assert!(RECORDING_STARTED.load(Ordering::SeqCst));
-        *STATUS.lock().unwrap() = Status::Idle;
+    /// The status and the flags are process-wide: the tests that change them
+    /// take turns, and put them back even when they fail.
+    static STATICS: Mutex<()> = Mutex::new(());
+
+    pub(super) struct Statics(#[allow(dead_code)] MutexGuard<'static, ()>);
+
+    impl Statics {
+        pub(super) fn take() -> Self {
+            let turn = STATICS.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+            reset();
+            Statics(turn)
+        }
+    }
+
+    fn reset() {
+        *lock_status() = Status::Idle;
         CANCEL.store(false, Ordering::SeqCst);
         RECORDING_STARTED.store(false, Ordering::SeqCst);
     }
 
+    impl Drop for Statics {
+        fn drop(&mut self) {
+            reset();
+        }
+    }
+
+    /// The statuses a run emitted.
+    #[derive(Default)]
+    pub(super) struct Events(Mutex<Vec<Status>>);
+
+    impl Emit for Events {
+        fn changed(&self, status: &Status) {
+            self.0.lock().unwrap().push(status.clone());
+        }
+    }
+
+    impl Events {
+        pub(super) fn all(&self) -> Vec<Status> {
+            self.0.lock().unwrap().clone()
+        }
+    }
+
+    fn running() -> Status {
+        Status::Running { step: Some(StepKind::Whisper), steps: StepKind::ALL.to_vec(), done: Vec::new(), cancelling: false }
+    }
+
+    #[test]
+    fn a_recording_start_cancels_a_running_check_only() {
+        let _statics = Statics::take();
+        cancel_for_recording();
+        assert!(!CANCEL.load(Ordering::SeqCst), "nothing runs, nothing to cancel");
+        *lock_status() = running();
+        cancel_for_recording();
+        assert!(CANCEL.load(Ordering::SeqCst));
+        assert!(RECORDING_STARTED.load(Ordering::SeqCst));
+        assert!(matches!(status(), Status::Running { cancelling: true, .. }));
+    }
+
+    #[test]
+    fn a_cancel_after_the_finish_leaves_the_status_alone() {
+        let _statics = Statics::take();
+        let finished = Status::Finished { report: empty_report(), text: "done".into() };
+        *lock_status() = finished.clone();
+        assert!(!mark_cancelling(&mut lock_status()));
+        assert_eq!(status(), finished);
+        assert!(!CANCEL.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn a_cancel_during_a_step_survives_the_next_step_starting() {
+        let _statics = Statics::take();
+        let events = Events::default();
+        *lock_status() = running();
+        assert!(mark_cancelling(&mut lock_status()));
+        set_running_step(&events, StepKind::Pyannote, vec![StepReport::new(StepKind::Whisper, StepStatus::Cancelled)]);
+        match status() {
+            Status::Running { step, cancelling, done, .. } => {
+                assert_eq!(step, Some(StepKind::Pyannote));
+                assert!(cancelling, "a newer step must not undo the Cancel");
+                assert_eq!(done.len(), 1);
+            }
+            other => panic!("{other:?}"),
+        }
+        assert_eq!(events.all().len(), 1);
+    }
+
+    #[test]
+    fn a_start_resets_the_flags_holds_busy_and_shows_running_at_once() {
+        let _statics = Statics::take();
+        CANCEL.store(true, Ordering::SeqCst);
+        RECORDING_STARTED.store(true, Ordering::SeqCst);
+        let events = Events::default();
+        let busy = begin(&events, &Plan::for_tests()).expect("nothing else runs");
+        assert!(!CANCEL.load(Ordering::SeqCst));
+        assert!(!RECORDING_STARTED.load(Ordering::SeqCst));
+        assert!(busy::current().contains(&BusyReason::SpeechCheck));
+        assert!(matches!(events.all().as_slice(), [Status::Running { step: None, cancelling: false, .. }]));
+        // A recording that starts now finds the check running and cancels it.
+        cancel_for_recording();
+        assert!(RECORDING_STARTED.load(Ordering::SeqCst));
+        assert_eq!(begin(&events, &Plan::for_tests()).err().as_deref(), Some("The speech check is already running"));
+        drop(busy);
+    }
+
     #[test]
     fn the_check_refuses_to_run_beside_a_recording_or_a_transcript() {
+        let _statics = Statics::take();
         let _recording = busy::hold(BusyReason::Recording);
         assert_eq!(refusal().as_deref(), Some("The speech check can't run during a recording"));
         drop(_recording);
