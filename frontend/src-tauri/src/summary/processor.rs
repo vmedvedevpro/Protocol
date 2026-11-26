@@ -44,8 +44,14 @@ pub(crate) fn clean_generated_title(raw: &str) -> Option<String> {
     }
     if title.chars().count() > MAX_TITLE_CHARS {
         let cut: String = title.chars().take(MAX_TITLE_CHARS + 1).collect();
-        // The last space within the limit; a single long word is cut at the limit.
-        let at = cut.rfind(' ').filter(|&at| at > 0).unwrap_or_else(|| cut.char_indices().nth(MAX_TITLE_CHARS).map_or(cut.len(), |(at, _)| at));
+        let limit = cut.char_indices().nth(MAX_TITLE_CHARS).map_or(cut.len(), |(at, _)| at);
+        // The last space within the limit, when it keeps at least half of the
+        // limit. A title with no space late enough (one long word, CJK text
+        // with a space early on) is cut at the limit rather than to a stub.
+        let at = cut
+            .rfind(' ')
+            .filter(|&at| cut[..at].chars().count() >= MAX_TITLE_CHARS / 2)
+            .unwrap_or(limit);
         title = cut[..at].trim_end_matches([' ', ',', ';', ':', '.', '-', '–', '—']).to_string();
     }
     let normalized = title.trim_matches(|c| matches!(c, '<' | '>' | '[' | ']')).trim().to_lowercase();
@@ -57,11 +63,26 @@ pub(crate) fn clean_generated_title(raw: &str) -> Option<String> {
     Some(title)
 }
 
-/// `text` without one pair of quotes around all of it.
+/// `text` without one pair of quotes around all of it: the quote that opens
+/// it must be the one that closes it, so `"A" and "B"` keeps its quotes.
 fn unquoted(text: &str) -> &str {
     const PAIRS: [(char, char); 7] = [('"', '"'), ('\'', '\''), ('«', '»'), ('“', '”'), ('„', '“'), ('‘', '’'), ('「', '」')];
     for (open, close) in PAIRS {
-        if let Some(inner) = text.strip_prefix(open).and_then(|rest| rest.strip_suffix(close)) {
+        let Some(inner) = text.strip_prefix(open).and_then(|rest| rest.strip_suffix(close)) else {
+            continue;
+        };
+        // Nested pairs of distinct quotes may open and close inside; the
+        // outer pair must stay open until the end.
+        let mut depth = 1usize;
+        let wraps = inner.chars().all(|char| {
+            if char == close {
+                depth -= 1;
+            } else if char == open {
+                depth += 1;
+            }
+            depth > 0
+        });
+        if wraps {
             return inner;
         }
     }
@@ -92,6 +113,12 @@ mod generated_title_tests {
             ("  Hiring \t  plan\n review ", "Hiring plan review"),
             ("What next?", "What next?"),
             ("snake_case_name stays", "snake_case_name stays"),
+            // Quotes come off only when one pair wraps the whole title.
+            ("\"Alpha\" and \"Beta\"", "\"Alpha\" and \"Beta\""),
+            ("«Альфа» и «Бета»", "«Альфа» и «Бета»"),
+            ("„Plan“ und „Budget“", "„Plan“ und „Budget“"),
+            ("“The ‘Falcon’ sync”", "The ‘Falcon’ sync"),
+            ("«Обзор «Сокола»»", "Обзор «Сокола»"),
         ] {
             assert_eq!(clean_generated_title(raw).as_deref(), Some(title), "{raw}");
         }
@@ -103,6 +130,11 @@ mod generated_title_tests {
         let title = clean_generated_title(long).unwrap();
         assert_eq!(title, "Quarterly planning for the platform team covering hiring, budget, the roadmap");
         assert!(title.chars().count() <= 80);
+        // Few spaces, the last one early: cut at the limit, not to a stub.
+        let mixed = format!("Q4 {}", "予算会議と採用計画".repeat(12));
+        let title = clean_generated_title(&mixed).unwrap();
+        assert_eq!(title.chars().count(), 80);
+        assert!(title.starts_with("Q4 予算会議"), "{title}");
         let word = "Ж".repeat(100);
         assert_eq!(clean_generated_title(&word).unwrap().chars().count(), 80);
     }

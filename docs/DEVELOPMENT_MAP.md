@@ -367,9 +367,12 @@ language (the translation pass carries it into the summary's language).
 `summary/service.rs` takes it from the final Markdown
 (`processor.rs::extract_meeting_name_from_markdown`, through
 `clean_generated_title`: links keep their text, backticks and emphasis
-marks go, whitespace and newlines collapse, wrapping quotes and a trailing
-`.` or `:` come off, and a title over 80 characters is cut at a word; an
-empty result or a placeholder heading leaves the title as it was).
+marks go, whitespace and newlines collapse, quotes come off when one pair
+wraps the whole title (`"A" and "B"` keeps them), a trailing `.` or `:`
+comes off, and a title over 80 characters is cut at its last space within
+the limit, or at the limit when that space would keep less than half of it
+(CJK text with an early space); an empty result or a placeholder heading
+leaves the title as it was).
 Every pass's reply goes through `clean_llm_markdown_output` first, which also
 takes off an unclosed opening fence and the `<document>` tags the translation
 and normalisation prompts wrap their input in: Gemma 3 1B echoed both, so its
