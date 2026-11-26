@@ -192,33 +192,18 @@ fn gpus() -> Vec<Gpu> {
 
 /// The GPUs ggml's registry lists, as `<name>: <description>` (`Vulkan0:
 /// Intel(R) Arc(tm) B390 (PTL)`). The registry names a device but not its
-/// Vulkan driver; the GPU lines give the kernel driver. Asking ggml looks
-/// for its devices inside the Vulkan guard, as every model load does first.
+/// Vulkan driver; the GPU lines give the kernel driver. Asking ggml first
+/// looks for its devices as every model load does: inside the Vulkan crash
+/// guard on Linux, directly elsewhere, where the build has no guard.
 #[cfg(feature = "vulkan")]
 fn vulkan_devices() -> Vec<String> {
-    use whisper_rs::whisper_rs_sys as sys;
-    crate::whisper_engine::vulkan::look_for_devices();
-    let text = |pointer: *const std::ffi::c_char| {
-        // SAFETY: ggml's strings live as long as its devices and are copied here.
-        (!pointer.is_null()).then(|| unsafe { std::ffi::CStr::from_ptr(pointer) }.to_string_lossy().into_owned())
-    };
-    // SAFETY: as `acceleration::ggml_device_kinds`: registry calls on the
-    // handles the registry returns, for indices below its count.
-    unsafe {
-        (0..sys::ggml_backend_dev_count())
-            .map(|index| sys::ggml_backend_dev_get(index))
-            .filter(|device| {
-                matches!(
-                    sys::ggml_backend_dev_type(*device),
-                    sys::ggml_backend_dev_type_GGML_BACKEND_DEVICE_TYPE_GPU | sys::ggml_backend_dev_type_GGML_BACKEND_DEVICE_TYPE_IGPU
-                )
-            })
-            .filter_map(|device| match (text(sys::ggml_backend_dev_name(device)), text(sys::ggml_backend_dev_description(device))) {
-                (Some(name), Some(description)) => Some(format!("{name}: {description}")),
-                (name, description) => name.or(description),
-            })
-            .collect()
-    }
+    crate::whisper_engine::acceleration::ggml_gpu_devices()
+        .into_iter()
+        .filter_map(|gpu| match (gpu.name, gpu.description) {
+            (Some(name), Some(description)) => Some(format!("{name}: {description}")),
+            (name, description) => name.or(description),
+        })
+        .collect()
 }
 
 #[cfg(not(feature = "vulkan"))]
