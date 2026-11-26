@@ -62,10 +62,6 @@ after it merges; to try it before, start the workflow on its branch by hand:
 The three macOS files and the two darwin entries arrive together, after the
 draft; until then the release notes say the macOS download follows.
 
-The site's download links (`site/index.html`) use the three stable names
-under `/releases/latest/download/`; the deb's link opens the latest release's
-page, since its name carries the version. Renaming an asset breaks them.
-
 Installed apps read `https://github.com/vmedvedevpro/Protocol/releases/latest/download/latest.json`,
 which only ever resolves to the published release marked **Latest**: drafts and
 prereleases are invisible to them.
@@ -337,15 +333,19 @@ version. No other secrets are used.
 `site/` is a one-page site served by GitHub Pages at
 `https://vmedvedevpro.github.io/Protocol/`: plain HTML and CSS with no build
 step and no requests to other hosts, Geist from the app's own font package,
-and the app's tokens copied into `style.css` (it names its source). Its images
-and favicon are symlinks into `docs/media/` and `frontend/src-tauri/icons/`;
+and the app's tokens copied into `style.css` (it names its source). It shows
+the ring, the name, one sentence and a GitHub link. The ring GIFs and the
+favicon are symlinks into `docs/media/` and `frontend/src-tauri/icons/`;
 `upload-pages-artifact` dereferences them, and `pages.yml`'s path filter lists
-those files so a new screenshot redeploys the site. Every path is relative, so
-a renamed repository keeps working; only the search and link-preview tags in
-`<head>` (canonical, Open Graph, JSON-LD) name the site's absolute address and
-change with it. `og.png` is the link preview and the repository's social
-preview, which the owner uploads by hand. To look at it locally, serve the folder:
-`python3 -m http.server -d site`.
+those files so a new ring redeploys the site. With reduced motion the page
+shows `site/media/ring-*-still.png`, one frame of each GIF; retake them with
+the GIFs. Every path is relative, so a renamed repository keeps working; only
+the search and link-preview tags in `<head>` (canonical, Open Graph, JSON-LD)
+name the site's absolute address and change with it. `og.png` is the link
+preview and the repository's social preview, which the owner uploads by hand:
+a 1280x640 screenshot of the page in the light theme with reduced motion and
+the GitHub link hidden.
+To look at it locally, serve the folder: `python3 -m http.server -d site`.
 
 `pages.yml` runs only on a push to `main` that changes those paths, never on a
 pull request, and only in this repository. It uploads `site/` and deploys it
