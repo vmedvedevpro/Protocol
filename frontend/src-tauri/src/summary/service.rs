@@ -1,6 +1,7 @@
 use crate::database::repositories::{
     meeting::{MeetingsRepository, TitleSource}, setting::SettingsRepository, summary::SummaryProcessesRepository,
 };
+use crate::meeting_title::Rename;
 use crate::summary::llm_client::LLMProvider;
 use crate::summary::language_detection::detect_summary_language;
 use crate::summary::metadata::read_detected_summary_language_from_metadata;
@@ -686,8 +687,9 @@ impl SummaryService {
                             Some(title) => match crate::meeting_title::rename_meeting(
                                 &pool, &meeting_id, &title, TitleSource::Summary,
                             ).await {
-                                Ok(true) => info!("Named meeting {} from its summary", meeting_id),
-                                Ok(false) => info!("Meeting {} keeps the title the user gave it", meeting_id),
+                                Ok(Rename::Renamed) => info!("Named meeting {} from its summary", meeting_id),
+                                Ok(Rename::UsersTitleKept) => info!("Meeting {} keeps the title the user gave it", meeting_id),
+                                Ok(Rename::NoMeeting) => warn!("Meeting {} is gone; its summary title was not applied", meeting_id),
                                 Err(error) => error!("Summary saved, but naming meeting {} from it failed: {}", meeting_id, error),
                             },
                             None => info!("The summary of {} has no usable title; the meeting keeps its title", meeting_id),

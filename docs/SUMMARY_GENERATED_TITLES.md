@@ -6,7 +6,10 @@
 > Since #218 the rename goes through `meeting_title::rename_meeting` and
 > `MeetingsRepository::set_title` (which replace
 > `update_generated_meeting_title`), and whose title it is comes from the
-> caller's record rather than the title's text; the current flow is in
+> caller's record rather than the title's text. The heading is cleaned
+> (`clean_generated_title`: no Markdown marks or wrapping quotes, one line,
+> at most 80 characters cut at a word) instead of rejected when it is long.
+> The current flow is in
 > [DEVELOPMENT_MAP.md › Meeting titles from the summary](DEVELOPMENT_MAP.md#3-post-call-processing-and-model-selection).
 
 Upstream PR #39 removed the summary-to-meeting-title update; @ampersandru reported the

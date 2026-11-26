@@ -365,8 +365,11 @@ for a title: the template's `# <Add Title here>` H1, which
 `to_section_instructions` asks to fill with 3 to 8 words in the report's
 language (the translation pass carries it into the summary's language).
 `summary/service.rs` takes it from the final Markdown
-(`processor.rs::extract_meeting_name_from_markdown` rejects an empty,
-overlong or placeholder heading, so such a reply leaves the title as it was).
+(`processor.rs::extract_meeting_name_from_markdown`, through
+`clean_generated_title`: links keep their text, backticks and emphasis
+marks go, whitespace and newlines collapse, wrapping quotes and a trailing
+`.` or `:` come off, and a title over 80 characters is cut at a word; an
+empty result or a placeholder heading leaves the title as it was).
 Every pass's reply goes through `clean_llm_markdown_output` first, which also
 takes off an unclosed opening fence and the `<document>` tags the translation
 and normalisation prompts wrap their input in: Gemma 3 1B echoed both, so its
@@ -388,10 +391,13 @@ read for it (the old `is_default_meeting_title` is gone), so the automatic
 format can change (#219). A summary's title applies only while the record
 says the app made the title (an SQL predicate, so a rename racing the run
 wins) and leaves the record as it was, so a summary written again names the
-meeting again until the user renames it. The shell's `useSummaryTitleSync`
+meeting again until the user renames it. `rename_meeting` answers
+`Rename::Renamed`, `UsersTitleKept` or `NoMeeting`, so the log tells a
+user's title from a meeting that is gone. The shell's `useSummaryTitleSync`
 reads the list, the meeting, folders and search again on `completed`.
-Tests: `meeting_title::tests`, `meeting::tests`, `transcript::tests`
-(native); `summaryTitleSync.test.tsx`, `save.test.tsx` and `ImportSheet.test.tsx` (frontend).
+Tests: `meeting_title::tests`, `meeting::tests`, `transcript::tests`,
+`processor::generated_title_tests` (native); `summaryTitleSync.test.tsx`,
+`save.test.tsx` and `ImportSheet.test.tsx` (frontend).
 Older notes on the upstream behaviour: [SUMMARY_GENERATED_TITLES.md](SUMMARY_GENERATED_TITLES.md).
 
 A summary run's template is `api_process_transcript`'s `template_id`. Without

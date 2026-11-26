@@ -7,31 +7,104 @@ use std::path::PathBuf;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
 
+/// The longest generated title, in characters; a longer one is cut at a word.
+const MAX_TITLE_CHARS: usize = 80;
+
+static TITLE_LINK: Lazy<Regex> = Lazy::new(|| Regex::new(r"!?\[([^\]]*)\]\([^)]*\)").unwrap());
+static TITLE_SPACES: Lazy<Regex> = Lazy::new(|| Regex::new(r"\s+").unwrap());
+/// `_` marks emphasis only at a word's edge; inside a word it is the word's.
+static TITLE_UNDERSCORE_OPEN: Lazy<Regex> = Lazy::new(|| Regex::new(r"(^|\s)_+").unwrap());
+static TITLE_UNDERSCORE_CLOSE: Lazy<Regex> = Lazy::new(|| Regex::new(r"_+(\s|$)").unwrap());
+
 /// Only the template's leading H1 is a title candidate. A heading in the body,
 /// or an unfilled template instruction, must never rename a meeting.
 pub(crate) fn extract_meeting_name_from_markdown(markdown: &str) -> Option<String> {
     let first = markdown.lines().find(|line| !line.trim().is_empty())?.trim();
-    let title = first.strip_prefix("# ")?.trim().trim_matches('*').trim();
-    let normalized = title.trim_matches(|c| matches!(c, '<' | '>' | '[' | ']' | '`')).trim().to_lowercase();
-    if title.is_empty() || title.chars().count() > 200 || matches!(normalized.as_str(),
+    clean_generated_title(first.strip_prefix("# ")?)
+}
+
+/// A model's title as a meeting title (#218): no Markdown (links keep their
+/// text; backticks, emphasis and strike marks go), one line with single
+/// spaces, no wrapping quotes, no trailing `.` or `:`, at most
+/// `MAX_TITLE_CHARS`, cut at a word. `None` when nothing usable is left, or
+/// for a template placeholder: the meeting then keeps its title.
+pub(crate) fn clean_generated_title(raw: &str) -> Option<String> {
+    let text = TITLE_LINK.replace_all(raw, "$1");
+    let text = text.replace(['`', '*', '~'], "");
+    let text = TITLE_UNDERSCORE_OPEN.replace_all(&text, "$1");
+    let text = TITLE_UNDERSCORE_CLOSE.replace_all(&text, "$1");
+    let mut title = TITLE_SPACES.replace_all(&text, " ").trim().to_string();
+    loop {
+        let before = title.clone();
+        title = title.trim_end_matches(['.', ':', '：', '。']).trim().to_string();
+        title = unquoted(&title).trim().to_string();
+        if title == before {
+            break;
+        }
+    }
+    if title.chars().count() > MAX_TITLE_CHARS {
+        let cut: String = title.chars().take(MAX_TITLE_CHARS + 1).collect();
+        // The last space within the limit; a single long word is cut at the limit.
+        let at = cut.rfind(' ').filter(|&at| at > 0).unwrap_or_else(|| cut.char_indices().nth(MAX_TITLE_CHARS).map_or(cut.len(), |(at, _)| at));
+        title = cut[..at].trim_end_matches([' ', ',', ';', ':', '.', '-', '–', '—']).to_string();
+    }
+    let normalized = title.trim_matches(|c| matches!(c, '<' | '>' | '[' | ']')).trim().to_lowercase();
+    if normalized.is_empty() || matches!(normalized.as_str(),
         "add title here" | "ai-generated title" | "meeting title" | "title" |
         "summary" | "meeting summary" | "overview" | "notes" | "transcript") {
         return None;
     }
-    Some(title.to_string())
+    Some(title)
+}
+
+/// `text` without one pair of quotes around all of it.
+fn unquoted(text: &str) -> &str {
+    const PAIRS: [(char, char); 7] = [('"', '"'), ('\'', '\''), ('«', '»'), ('“', '”'), ('„', '“'), ('‘', '’'), ('「', '」')];
+    for (open, close) in PAIRS {
+        if let Some(inner) = text.strip_prefix(open).and_then(|rest| rest.strip_suffix(close)) {
+            return inner;
+        }
+    }
+    text
 }
 
 #[cfg(test)]
 mod generated_title_tests {
-    use super::extract_meeting_name_from_markdown;
+    use super::{clean_generated_title, extract_meeting_name_from_markdown};
 
     #[test]
     fn generated_title_accepts_only_a_useful_leading_heading() {
         assert_eq!(extract_meeting_name_from_markdown("\n# **GPU Budget Review**\n\n## Decisions"), Some("GPU Budget Review".into()));
         assert_eq!(extract_meeting_name_from_markdown("# Revisión del presupuesto\n"), Some("Revisión del presupuesto".into()));
-        for text in ["", "## Decisions", "Body\n# A later heading", "# <Add Title here>", "# [AI-Generated Title]", "# **Meeting Title**", "# Summary", "# "] {
+        for text in ["", "## Decisions", "Body\n# A later heading", "# <Add Title here>", "# [AI-Generated Title]", "# **Meeting Title**", "# Summary", "# ", "# \"\"", "# `...`"] {
             assert_eq!(extract_meeting_name_from_markdown(text), None, "{text}");
         }
+    }
+
+    #[test]
+    fn a_generated_title_loses_its_markdown_quotes_and_end_punctuation() {
+        for (raw, title) in [
+            ("\"Q4 Budget Review.\"", "Q4 Budget Review"),
+            ("«Планёрка команды»:", "Планёрка команды"),
+            ("“Launch plan”.", "Launch plan"),
+            ("Sync on `api_v2` and the [roadmap](https://example.com)", "Sync on api_v2 and the roadmap"),
+            ("_Weekly_ __sync__ with ~~old~~ *new* team", "Weekly sync with old new team"),
+            ("  Hiring \t  plan\n review ", "Hiring plan review"),
+            ("What next?", "What next?"),
+            ("snake_case_name stays", "snake_case_name stays"),
+        ] {
+            assert_eq!(clean_generated_title(raw).as_deref(), Some(title), "{raw}");
+        }
+    }
+
+    #[test]
+    fn a_long_generated_title_is_cut_at_a_word() {
+        let long = "Quarterly planning for the platform team covering hiring, budget, the roadmap and every open risk";
+        let title = clean_generated_title(long).unwrap();
+        assert_eq!(title, "Quarterly planning for the platform team covering hiring, budget, the roadmap");
+        assert!(title.chars().count() <= 80);
+        let word = "Ж".repeat(100);
+        assert_eq!(clean_generated_title(&word).unwrap().chars().count(), 80);
     }
 }
 

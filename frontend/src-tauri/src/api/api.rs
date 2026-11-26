@@ -937,11 +937,12 @@ pub async fn api_save_meeting_title<R: Runtime>(
         return Err("Enter a title for the meeting".to_string());
     }
     match crate::meeting_title::rename_meeting(pool, &meeting_id, &title, TitleSource::User).await {
-        Ok(true) => {
+        Ok(crate::meeting_title::Rename::Renamed) => {
             log_info!("Successfully saved meeting title");
             Ok(serde_json::json!({"message": "Meeting title saved successfully"}))
         }
-        Ok(false) => {
+        // A user's rename always applies to a meeting that exists.
+        Ok(crate::meeting_title::Rename::NoMeeting | crate::meeting_title::Rename::UsersTitleKept) => {
             log_error!("No meeting found with id {}", meeting_id);
             Err(format!("No meeting found with id {}", meeting_id))
         }
