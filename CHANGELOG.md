@@ -70,8 +70,12 @@ is inherited from the project Protocol forked from; Protocol did not release it.
   lists them as the model wrote them; the separate list with owners, due
   dates and checkboxes is gone, from the meeting, the person screen and
   search. Summaries whose action items were moved out get them back the
-  first time this version starts, with any items you added by hand. AI
-  agents read them in the summary; the MCP server's `get_action_items`
+  first time this version starts, with any items you added by hand; items
+  you added to a meeting that has no summary yet go into its first summary.
+  A checked-off item stays checked when the summary lists it as a list item;
+  in a table the check mark is not kept. Each summary this changes is saved
+  first as it was, in `summary-backups` in Protocol's data folder. AI
+  agents read the items in the summary; the MCP server's `get_action_items`
   tool is gone.
 - **Meetings are named from their summary**
   ([#218](https://github.com/vmedvedevpro/Protocol/issues/218)). While a

@@ -48,6 +48,32 @@ describe('NotesEditor', () => {
         expect(within(notes).getByText('Calendar import after the pilot')).toBeInTheDocument()
     })
 
+    // A summary whose action items were put back (#218) is stored without
+    // blocks: the editor builds them from its Markdown, table and done marks included.
+    it('builds a restored summary from its Markdown, with its table and checked items', async () => {
+        const markdown = [
+            '## Action Items',
+            '',
+            '| Owner | Task | Due |',
+            '| --- | --- | --- |',
+            '| Priya | Send the terms | Friday |',
+            '',
+            '- [ ] Call the venue',
+            '- [x] You: Draft the FAQ (due Monday)',
+        ].join('\n')
+        renderEditor({initialMarkdown: markdown})
+
+        const notes = await screen.findByRole('textbox', {name: 'Notes'})
+        const table = within(notes).getByRole('table')
+        expect(within(table).getByText('Send the terms')).toBeInTheDocument()
+        expect(within(table).getByText('Friday')).toBeInTheDocument()
+        const [venue, faq] = within(notes).getAllByRole('checkbox')
+        expect(venue).toHaveAccessibleName('Call the venue')
+        expect(venue).not.toBeChecked()
+        expect(faq).toHaveAccessibleName('You: Draft the FAQ (due Monday)')
+        expect(faq).toBeChecked()
+    })
+
     it('reads the Markdown when the blocks cannot be read', async () => {
         const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
 

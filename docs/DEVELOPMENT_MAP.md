@@ -434,23 +434,58 @@ live assistant and MCP server read the summary text instead). Up to
 summary without it (`original_markdown` kept the full text,
 `meetings.action_items_source` the text it read). At startup, after the
 migrations, `DatabaseManager::new` runs
-`database/repositories/action_item.rs::restore_action_sections`: for each
-meeting not yet marked `restored-to-summary` it puts the section back
-(from `original_markdown`, before the heading that followed it, else at the
-end), adds the user's own rows (added or edited by hand) the text does not
-name, or renders every row as an "Action Items" list when the summary was
-edited after the move and has no original, drops stale editor blocks
-(`summary_json`) so the editor rebuilds from the Markdown, and marks the
-meeting in the same transaction. A data step rather than a migration: the
-summary is JSON holding Markdown and the section is found with the old UI's
-heading rules (ported to Rust), which SQL cannot express; a failed meeting
-is logged and retried at the next launch, and the table itself stays as
-released migrations left it (contact merges and deletions still keep its
-owner links). A new summary no longer clears the marker. Tests:
-`cargo test -p protocol --lib action_item` (headings, placement, user rows,
-an edited summary, the startup step run twice), `global_search_tests`
-(action text found as a summary), `protocol-mcp` tests (no
-`get_action_items`, `get_meeting` shows the section inside the summary).
+`database/repositories/action_item.rs::restore_action_sections` for the
+meetings still to restore: read by the old UI (`action_items_source` set) and
+not yet marked `restored-to-summary`, or never read but holding rows of the
+user's (added, edited or checked off by hand); a launch reads no other
+meeting. For each it puts the section back (from `original_markdown`,
+before the heading that followed it, else at the end), adds the user's rows
+the summary does not hold, or renders every row as an "Action Items" task
+list when the summary was edited after the move and has no original, and
+marks the meeting in the same transaction.
+- **Whole items.** A row is in the summary when its text is a whole item of
+  an action section: a list or text line (also as the old UI read it,
+  without owner and due date, sub-points joined by "; ") or a table cell.
+  Never a substring: a hand-added "Budget" is not in "Review the budget",
+  and an edited row is added next to its original line. A rare duplicate
+  beats a lost item.
+- **Done marks.** A done row found as a list item checks that item off
+  (`- [x]`); added rows are task items (`- [ ]`, `- [x]`), which the editor
+  shows as checkboxes. A table row has no place for the mark: it is not kept.
+- **Nothing left behind.** A meeting with rows of the user's but no summary,
+  or a summary not stored as Markdown (a legacy map of sections), is logged
+  and stays unmarked. When `summary/service.rs` saves a summary it calls
+  `restore_after_summary`, which puts those rows into the new summary (the
+  model's own section stays as written) before `completed` is emitted.
+- **Backup.** Before a stored summary changes, its `result` is written to a
+  new file in `summary-backups/` in the data directory
+  (`<meeting>-<time>.json`, never overwritten; put `result` back into
+  `summary_processes.result` to recover). A backup that cannot be written
+  leaves the meeting unchanged and unmarked.
+- **Editor blocks.** A changed summary loses `summary_json`, which the editor
+  shows before the Markdown and which would hide the items. That is safe: the
+  editor saves blocks and Markdown together from one document, search,
+  export and agents read the Markdown already, and the editor builds its
+  blocks again from it (tables and checked items included,
+  `NotesEditor.test.tsx`). What only blocks hold (text colour, alignment)
+  the Markdown never had; the backup keeps it.
+- **Search.** Nothing to rebuild: library search, the MCP server and the
+  live assistant read `summary_processes.result` on every query (there is no
+  index or text cache), the step runs before the WebView loads, and after a
+  summary the shell's `useSummaryTitleSync` refetches search.
+
+A data step rather than a migration: the summary is JSON holding Markdown and
+the section is found with the old UI's heading and line rules (ported to
+Rust), which SQL cannot express; a failed meeting is logged and retried at
+the next launch, and the table itself stays as released migrations left it
+(contact merges and deletions still keep its owner links). A new summary no
+longer clears the marker. Tests: `cargo test -p protocol --lib action_item`
+(headings, line reading, placement, user rows, whole-item matching, done
+marks, an edited item, an edited summary, rows waiting for a summary, a
+legacy summary, the backup, the startup step run twice),
+`global_search_tests` (action text found as a summary), `protocol-mcp`
+tests (no `get_action_items`, `get_meeting` shows the section inside the
+summary).
 
 `diarization/mod.rs` owns persisted engine settings and offline command dispatch.
 Nemotron is Auto-detect only; manual counts belong to Pyannote.

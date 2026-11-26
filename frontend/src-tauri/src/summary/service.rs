@@ -633,7 +633,7 @@ impl SummaryService {
                 );
                 info!("Final markdown generated ({} chars)", final_markdown.len());
 
-                let result_json = build_summary_result_json(
+                let mut result_json = build_summary_result_json(
                     &final_markdown,
                     &english_markdown,
                     cache_source,
@@ -662,6 +662,20 @@ impl SummaryService {
                         meeting_id
                     ),
                     Ok(true) => {
+                        // Action items of the user's that no summary held yet
+                        // (#218) go into this one, before the UI reads it.
+                        let backups = crate::database::repositories::action_item::backup_dir(&crate::paths::install_data_root());
+                        match crate::database::repositories::action_item::restore_after_summary(&pool, &backups, &meeting_id).await {
+                            Ok(Some(restored)) => {
+                                info!("Put the user's action items into the new summary of {}", meeting_id);
+                                result_json = restored;
+                            }
+                            Ok(None) => {}
+                            Err(error) => warn!(
+                                "Could not put the user's action items into the new summary of {}: {:#}; the next launch tries again",
+                                meeting_id, error
+                            ),
+                        }
                         // The title the same request asked for (the report's H1),
                         // committed before completion is emitted: the UI reads the
                         // meeting and its lists again on that event. It applies
