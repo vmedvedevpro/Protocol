@@ -341,7 +341,10 @@ and the app's tokens copied into `style.css` (it names its source). Its images
 and favicon are symlinks into `docs/media/` and `frontend/src-tauri/icons/`;
 `upload-pages-artifact` dereferences them, and `pages.yml`'s path filter lists
 those files so a new screenshot redeploys the site. Every path is relative, so
-a renamed repository keeps working. To look at it locally, serve the folder:
+a renamed repository keeps working; only the search and link-preview tags in
+`<head>` (canonical, Open Graph, JSON-LD) name the site's absolute address and
+change with it. `og.png` is the link preview and the repository's social
+preview, which the owner uploads by hand. To look at it locally, serve the folder:
 `python3 -m http.server -d site`.
 
 `pages.yml` runs only on a push to `main` that changes those paths, never on a
