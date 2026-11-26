@@ -1062,6 +1062,26 @@ Locally a `--features vulkan` test binary built with these variables had no
 EVEX instruction and loaded Large V3 Turbo on the Arc B390 and, with the
 Vulkan drivers hidden, on the CPU of a Core Ultra X7 358H (no AVX-512).
 
+### Processor check at startup (#216)
+
+`cpu_support.rs` checks CPUID and XCR0 for everything x86-64-v3 adds (AVX,
+AVX2, FMA, F16C, BMI1/2, LZCNT, MOVBE and the v2 set) before any ggml code can
+run, ggml's C++ static initializers included: `main.rs` expands
+`cpu_check_before_static_initializers!`, which puts the check in the
+executable's `.preinit_array` (Linux) or `.CRT$XCB` (Windows, ahead of the
+`.CRT$XCU` initializers). The check is plain Rust: Cargo sets no
+`target-cpu`, only ggml's CMake gets the `GGML_*` flags. On a processor that
+lacks them it prints one message to stderr, shows it (`MessageBoxW`;
+`kdialog` or `zenity` on Linux, KDE's first under KDE) and exits with 1.
+On Linux it reads the environment from the loader's `envp`: `environ` is
+still null in preinit functions (glibc bug 30424), and a dialog started
+without `DISPLAY` and `WAYLAND_DISPLAY` shows nothing.
+
+Tests: `cargo test -p protocol --lib cpu_support` fakes CPUID and XCR0
+(Haswell, Sandy Bridge, a Pentium without AVX, a VM without ymm state) and
+parses an `envp`. The real binary was run under `qemu-x86_64 -cpu
+SandyBridge` on Linux, which showed the dialog; Windows only by build.
+
 ### Whisper on OpenVINO (Intel GPUs)
 
 On Windows the Vulkan build runs Large V3 Turbo through OpenVINO GenAI's

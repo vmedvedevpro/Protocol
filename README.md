@@ -14,7 +14,9 @@
 
 <p align="center">
   <a href="https://github.com/vmedvedevpro/Protocol/releases/latest"><strong>Download</strong></a>
-  for Windows, macOS (Apple Silicon) or Linux.
+  for Windows, macOS (Apple Silicon) or Linux. Windows and Linux need a
+  processor with AVX2: an Intel Core from 2013 or later, or an AMD processor
+  from 2015 or later.
 </p>
 
 <p align="center">

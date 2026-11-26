@@ -38,6 +38,8 @@ pub mod api;
 pub mod audio;
 pub mod claude_desktop_extension;
 pub mod config;
+// The x86-64-v3 check that runs before static initializers (#216).
+pub mod cpu_support;
 pub mod crash_report;
 pub mod database;
 pub mod diarization;
