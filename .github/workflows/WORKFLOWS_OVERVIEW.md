@@ -18,6 +18,7 @@ or Apple certificate yet).
 | `release-build-linux.yml` | called by `release.yml` | `ubuntu-22.04`: AppImage and deb as two builds with Whisper on Vulkan (the deb uses the distribution's ffmpeg and depends on `libvulkan1`; the AppImage carries the player's GStreamer plugins), package checks, start under Xvfb; native tests do not block yet |
 | `updater-e2e.yml` | manual runs, before a release (macOS only with `-f macos=true`) | On each platform, an old build under a test identity updates itself to a new one from a localhost feed ([AUTO_UPDATE.md](../../docs/AUTO_UPDATE.md)); the macOS job gates no tag |
 | `release-published.yml` | release published | Downloads the public assets anonymously and checks checksums, `latest.json`, signatures and `/releases/latest`, for the platforms the release has by then |
+| `pages.yml` | pushes to `main` that change `site/`, the media it links or itself | Publishes `site/`, the one-page site, to GitHub Pages ([The site](#the-site)) |
 
 Everything a job decides lives in tested scripts under `scripts/release/`
 (`node --test "scripts/release/test/*.test.mjs"`), so it can be run locally the
@@ -32,7 +33,8 @@ platform, blocking on Windows and macOS). `updater-e2e.yml` (20–45 minutes)
 runs only by hand, before a release (step 2 below).
 A push that changes only documentation (`docs/`, any `README.md`, `AGENTS.md`,
 `ARCHITECTURE.md`, `PRIVACY_POLICY.md`, `LICENSE*`, Markdown under `.github/`,
-`frontend/src-tauri/*.md`) runs only `pr-checks.yml`. `CHANGELOG.md` is not on
+`frontend/src-tauri/*.md`) or only the site (`site/`, `pages.yml`) runs only
+`pr-checks.yml`, plus `pages.yml` for the site. `CHANGELOG.md` is not on
 that list: the dry run's notes and `latest.json` come from it. A newer push to
 `main` cancels the older run of the same workflow; tag runs and manual runs are
 never cancelled by it.
@@ -59,6 +61,10 @@ after it merges; to try it before, start the workflow on its branch by hand:
 
 The three macOS files and the two darwin entries arrive together, after the
 draft; until then the release notes say the macOS download follows.
+
+The site's download links (`site/index.html`) use the three stable names
+under `/releases/latest/download/`; the deb's link opens the latest release's
+page, since its name carries the version. Renaming an asset breaks them.
 
 Installed apps read `https://github.com/vmedvedevpro/Protocol/releases/latest/download/latest.json`,
 which only ever resolves to the published release marked **Latest**: drafts and
@@ -325,6 +331,27 @@ version. No other secrets are used.
 - Line endings are set before checkout (`core.autocrlf true` on Windows, `false`
   elsewhere): the historical migrations' checksums depend on them, and each leg
   checks the files it embeds against `released-migration-checksums.json`.
+
+## The site
+
+`site/` is a one-page site served by GitHub Pages at
+`https://vmedvedevpro.github.io/Protocol/`: plain HTML and CSS with no build
+step and no requests to other hosts, Geist from the app's own font package,
+and the app's tokens copied into `style.css` (it names its source). Its images
+and favicon are symlinks into `docs/media/` and `frontend/src-tauri/icons/`;
+`upload-pages-artifact` dereferences them, and `pages.yml`'s path filter lists
+those files so a new screenshot redeploys the site. Every path is relative, so
+a renamed repository keeps working. To look at it locally, serve the folder:
+`python3 -m http.server -d site`.
+
+`pages.yml` runs only on a push to `main` that changes those paths, never on a
+pull request, and only in this repository. It uploads `site/` and deploys it
+with `configure-pages`, `upload-pages-artifact` and `deploy-pages`, holding
+`pages: write` and `id-token: write` only in its job; one deploy runs at a time
+(`concurrency: pages`) and a newer one waits instead of cancelling it.
+Once, before the first deploy, the owner sets Settings › Pages › Source to
+**GitHub Actions**; that creates the `github-pages` environment the job
+deploys to.
 
 ## Removed upstream workflows
 

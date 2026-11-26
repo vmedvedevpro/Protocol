@@ -1,0 +1,50 @@
+name: Pages
+
+# Publishes site/, the one-page site, to GitHub Pages. site/ is plain files
+# with no build step; its images and favicon are symlinks into docs/media/ and
+# the app's icons, which upload-pages-artifact dereferences, so those files
+# are in the path filter too. Pages must be set to "GitHub Actions" in the
+# repository's settings once (WORKFLOWS_OVERVIEW.md).
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'site/**'
+      - 'docs/media/ring-*.gif'
+      - 'docs/media/home-*.png'
+      - 'frontend/src-tauri/icons/64x64.png'
+      - '.github/workflows/pages.yml'
+
+permissions:
+  contents: read
+
+# One deploy at a time; a newer push to main waits for the running one rather
+# than cancelling it halfway through a deploy.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    # A fork's push never publishes. The comparison ignores case, so it holds
+    # if the repository is renamed to lowercase.
+    if: github.repository == 'vmedvedevpro/Protocol'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: site
+      - id: deploy
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
