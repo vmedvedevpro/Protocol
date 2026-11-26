@@ -688,7 +688,7 @@ impl WhisperEngine {
         // Check for obviously meaningless patterns first
         if Self::is_meaningless_output(text) {
             // Performance optimization: reduce meaningless output logging to debug level
-            perf_debug!("Detected meaningless output, returning empty: '{}'", text);
+            perf_debug!("Detected meaningless output ({} chars), returning empty", text.chars().count());
             return String::new();
         }
 
@@ -707,7 +707,7 @@ impl WhisperEngine {
         let final_text = cleaned_words.join(" ");
         if Self::calculate_repetition_ratio(&final_text) > 0.7 {
             // Performance optimization: reduce repetition ratio logging to debug level
-            perf_debug!("High repetition ratio detected, filtering out: '{}'", final_text);
+            perf_debug!("High repetition ratio detected, filtering out {} chars", final_text.chars().count());
             return String::new();
         }
 
@@ -1021,8 +1021,8 @@ impl WhisperEngine {
             // This was causing significant I/O overhead during transcription
             // Only log segments for very long audio (>30s) or when explicitly debugging
             if duration_seconds > 30.0 {
-                perf_trace!("Segment {} ({:.2}s-{:.2}s): '{}'",
-                           segment.segment_index(), _start_time as f64 / 100.0, _end_time as f64 / 100.0, segment_text);
+                perf_trace!("Segment {} ({:.2}s-{:.2}s): {} chars",
+                           segment.segment_index(), _start_time as f64 / 100.0, _end_time as f64 / 100.0, segment_text.chars().count());
             }
 
             // Clean and append segment text

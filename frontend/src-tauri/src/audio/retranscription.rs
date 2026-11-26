@@ -472,9 +472,9 @@ async fn run_retranscription<R: Runtime>(
         let text = rows.iter().map(|(text, _, _)| text.trim()).collect::<Vec<_>>().join(" ");
         if !text.is_empty() {
             debug!(
-                "Segment {}/{}: {:.1}s, {} rows, text='{}'",
+                "Segment {}/{}: {:.1}s, {} rows, {} chars",
                 i + 1, processable_count, segment_duration_sec, rows.len(),
-                if text.len() > 80 { let mut end = 80; while !text.is_char_boundary(end) { end -= 1; } &text[..end] } else { &text }
+                text.chars().count()
             );
             speaker_hints.extend(std::iter::repeat(*speaker_hint).take(rows.len()));
             all_transcripts.extend(rows);

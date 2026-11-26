@@ -596,9 +596,9 @@ async fn run_import<R: Runtime>(
         if !rows.is_empty() {
             let text = rows.iter().map(|(text, _, _)| text.trim()).collect::<Vec<_>>().join(" ");
             debug!(
-                "Segment {}/{}: {:.1}s, {} rows, text='{}'",
+                "Segment {}/{}: {:.1}s, {} rows, {} chars",
                 i + 1, processable_count, segment_duration_sec, rows.len(),
-                if text.len() > 80 { let mut end = 80; while !text.is_char_boundary(end) { end -= 1; } &text[..end] } else { &text }
+                text.chars().count()
             );
             all_transcripts.extend(rows);
         } else {

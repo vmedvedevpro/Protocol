@@ -70,3 +70,9 @@ jobs:
         run: node --test "scripts/model-catalog/test/*.test.mjs"
       - name: Check the model catalog
         run: node scripts/model-catalog/check-catalog.mjs model-catalog/catalog.json
+      # A tester sends the app's log with a bug report, so no log line may
+      # print meeting content or secrets (#234).
+      - name: Test the log line checker
+        run: node --test "scripts/log-audit/test/*.test.mjs"
+      - name: Check the log lines
+        run: node scripts/log-audit/check-log-lines.mjs
