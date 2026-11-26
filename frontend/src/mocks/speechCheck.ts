@@ -56,30 +56,23 @@ export function speechCheckHandlers(state: {speechCheck: MockSpeechCheck, live: 
         state.speechCheck.status = status
         void emit(SPEECH_CHECK_CHANGED_EVENT, status)
     }
-    const finish = (steps: CheckStep[]) => {
-        // As native: a step an earlier start closed the app in fails the resumed check.
-        const outcome = steps.some((step) => step.status === 'cancelled')
-            ? 'cancelled'
-            : steps.some((step) => step.status === 'failed' || step.status === 'closedTheApp')
-                ? 'failed'
-                : steps.some((step) => step.status === 'passed') ? 'passed' : 'nothingChecked'
-        publish({state: 'finished', ...mockReport(steps, outcome)})
-    }
-    const run = (steps: CheckStep['kind'][], done: CheckStep[], missing: CheckStep['kind'][]) => {
+    // The outcome each path of the mock leads to, not native's rule.
+    const finish = (steps: CheckStep[], outcome: CheckReport['outcome']) => publish({state: 'finished', ...mockReport(steps, outcome)})
+    const run = (steps: CheckStep['kind'][], done: CheckStep[], missing: CheckStep['kind'][], outcome: CheckReport['outcome']) => {
         const check = state.speechCheck
         check.cancelled = false
         let index = 0
         const next = () => {
             if (check.cancelled) {
-                finish([...done, ...steps.slice(index).map((kind) => mockStep(kind, 'cancelled'))])
+                finish([...done, ...steps.slice(index).map((kind) => mockStep(kind, 'cancelled'))], 'cancelled')
                 return
             }
             if (index === steps.length) {
-                finish(done)
+                finish(done, outcome)
                 return
             }
             const kind = steps[index]
-            publish({state: 'running', step: kind, steps: [...CHECK_STEPS], done: [...done], cancelling: false})
+            publish({state: 'running', step: kind, steps: [...steps], done: [...done], cancelling: false})
             if (!check.autoFinish) return
             setTimeout(() => {
                 if (check.cancelled) {
@@ -100,7 +93,7 @@ export function speechCheckHandlers(state: {speechCheck: MockSpeechCheck, live: 
             if (state.live.recording) throw 'The speech check can’t run during a recording'
             state.speechCheck.plans.push(plan as CheckPlan)
             // As native: a model that is not on the computer is not checked.
-            run([...CHECK_STEPS], [], state.diarization.nemotronInstalled ? [] : ['nemotron'])
+            run([...CHECK_STEPS], [], state.diarization.nemotronInstalled ? [] : ['nemotron'], state.speechCheck.failing ? 'failed' : 'passed')
             return null
         },
         speech_check_resume: () => {
@@ -108,7 +101,8 @@ export function speechCheckHandlers(state: {speechCheck: MockSpeechCheck, live: 
             if (status.state !== 'interrupted') throw 'There is no check to resume'
             const done = status.report.steps.filter((step) => step.status !== 'closedTheApp')
             const closed = status.report.steps.filter((step) => step.status === 'closedTheApp')
-            run(status.remaining, [...done, ...closed], [])
+            // As native, the step that closed the app fails the resumed check.
+            run(status.remaining, [...done, ...closed], [], 'failed')
             return null
         },
         speech_check_cancel: () => {
@@ -117,8 +111,8 @@ export function speechCheckHandlers(state: {speechCheck: MockSpeechCheck, live: 
             state.speechCheck.cancelled = true
             publish({...status, cancelling: true})
             if (!state.speechCheck.autoFinish) {
-                const index = status.step ? CHECK_STEPS.indexOf(status.step) : 0
-                finish([...status.done, ...CHECK_STEPS.slice(index).map((kind) => mockStep(kind, 'cancelled'))])
+                const index = status.step ? status.steps.indexOf(status.step) : 0
+                finish([...status.done, ...status.steps.slice(index).map((kind) => mockStep(kind, 'cancelled'))], 'cancelled')
             }
             return null
         },

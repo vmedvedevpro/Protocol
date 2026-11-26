@@ -53,8 +53,10 @@ use super::vad::{ContinuousVadProcessor, SpeechSegment};
 pub(crate) const LIVE_POSITIVE_SPEECH_THRESHOLD: f32 = 0.20;
 pub(crate) const LIVE_NEGATIVE_SPEECH_THRESHOLD: f32 = 0.10;
 
-/// The live VAD's redemption time: 350 ms for Faster live text, else 800 ms;
-/// the processor caps a segment at 3.5 s or 6 s by it.
+/// The live VAD's redemption time: 350 ms for Faster live text, else 800 ms.
+/// The live cap stays where upstream sets it below: it equals the cap the
+/// processor derives from this time (`ContinuousVadProcessor::new`), which
+/// the Speech check's `ContinuousSpeechCap::Streaming` uses.
 pub(crate) fn live_redemption_ms(real_time: bool) -> u32 {
     if real_time { 350 } else { 800 }
 }

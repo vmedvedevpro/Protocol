@@ -1,4 +1,4 @@
-import {useState} from 'react'
+import {type ReactNode, useState} from 'react'
 import {useQuery, useQueryClient} from '@tanstack/react-query'
 import styled from 'styled-components'
 import {errorMessage} from '@/api/core'
@@ -10,6 +10,7 @@ import {parakeetModelsQuery, whisperModelsQuery} from '@/api/models'
 import {postCallConfigQuery, transcriptConfigQuery} from '@/api/speech'
 import {
     cancelSpeechCheck,
+    CHECK_STEPS,
     type CheckStep,
     type CheckStepKind,
     checkPair,
@@ -223,17 +224,23 @@ function Offer({onBack, onStarted}: {onBack: () => void, onStarted: () => void})
             .finally(() => void queryClient.invalidateQueries({queryKey: diarizationKeys.all}))
     }
 
-    const readyRow = (kind: CheckStepKind, name: string) => (
-        <SettingsRow key={kind} label={STEP_NAMES[kind]} description={`${STEP_ROLES[kind]}, ${name}`} control={<RowValue>Ready</RowValue>}/>
-    )
     const missingNote = 'Not checked unless downloaded'
-
-    const modelRows = (
-        <>
-        {installed.parakeet || !parakeetModel
-            ? readyRow('parakeet', parakeetModel ? speechModelLabel('parakeet', parakeetModel) : pair.live)
-            : (
+    const notChecked = (kind: CheckStepKind, description: string) => (
+        <SettingsRow key={kind} label={STEP_NAMES[kind]} description={description} control={<RowValue>Not checked</RowValue>}/>
+    )
+    // What each step runs when it is here, and its row when it is not: a
+    // download where the catalog has one, else why it will not be checked.
+    const readyNames: Record<CheckStepKind, string> = {
+        parakeet: parakeetModel ? speechModelLabel('parakeet', parakeetModel) : pair.live,
+        whisper: usesGpuVersion && gpuVersion ? speechModelLabel('whisper', gpuVersion) : copy ? speechModelLabel('whisper', copy) : pair.postMeeting,
+        pyannote: 'built in',
+        nemotron: 'downloaded',
+    }
+    const missingRows: Record<CheckStepKind, ReactNode> = {
+        parakeet: parakeetModel
+            ? (
                 <ModelRow
+                    key="parakeet"
                     name={STEP_NAMES.parakeet}
                     engine="parakeet"
                     model={parakeetModel}
@@ -242,23 +249,25 @@ function Offer({onBack, onStarted}: {onBack: () => void, onStarted: () => void})
                     onDownload={() => download(parakeetModel)}
                     onCancel={() => cancel(parakeetModel)}
                 />
-            )}
-        {installed.whisper
-            ? readyRow('whisper', usesGpuVersion && gpuVersion ? speechModelLabel('whisper', gpuVersion) : copy ? speechModelLabel('whisper', copy) : pair.postMeeting)
-            : usesGpuVersion && companion
+            )
+            : notChecked('parakeet', `${STEP_ROLES.parakeet}. Protocol has no ${pair.live}`),
+        whisper: usesGpuVersion && companion
+            ? (
+                <ModelRow
+                    key="whisper"
+                    name="Whisper for the Intel GPU"
+                    engine="intelGpu"
+                    model={{name: companion.id, status: 'Missing', size_bytes: companion.downloadSize}}
+                    description={`${STEP_ROLES.whisper}. ${missingNote}`}
+                    downloads={downloads}
+                    onDownload={getGpuVersion}
+                    onCancel={() => void cancelIntelDownload(companion.id).catch(() => undefined)}
+                />
+            )
+            : copy
                 ? (
                     <ModelRow
-                        name="Whisper for the Intel GPU"
-                        engine="intelGpu"
-                        model={{name: companion.id, status: 'Missing', size_bytes: companion.downloadSize}}
-                        description={`${STEP_ROLES.whisper}. ${missingNote}`}
-                        downloads={downloads}
-                        onDownload={getGpuVersion}
-                        onCancel={() => void cancelIntelDownload(companion.id).catch(() => undefined)}
-                    />
-                )
-                : copy && (
-                    <ModelRow
+                        key="whisper"
                         name={speechModelLabel('whisper', copy)}
                         engine="whisper"
                         model={copy}
@@ -267,25 +276,25 @@ function Offer({onBack, onStarted}: {onBack: () => void, onStarted: () => void})
                         onDownload={() => download(copy)}
                         onCancel={() => cancel(copy)}
                     />
-                )}
-        {installed.pyannote
-            ? readyRow('pyannote', 'built in')
-            : <SettingsRow label={STEP_NAMES.pyannote} description="Its files are missing from this copy of Protocol" control={<RowValue>Not checked</RowValue>}/>}
-        {installed.nemotron
-            ? readyRow('nemotron', 'downloaded')
-            : (
-                <ModelRow
-                    name={STEP_NAMES.nemotron}
-                    engine="nemotron"
-                    model={{name: NEMOTRON, status: 'Missing', size_bytes: speakers.data?.nemotron_download_size}}
-                    description={`${STEP_ROLES.nemotron}. ${missingNote}`}
-                    downloads={downloads}
-                    onDownload={getNemotron}
-                    onCancel={() => void cancelNemotronDownload().catch(() => undefined)}
-                />
-            )}
-        </>
-    )
+                )
+                : notChecked('whisper', `${STEP_ROLES.whisper}. Protocol has no ${pair.postMeeting}`),
+        pyannote: notChecked('pyannote', 'Its files are missing from this copy of Protocol'),
+        nemotron: (
+            <ModelRow
+                key="nemotron"
+                name={STEP_NAMES.nemotron}
+                engine="nemotron"
+                model={{name: NEMOTRON, status: 'Missing', size_bytes: speakers.data?.nemotron_download_size}}
+                description={`${STEP_ROLES.nemotron}. ${missingNote}`}
+                downloads={downloads}
+                onDownload={getNemotron}
+                onCancel={() => void cancelNemotronDownload().catch(() => undefined)}
+            />
+        ),
+    }
+    const modelRows = CHECK_STEPS.map((kind) => installed[kind]
+        ? <SettingsRow key={kind} label={STEP_NAMES[kind]} description={`${STEP_ROLES[kind]}, ${readyNames[kind]}`} control={<RowValue>Ready</RowValue>}/>
+        : missingRows[kind])
 
     return (
         <>

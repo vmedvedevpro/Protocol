@@ -23,9 +23,9 @@
 
 mod hardware;
 pub mod note;
-pub mod report;
+mod report;
 pub mod sample;
-pub mod score;
+mod score;
 mod steps;
 
 use std::panic::AssertUnwindSafe;
@@ -293,13 +293,13 @@ pub fn speech_check_status() -> Status {
 }
 
 #[tauri::command]
-pub async fn speech_check_run<R: Runtime>(app: AppHandle<R>, plan: Plan) -> Result<(), String> {
+pub fn speech_check_run<R: Runtime>(app: AppHandle<R>, plan: Plan) -> Result<(), String> {
     start(app, plan, None)
 }
 
 /// Runs the steps a run Protocol closed during did not finish.
 #[tauri::command]
-pub async fn speech_check_resume<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
+pub fn speech_check_resume<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
     let note = resumable()?;
     start(app, note.plan.clone(), Some(note))
 }

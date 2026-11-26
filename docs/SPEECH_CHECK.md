@@ -62,17 +62,23 @@ the finish changes nothing.
 
 ## The steps
 
-Each step reads "picked" before its load, from the inputs the engines' own
-device rules read, and "ran on" afterwards from the loaded engine. When they
-differ the step reports a fallback with the error the app recorded; nothing
-falls back silently.
+Each step reads "picked" before its load from the engine's own device
+rule, the one its load follows: `parakeet_engine::planned_encoder` (the
+NPU's `ready_for`, then `directml_from_labs`), Whisper's
+`openvino::openvino_model_for` with OpenVINO's device and crash guard, else
+`context_parameters`, and Nemotron's `planned_provider`. "Ran on" comes
+afterwards from the loaded engine (`uses_npu`, before and after the clips;
+`loaded_openvino`; `nemotron::last_session`). Both are a `Device` with a
+serialised `DeviceKind` (processor, Intel NPU, Intel GPU, DirectML, Vulkan,
+Metal), and they are compared by kind. When the kinds differ the step reports
+a fallback with the error the engine recorded; nothing falls back silently.
+Pyannote and WeSpeaker always run on ONNX Runtime's CPU provider.
 
-| Step | Runs | Picked from | Ran on from |
-| --- | --- | --- | --- |
-| Parakeet | `ParakeetEngine::load_model`, then the live path: the pieces the live VAD cuts (`audio::pipeline`'s thresholds 0.20/0.10, redemption 800 ms and a 6 s cap, or 350 ms and 3.5 s with Faster live text) and `transcribe_live` with `chunking::Live`, as the live worker | `npu::state::status()` and `MODEL_ID` (Windows), `labs::enabled`, `overrides_labs` | `uses_npu()`, before and after the clips (the NPU can fail mid-run); the NPU's `reason` as the fallback error |
-| Whisper | `WhisperEngine::load_model` of the pair's id (the Intel GPU version's fallback to a regular copy included), then `post_meeting::Pass` with the language detected once and the silence filter | `speech_choice::gpu_version`/`installed`, `installed_companion`, `openvino::availability()` and `stopped()`, `context_parameters`, `whisper_gpu`, `vulkan::stopped()` | `loaded_openvino()`, else `context_parameters` again; `openvino::backend_status().fallback_reason` |
-| Pyannote | `diarize_file_with_engine("pyannote")` on a WAV of each clip, as an import | always the processor: its sessions use ONNX Runtime's CPU provider on every platform | the processor |
-| Nemotron | `diarize_file_with_engine("nemotron")`, with the saved threshold | DirectML adapter 0 on Windows, else the processor | `nemotron::last_session()`, which `sortformer/support.rs` records with the DirectML error after a CPU fallback |
+Parakeet runs the live path: the pieces the live VAD cuts with the
+pipeline's thresholds and redemption time, capped as the processor caps a
+live segment, and `transcribe_live` with `chunking::Live`. The speaker steps
+run `diarize_file_with_engine` on a float WAV of each clip
+(`dsp::write_wav_f32`), as an import does.
 
 Whisper runs `post_meeting::Pass` directly, not retranscription or the
 import, so `speech_choice::after_post_meeting_pass` never runs: a successful

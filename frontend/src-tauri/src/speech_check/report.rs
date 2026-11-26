@@ -372,11 +372,7 @@ impl Report {
 
     /// The text part, then the JSON.
     pub fn render(&self) -> String {
-        let mut out = String::new();
-        let line = |out: &mut String, text: String| {
-            out.push_str(&text);
-            out.push('\n');
-        };
+        use std::fmt::Write;
         let outcome = match self.outcome {
             Outcome::Passed => "passed",
             Outcome::Failed => "failed",
@@ -384,152 +380,133 @@ impl Report {
             Outcome::Interrupted => "interrupted: Protocol closed during a step",
             Outcome::NothingChecked => "nothing was checked",
         };
-        line(&mut out, format!("Protocol speech check: {outcome}"));
-        line(&mut out, format!("Created {}", self.created));
-        line(&mut out, String::new());
-        let s = &self.system;
-        line(&mut out, format!("Protocol {} ({}), Whisper built for {}", s.protocol_version, s.package, s.whisper_build));
-        let mut os = format!("{} {}", s.os, s.os_version);
-        if let Some(distribution) = &s.distribution {
-            os.push_str(&format!(", {distribution}"));
-        }
-        if let Some(desktop) = &s.desktop {
-            os.push_str(&format!(", {desktop}"));
-        }
-        if let Some(session) = &s.session {
-            os.push_str(&format!(", {session}"));
-        }
-        line(&mut out, format!("OS: {os}"));
-        let flag = |value: Option<bool>| match value {
-            Some(true) => "yes",
-            Some(false) => "no",
-            None => "unknown",
-        };
-        line(
-            &mut out,
-            format!(
-                "Processor: {} ({} threads, AVX2 {}, AVX-512 {}), RAM {:.1} GB",
-                s.processor,
-                s.threads,
-                flag(s.avx2),
-                flag(s.avx512),
-                s.ram_gb
-            ),
-        );
-        if s.gpus.is_empty() {
-            line(&mut out, "GPU: none found".to_string());
-        }
-        for gpu in &s.gpus {
-            let mut text = format!("GPU: {}", gpu.name);
-            if let Some(vendor) = &gpu.vendor {
-                text.push_str(&format!(" ({vendor})"));
-            }
-            if let Some(driver) = &gpu.driver {
-                text.push_str(&format!(", driver {driver}"));
-            }
-            if let Some(version) = &gpu.driver_version {
-                text.push_str(&format!(" {version}"));
-            }
-            line(&mut out, text);
-        }
-        if !s.vulkan_devices.is_empty() {
-            line(&mut out, format!("Vulkan devices (ggml): {}", s.vulkan_devices.join("; ")));
-        }
-        if let Some(opencl) = s.intel_opencl {
-            line(&mut out, format!("Intel OpenCL driver: {}", if opencl { "present" } else { "missing" }));
-        }
-        if let Some(npu) = &s.npu {
-            line(&mut out, format!("NPU: {npu}"));
-        }
-        let providers = if s.onnx_providers.is_empty() { String::new() } else { format!(", providers {}", s.onnx_providers.join(", ")) };
-        line(&mut out, format!("ONNX Runtime: {}{providers}", s.onnx_runtime));
-        line(&mut out, String::new());
+        // Writing to a String cannot fail.
+        let mut out = format!("Protocol speech check: {outcome}\nCreated {}\n\n", self.created);
+        system_lines(&mut out, &self.system);
         let named = |value: &Option<String>| value.clone().unwrap_or_else(|| "none".to_string());
-        line(&mut out, format!("Checked pair: live {}, after the meeting {}", named(&self.pair.live), named(&self.pair.post_meeting)));
+        let _ = writeln!(out, "\nChecked pair: live {}, after the meeting {}", named(&self.pair.live), named(&self.pair.post_meeting));
         if self.pair.differs_from(&self.selected) {
-            line(
-                &mut out,
-                format!(
-                    "Selected in Settings (differs): live {}, after the meeting {}",
-                    named(&self.selected.live),
-                    named(&self.selected.post_meeting)
-                ),
-            );
+            let _ = writeln!(out, "Selected in Settings (differs): live {}, after the meeting {}", named(&self.selected.live), named(&self.selected.post_meeting));
         }
         for step in &self.steps {
-            line(&mut out, String::new());
-            line(&mut out, format!("{}: {}", step.kind.title(), step.status.word()));
-            if let Some(reason) = &step.reason {
-                line(&mut out, format!("  Reason: {reason}"));
-            }
-            if let Some(model) = &step.model {
-                let version = model.version.as_ref().map(|version| format!(" ({version})")).unwrap_or_default();
-                line(&mut out, format!("  Model: {}{version}", model.id));
-            }
-            if let Some(picked) = &step.picked {
-                let because = step.picked_because.as_ref().map(|because| format!(" ({because})")).unwrap_or_default();
-                line(&mut out, format!("  Picked: {}{because}", picked.name));
-            }
-            for (name, value) in &step.inputs {
-                line(&mut out, format!("    {name}: {value}"));
-            }
-            if let Some(ran_on) = &step.ran_on {
-                line(&mut out, format!("  Ran on: {}", ran_on.name));
-            }
-            if let Some(fallback) = &step.fallback {
-                line(&mut out, format!("  Fallback: {} to {}: {}", fallback.from.name, fallback.to.name, fallback.error));
-            }
-            if let Some(load_ms) = step.load_ms {
-                line(&mut out, format!("  Load: {}", seconds(load_ms)));
-            }
-            for clip in &step.clips {
-                let mut text = format!(
-                    "  {}: {} for {} (real-time factor {:.2})",
-                    clip.clip,
-                    seconds(clip.processing_ms),
-                    seconds(clip.audio_ms),
-                    clip.real_time_factor
-                );
-                if let (Some(rate), Some(errors)) = (clip.word_error_rate, clip.word_errors) {
-                    text.push_str(&format!(
-                        ", word errors {:.3} ({} sub, {} del, {} ins of {})",
-                        rate, errors.substitutions, errors.deletions, errors.insertions, errors.reference_words
-                    ));
-                }
-                if let Some(language) = &clip.language {
-                    text.push_str(&format!(", language {language}"));
-                }
-                if let Some(speakers) = clip.speakers {
-                    text.push_str(&format!(
-                        ", {} speakers for {} voices, {:.0}% of the labelled speech to the right voice, {:.0}% of the turns labelled",
-                        speakers.speakers,
-                        speakers.voices,
-                        speakers.share * 100.0,
-                        speakers.coverage * 100.0
-                    ));
-                }
-                text.push_str(if clip.passed { ", pass" } else { ", fail" });
-                line(&mut out, text);
-                if let Some(written) = &clip.text {
-                    line(&mut out, format!("    Text: {written}"));
-                }
-            }
-            if let Some(keeps_up) = step.keeps_up {
-                line(&mut out, format!("  Keeps up with a meeting: {}", if keeps_up { "yes" } else { "no" }));
-            }
+            step_lines(&mut out, step);
         }
         if !self.warnings.is_empty() {
-            line(&mut out, String::new());
-            line(&mut out, "Warnings:".to_string());
+            out.push_str("\nWarnings:\n");
             for warning in &self.warnings {
-                line(&mut out, format!("  {warning}"));
+                let _ = writeln!(out, "  {warning}");
             }
         }
-        line(&mut out, String::new());
-        line(&mut out, "JSON:".to_string());
-        out.push_str(&serde_json::to_string_pretty(self).unwrap_or_default());
-        out.push('\n');
+        let _ = writeln!(out, "\nJSON:\n{}", serde_json::to_string_pretty(self).unwrap_or_default());
         out
+    }
+}
+
+/// The computer, a line for each part of it.
+fn system_lines(out: &mut String, s: &System) {
+    use std::fmt::Write;
+    let _ = writeln!(out, "Protocol {} ({}), Whisper built for {}", s.protocol_version, s.package, s.whisper_build);
+    let os: String = [&s.distribution, &s.desktop, &s.session].into_iter().flatten().map(|part| format!(", {part}")).collect();
+    let _ = writeln!(out, "OS: {} {}{os}", s.os, s.os_version);
+    let flag = |value: Option<bool>| match value {
+        Some(true) => "yes",
+        Some(false) => "no",
+        None => "unknown",
+    };
+    let _ = writeln!(
+        out,
+        "Processor: {} ({} threads, AVX2 {}, AVX-512 {}), RAM {:.1} GB",
+        s.processor,
+        s.threads,
+        flag(s.avx2),
+        flag(s.avx512),
+        s.ram_gb
+    );
+    if s.gpus.is_empty() {
+        out.push_str("GPU: none found\n");
+    }
+    for gpu in &s.gpus {
+        let vendor = gpu.vendor.as_ref().map(|vendor| format!(" ({vendor})")).unwrap_or_default();
+        let driver = gpu.driver.as_ref().map(|driver| format!(", driver {driver}")).unwrap_or_default();
+        let version = gpu.driver_version.as_ref().map(|version| format!(" {version}")).unwrap_or_default();
+        let _ = writeln!(out, "GPU: {}{vendor}{driver}{version}", gpu.name);
+    }
+    if !s.vulkan_devices.is_empty() {
+        let _ = writeln!(out, "Vulkan devices (ggml): {}", s.vulkan_devices.join("; "));
+    }
+    if let Some(opencl) = s.intel_opencl {
+        let _ = writeln!(out, "Intel OpenCL driver: {}", if opencl { "present" } else { "missing" });
+    }
+    if let Some(npu) = &s.npu {
+        let _ = writeln!(out, "NPU: {npu}");
+    }
+    let providers = if s.onnx_providers.is_empty() { String::new() } else { format!(", providers {}", s.onnx_providers.join(", ")) };
+    let _ = writeln!(out, "ONNX Runtime: {}{providers}", s.onnx_runtime);
+}
+
+/// One step: its outcome, the device choice, and a line for each clip.
+fn step_lines(out: &mut String, step: &StepReport) {
+    use std::fmt::Write;
+    let _ = writeln!(out, "\n{}: {}", step.kind.title(), step.status.word());
+    if let Some(reason) = &step.reason {
+        let _ = writeln!(out, "  Reason: {reason}");
+    }
+    if let Some(model) = &step.model {
+        let version = model.version.as_ref().map(|version| format!(" ({version})")).unwrap_or_default();
+        let _ = writeln!(out, "  Model: {}{version}", model.id);
+    }
+    if let Some(picked) = &step.picked {
+        let because = step.picked_because.as_ref().map(|because| format!(" ({because})")).unwrap_or_default();
+        let _ = writeln!(out, "  Picked: {}{because}", picked.name);
+    }
+    for (name, value) in &step.inputs {
+        let _ = writeln!(out, "    {name}: {value}");
+    }
+    if let Some(ran_on) = &step.ran_on {
+        let _ = writeln!(out, "  Ran on: {}", ran_on.name);
+    }
+    if let Some(fallback) = &step.fallback {
+        let _ = writeln!(out, "  Fallback: {} to {}: {}", fallback.from.name, fallback.to.name, fallback.error);
+    }
+    if let Some(load_ms) = step.load_ms {
+        let _ = writeln!(out, "  Load: {}", seconds(load_ms));
+    }
+    for clip in &step.clips {
+        let _ = write!(
+            out,
+            "  {}: {} for {} (real-time factor {:.2})",
+            clip.clip,
+            seconds(clip.processing_ms),
+            seconds(clip.audio_ms),
+            clip.real_time_factor
+        );
+        if let (Some(rate), Some(errors)) = (clip.word_error_rate, clip.word_errors) {
+            let _ = write!(
+                out,
+                ", word errors {:.3} ({} sub, {} del, {} ins of {})",
+                rate, errors.substitutions, errors.deletions, errors.insertions, errors.reference_words
+            );
+        }
+        if let Some(language) = &clip.language {
+            let _ = write!(out, ", language {language}");
+        }
+        if let Some(speakers) = clip.speakers {
+            let _ = write!(
+                out,
+                ", {} speakers for {} voices, {:.0}% of the labelled speech to the right voice, {:.0}% of the turns labelled",
+                speakers.speakers,
+                speakers.voices,
+                speakers.share * 100.0,
+                speakers.coverage * 100.0
+            );
+        }
+        let _ = writeln!(out, "{}", if clip.passed { ", pass" } else { ", fail" });
+        if let Some(written) = &clip.text {
+            let _ = writeln!(out, "    Text: {written}");
+        }
+    }
+    if let Some(keeps_up) = step.keeps_up {
+        let _ = writeln!(out, "  Keeps up with a meeting: {}", if keeps_up { "yes" } else { "no" });
     }
 }
 
