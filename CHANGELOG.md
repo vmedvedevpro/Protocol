@@ -97,6 +97,10 @@ is inherited from the project Protocol forked from; Protocol did not release it.
   ([#218](https://github.com/vmedvedevpro/Protocol/issues/218)). Choosing a
   default template no longer moves it to the top: templates are listed by
   name everywhere, and the default is marked.
+- **Text fields show on sheets in the dark theme**
+  ([#219](https://github.com/vmedvedevpro/Protocol/issues/219)). Fields and
+  selects have a clearer edge, so a field on a sheet, such as the speaker
+  sheet's contact search, no longer blends into it.
 
 ## Protocol 1.0.0-rc.1 — 2026-11-26
 

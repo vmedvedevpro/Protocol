@@ -346,7 +346,11 @@ theme; the motion from the Motion section.
   is named by the row's label and described by its description, which may
   be a `StatusLine` for a status that changes (an update's). A control too
   wide to leave the text 160 px (Theme's three segments) drops to its own
-  line rather than squeezing the label to a word per line. A focused
+  line rather than squeezing the label to a word per line. A field's
+  edge (a text field's outline tone, a select, the import drop area) is
+  `fieldBorder`, not `border`: it must contrast with the field's `raised`
+  fill and with every surface the field sits on, a sheet's `raised`
+  included, where dark `border` all but vanished (#208). A focused
   field draws a 2 px stroke in the text colour on its edge
   (`fieldFocusRing`), so focus differs from hover's `muted` border. The
   stroke is one outline over the border, never a border plus a spread
