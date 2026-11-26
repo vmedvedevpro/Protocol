@@ -2,23 +2,17 @@
 //! (Google, CC BY 4.0), Russian and English, each with two voices taking
 //! turns, built by `scripts/measure/measure.py speech-check-sample`
 //! (`scripts/measure/kit/speech_check.py`). `sample.json` names each clip's
-//! file with its SHA-256, its text and its turns.
-//!
-//! Where the clips come from is [`load`]'s business alone: today the app's
-//! resources (`resources/speech-check/`, [`set_bundled_dir`]); the catalog
-//! could serve them instead without the rest of the check changing.
+//! file, its text and its turns. They are the app's own resources
+//! (`resources/speech-check/`, [`set_bundled_dir`]), installed and signed
+//! with it.
 
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
-use anyhow::{anyhow, ensure, Context, Result};
+use anyhow::{anyhow, Context, Result};
 use serde::Deserialize;
-use sha2::{Digest, Sha256};
 
 use super::score::Turn;
-
-/// The format `sample.json` is written in (`speech_check.py`'s `FORMAT`).
-const FORMAT: u32 = 1;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct VoiceTurn {
@@ -32,15 +26,12 @@ pub struct VoiceTurn {
 #[derive(Debug, Clone, Deserialize)]
 struct ClipEntry {
     id: String,
-    language: String,
     file: String,
-    sha256: String,
     turns: Vec<VoiceTurn>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 struct Manifest {
-    format: u32,
     clips: Vec<ClipEntry>,
 }
 
@@ -48,7 +39,6 @@ struct Manifest {
 #[derive(Debug, Clone)]
 pub struct Clip {
     pub id: String,
-    pub language: String,
     /// 16 kHz mono.
     pub samples: Vec<f32>,
     pub turns: Vec<VoiceTurn>,
@@ -91,7 +81,7 @@ fn bundled_dir() -> Result<&'static Path> {
     BUNDLED.get().map(PathBuf::as_path).ok_or_else(|| anyhow!("the app's resource folder is not known"))
 }
 
-/// The sample's clips, checked against their SHA-256 and decoded.
+/// The sample's clips, decoded.
 pub fn load() -> Result<Vec<Clip>> {
     load_from(bundled_dir()?)
 }
@@ -102,18 +92,12 @@ pub(crate) fn load_from(dir: &Path) -> Result<Vec<Clip>> {
         &std::fs::read(&manifest_path).with_context(|| format!("the sample is missing ({})", manifest_path.display()))?,
     )
     .context("the sample's list is unreadable")?;
-    ensure!(manifest.format == FORMAT, "the sample's list has format {}, not {FORMAT}", manifest.format);
     manifest
         .clips
         .into_iter()
         .map(|entry| {
-            // A name, never a path: the list cannot point outside its folder.
-            ensure!(Path::new(&entry.file).file_name() == Some(std::ffi::OsStr::new(&entry.file)), "bad sample file name {}", entry.file);
-            let path = dir.join(&entry.file);
-            let bytes = std::fs::read(&path).with_context(|| format!("the sample clip {} is missing", entry.file))?;
-            ensure!(format!("{:x}", Sha256::digest(&bytes)) == entry.sha256, "the sample clip {} is damaged", entry.file);
-            let decoded = crate::audio::decoder::decode_audio_file(&path).with_context(|| format!("decoding {}", entry.file))?;
-            Ok(Clip { id: entry.id, language: entry.language, samples: decoded.to_whisper_format(), turns: entry.turns })
+            let decoded = crate::audio::decoder::decode_audio_file(&dir.join(&entry.file)).with_context(|| format!("the sample clip {} did not decode", entry.file))?;
+            Ok(Clip { id: entry.id, samples: decoded.to_whisper_format(), turns: entry.turns })
         })
         .collect()
 }
@@ -121,20 +105,6 @@ pub(crate) fn load_from(dir: &Path) -> Result<Vec<Clip>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn a_damaged_or_missing_clip_is_refused() {
-        let folder = tempfile::tempdir().unwrap();
-        assert!(load_from(folder.path()).unwrap_err().to_string().contains("the sample is missing"));
-        let manifest = r#"{"format": 1, "clips": [{"id": "ru", "language": "ru", "file": "ru.flac", "sha256": "00", "turns": []}]}"#;
-        std::fs::write(folder.path().join("sample.json"), manifest).unwrap();
-        assert!(load_from(folder.path()).unwrap_err().to_string().contains("missing"));
-        std::fs::write(folder.path().join("ru.flac"), b"not flac").unwrap();
-        assert!(load_from(folder.path()).unwrap_err().to_string().contains("damaged"));
-        let escaping = r#"{"format": 1, "clips": [{"id": "ru", "language": "ru", "file": "../x.flac", "sha256": "00", "turns": []}]}"#;
-        std::fs::write(folder.path().join("sample.json"), escaping).unwrap();
-        assert!(load_from(folder.path()).unwrap_err().to_string().contains("bad sample file name"));
-    }
 
     /// The clips the app bundles, as `measure.py speech-check-sample` built them.
     #[test]

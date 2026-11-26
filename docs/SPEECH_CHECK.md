@@ -16,7 +16,7 @@ compares nothing.
 | `features/settings/components/speech/SpeechCheckGroup.tsx` | The group: idle, the list with downloads, running with Cancel, the report with Copy and Save, and an interrupted check with Run the remaining steps. `speechCheckText.ts` words devices as Settings does. |
 | `src-tauri/src/speech_check/mod.rs` | The commands (`speech_check_status`, `_run`, `_resume`, `_cancel`, `_dismiss`), the status, the run: busy hold, the app's engines taken and given back, the steps in order, the report. |
 | `speech_check/steps.rs` | The four steps on engines of their own: picked device, load, ran-on device, fallback, the sample, scores. |
-| `speech_check/sample.rs` | `sample::load()`, the only place that knows where the clips come from (the app's resources); checks each file's SHA-256 and decodes it. |
+| `speech_check/sample.rs` | `sample::load()`: the clips from the app's resources, decoded. |
 | `speech_check/score.rs` | Word error rate, the speaker score, the thresholds and why. |
 | `speech_check/report.rs` | The report's data, its text and JSON, and the scrubbing. |
 | `speech_check/note.rs` | The crash note. |
@@ -103,9 +103,9 @@ attribution). `ru.flac` 22.6 s (329 KB), `en.flac` 24.6 s (359 KB).
   `15069537867704390147.wav` (435); English: `9957590450625488532.wav` (351)
   and `10796058897134434902.wav` (813).
 - **Pins**: the split frames and the SHA-256 of each clip's 16-bit PCM are in
-  `speech_check.py`; FLAC is lossless but its bytes depend on the encoder, so
-  `sample.json` records each written file's SHA-256 and `sample::load` checks
-  it.
+  `speech_check.py`; FLAC is lossless but its bytes depend on the encoder,
+  so the PCM is what is pinned. The app reads the clips as its other
+  resources, installed and signed with it.
 
 `measure.py speech-check-sample` rebuilds them (ffmpeg encodes the FLAC) into
 `.measure/speech-check/`; copy the three files into the resources.
@@ -203,7 +203,7 @@ check asks first ("the speech check is running"), as for other work.
   scrubbing of home, Windows profiles, 8.3 names, the user and computer
   names and every free text, a login named like a step, the outcome with
   nothing checked, the selection note), `note::tests` (a step that closed the app, a clean quit, an
-  unreadable note, a second crash in a resumed run), `sample::tests` (a damaged, missing or escaping clip; the
+  unreadable note, a second crash in a resumed run), `sample::tests` (the
   bundled sample decodes to its turns), `steps::tests`, `mod.rs` tests (an
   interrupted run, a recording's cancel and its bounded wait, a recording
   that started after Run, a cancel after the finish or before the next step,

@@ -9,11 +9,9 @@ first turn's text. Each half is levelled and cut to its speech as the fixtures' 
 
 The assembled 16-bit PCM is checked against a pinned SHA-256, so every build gives the same samples. The clips are
 written as FLAC (lossless, about half the size of WAV), which the app decodes with symphonia; FLAC's bytes depend on
-the encoder's version, so the PCM is what is pinned and `sample.json` records each written file's SHA-256 for the app
-to check. ffmpeg encodes the FLAC.
+the encoder's version, so the PCM is what is pinned. ffmpeg encodes the FLAC.
 """
 
-import array
 import hashlib
 import json
 import math
@@ -29,7 +27,6 @@ from . import fixture
 GAP_S = 1.2
 # The pause a reading is cut at lies in its middle half, where both halves keep several words.
 MIDDLE = (0.25, 0.75)
-FORMAT = 1
 
 
 @dataclass(frozen=True)
@@ -89,10 +86,6 @@ def halves(text: str) -> tuple[str, str]:
     return " ".join(words[:commas[0] + 1]), " ".join(words[commas[0] + 1:])
 
 
-def pcm16(samples: list[float]) -> bytes:
-    return array.array("h", (round(max(-1.0, min(1.0, x)) * 32767) for x in samples)).tobytes()
-
-
 def build(clip: Clip, cache: Path, into: Path) -> dict:
     """Writes `<into>/<id>.flac` once its PCM matches the pin; returns its entry for sample.json."""
     source = next(item for item in fixture.FIXTURES if item.language == clip.language)
@@ -126,7 +119,7 @@ def build(clip: Clip, cache: Path, into: Path) -> dict:
         samples.extend(part)
         turns.append({"start_ms": round(start * 1000 / fixture.SAMPLE_RATE),
                       "end_ms": round(len(samples) * 1000 / fixture.SAMPLE_RATE), "voice": voice, "text": text})
-    pcm = pcm16(samples)
+    pcm = fixture.pcm16(samples)
     digest = hashlib.sha256(pcm).hexdigest()
     if digest != clip.pcm_sha256:
         raise ValueError(f"{clip.id} came out with PCM SHA-256 {digest}, not the pinned {clip.pcm_sha256}")
@@ -136,17 +129,14 @@ def build(clip: Clip, cache: Path, into: Path) -> dict:
     subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "s16le", "-ar", str(fixture.SAMPLE_RATE),
                     "-ac", "1", "-i", "pipe:0", "-c:a", "flac", "-compression_level", "12", str(out)],
                    input=pcm, check=True)
-    file_digest = hashlib.sha256(out.read_bytes()).hexdigest()
     print(f"{out}: {len(samples) / fixture.SAMPLE_RATE:.1f} s, {out.stat().st_size:,} bytes, PCM SHA-256 {digest}")
-    return {"id": clip.id, "language": clip.language, "file": out.name, "sha256": file_digest,
-            "pcm_sha256": digest, "duration_ms": round(len(samples) * 1000 / fixture.SAMPLE_RATE), "turns": turns,
+    return {"id": clip.id, "language": clip.language, "file": out.name, "pcm_sha256": digest, "duration_ms": round(len(samples) * 1000 / fixture.SAMPLE_RATE), "turns": turns,
             "fleurs_files": [reading.file for reading in clip.readings]}
 
 
 def build_all(cache: Path, into: Path) -> Path:
     entries = [build(clip, cache, into) for clip in CLIPS]
-    manifest = {"format": FORMAT,
-                "source": f"FLEURS dev (ru_ru, en_us), commit {fixture.COMMIT}",
+    manifest = {"source": f"FLEURS dev (ru_ru, en_us), commit {fixture.COMMIT}",
                 "license": "CC BY 4.0",
                 "attribution": "FLEURS (Conneau et al., 2022), Google; https://huggingface.co/datasets/google/fleurs",
                 "clips": entries}
