@@ -18,6 +18,7 @@
 //! Note, my stft code is adapted from: https://librosa.org/doc/main/generated/librosa.stft.html
 
 mod support;
+pub(crate) use support::LAST_SESSION;
 use support::{Error, Result, ModelConfig, extract_3d_f32};
 use ndarray::{s, Array1, Array2, Array3, Axis};
 use ort::session::Session;

@@ -40,6 +40,14 @@ pub fn initialize<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
     }
 }
 
+/// The release the bundled runtime reported when it loaded (Windows and
+/// Linux); macOS links pyke's build, whose `ort::info()` names it.
+static VERSION: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+pub fn version() -> Option<String> {
+    VERSION.get().cloned()
+}
+
 pub fn ensure_available() -> anyhow::Result<()> {
     environment().map(|_| ())
 }
@@ -133,6 +141,7 @@ fn initialize_library(path: &std::path::Path) -> Result<ort::environment::Enviro
     .map_err(|_| "ONNX Runtime initialization failed. Repair/reinstall and restart Protocol.".to_string())??;
     let version = runtime_version(path).unwrap_or_else(|| "(version unknown)".into());
     log::info!("Initialized verified bundled ONNX Runtime {version}: {}", ort::info());
+    let _ = VERSION.set(version);
     Ok(environment)
 }
 

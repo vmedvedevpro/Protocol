@@ -47,6 +47,18 @@ use super::recording_preferences;
 use super::recording_state::{AudioChunk, AudioError, DeviceType, RecordingState};
 use super::vad::{ContinuousVadProcessor, SpeechSegment};
 
+/// The live VAD's speech thresholds, the same for the microphone and the
+/// system source (see the pipeline's VAD setup). The Speech check (#233)
+/// cuts its live sample with them too.
+pub(crate) const LIVE_POSITIVE_SPEECH_THRESHOLD: f32 = 0.20;
+pub(crate) const LIVE_NEGATIVE_SPEECH_THRESHOLD: f32 = 0.10;
+
+/// The live VAD's redemption time: 350 ms for Faster live text, else 800 ms;
+/// the processor caps a segment at 3.5 s or 6 s by it.
+pub(crate) fn live_redemption_ms(real_time: bool) -> u32 {
+    if real_time { 350 } else { 800 }
+}
+
 /// Per-source live audio level sample emitted to the frontend visualizer.
 /// One of these is sent per incoming (single-source) audio chunk, throttled
 /// to ~25 updates/sec per source so the meter animates smoothly without spam.
@@ -1097,7 +1109,7 @@ impl AudioPipeline {
         // Fast real-time streaming uses 350ms redemption and 3.5s max utterance capping.
         // Standard mode uses 800ms redemption and 6.0s max utterance capping.
         let is_realtime = crate::audio::recording_preferences::is_real_time_transcription();
-        let redemption_time = if is_realtime { 350 } else { 800 };
+        let redemption_time = live_redemption_ms(is_realtime);
         let max_duration_ms = if is_realtime { 3500 } else { 6000 };
 
         // One VAD per capture source so simultaneous talk is segmented independently.
@@ -1113,8 +1125,8 @@ impl AudioPipeline {
         // loopback gate discarded entire audible turns in recorded-call replay;
         // use the same speech-sensitive thresholds as the microphone. This is
         // a speech-probability gate, not a substitute for volume adjustment.
-        let mic_vad = make_vad("microphone", 0.20, 0.10)?;
-        let system_vad = make_vad("system", 0.20, 0.10)?;
+        let mic_vad = make_vad("microphone", LIVE_POSITIVE_SPEECH_THRESHOLD, LIVE_NEGATIVE_SPEECH_THRESHOLD)?;
+        let system_vad = make_vad("system", LIVE_POSITIVE_SPEECH_THRESHOLD, LIVE_NEGATIVE_SPEECH_THRESHOLD)?;
 
         // Initialize professional audio mixing components (recording file only)
         let ring_buffer = AudioMixerRingBuffer::new(sample_rate, mic_enabled, system_enabled);
