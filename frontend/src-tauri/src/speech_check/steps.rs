@@ -303,11 +303,18 @@ fn whisper_cpp_device() -> Device {
     Device { name: PROCESSOR.into(), why }
 }
 
+/// An OpenVINO device in the one form "picked" and "ran on" both use, so
+/// the two compare equal when OpenVINO runs where it was picked.
+#[cfg(any(windows, target_os = "linux"))]
+fn openvino_name(device: &str) -> String {
+    format!("Intel GPU (OpenVINO {})", device.trim())
+}
+
 /// The device the loaded engine runs on.
 fn whisper_ran_on(engine: &WhisperEngine) -> String {
     #[cfg(any(windows, target_os = "linux"))]
     if let Some(loaded) = engine.loaded_openvino() {
-        return format!("Intel GPU (OpenVINO {})", loaded.device());
+        return openvino_name(loaded.device());
     }
     let _ = engine;
     whisper_cpp_device().name
@@ -355,7 +362,7 @@ async fn whisper_picked(model: &str, inputs: &mut Vec<(String, String)>) -> Devi
         if companion.is_some() {
             match (&availability.device, &stopped) {
                 (Some(device), None) => {
-                    return Device { name: format!("Intel GPU (OpenVINO {device})"), why: "the Intel GPU version is installed and OpenVINO runs on whisper.cpp's GPU".into() };
+                    return Device { name: openvino_name(device), why: "the Intel GPU version is installed and OpenVINO runs on whisper.cpp's GPU".into() };
                 }
                 (_, Some(stopped)) => return Device { name: cpp.name, why: format!("the Intel GPU version is off: {stopped}") },
                 (None, None) => {
@@ -630,6 +637,13 @@ mod tests {
         let path = folder.path().join("clip.wav");
         write_wav(&path, &[0.0, 0.5, -0.25]).unwrap();
         assert_eq!(crate::diarization::dsp::read_wav(&path).unwrap(), (vec![0.0, 0.5, -0.25], 16_000));
+    }
+
+    #[cfg(any(windows, target_os = "linux"))]
+    #[test]
+    fn openvino_is_named_in_one_form_for_picked_and_ran_on() {
+        assert_eq!(openvino_name("GPU"), "Intel GPU (OpenVINO GPU)");
+        assert_eq!(openvino_name(" GPU.1 "), openvino_name("GPU.1"));
     }
 
     #[test]
