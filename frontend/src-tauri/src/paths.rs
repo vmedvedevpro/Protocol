@@ -10,7 +10,7 @@
 //! directory is not writable (for example, under `C:\Program Files`), storage
 //! transparently falls back to the OS data directory.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::OnceLock;
 
 /// The subfolder (relative to the executable) that holds portable app data.
@@ -110,7 +110,7 @@ pub fn open_in_system(target: &std::ffi::OsStr, select: bool) -> std::io::Result
     #[cfg(target_os = "linux")]
     let mut command = {
         let mut command = Command::new("xdg-open");
-        let folder = Path::new(target).parent().unwrap_or(Path::new("."));
+        let folder = std::path::Path::new(target).parent().unwrap_or(std::path::Path::new("."));
         command.arg(if select { folder.as_os_str() } else { target });
         command
     };
