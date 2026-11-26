@@ -5,5 +5,6 @@ export function deviceWords(device: string | undefined): string {
     if (device.startsWith('Intel NPU')) return 'Intel NPU'
     if (device.startsWith('Apple GPU')) return 'Apple GPU'
     if (device.startsWith('GPU')) return 'graphics card'
-    return 'processor'
+    // A device this list does not know yet shows as native names it.
+    return device === 'processor' ? 'processor' : device
 }

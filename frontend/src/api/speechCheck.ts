@@ -57,7 +57,7 @@ export interface CheckStep {
     untestedPath?: string
 }
 
-export type CheckOutcome = 'passed' | 'failed' | 'cancelled' | 'interrupted'
+export type CheckOutcome = 'passed' | 'failed' | 'cancelled' | 'interrupted' | 'nothingChecked'
 
 export interface CheckReport {
     format: number

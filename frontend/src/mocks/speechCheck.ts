@@ -58,7 +58,9 @@ export function speechCheckHandlers(state: {speechCheck: MockSpeechCheck, live: 
         // As native: a step an earlier start closed the app in fails the resumed check.
         const outcome = steps.some((step) => step.status === 'cancelled')
             ? 'cancelled'
-            : steps.some((step) => step.status === 'failed' || step.status === 'closedTheApp') ? 'failed' : 'passed'
+            : steps.some((step) => step.status === 'failed' || step.status === 'closedTheApp')
+                ? 'failed'
+                : steps.some((step) => step.status === 'passed') ? 'passed' : 'nothingChecked'
         publish({state: 'finished', ...mockReport(steps, outcome)})
     }
     const run = (steps: CheckStep['kind'][], done: CheckStep[], declined: CheckStep['kind'][]) => {

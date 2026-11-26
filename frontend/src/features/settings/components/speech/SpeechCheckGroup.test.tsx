@@ -3,6 +3,7 @@ import {act, screen, waitFor, within} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import {describe, expect, it} from 'vitest'
 import {recordingPhase} from '@/api/recordingPhase'
+import {handlers} from '@/mocks/handlers'
 import {mockReport, mockStep} from '@/mocks/speechCheck'
 import {mockState} from '@/mocks/state'
 import {SettingsPage} from '../../pages/SettingsPage'
@@ -41,6 +42,32 @@ describe('Settings › Advanced › Speech check', () => {
         await userEvent.click(within(check).getByRole('button', {name: 'Back'}))
         expect(await within(group()).findByRole('button', {name: 'Run check'})).toBeInTheDocument()
         expect(mockState.speechCheck.plans).toHaveLength(0)
+    })
+
+    it('offers Start only once the inputs of the choice have loaded, and never says Ready before', async () => {
+        const availability = handlers.get_openvino_availability
+        let answer: (value: unknown) => void = () => undefined
+        handlers.get_openvino_availability = () => new Promise((resolve) => { answer = resolve })
+        try {
+            renderAdvanced()
+            await runCheck()
+            const check = group()
+            expect((await within(check).findAllByText('Looking for the models on this computer')).length).toBeGreaterThan(0)
+            expect(within(check).queryByText('Ready')).not.toBeInTheDocument()
+            expect(within(check).getByRole('button', {name: 'Start check'})).toBeDisabled()
+            await act(async () => answer(await availability({})))
+            expect((await within(check).findAllByText('Ready')).length).toBeGreaterThan(0)
+            expect(within(check).getByRole('button', {name: 'Start check'})).toBeEnabled()
+        } finally {
+            handlers.get_openvino_availability = availability
+        }
+    })
+
+    it('says so when no model was checked, in a live region', async () => {
+        mockState.speechCheck.status = {state: 'finished', ...mockReport(['parakeet', 'whisper', 'pyannote', 'nemotron'].map((kind) => mockStep(kind as never, 'notChecked')), 'nothingChecked')}
+        renderAdvanced()
+        const check = await screen.findByRole('region', {name: 'Speech check'})
+        expect(await within(check).findByRole('status')).toHaveTextContent('No model was checked: none of them is on this computer')
     })
 
     it('runs the pair, reports declined models as not checked, and ends with Copy and Save', async () => {
@@ -125,5 +152,7 @@ describe('Settings › Advanced › Speech check', () => {
         expect(deviceWords('GPU (DirectML adapter 0)')).toBe('graphics card')
         expect(deviceWords('Intel NPU')).toBe('Intel NPU')
         expect(deviceWords('processor')).toBe('processor')
+        // A device this list does not know yet keeps native's name.
+        expect(deviceWords('Qualcomm Hexagon NPU')).toBe('Qualcomm Hexagon NPU')
     })
 })

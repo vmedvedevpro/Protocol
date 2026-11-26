@@ -6,6 +6,7 @@ import {DIARIZATION_DOWNLOAD_CANCELLED, diarizationKeys, diarizationStatusQuery,
 import {cancelIntelDownload, companionQuery, downloadGpuVersion, intelError, isIntelCancelled, npuQuery, openVinoAvailabilityQuery} from '@/api/intel'
 import {trackIntelDownload} from '@/api/modelDownloadSync'
 import {useRecordingBusy} from '@/api/recordingPhase'
+import {parakeetModelsQuery, whisperModelsQuery} from '@/api/models'
 import {postCallConfigQuery, transcriptConfigQuery} from '@/api/speech'
 import {
     cancelSpeechCheck,
@@ -101,6 +102,7 @@ const OUTCOME_LINES = {
     failed: 'A model did not pass',
     cancelled: 'The check was cancelled',
     interrupted: 'Protocol closed during the check',
+    nothingChecked: 'No model was checked: none of them is on this computer',
 } as const
 
 /** The finished report: one row per model, the text, Copy and Save. */
@@ -130,7 +132,7 @@ function Results({status, onAgain}: {status: Extract<SpeechCheckStatus, {state: 
         <>
             <SettingsRow
                 label="Speech check"
-                description={interrupted && remaining ? `${headline}. Still to check: ${remaining}` : headline}
+                description={<span role="status">{interrupted && remaining ? `${headline}. Still to check: ${remaining}` : headline}</span>}
             >
                 <Actions>
                     <Button size="sm" onClick={() => void copy()}>Copy report</Button>
@@ -173,12 +175,21 @@ function Offer({onBack, onStarted}: {onBack: () => void, onStarted: () => void})
     const locked = useRecordingBusy()
     const [starting, setStarting] = useState(false)
     const {parakeet, whisper, gpuVersion, downloads, download, cancel} = useSpeechModels()
-    const availability = useQuery(openVinoAvailabilityQuery).data
-    const companion = useQuery(companionQuery).data
-    const npu = useQuery(npuQuery).data
+    const availabilityQuery = useQuery(openVinoAvailabilityQuery)
+    const companionQuery_ = useQuery(companionQuery)
+    const npuQuery_ = useQuery(npuQuery)
     const speakers = useQuery(diarizationStatusQuery)
+    const parakeetList = useQuery(parakeetModelsQuery)
+    const whisperList = useQuery(whisperModelsQuery)
     const live = useQuery(transcriptConfigQuery).data
     const postCall = useQuery(postCallConfigQuery).data
+    const availability = availabilityQuery.data
+    const companion = companionQuery_.data
+    const npu = npuQuery_.data
+    // The pair and what is installed follow from all of these: until each has
+    // loaded, a row could say Ready for a model that is not the one checked.
+    const loading = [availabilityQuery, companionQuery_, npuQuery_, speakers, parakeetList, whisperList].some((query) => query.isPending)
+    const unreadable = speakers.isError || parakeetList.isError || whisperList.isError
 
     const pair = checkPair(availability, companion)
     const parakeetModel = parakeet.find(({name}) => name === pair.live)
@@ -191,7 +202,7 @@ function Offer({onBack, onStarted}: {onBack: () => void, onStarted: () => void})
         nemotron: !!speakers.data?.nemotron_available,
     }
     const downloading = Object.values(downloads).some((state) => state.state === 'downloading')
-    const ready = !!speakers.data && (!!parakeetModel || !!copy || usesGpuVersion)
+    const ready = !loading && !unreadable && (!!parakeetModel || !!copy || usesGpuVersion)
 
     const start = () => {
         setStarting(true)
@@ -228,6 +239,65 @@ function Offer({onBack, onStarted}: {onBack: () => void, onStarted: () => void})
     )
     const missingNote = 'Not checked unless downloaded'
 
+    const modelRows = (
+        <>
+        {installed.parakeet || !parakeetModel
+            ? readyRow('parakeet', parakeetModel ? speechModelLabel('parakeet', parakeetModel) : pair.live)
+            : (
+                <ModelRow
+                    name={STEP_NAMES.parakeet}
+                    engine="parakeet"
+                    model={parakeetModel}
+                    description={`${STEP_ROLES.parakeet}. ${missingNote}`}
+                    downloads={downloads}
+                    onDownload={() => download(parakeetModel)}
+                    onCancel={() => cancel(parakeetModel)}
+                />
+            )}
+        {installed.whisper
+            ? readyRow('whisper', usesGpuVersion && gpuVersion ? speechModelLabel('whisper', gpuVersion) : copy ? speechModelLabel('whisper', copy) : pair.postMeeting)
+            : usesGpuVersion && companion
+                ? (
+                    <ModelRow
+                        name="Whisper for the Intel GPU"
+                        engine="intelGpu"
+                        model={{name: companion.id, status: 'Missing', size_bytes: companion.downloadSize}}
+                        description={`${STEP_ROLES.whisper}. ${missingNote}`}
+                        downloads={downloads}
+                        onDownload={getGpuVersion}
+                        onCancel={() => void cancelIntelDownload(companion.id).catch(() => undefined)}
+                    />
+                )
+                : copy && (
+                    <ModelRow
+                        name={speechModelLabel('whisper', copy)}
+                        engine="whisper"
+                        model={copy}
+                        description={`${STEP_ROLES.whisper}. ${missingNote}`}
+                        downloads={downloads}
+                        onDownload={() => download(copy)}
+                        onCancel={() => cancel(copy)}
+                    />
+                )}
+        {installed.pyannote
+            ? readyRow('pyannote', 'built in')
+            : <SettingsRow label={STEP_NAMES.pyannote} description="Its files are missing from this copy of Protocol" control={<RowValue>Not checked</RowValue>}/>}
+        {installed.nemotron
+            ? readyRow('nemotron', 'downloaded')
+            : (
+                <ModelRow
+                    name={STEP_NAMES.nemotron}
+                    engine="nemotron"
+                    model={{name: NEMOTRON, status: 'Missing', size_bytes: speakers.data?.nemotron_download_size}}
+                    description={`${STEP_ROLES.nemotron}. ${missingNote}`}
+                    downloads={downloads}
+                    onDownload={getNemotron}
+                    onCancel={() => void cancelNemotronDownload().catch(() => undefined)}
+                />
+            )}
+        </>
+    )
+
     return (
         <>
             <SettingsRow label="Speech check" description="It runs these models, each on the device Protocol picks for this computer. It changes no settings">
@@ -237,61 +307,9 @@ function Offer({onBack, onStarted}: {onBack: () => void, onStarted: () => void})
                 </Actions>
             </SettingsRow>
             {locked && <SettingsRow label="During a recording" description="The check can run once the recording is saved"/>}
-            {installed.parakeet || !parakeetModel
-                ? readyRow('parakeet', parakeetModel ? speechModelLabel('parakeet', parakeetModel) : pair.live)
-                : (
-                    <ModelRow
-                        name={STEP_NAMES.parakeet}
-                        engine="parakeet"
-                        model={parakeetModel}
-                        description={`${STEP_ROLES.parakeet}. ${missingNote}`}
-                        downloads={downloads}
-                        onDownload={() => download(parakeetModel)}
-                        onCancel={() => cancel(parakeetModel)}
-                    />
-                )}
-            {installed.whisper
-                ? readyRow('whisper', usesGpuVersion && gpuVersion ? speechModelLabel('whisper', gpuVersion) : copy ? speechModelLabel('whisper', copy) : pair.postMeeting)
-                : usesGpuVersion && companion
-                    ? (
-                        <ModelRow
-                            name="Whisper for the Intel GPU"
-                            engine="intelGpu"
-                            model={{name: companion.id, status: 'Missing', size_bytes: companion.downloadSize}}
-                            description={`${STEP_ROLES.whisper}. ${missingNote}`}
-                            downloads={downloads}
-                            onDownload={getGpuVersion}
-                            onCancel={() => void cancelIntelDownload(companion.id).catch(() => undefined)}
-                        />
-                    )
-                    : copy && (
-                        <ModelRow
-                            name={speechModelLabel('whisper', copy)}
-                            engine="whisper"
-                            model={copy}
-                            description={`${STEP_ROLES.whisper}. ${missingNote}`}
-                            downloads={downloads}
-                            onDownload={() => download(copy)}
-                            onCancel={() => cancel(copy)}
-                        />
-                    )}
-            {installed.pyannote
-                ? readyRow('pyannote', 'built in')
-                : <SettingsRow label={STEP_NAMES.pyannote} description="Its files are missing from this copy of Protocol" control={<RowValue>Not checked</RowValue>}/>}
-            {installed.nemotron
-                ? readyRow('nemotron', 'downloaded')
-                : (
-                    <ModelRow
-                        name={STEP_NAMES.nemotron}
-                        engine="nemotron"
-                        model={{name: NEMOTRON, status: 'Missing', size_bytes: speakers.data?.nemotron_download_size}}
-                        description={`${STEP_ROLES.nemotron}. ${missingNote}`}
-                        downloads={downloads}
-                        onDownload={getNemotron}
-                        onCancel={() => void cancelNemotronDownload().catch(() => undefined)}
-                    />
-                )}
-            {!ready && speakers.isError && <SettingsRow label="Speech check" description={<Warning role="alert">Protocol couldn’t read its speech models</Warning>}/>}
+            {loading && <SettingsRow label="Models" description={<StatusLine status={{key: 'loading', text: 'Looking for the models on this computer', busy: true}}/>}/>}
+            {!loading && !unreadable && modelRows}
+            {unreadable && <SettingsRow label="Models" description={<Warning role="alert">Protocol couldn’t read its speech models</Warning>}/>}
         </>
     )
 }
