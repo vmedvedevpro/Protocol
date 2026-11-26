@@ -1,37 +1,24 @@
 /*
- * The page is the ring, the name and one sentence, centred, with the GitHub
- * link below. Colours, the font and the motion values are tokens from
- * frontend/src/styles/theme.ts (motion from frontend/src/styles/motion.ts),
- * copied by hand under the same name so the two can be compared side by
- * side. The type sizes are the page's own, larger than the app's desktop
- * scale; each value that is not a token says why next to it.
+ * Colours, the font and the motion values are copied by hand from the app's
+ * frontend/src/styles/theme.ts and motion.ts; the comment next to each names
+ * its token.
  */
 
 /* Geist ships with the app as @fontsource-variable/geist 5.3.0; this is its
-   latin, normal-style file and @font-face. The licence is fonts/LICENSE. */
+   latin, normal-style file. The licence is fonts/LICENSE. */
 @font-face {
     font-family: 'Geist Variable';
     font-style: normal;
     font-display: swap;
     font-weight: 100 900;
     src: url(fonts/geist-latin-wght-normal.woff2) format('woff2-variations');
-    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 
 :root {
-    color-scheme: light dark;
-
     /* colors.light */
     --bg: #FCFCFC;
     --text: #000000;
     --muted: #525252;
-
-    /* fonts.sans */
-    --font-sans: 'Geist Variable', system-ui, sans-serif;
-
-    /* motion.duration.fast, motion.easing.standard */
-    --duration-fast: 120ms;
-    --easing-standard: cubic-bezier(0.2, 0, 0, 1);
 }
 
 /* colors.dark: the system's choice, as Match system does. */
@@ -43,33 +30,18 @@
     }
 }
 
-*,
-*::before,
-*::after {
-    box-sizing: border-box;
-}
-
-html {
-    background: var(--bg);
-}
-
 body {
     margin: 0;
-    min-height: 100vh;
     min-height: 100dvh;
     display: flex;
     flex-direction: column;
-    font-family: var(--font-sans);
+    font-family: 'Geist Variable', system-ui, sans-serif; /* fonts.sans */
     color: var(--text);
     background: var(--bg);
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-    text-rendering: optimizeLegibility;
 }
 
-/* The block is centred optically: the extra space under it lifts it a
-   little above the true middle, where a centred block reads as centred
-   rather than sinking. The footer below adds to that lift. */
+/* The extra space under the block lifts it a little above the true middle,
+   where a centred block reads as centred rather than sinking. */
 main {
     flex: 1;
     display: flex;
@@ -80,42 +52,37 @@ main {
     text-align: center;
 }
 
-/* The ring, as it was: the GIF is the ring on a square of near-`bg`, and the
-   radial fade lets the square's edge vanish into the page. The ring's own
-   soft glow is the page's only one: the background stays plain `bg`.
-   120 px is half the GIF's 240, so it stays sharp on a 2x screen. */
-.ring img {
+/* The GIF is the ring on a square of near-`bg`; the radial fade lets the
+   square's edge vanish into the page. 120 px is half the GIF's 240, so it
+   stays sharp on a 2x screen. */
+img {
     display: block;
     width: 120px;
     height: 120px;
-    -webkit-mask-image: radial-gradient(closest-side, #000 75%, transparent);
     mask-image: radial-gradient(closest-side, #000 75%, transparent);
 }
 
-/* A phone's screen is 3x: 120 px would be 360 device pixels of a 240 px
-   GIF. 96 px, the size the ring had before, keeps the stretch small and
-   the ring in step with the smaller name. */
+/* A phone's screen is 3x, where 120 px would stretch the GIF; 96 px keeps
+   the stretch small and the ring in step with the smaller name. */
 @media (max-width: 600px) {
-    .ring img {
+    img {
         width: 96px;
         height: 96px;
     }
 }
 
-/* The ring's box is a fifth empty fade on every side, so the visual gap
-   to the name is this margin plus about 12 px. */
 h1 {
     margin: 20px 0 0;
     font-size: clamp(48px, 4.5vw + 26px, 72px);
     line-height: 1;
     font-weight: 600;
-    /* Large Geist wants tight tracking; at 72 px this is about 2.5 px. */
+    /* Large Geist wants tight tracking. */
     letter-spacing: -0.035em;
 }
 
-/* One sentence in `muted`, balanced over two lines on a desktop: 30em is a
-   comfortable measure at this size, about 60 characters a line. */
-main p {
+/* 30em, about 60 characters a line, balances the sentence over two lines on
+   a desktop. */
+p {
     max-width: 30em;
     margin: 20px 0 0;
     font-size: clamp(17px, 0.5vw + 15px, 20px);
@@ -131,10 +98,8 @@ footer {
     padding: 0 24px 24px;
 }
 
-/* The one link, quiet: `muted` with a faint underline that takes the
-   text's colour on hover. The padding gives it a 36 px tall target, 44 px
-   under a finger. */
-footer a {
+/* The padding is the link's hit target, larger under a finger. */
+a {
     padding: 8px 12px;
     border-radius: 8px;
     font-size: 14px;
@@ -143,14 +108,14 @@ footer a {
     text-decoration: underline;
     text-decoration-thickness: 1px;
     text-underline-offset: 4px;
-    text-decoration-color: currentColor;
     text-decoration-color: color-mix(in srgb, currentColor 40%, transparent);
-    transition: color var(--duration-fast) var(--easing-standard),
-        text-decoration-color var(--duration-fast) var(--easing-standard);
+    /* motion.duration.fast, motion.easing.standard */
+    transition: color 120ms cubic-bezier(0.2, 0, 0, 1),
+        text-decoration-color 120ms cubic-bezier(0.2, 0, 0, 1);
 }
 
 @media (pointer: coarse) {
-    footer a {
+    a {
         padding: 12px 16px;
     }
 }
@@ -158,20 +123,13 @@ footer a {
 /* Only where there is a pointer to hover with: a tap would leave the hover
    colour stuck on the link. */
 @media (hover: hover) {
-    footer a:hover {
+    a:hover {
         color: var(--text);
         text-decoration-color: currentColor;
     }
 }
 
-/* The app's focus ring: `text`, 2 px. */
-footer a:focus-visible {
+a:focus-visible {
     outline: 2px solid var(--text);
     outline-offset: 2px;
-}
-
-@media (prefers-reduced-motion: reduce) {
-    footer a {
-        transition: none;
-    }
 }
