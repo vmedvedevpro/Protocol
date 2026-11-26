@@ -112,7 +112,8 @@ describe('Settings › Advanced › Speech check', () => {
         expect(within(check).getByRole('button', {name: 'Copy report'})).toBeInTheDocument()
 
         await userEvent.click(within(check).getByRole('button', {name: 'Run the remaining steps'}))
-        await waitFor(() => expect(within(group()).getByText('A model did not pass')).toBeInTheDocument())
+        await waitFor(() => expect(within(group()).getByText('Protocol closed while checking Whisper')).toBeInTheDocument())
+        expect(within(group()).queryByRole('button', {name: 'Run the remaining steps'})).not.toBeInTheDocument()
         // The step that closed the app stays in the report; the rest ran.
         expect(within(group()).getByText('Protocol closed here')).toBeInTheDocument()
         expect(within(group()).getAllByText(/passed$/)).toHaveLength(3)

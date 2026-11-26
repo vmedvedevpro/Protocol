@@ -49,6 +49,12 @@ const Report = styled.pre`
     overflow-wrap: anywhere;
 `
 
+// Up to four buttons after a check: they wrap rather than run past the card.
+const Actions = styled(RowControls)`
+    flex: 1 1 auto;
+    flex-wrap: wrap;
+`
+
 const ABOUT = 'Runs each speech model on a short sample and writes a report to send to the developers. Takes a few minutes'
 
 /** "On the Intel GPU, passed", "Failed", "Not checked". */
@@ -116,9 +122,9 @@ function Results({status, onAgain}: {status: Extract<SpeechCheckStatus, {state: 
             .finally(() => setResuming(false))
     }
     const interrupted = status.state === 'interrupted'
-    const headline = interrupted && status.closedIn
-        ? `Protocol closed while checking ${STEP_NAMES[status.closedIn]}`
-        : OUTCOME_LINES[status.report.outcome]
+    // A resumed check keeps the step that closed the app, and says so first.
+    const closedIn = interrupted ? status.closedIn : status.report.steps.find((step) => step.status === 'closedTheApp')?.kind
+    const headline = closedIn ? `Protocol closed while checking ${STEP_NAMES[closedIn]}` : OUTCOME_LINES[status.report.outcome]
     const remaining = interrupted ? status.remaining.map((kind) => STEP_NAMES[kind]).join(', ') : ''
     return (
         <>
@@ -126,14 +132,14 @@ function Results({status, onAgain}: {status: Extract<SpeechCheckStatus, {state: 
                 label="Speech check"
                 description={interrupted && remaining ? `${headline}. Still to check: ${remaining}` : headline}
             >
-                <RowControls>
+                <Actions>
                     <Button size="sm" onClick={() => void copy()}>Copy report</Button>
                     <Button size="sm" onClick={() => void save()}>Save report</Button>
                     {interrupted && status.remaining.length > 0 && (
                         <Button size="sm" variant="filled" disabled={locked} pending={resuming} onClick={resume}>Run the remaining steps</Button>
                     )}
                     <Button size="sm" variant="ghost" disabled={locked} onClick={onAgain}>Run again</Button>
-                </RowControls>
+                </Actions>
             </SettingsRow>
             <StepRows steps={status.report.steps}/>
             <SettingsRow label="Report">
@@ -225,10 +231,10 @@ function Offer({onBack, onStarted}: {onBack: () => void, onStarted: () => void})
     return (
         <>
             <SettingsRow label="Speech check" description="It runs these models, each on the device Protocol picks for this computer. It changes no settings">
-                <RowControls>
+                <Actions>
                     <Button size="sm" variant="filled" disabled={!ready || downloading || locked} pending={starting} onClick={start}>Start check</Button>
                     <Button size="sm" variant="ghost" onClick={onBack}>Back</Button>
-                </RowControls>
+                </Actions>
             </SettingsRow>
             {locked && <SettingsRow label="During a recording" description="The check can run once the recording is saved"/>}
             {installed.parakeet || !parakeetModel
