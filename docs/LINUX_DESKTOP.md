@@ -122,3 +122,98 @@ command and never calls Tauri's `setTheme`.
 Not checked: GNOME (its portal answers the same key, but no GNOME session
 here), a desktop without the portal (GTK's own value), and Light or Dark held
 against a live desktop switch in the app.
+
+## Keep on top and the minibar under Wayland (#199)
+
+Tauri's `set_always_on_top` ends in GTK3's `gtk_window_set_keep_above`. On
+X11 that is an EWMH state the window manager honours; on Wayland no protocol
+lets a client keep its window above others or place it, and GTK drops the
+call (and `gtk_window_move`). `linux_desktop/keep_above.rs` picks a route once
+at start (`keep_above::init`, logged as `Linux keep on top: …`):
+
+| Session | Keep on top (main window) | Minibar |
+|---|---|---|
+| X11, any desktop | Tauri's call, as before | the builder's `always_on_top` and position, as before |
+| Wayland, KDE Plasma (KWin on the session bus) | a KWin script | layer-shell overlay if gtk-layer-shell loads, else the KWin script |
+| Wayland, wlroots (Sway, Hyprland…) | not offered | layer-shell overlay if gtk-layer-shell loads |
+| Wayland, GNOME | not offered; the native frame's window menu has Always on Top | a plain window: the log says it cannot stay on top |
+
+XWayland for the whole app (`GDK_BACKEND=x11`) would make keep-above work
+everywhere but blurs the window on fractional scaling, so it is not used.
+
+**The KWin script.** KWin runs scripts sent over D-Bus
+(`org.kde.KWin /Scripting` `loadScript`, then `Script.run`), and a script may
+set `keepAbove` on any window. The script is written to `$XDG_RUNTIME_DIR`
+and matches this process's windows by pid: the minibar by its title
+(`Recording`, since Wayland has no skip-taskbar hint for KWin to read), the
+main window as every other normal window. KWin forgets a Wayland window when
+it is unmapped, and the main window is hidden while the minibar shows, so the
+script stays loaded and also applies to windows added later; it is reloaded
+with the new state on each change under one plugin name per program name
+(`<app>-keep-above`, so a new start replaces what a crashed run left) and
+unloaded at `RunEvent::Exit`. For the minibar it also hides it from the task
+manager and the switcher and puts it top centre, 12 px down; it can still be
+dragged.
+
+The frontend asks `linux_keep_on_top_available` once and shows the pin only
+where a route exists (`useKeepOnTopAvailable`, `TitleBar`'s optional
+`onTopChange`); `setWindowAlwaysOnTop` calls `linux_set_keep_on_top` on Linux.
+
+**The layer-shell minibar.** The layer-shell protocol (`zwlr_layer_shell_v1`,
+on KDE Plasma and wlroots compositors, not on GNOME) gives a surface a layer
+instead of a window role. `linux_desktop/layer_shell.rs` loads
+`libgtk-layer-shell.so.0` with `dlopen`, as the Vulkan loader is, so the deb
+and the AppImage start where it is missing: the deb recommends
+`libgtk-layer-shell0` (Recommends, not Depends, since the app runs without
+it), and the AppImage takes the system's. gtk-layer-shell 0.10 imports
+libwayland's symbols and exports none, so loading it late works
+(gtk4-layer-shell shims libwayland and must be linked first). Right after
+`minibar.rs` builds the bar, hidden and unrealized, `keep_above::minibar_created`
+gives it the role on the main thread: the overlay layer, anchored top and
+left on GDK's primary monitor, 12 px down and centred by its left margin,
+keyboard on demand, namespace `protocol-minibar`. A layer surface cannot be
+dragged, so the bar stays there; as the pill opens rightwards its left margin
+stays, moving left only where it would leave the monitor
+(`layer_shell::left_margin`).
+
+**The minibar's size.** GTK3 sizes a non-resizable window to its size
+request, and an empty request (the webview asks for nothing) falls back to
+200×200, whatever `inner_size` or `set_size` say. So the bar was a 200×200
+window with the pill centred in it, and its transparent rest took the clicks
+meant for the windows below. On Linux the bar's GTK window gets the pill's
+size as its size request at creation and on each `resize_minibar`
+(`keep_above::size_minibar`).
+
+With the window exactly the pill, leaving the pill means leaving the
+window, and there WebKitGTK fires no `pointerleave` (nor `mouseleave` or
+`mouseout`) on Wayland: a bare WebKitGTK 4.1 test window got `pointerenter`,
+then GTK's `leave-notify` and nothing in the page. So the open pill stayed
+open. The bar's GTK window reports its `leave-notify` (except into a child
+widget) as `minibar-pointer-left` to the bar (`keep_above::report_pointer_leaving`),
+and `MinibarPill` ends the hover on it (`pointerLeftWindow`, counted by
+`MinibarPage`).
+
+The Linux release leg checks that the deb recommends `libgtk-layer-shell0`
+and that `protocol` does not link it.
+
+Checked on KDE Plasma 6.7.5, Wayland, scale 1.75 (the "Protocol QA" build,
+KWin's own view of the windows read through a KWin script):
+
+- Keep on top: the pin set KWin's `keepAbove` on the main window (layer 3,
+  above the active window, which was another app), unpinning cleared it, and
+  it held after the window was hidden for the minibar and shown again. The
+  script was loaded while the app ran and gone after it quit.
+- Minibar through KWin (gtk-layer-shell not installed, as on this machine):
+  the bar was a 172×52 window at the top centre, 12 px down, `keepAbove`,
+  `skipTaskbar`, above the active window; hovering opened it to 476 px with
+  its left edge in place, and leaving closed it.
+- Minibar through layer-shell (gtk-layer-shell 0.10.1 from Ubuntu's
+  `libgtk-layer-shell0`, unpacked and put on `LD_LIBRARY_PATH`): KWin saw a
+  layer surface 172×52 at the same place; it opened to 476 px and closed
+  again, twice in a row; Back to the full window, Stop and the pin worked.
+- Before the size fix KWin saw the bar as 200×200, and a bare GTK3 window
+  showed the same: non-resizable with no size request, 200×200; resizable or
+  with a size request, its size.
+
+Not checked: GNOME (the hidden pin and the window menu's Always on Top),
+wlroots compositors, and X11 sessions (no such session on this machine).

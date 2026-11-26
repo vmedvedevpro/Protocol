@@ -373,6 +373,8 @@ pub fn run() {
             quit::quit_on_termination_signals(_app.handle());
             #[cfg(target_os = "linux")]
             linux_desktop::theme::init();
+            #[cfg(target_os = "linux")]
+            linux_desktop::keep_above::init();
             #[cfg(any(windows, target_os = "linux"))]
             onnx_runtime::initialize(_app.handle());
             log::info!("Application setup complete");
@@ -740,6 +742,11 @@ pub fn run() {
             // The Linux windows' theme (docs/LINUX_DESKTOP.md)
             #[cfg(target_os = "linux")]
             linux_desktop::theme::linux_set_window_theme,
+            // Keep on top on Linux (docs/LINUX_DESKTOP.md)
+            #[cfg(target_os = "linux")]
+            linux_desktop::keep_above::linux_keep_on_top_available,
+            #[cfg(target_os = "linux")]
+            linux_desktop::keep_above::linux_set_keep_on_top,
             // In-app updates
             updater::commands::updater_get_status,
             updater::commands::updater_check_now,
@@ -798,6 +805,8 @@ pub fn run() {
                 }
                 tauri::RunEvent::Exit => {
                     log::info!("Application exiting, cleaning up resources...");
+                    #[cfg(target_os = "linux")]
+                    linux_desktop::keep_above::unload_kwin_script();
                     // An OpenVINO compile this exit cuts short is not a crash.
                     #[cfg(any(windows, target_os = "linux"))]
                     whisper_engine::openvino::set_closing(true);

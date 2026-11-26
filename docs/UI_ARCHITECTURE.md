@@ -106,7 +106,10 @@ minibar window has none of it.
   so a pinned window can always be unpinned (the design draws it on the
   recording screen). It is new, so it keeps Zustand's own format under a new
   key, `protocol-keep-on-top`, and the shell applies it to the window at
-  startup (`keepOnTop.ts`).
+  startup (`keepOnTop.ts`). On Linux native code keeps the window on top the
+  way the session allows, and where it cannot (Wayland outside KDE Plasma)
+  the pin is not shown (`useKeepOnTopAvailable`,
+  [LINUX_DESKTOP.md](LINUX_DESKTOP.md#keep-on-top-and-the-minibar-under-wayland-199)).
 - "Back to meetings" shows on every screen but the meetings (a route's
   `handle.back`) and goes to `/`.
 

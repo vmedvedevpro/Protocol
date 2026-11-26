@@ -125,6 +125,12 @@ is inherited from the project Protocol forked from; Protocol did not release it.
   switcher show Protocol's ring instead of a generic icon on Wayland.
 - **Linux: Match system follows the desktop's dark mode.** With a dark colour
   scheme the app is dark, and it repaints when the desktop's scheme changes.
+- **Linux: Keep on top and the floating bar under Wayland.** On KDE Plasma
+  the pin keeps the window on top and the floating bar stays above other
+  windows at the top of the screen. Where Wayland gives an app no way to stay
+  on top (GNOME), the pin is not shown; GNOME's window menu has Always on Top.
+- **Linux: the floating bar is only as big as the bar.** It no longer sits
+  in an invisible square that caught clicks meant for the windows below.
 
 ## Protocol 1.0.0-rc.1 — 2026-11-26
 

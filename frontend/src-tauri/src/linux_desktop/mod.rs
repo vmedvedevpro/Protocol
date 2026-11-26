@@ -3,4 +3,6 @@
 //! the tray's name.
 
 pub mod app_id;
+pub mod keep_above;
+pub mod layer_shell;
 pub mod theme;

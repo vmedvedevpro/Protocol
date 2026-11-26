@@ -1,7 +1,8 @@
+import {useQuery} from '@tanstack/react-query'
 import {useEffect} from 'react'
 import {create} from 'zustand'
 import {persist} from 'zustand/middleware'
-import {setWindowAlwaysOnTop} from '@/api/window'
+import {getKeepOnTopAvailable, setWindowAlwaysOnTop} from '@/api/window'
 
 /**
  * New in Frontend 2.0 (the old app had no such toggle), so Zustand's own
@@ -30,13 +31,30 @@ export const useKeepOnTopStore = create<KeepOnTopState>()(
 )
 
 /**
- * Applies the pin to the native window, at startup too: the window opens
- * without it (tauri.conf.json) and takes it from the saved choice.
+ * Whether the session lets the window stay on top (`getKeepOnTopAvailable`).
+ * False until native code answers, so the pin never shows where it cannot
+ * work.
  */
-export function useKeepOnTopSync() {
+export function useKeepOnTopAvailable(): boolean {
+    const {data} = useQuery({
+        queryKey: ['window', 'keepOnTopAvailable'],
+        queryFn: getKeepOnTopAvailable,
+        // Fixed for the session.
+        staleTime: Infinity,
+    })
+    return data === true
+}
+
+/**
+ * Applies the pin to the native window, at startup too: the window opens
+ * without it (tauri.conf.json) and takes it from the saved choice. Only where
+ * the session allows it (`available`).
+ */
+export function useKeepOnTopSync(available: boolean) {
     const onTop = useKeepOnTopStore((state) => state.onTop)
 
     useEffect(() => {
+        if (!available) return
         setWindowAlwaysOnTop(onTop).catch((error: unknown) => console.warn('Failed to keep the window on top:', error))
-    }, [onTop])
+    }, [available, onTop])
 }

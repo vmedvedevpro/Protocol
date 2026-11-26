@@ -63,7 +63,25 @@ export const onWindowResized = (handler: () => void) =>
     // The caption buttons that follow it exist in the main window only.
     subscribeNative(WINDOW_RESIZED_EVENT, () => handler(), {target: 'main'})
 
-/** Keeps the window above every other window, or stops. */
+/**
+ * Keeps the window above every other window, or stops. On Linux native code
+ * picks the way the session allows (`linux_desktop/keep_above.rs`, #199):
+ * GTK's keep-above on X11, a KWin script on KDE Plasma's Wayland.
+ */
 export async function setWindowAlwaysOnTop(onTop: boolean): Promise<void> {
+    if (platform === 'linux') {
+        await command<void>('linux_set_keep_on_top', {onTop})
+        return
+    }
     await getCurrentWindow().setAlwaysOnTop(onTop)
+}
+
+/**
+ * Whether Keep on top can work here. Not on Wayland outside KDE Plasma, where
+ * no client can keep its window on top (GNOME's window menu offers Always on
+ * Top instead).
+ */
+export async function getKeepOnTopAvailable(): Promise<boolean> {
+    if (platform !== 'linux') return true
+    return command<boolean>('linux_keep_on_top_available')
 }

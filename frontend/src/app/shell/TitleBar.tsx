@@ -85,7 +85,9 @@ export interface TitleBarProps {
     /** Shows "Back to meetings" on every screen but the meetings. */
     onBack?: () => void
     onTop: boolean
-    onTopChange: (onTop: boolean) => void
+    /** Shows the Keep on top pin; left out where the session cannot keep
+     *  the window on top (Wayland outside KDE Plasma, #199). */
+    onTopChange?: (onTop: boolean) => void
 }
 
 export function TitleBar({platform, onBack, onTop, onTopChange}: TitleBarProps) {
@@ -103,7 +105,7 @@ export function TitleBar({platform, onBack, onTop, onTopChange}: TitleBarProps) 
             )}
         </AnimatePresence>
     )
-    const pin = (
+    const pin = onTopChange && (
         <IconButton label="Keep on top" size={size} pressed={onTop} onClick={() => onTopChange(!onTop)}>
             <PushPinIcon size={14}/>
         </IconButton>

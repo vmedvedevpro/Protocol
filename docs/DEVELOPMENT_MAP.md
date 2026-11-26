@@ -1644,8 +1644,12 @@ is in [LINUX_DESKTOP.md](LINUX_DESKTOP.md): the desktop's own window frame
 (`tauri.linux.conf.json`, `TitleBar.tsx`); the windows' app id, which names
 the desktop file (`linux_desktop/app_id.rs`, `linux/main.desktop`, checked by
 `check-linux-desktop-entry.mjs` in the Linux release leg); Match system
-following the settings portal (`linux_desktop/theme.rs`). Read it before changing the Linux
-window configuration, the title strip, the theme, keep on top or the tray.
+following the settings portal (`linux_desktop/theme.rs`); Keep on top and
+the minibar under Wayland, through a KWin script on KDE Plasma and the
+layer-shell overlay where the compositor has it (`linux_desktop/keep_above.rs`,
+`linux_desktop/layer_shell.rs`, gtk-layer-shell loaded at run time). Read it
+before changing the Linux window configuration, the title strip, the theme,
+keep on top, the minibar or the tray.
 
 ### Fork identity and updates
 

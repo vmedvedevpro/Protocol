@@ -5,6 +5,14 @@
  */
 import {getCurrentWindow} from '@tauri-apps/api/window'
 import {command} from '@/api/core'
+import type {NativeEvent} from '@/api/events'
+
+/**
+ * The pointer left the minibar's window (Linux only, keep_above.rs).
+ * WebKitGTK fires no pointerleave when the pointer leaves the whole view on
+ * Wayland, and the window is exactly the pill, so this closes it instead.
+ */
+export const MINIBAR_POINTER_LEFT_EVENT = 'minibar-pointer-left' as NativeEvent<null>
 
 /**
  * Hides the main window and shows the minibar. `elapsedSeconds` marks an

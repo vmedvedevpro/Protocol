@@ -9,6 +9,9 @@
         "depends": [
           "ffmpeg",
           "libvulkan1"
+        ],
+        "recommends": [
+          "libgtk-layer-shell0"
         ]
       }
     }

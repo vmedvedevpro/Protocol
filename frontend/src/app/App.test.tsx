@@ -234,29 +234,43 @@ describe('App navigation', () => {
 })
 
 describe('Keep on top', () => {
+    // Tests run as Linux, where native code keeps the window on top the way
+    // the session allows (src/api/window.ts).
     it('pins the window above the others and remembers it', async () => {
-        const onTop = vi.spyOn(handlers, 'plugin:window|set_always_on_top')
+        const onTop = vi.spyOn(handlers, 'linux_set_keep_on_top')
         renderApp()
         await heading('Meetings')
-        const pin = screen.getByRole('button', {name: 'Keep on top'})
+        const pin = await screen.findByRole('button', {name: 'Keep on top'})
         expect(pin).toHaveAttribute('aria-pressed', 'false')
 
         await userEvent.click(pin)
 
         expect(pin).toHaveAttribute('aria-pressed', 'true')
-        await waitFor(() => expect(onTop).toHaveBeenLastCalledWith(expect.objectContaining({value: true})))
+        await waitFor(() => expect(onTop).toHaveBeenLastCalledWith(expect.objectContaining({onTop: true})))
         expect(JSON.parse(localStorage.getItem(KEEP_ON_TOP_STORAGE_KEY)!).state).toEqual({onTop: true})
     })
 
     it('applies the saved pin when the window opens', async () => {
         localStorage.setItem(KEEP_ON_TOP_STORAGE_KEY, JSON.stringify({state: {onTop: true}, version: 0}))
         await useKeepOnTopStore.persist.rehydrate()
-        const onTop = vi.spyOn(handlers, 'plugin:window|set_always_on_top')
+        const onTop = vi.spyOn(handlers, 'linux_set_keep_on_top')
 
         renderApp()
 
         expect(await screen.findByRole('button', {name: 'Keep on top', pressed: true})).toBeInTheDocument()
-        await waitFor(() => expect(onTop).toHaveBeenCalledWith(expect.objectContaining({value: true})))
+        await waitFor(() => expect(onTop).toHaveBeenCalledWith(expect.objectContaining({onTop: true})))
+    })
+
+    it('offers no pin where the session cannot keep a window on top', async () => {
+        // GNOME or wlroots on Wayland (keep_above.rs).
+        const available = vi.spyOn(handlers, 'linux_keep_on_top_available').mockReturnValue(false)
+        const onTop = vi.spyOn(handlers, 'linux_set_keep_on_top')
+        renderApp()
+        await heading('Meetings')
+
+        await waitFor(() => expect(available).toHaveBeenCalled())
+        expect(screen.queryByRole('button', {name: 'Keep on top'})).not.toBeInTheDocument()
+        expect(onTop).not.toHaveBeenCalled()
     })
 })
 
@@ -313,7 +327,7 @@ describe('Crash report', () => {
         await screen.findByRole('dialog')
 
         // The modal sheet hides the window from assistive technology meanwhile.
-        const pin = screen.getByRole('button', {name: 'Keep on top', hidden: true})
+        const pin = await screen.findByRole('button', {name: 'Keep on top', hidden: true})
         await userEvent.click(pin)
 
         expect(pin).toHaveAttribute('aria-pressed', 'true')

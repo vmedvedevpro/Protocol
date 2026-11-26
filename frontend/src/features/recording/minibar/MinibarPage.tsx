@@ -14,7 +14,8 @@ import {
     setMicrophoneMuted,
     setSystemAudioMuted,
 } from '../api/recording'
-import {exitCompactMode, resizeMinibar, startWindowDragging, stopRecordingFromMinibar} from './api'
+import {useNativeEvent} from '@/api/events'
+import {exitCompactMode, MINIBAR_POINTER_LEFT_EVENT, resizeMinibar, startWindowDragging, stopRecordingFromMinibar} from './api'
 import {type MinibarPhase, MinibarPill} from './MinibarPill'
 
 /**
@@ -147,6 +148,9 @@ export function MinibarPage() {
 
     // The window has these only while it is focused: Space pauses, as on
     // the recording screen; the stop shortcut stops, as in the main window.
+    const [pointerLeft, setPointerLeft] = useState(0)
+    useNativeEvent(MINIBAR_POINTER_LEFT_EVENT, () => setPointerLeft((count) => count + 1), {target: 'minibar'})
+
     useHotkey({code: 'Space'}, togglePause)
     useHotkey({code: 'KeyR', mod: true}, () => void stop())
 
@@ -166,6 +170,7 @@ export function MinibarPage() {
                     onStop={() => void stop()}
                     onBackToWindow={() => void run(exitCompactMode, 'Could not open')}
                     onWidthChange={fitWindow}
+                    pointerLeftWindow={pointerLeft}
                     onDragStart={() => void startWindowDragging().catch((error: unknown) => console.error('Minibar: dragging failed', error))}
                 />
             )}

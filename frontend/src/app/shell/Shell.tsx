@@ -20,7 +20,7 @@ import {platform} from '@/lib/platform'
 import {paths} from '@/lib/paths'
 import {CrashReportSheet} from './CrashReportSheet'
 import {GlobalSearch} from './GlobalSearch'
-import {useKeepOnTopStore, useKeepOnTopSync} from './keepOnTop'
+import {useKeepOnTopAvailable, useKeepOnTopStore, useKeepOnTopSync} from './keepOnTop'
 import {useStartupPhase} from './startup'
 import {StartupScreen} from './StartupScreen'
 import {useSummaryTitleSync} from './summaryTitleSync'
@@ -91,7 +91,8 @@ export function Shell() {
     useWindowTitle(title)
     const onTop = useKeepOnTopStore((state) => state.onTop)
     const setOnTop = useKeepOnTopStore((state) => state.setOnTop)
-    useKeepOnTopSync()
+    const keepOnTop = useKeepOnTopAvailable()
+    useKeepOnTopSync(keepOnTop)
     // In front of the startup gate: first launch starts the downloads, and
     // native activates Whisper after its download.
     useModelDownloadSync()
@@ -110,7 +111,7 @@ export function Shell() {
                     platform={platform}
                     onBack={handle.back ? () => void navigate(paths.home) : undefined}
                     onTop={onTop}
-                    onTopChange={setOnTop}
+                    onTopChange={keepOnTop ? setOnTop : undefined}
                 />
                 {phase === 'ready' && (
                     <DownloadLineContext value>

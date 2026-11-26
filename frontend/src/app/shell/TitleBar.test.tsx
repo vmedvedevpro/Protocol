@@ -39,6 +39,12 @@ describe('TitleBar', () => {
         expect(screen.getByRole('banner')).not.toHaveAttribute('data-tauri-drag-region')
     })
 
+    it('offers no pin without a handler (no keep on top in this session)', () => {
+        renderUi(<TitleBar platform="linux" onTop={false}/>)
+
+        expect(screen.queryByRole('button', {name: 'Keep on top'})).not.toBeInTheDocument()
+    })
+
     it('leaves the window buttons to macOS', () => {
         renderTitleBar({platform: 'macos'})
 

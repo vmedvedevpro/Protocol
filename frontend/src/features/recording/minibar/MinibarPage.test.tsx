@@ -2,11 +2,12 @@ import {fireEvent, screen, waitFor, within} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import {beforeEach, describe, expect, it, vi} from 'vitest'
 import {handlers} from '@/mocks/handlers'
-import {installMockIpc} from '@/mocks/ipc'
+import {emitMockEvent, installMockIpc} from '@/mocks/ipc'
 import type {MockRecording} from '@/mocks/live'
 import {mockState} from '@/mocks/state'
 import {session} from '../store/session'
 import {renderRecording} from '../test/renderRecording'
+import {MINIBAR_POINTER_LEFT_EVENT} from './api'
 import {MinibarPage} from './MinibarPage'
 import {ShrinkButton} from './ShrinkButton'
 
@@ -59,6 +60,23 @@ describe('MinibarPage', () => {
 
         await userEvent.unhover(pill)
         await waitFor(() => expect(within(pill).queryByRole('button', {name: 'Mute microphone'})).not.toBeInTheDocument())
+    })
+
+    it('closes when native says the pointer left the window', async () => {
+        // WebKitGTK on Wayland reports no pointerleave once the pointer
+        // leaves the whole view, which is the pill (keep_above.rs).
+        recordFor(60)
+        const {pill} = await renderMinibar()
+        await userEvent.hover(pill)
+        expect(within(pill).getByRole('button', {name: 'Mute microphone'})).toBeInTheDocument()
+
+        await emitMockEvent(MINIBAR_POINTER_LEFT_EVENT, null)
+
+        await waitFor(() => expect(within(pill).queryByRole('button', {name: 'Mute microphone'})).not.toBeInTheDocument())
+
+        // Back over the pill the webview sends moves but no pointerenter.
+        fireEvent.pointerMove(pill)
+        expect(await within(pill).findByRole('button', {name: 'Mute microphone'})).toBeInTheDocument()
     })
 
     it('opens for the keyboard and stays open while its focus is inside', async () => {
