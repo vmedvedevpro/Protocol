@@ -98,7 +98,8 @@ prereleases are invisible to them.
    git fetch origin
    $sha = git rev-parse origin/main   # the release PR's merge commit
    gh run list -R vmedvedevpro/Protocol --commit $sha --json databaseId,workflowName,event,status,conclusion
-   # For each run: every line must say success (draft and join-macos say skipped).
+   # For each run: every line must say success (draft and join-macos say skipped,
+   # and so does a leg taken from an earlier main run: see Reused legs).
    gh run view <databaseId> -R vmedvedevpro/Protocol --json jobs --jq '.jobs[] | select(.name | test("macos") | not) | "\(.conclusion) \(.name)"'
    ```
 
@@ -266,6 +267,25 @@ Like a tag run, a dry run does not wait for macOS: `preview` assembles
 Windows and Linux as soon as their legs are done, and `preview-macos` joins
 macOS to that preview with `join-macos.sh` when the macOS leg finishes, so a
 broken macOS build or merge shows as a red job without holding anything.
+
+### Reused legs
+
+A run does not build a leg again when a push run on `main` already built it
+from the same inputs (#244). The `reuse` job runs
+`scripts/release/reusable-legs.sh`, which takes the newest such run whose
+leg succeeded and whose `leg-*` artifact has not expired (14 days). The same
+inputs means no change between the two commits outside `docs/`, Markdown
+under `.github/`, `site/`, `AGENTS.md`, `ARCHITECTURE.md`, `CHANGELOG.md` and
+`release.yml` and that script, and the same `uses` and `with` of that leg's job in
+`release.yml`; the legs take nothing else. The leg's job is then skipped, and
+`preview`, `draft`, `preview-macos` and `join-macos` download its artifact
+from that run. The `reuse` job's log names the run of each leg.
+
+So a tag on a green `main` commit builds only what that commit's dry run did
+not, usually nothing but a macOS leg the dry run had no runner for, and the
+draft follows within minutes. The provenance that `draft` and `join-macos`
+attest names the tag run, which signed the installers the reused run built
+from the same sources.
 
 Artifacts of a dry run: `leg-windows`, `leg-macos`, `leg-linux` (the
 installers), `release-dry-run` (Windows and Linux: `latest.json`,
