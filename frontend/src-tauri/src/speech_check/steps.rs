@@ -46,6 +46,13 @@ fn failed(mut step: StepReport, reason: impl Into<String>) -> StepReport {
     step
 }
 
+/// A step whose model the tester did not download: reported, not run.
+fn not_downloaded(mut step: StepReport) -> StepReport {
+    step.status = StepStatus::NotChecked;
+    step.reason = Some("The model is not downloaded".into());
+    step
+}
+
 /// Passed when every clip passed; the first failing clip's reason otherwise.
 fn finish(mut step: StepReport) -> StepReport {
     if let Some(clip) = step.clips.iter().find(|clip| !clip.passed) {
@@ -154,7 +161,10 @@ pub async fn parakeet(model: &str, context: &Context<'_>) -> StepReport {
     };
     match engine.discover_models().await {
         Ok(models) => match models.iter().find(|info| info.name == model) {
-            Some(info) => step.model = Some(ModelId { id: model.into(), version: version_of(&crate::model_catalog::installed::record_path_for_dir(&info.path)) }),
+            Some(info) if matches!(info.status, crate::parakeet_engine::ModelStatus::Available) => {
+                step.model = Some(ModelId { id: model.into(), version: version_of(&crate::model_catalog::installed::record_path_for_dir(&info.path)) })
+            }
+            Some(_) => return not_downloaded(step),
             None => return failed(step, format!("Parakeet has no model {model}")),
         },
         Err(error) => return failed(step, format!("Parakeet's models could not be listed: {error}")),
@@ -355,6 +365,15 @@ async fn whisper_picked(model: &str, inputs: &mut Vec<(String, String)>) -> Devi
     cpp
 }
 
+/// Whether `model` is on this computer: the Intel GPU version's folder, or
+/// a ggml file that verified.
+fn whisper_installed(models: &[crate::whisper_engine::whisper_engine::ModelInfo], model: &str) -> bool {
+    match crate::speech_choice::gpu_version(model) {
+        Some(version) => crate::speech_choice::installed(&version).is_some(),
+        None => models.iter().any(|info| info.name == model && matches!(info.status, crate::whisper_engine::whisper_engine::ModelStatus::Available)),
+    }
+}
+
 /// The installed file or folder `model` loads from, for its version.
 fn whisper_record(models: &[crate::whisper_engine::whisper_engine::ModelInfo], model: &str) -> Option<std::path::PathBuf> {
     let info = models.iter().find(|info| info.name == model)?;
@@ -382,6 +401,9 @@ pub async fn whisper(model: &str, context: &Context<'_>) -> StepReport {
     };
     match engine.discover_models().await {
         Ok(models) => {
+            if !whisper_installed(&models, model) {
+                return not_downloaded(step);
+            }
             if let Some(record) = whisper_record(&models, model) {
                 step.model = Some(ModelId { id: model.into(), version: version_of(&record) });
             }

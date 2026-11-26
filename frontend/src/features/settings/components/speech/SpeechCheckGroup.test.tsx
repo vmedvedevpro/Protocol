@@ -70,15 +70,14 @@ describe('Settings › Advanced › Speech check', () => {
         expect(await within(check).findByRole('status')).toHaveTextContent('No model was checked: none of them is on this computer')
     })
 
-    it('runs the pair, reports declined models as not checked, and ends with Copy and Save', async () => {
+    it('runs the pair, reports a model that is not here as not checked, and ends with Copy and Save', async () => {
         renderAdvanced()
         await runCheck()
         await userEvent.click(await within(group()).findByRole('button', {name: 'Start check'}))
 
         await waitFor(() => expect(mockState.speechCheck.plans).toHaveLength(1))
         const [plan] = mockState.speechCheck.plans
-        expect(plan).toMatchObject({liveModel: 'parakeet-tdt-0.6b-v3-int8', postMeetingModel: 'large-v3-turbo-q5_0'})
-        expect(plan.declined).toEqual(['nemotron'])
+        expect(plan).toEqual({liveModel: 'parakeet-tdt-0.6b-v3-int8', postMeetingModel: 'large-v3-turbo-q5_0', selectedLive: expect.anything(), selectedPostMeeting: expect.anything()})
 
         const check = group()
         expect(await within(check).findByRole('button', {name: 'Copy report'})).toBeInTheDocument()

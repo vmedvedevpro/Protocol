@@ -40,7 +40,7 @@ impl StepKind {
 pub enum StepStatus {
     Passed,
     Failed,
-    /// Not run: the model is not on this computer, or the tester declined its download.
+    /// Not run: the model is not on this computer (the tester did not download it).
     NotChecked,
     Cancelled,
     /// Protocol closed while this step ran (the crash note, see `note.rs`).
@@ -248,9 +248,6 @@ pub struct Pair {
     pub live: Option<String>,
     #[serde(default)]
     pub post_meeting: Option<String>,
-    /// What the WebView read to choose the pair, as (name, value).
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub inputs: Vec<(String, String)>,
 }
 
 impl Pair {
@@ -355,9 +352,6 @@ impl Report {
         line(&mut out, String::new());
         let named = |value: &Option<String>| value.clone().unwrap_or_else(|| "none".to_string());
         line(&mut out, format!("Checked pair: live {}, after the meeting {}", named(&self.pair.live), named(&self.pair.post_meeting)));
-        for (name, value) in &self.pair.inputs {
-            line(&mut out, format!("  {name}: {value}"));
-        }
         if self.pair.differs_from(&self.selected) {
             line(
                 &mut out,
@@ -542,7 +536,6 @@ impl Report {
         }
         for pair in [&mut self.pair, &mut self.selected] {
             each([&mut pair.live, &mut pair.post_meeting].into_iter().flatten(), f);
-            each(pair.inputs.iter_mut().flat_map(|(name, value)| [name, value]), f);
         }
         for step in &mut self.steps {
             each([&mut step.reason, &mut step.ran_on].into_iter().flatten(), f);
@@ -661,8 +654,8 @@ mod tests {
             created: "2026-11-26T10:00:00Z".into(),
             outcome: Outcome::Failed,
             system: System { protocol_version: "1.0.0".into(), package: "deb".into(), os: "Linux".into(), ..Default::default() },
-            pair: Pair { live: Some("parakeet:parakeet-tdt-0.6b-v3-int8".into()), post_meeting: Some("whisper:large-v3-turbo-q5_0".into()), inputs: vec![("Intel NPU".into(), "none".into())] },
-            selected: Pair { live: Some("parakeet:parakeet-tdt-0.6b-v3-int8".into()), post_meeting: Some("whisper:small".into()), inputs: Vec::new() },
+            pair: Pair { live: Some("parakeet:parakeet-tdt-0.6b-v3-int8".into()), post_meeting: Some("whisper:large-v3-turbo-q5_0".into()) },
+            selected: Pair { live: Some("parakeet:parakeet-tdt-0.6b-v3-int8".into()), post_meeting: Some("whisper:small".into()) },
             steps: vec![parakeet, whisper, StepReport::new(StepKind::Nemotron, StepStatus::NotChecked).with_reason("Not downloaded")],
             warnings: vec!["Nemotron was not checked".into()],
         }

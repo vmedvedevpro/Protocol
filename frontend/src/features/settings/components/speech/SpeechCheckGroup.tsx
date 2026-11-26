@@ -3,18 +3,16 @@ import {useQuery, useQueryClient} from '@tanstack/react-query'
 import styled from 'styled-components'
 import {errorMessage} from '@/api/core'
 import {DIARIZATION_DOWNLOAD_CANCELLED, diarizationKeys, diarizationStatusQuery, cancelNemotronDownload, downloadNemotron, NEMOTRON} from '@/api/diarization'
-import {cancelIntelDownload, companionQuery, downloadGpuVersion, intelError, isIntelCancelled, npuQuery, openVinoAvailabilityQuery} from '@/api/intel'
+import {cancelIntelDownload, companionQuery, downloadGpuVersion, intelError, isIntelCancelled, openVinoAvailabilityQuery} from '@/api/intel'
 import {trackIntelDownload} from '@/api/modelDownloadSync'
 import {useRecordingBusy} from '@/api/recordingPhase'
 import {parakeetModelsQuery, whisperModelsQuery} from '@/api/models'
 import {postCallConfigQuery, transcriptConfigQuery} from '@/api/speech'
 import {
     cancelSpeechCheck,
-    CHECK_STEPS,
     type CheckStep,
     type CheckStepKind,
     checkPair,
-    choiceInputs,
     dismissSpeechCheck,
     resumeSpeechCheck,
     runSpeechCheck,
@@ -177,7 +175,6 @@ function Offer({onBack, onStarted}: {onBack: () => void, onStarted: () => void})
     const {parakeet, whisper, gpuVersion, downloads, download, cancel} = useSpeechModels()
     const availabilityQuery = useQuery(openVinoAvailabilityQuery)
     const companionQuery_ = useQuery(companionQuery)
-    const npuQuery_ = useQuery(npuQuery)
     const speakers = useQuery(diarizationStatusQuery)
     const parakeetList = useQuery(parakeetModelsQuery)
     const whisperList = useQuery(whisperModelsQuery)
@@ -185,10 +182,9 @@ function Offer({onBack, onStarted}: {onBack: () => void, onStarted: () => void})
     const postCall = useQuery(postCallConfigQuery).data
     const availability = availabilityQuery.data
     const companion = companionQuery_.data
-    const npu = npuQuery_.data
     // The pair and what is installed follow from all of these: until each has
     // loaded, a row could say Ready for a model that is not the one checked.
-    const loading = [availabilityQuery, companionQuery_, npuQuery_, speakers, parakeetList, whisperList].some((query) => query.isPending)
+    const loading = [availabilityQuery, companionQuery_, speakers, parakeetList, whisperList].some((query) => query.isPending)
     const unreadable = speakers.isError || parakeetList.isError || whisperList.isError
 
     const pair = checkPair(availability, companion)
@@ -206,14 +202,7 @@ function Offer({onBack, onStarted}: {onBack: () => void, onStarted: () => void})
 
     const start = () => {
         setStarting(true)
-        const declined = CHECK_STEPS.filter((kind) => !installed[kind])
-        void runSpeechCheck({
-            liveModel: pair.live,
-            postMeetingModel: pair.postMeeting,
-            ...selectedModels(live, postCall),
-            declined,
-            choiceInputs: choiceInputs(availability, companion, npu),
-        })
+        void runSpeechCheck({liveModel: pair.live, postMeetingModel: pair.postMeeting, ...selectedModels(live, postCall)})
             .then(onStarted)
             .catch((error) => toast.error('The check didn’t start', {description: errorMessage(error)}))
             .finally(() => setStarting(false))

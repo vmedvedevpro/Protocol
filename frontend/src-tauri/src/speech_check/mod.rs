@@ -55,12 +55,6 @@ pub struct Plan {
     pub selected_live: Option<String>,
     #[serde(default)]
     pub selected_post_meeting: Option<String>,
-    /// Steps whose model the tester chose not to download.
-    #[serde(default)]
-    pub declined: Vec<StepKind>,
-    /// The inputs of the WebView's choice of the pair, name and value.
-    #[serde(default)]
-    pub choice_inputs: Vec<(String, String)>,
 }
 
 impl Plan {
@@ -68,12 +62,11 @@ impl Plan {
         Pair {
             live: Some(format!("parakeet:{}", self.live_model)),
             post_meeting: Some(format!("whisper:{}", self.post_meeting_model)),
-            inputs: self.choice_inputs.clone(),
         }
     }
 
     fn selected(&self) -> Pair {
-        Pair { live: self.selected_live.clone(), post_meeting: self.selected_post_meeting.clone(), inputs: Vec::new() }
+        Pair { live: self.selected_live.clone(), post_meeting: self.selected_post_meeting.clone() }
     }
 
     #[cfg(test)]
@@ -83,8 +76,6 @@ impl Plan {
             post_meeting_model: "large-v3-turbo-q5_0".into(),
             selected_live: None,
             selected_post_meeting: None,
-            declined: Vec::new(),
-            choice_inputs: Vec::new(),
         }
     }
 }
@@ -555,8 +546,6 @@ async fn run(emit: &impl Emit, plan: Plan, resumed: Option<Note>, runner: &impl 
                 } else if cancelled() {
                     let reason = if RECORDING_STARTED.load(Ordering::SeqCst) { "A recording started" } else { "Cancelled" };
                     StepReport::new(kind, StepStatus::Cancelled).with_reason(reason)
-                } else if plan.declined.contains(&kind) {
-                    StepReport::new(kind, StepStatus::NotChecked).with_reason("The model was not downloaded for the check")
                 } else {
                     set_running_step(emit, kind, note.done.clone());
                     note.running = Some(kind);
@@ -883,8 +872,8 @@ mod tests {
         let plan = Plan::for_tests();
         assert_eq!(plan.pair().live.as_deref(), Some("parakeet:parakeet-tdt-0.6b-v3-int8"));
         assert_eq!(plan.pair().post_meeting.as_deref(), Some("whisper:large-v3-turbo-q5_0"));
-        let json = serde_json::json!({"liveModel": "a", "postMeetingModel": "b", "declined": ["nemotron"]});
+        let json = serde_json::json!({"liveModel": "a", "postMeetingModel": "b", "selectedLive": "parakeet:a"});
         let parsed: Plan = serde_json::from_value(json).unwrap();
-        assert_eq!(parsed.declined, vec![StepKind::Nemotron]);
+        assert_eq!(parsed.selected().live.as_deref(), Some("parakeet:a"));
     }
 }

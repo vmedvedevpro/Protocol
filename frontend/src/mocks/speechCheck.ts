@@ -49,7 +49,7 @@ export function mockReport(steps: CheckStep[], outcome: CheckReport['outcome']):
     return {report: {format: 1, created: '2026-11-26T10:00:00Z', outcome, steps, warnings: []}, text}
 }
 
-export function speechCheckHandlers(state: {speechCheck: MockSpeechCheck, live: {recording: unknown}}): Record<string, MockHandler> {
+export function speechCheckHandlers(state: {speechCheck: MockSpeechCheck, live: {recording: unknown}, diarization: {nemotronInstalled: boolean}}): Record<string, MockHandler> {
     const publish = (status: SpeechCheckStatus) => {
         state.speechCheck.status = status
         void emit(SPEECH_CHECK_CHANGED_EVENT, status)
@@ -63,7 +63,7 @@ export function speechCheckHandlers(state: {speechCheck: MockSpeechCheck, live: 
                 : steps.some((step) => step.status === 'passed') ? 'passed' : 'nothingChecked'
         publish({state: 'finished', ...mockReport(steps, outcome)})
     }
-    const run = (steps: CheckStep['kind'][], done: CheckStep[], declined: CheckStep['kind'][]) => {
+    const run = (steps: CheckStep['kind'][], done: CheckStep[], missing: CheckStep['kind'][]) => {
         const check = state.speechCheck
         check.cancelled = false
         let index = 0
@@ -84,7 +84,7 @@ export function speechCheckHandlers(state: {speechCheck: MockSpeechCheck, live: 
                     next()
                     return
                 }
-                done.push(mockStep(kind, declined.includes(kind) ? 'notChecked' : check.failing === kind ? 'failed' : 'passed'))
+                done.push(mockStep(kind, missing.includes(kind) ? 'notChecked' : check.failing === kind ? 'failed' : 'passed'))
                 index += 1
                 next()
             }, TICK_MS)
@@ -96,9 +96,9 @@ export function speechCheckHandlers(state: {speechCheck: MockSpeechCheck, live: 
         speech_check_run: ({plan}) => {
             if (state.speechCheck.status.state === 'running') throw 'The speech check is already running'
             if (state.live.recording) throw 'The speech check can’t run during a recording'
-            const checked = plan as CheckPlan
-            state.speechCheck.plans.push(checked)
-            run([...CHECK_STEPS], [], checked.declined)
+            state.speechCheck.plans.push(plan as CheckPlan)
+            // As native: a model that is not on the computer is not checked.
+            run([...CHECK_STEPS], [], state.diarization.nemotronInstalled ? [] : ['nemotron'])
             return null
         },
         speech_check_resume: () => {

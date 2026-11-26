@@ -12,7 +12,7 @@ compares nothing.
 
 | Owner | Role |
 | --- | --- |
-| `frontend/src/api/speechCheck.ts` | The pair the check runs (`checkPair`, the rule of For this computer: Parakeet v3 live, the Intel GPU version where `gpuOffered`, else the Compressed copy), the inputs of that choice, the selected models, the commands and `speech-check-changed`, Save report. |
+| `frontend/src/api/speechCheck.ts` | The pair the check runs (`checkPair`, the rule of For this computer: Parakeet v3 live, the Intel GPU version where `gpuOffered`, else the Compressed copy), the selected models, the commands and `speech-check-changed`, Save report. |
 | `features/settings/components/speech/SpeechCheckGroup.tsx` | The group: idle, the list with downloads, running with Cancel, the report with Copy and Save, and an interrupted check with Run the remaining steps. `speechCheckText.ts` words devices as Settings does. |
 | `src-tauri/src/speech_check/mod.rs` | The commands (`speech_check_status`, `_run`, `_resume`, `_cancel`, `_dismiss`), the status, the run: busy hold, the app's engines taken and given back, the steps in order, the report. |
 | `speech_check/steps.rs` | The four steps on engines of their own: picked device, load, ran-on device, fallback, the sample, scores. |
@@ -28,8 +28,8 @@ compares nothing.
 1. Run check lists the four steps and offers a download for each model that is
    not on the computer, with its size from the catalog (Parakeet v3, the
    Compressed copy or the Intel GPU version with `choose: false`, Nemotron).
-   A model left undownloaded is sent as `declined` and reported as not
-   checked. Pyannote is built in.
+   A model left undownloaded is reported as not checked: native looks for
+   each model itself. Pyannote is built in.
 2. `speech_check_run` refuses during a recording, its stop and its save, an
    import, a retranscription, offline diarization, the post-call pass and a
    summary, and while a check runs. Otherwise, in one hold of the status, it
@@ -146,8 +146,7 @@ ggml log callback that still writes everything to stderr; Mesa's version is
 not readable without a Vulkan or OpenGL context); Intel's OpenCL driver
 (Linux); the NPU and its state (Windows); ONNX Runtime's version and
 providers. Then the pair and the selected models (the report says when they
-differ; the check still runs the pair), the inputs of the pair's choice, and
-per step: the model and its catalog commit, picked device with the inputs,
+differ; the check still runs the pair), and per step: the model and its catalog commit, picked device with the inputs,
 ran-on device, fallback with its exact error, load time, each clip's time,
 real-time factor, text, language, word errors or speaker score, pass or fail.
 Which platform paths were never run before is development history, kept in

@@ -8,14 +8,16 @@
  *
  * The WebView decides the pair, with the rule of Settings' For this
  * computer card (`gpuOffered`): Parakeet v3 live, and after meetings the
- * Intel GPU version where it is offered, else the Compressed copy. The types
- * mirror `Plan`, `Status` and `report.rs` in native.
+ * Intel GPU version where it is offered, else the Compressed copy. Native
+ * reports the inputs of its device choices, and a model that is not on the
+ * computer as not checked. The types mirror `Plan`, `Status` and `report.rs`
+ * in native.
  */
 import {queryOptions} from '@tanstack/react-query'
 import {writeFile} from '@tauri-apps/plugin-fs'
 import {command} from './core'
 import {type NativeEvent, useEventQuerySync} from './events'
-import {type CompanionStatus, gpuOffered, type OpenVinoAvailability, type ParakeetNpuStatus} from './intel'
+import {type CompanionStatus, gpuOffered, type OpenVinoAvailability} from './intel'
 import {PARAKEET_MODEL, POST_CALL_WHISPER_MODEL} from './models'
 import {isWhisperProvider, type PostCallTranscriptConfig, type TranscriptConfig} from './speech'
 
@@ -77,10 +79,6 @@ export interface CheckPlan {
     postMeetingModel: string
     selectedLive: string | null
     selectedPostMeeting: string | null
-    /** Steps whose model the tester did not download. */
-    declined: CheckStepKind[]
-    /** The inputs of the pair's choice, for the report. */
-    choiceInputs: [string, string][]
 }
 
 /** The steps' names in the group and the report. */
@@ -137,21 +135,6 @@ export const useSpeechCheckSync = () => useEventQuerySync(SPEECH_CHECK_CHANGED_E
  */
 export function checkPair(availability: OpenVinoAvailability | null | undefined, companion: CompanionStatus | null | undefined) {
     return {live: PARAKEET_MODEL, postMeeting: gpuOffered(availability, companion) ? companion.id : POST_CALL_WHISPER_MODEL}
-}
-
-/** The inputs of that choice, named for the report. */
-export function choiceInputs(
-    availability: OpenVinoAvailability | null | undefined,
-    companion: CompanionStatus | null | undefined,
-    npu: ParakeetNpuStatus | null | undefined,
-): [string, string][] {
-    const inputs: [string, string][] = [
-        ['Intel GPU version offered', availability?.offer ? 'yes' : 'no'],
-        ['Intel GPU version', !companion ? 'none in this build' : companion.refused ? `refused: ${companion.refused}` : companion.installed ? 'installed' : 'not installed'],
-        ['Intel NPU', npu?.present ? npu.state : 'none'],
-    ]
-    if (availability?.reason) inputs.push(['Intel GPU version not offered because', availability.reason])
-    return inputs
 }
 
 /** A saved model as `engine:model`; the after-meeting model that follows the live one says so. */
