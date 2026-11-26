@@ -498,6 +498,8 @@ pub async fn get_recording_preferences<R: Runtime>(
 /// they would call a device that records "not connected". The stored value
 /// is rewritten only when the user next saves a preference; a device that
 /// cannot be found keeps its stored name, which the UI reports as missing.
+/// `set_recording_preferences` turns the current label back into the stored
+/// value, so saving another preference does not rewrite the device.
 #[cfg(target_os = "linux")]
 async fn current_device_names(preferences: RecordingPreferences) -> RecordingPreferences {
     use crate::audio::devices::{platform::linux::current_name, AudioDevice};
@@ -518,11 +520,66 @@ async fn current_device_names(preferences: RecordingPreferences) -> RecordingPre
     looked_up.unwrap_or(preferences)
 }
 
+/// The Settings page sends back every preference it read, devices under
+/// the labels `current_device_names` gave them, whatever field changed. A
+/// device that is only the current label of the stored one keeps the stored
+/// value: "Yeti [alsa_input.usb-A1]" read back as "Yeti" while its twin is
+/// unplugged, or an ALSA `default` read back as the server's default input,
+/// would otherwise be saved by a gain change, and "Yeti" fits both twins
+/// once the other is back. Choosing another device still saves it.
+#[cfg(target_os = "linux")]
+async fn keep_stored_device_names<R: Runtime>(
+    app: &AppHandle<R>,
+    preferences: RecordingPreferences,
+) -> RecordingPreferences {
+    use crate::audio::devices::platform::linux::current_name;
+    let Ok(store) = app.store("recording_preferences.json") else { return preferences };
+    let stored = preferences_from_store_value(store.get("preferences"));
+    let fallback = preferences.clone();
+    tokio::task::spawn_blocking(move || {
+        let mut kept = preferences;
+        kept.preferred_mic_device =
+            kept_device_name(stored.preferred_mic_device.as_deref(), kept.preferred_mic_device.take(), current_name);
+        kept.preferred_system_device =
+            kept_device_name(stored.preferred_system_device.as_deref(), kept.preferred_system_device.take(), current_name);
+        kept
+    })
+    .await
+    .unwrap_or(fallback)
+}
+
+/// The device value to save: the stored one when `incoming` is the label
+/// `current` gives it now, else `incoming`. A stored device that cannot be
+/// looked up (gone, or no sound server) leaves `incoming` as sent, which is
+/// then the stored value itself or the user's new choice.
+#[cfg(any(target_os = "linux", test))]
+fn kept_device_name(
+    stored: Option<&str>,
+    incoming: Option<String>,
+    current: impl Fn(&crate::audio::devices::AudioDevice) -> Result<crate::audio::devices::AudioDevice>,
+) -> Option<String> {
+    use crate::audio::devices::AudioDevice;
+    let (Some(stored), Some(sent)) = (stored, incoming.as_deref()) else { return incoming };
+    if stored == sent {
+        return incoming;
+    }
+    let Ok(device) = AudioDevice::from_name(stored) else { return incoming };
+    match current(&device) {
+        Ok(now) if now.to_string() == sent => {
+            info!("Keeping the stored device '{stored}', listed as '{sent}' now");
+            Some(stored.to_string())
+        }
+        _ => incoming,
+    }
+}
+
 #[tauri::command]
 pub async fn set_recording_preferences<R: Runtime>(
     app: AppHandle<R>,
     preferences: RecordingPreferences,
 ) -> Result<(), String> {
+    #[cfg(target_os = "linux")]
+    let preferences = keep_stored_device_names(&app, preferences).await;
     save_recording_preferences(&app, &preferences)
         .await
         .map_err(|e| format!("Failed to save recording preferences: {}", e))
@@ -829,5 +886,33 @@ mod tests {
         assert!(reject_path_inside_bundle(&traversal, &bundle).is_err());
 
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// The lookup `current_name` would make with the twin "Yeti [alsa_input.usb-B2]"
+    /// unplugged and ALSA's `default` naming the server's default input.
+    fn listed_now(device: &crate::audio::devices::AudioDevice) -> Result<crate::audio::devices::AudioDevice> {
+        use crate::audio::devices::AudioDevice;
+        let label = match device.name.as_str() {
+            "Yeti [alsa_input.usb-A1]" => "Yeti",
+            "default" => "HD Audio Digital Microphone",
+            "Yeti" | "HD Audio Digital Microphone" | "USB Headset" => device.name.as_str(),
+            _ => return Err(anyhow::anyhow!("'{}' is not connected", device.name)),
+        };
+        Ok(AudioDevice::new(label.to_string(), device.device_type.clone()))
+    }
+
+    #[test]
+    fn a_gain_change_keeps_the_stored_device_name() {
+        let kept = |stored: &str, sent: &str| kept_device_name(Some(stored), Some(sent.to_string()), listed_now);
+        assert_eq!(kept("Yeti [alsa_input.usb-A1] (input)", "Yeti (input)").as_deref(), Some("Yeti [alsa_input.usb-A1] (input)"));
+        assert_eq!(kept("default (input)", "HD Audio Digital Microphone (input)").as_deref(), Some("default (input)"));
+        // Another device chosen, or the stored one gone: what was sent is saved.
+        assert_eq!(kept("Yeti [alsa_input.usb-A1] (input)", "USB Headset (input)").as_deref(), Some("USB Headset (input)"));
+        assert_eq!(kept("Jabra Evolve2 (input)", "Jabra Evolve2 (input)").as_deref(), Some("Jabra Evolve2 (input)"));
+        assert_eq!(kept("Jabra Evolve2 (input)", "USB Headset (input)").as_deref(), Some("USB Headset (input)"));
+        // The same label as computer audio is another device.
+        assert_eq!(kept("Yeti [alsa_input.usb-A1] (input)", "Yeti (output)").as_deref(), Some("Yeti (output)"));
+        assert_eq!(kept_device_name(Some("Yeti [alsa_input.usb-A1] (input)"), None, listed_now), None);
+        assert_eq!(kept_device_name(None, Some("Yeti (input)".into()), listed_now).as_deref(), Some("Yeti (input)"));
     }
 }
