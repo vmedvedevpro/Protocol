@@ -270,11 +270,7 @@ pub fn startup() {
 }
 
 fn interrupted(note: &Note) -> Status {
-    let mut steps = note.done.clone();
-    if let Some(kind) = note.closed_in {
-        steps.push(StepReport::new(kind, StepStatus::ClosedTheApp).with_reason("Protocol closed while this step ran"));
-    }
-    let report = build_report(note, steps, Outcome::Interrupted);
+    let report = build_report(note, note.done_in_order(), Outcome::Interrupted);
     let text = report.render();
     Status::Interrupted { closed_in: note.closed_in, remaining: note.remaining(), report, text }
 }
@@ -317,8 +313,18 @@ pub async fn speech_check_run<R: Runtime>(app: AppHandle<R>, plan: Plan) -> Resu
 /// Runs the steps a run Protocol closed during did not finish.
 #[tauri::command]
 pub async fn speech_check_resume<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
-    let Some(note) = note::take_interrupted() else { return Err("There is no check to resume".into()) };
+    let note = resumable()?;
     start(app, note.plan.clone(), Some(note))
+}
+
+/// The note to resume: only while the group shows the interrupted check, so
+/// a resume sent twice, or after Run again, starts nothing.
+fn resumable() -> Result<Note, String> {
+    let nothing = || "There is no check to resume".to_string();
+    if !matches!(status(), Status::Interrupted { .. }) {
+        return Err(nothing());
+    }
+    note::take_interrupted().ok_or_else(nothing)
 }
 
 #[tauri::command]
@@ -541,7 +547,6 @@ async fn run(emit: &impl Emit, plan: Plan, resumed: Option<Note>, runner: &impl 
     }
     note::write(&note);
     let to_run: Vec<StepKind> = note.remaining();
-    let closed = note.closed_in.map(|kind| StepReport::new(kind, StepStatus::ClosedTheApp).with_reason("Protocol closed while this step ran"));
 
     let clips = tokio::task::spawn_blocking(sample::load).await.map_err(|error| anyhow::anyhow!(error.to_string())).and_then(|loaded| loaded);
     let cancelled = || CANCEL.load(Ordering::SeqCst);
@@ -583,21 +588,15 @@ async fn run(emit: &impl Emit, plan: Plan, resumed: Option<Note>, runner: &impl 
     if let Ok(held) = taken {
         give_back(held, &mut note.warnings).await;
     }
-    // The steps in the plan's order, the one that closed the app among them.
-    let mut steps: Vec<StepReport> = Vec::new();
-    for kind in plan.steps() {
-        if let Some(step) = note.done.iter().find(|step| step.kind == kind) {
-            steps.push(step.clone());
-        } else if let Some(step) = closed.as_ref().filter(|step| step.kind == kind) {
-            steps.push(step.clone());
-        }
-    }
+    // The steps in the plan's order, those that closed the app among them.
+    let steps = note.done_in_order();
     let mut outcome = Report::outcome_of(&steps);
-    // A crash in an earlier start is reported, but it does not make this run interrupted.
+    // A crash in an earlier start is reported, but it does not make this run
+    // interrupted, and the check did not pass.
     if outcome == Outcome::Interrupted {
         let rest: Vec<StepReport> = steps.iter().filter(|step| step.status != StepStatus::ClosedTheApp).cloned().collect();
         outcome = match Report::outcome_of(&rest) {
-            Outcome::Passed => Outcome::Failed,
+            Outcome::Passed | Outcome::NothingChecked => Outcome::Failed,
             other => other,
         };
     }
@@ -628,6 +627,7 @@ mod tests {
     fn an_interrupted_run_reports_the_step_that_closed_the_app_and_offers_the_rest() {
         let mut note = note::tests::note();
         note.done.push(StepReport::new(StepKind::Parakeet, StepStatus::Passed));
+        note.done.push(StepReport::new(StepKind::Whisper, StepStatus::ClosedTheApp).with_reason(note::CLOSED_REASON));
         note.closed_in = Some(StepKind::Whisper);
         match interrupted(&note) {
             Status::Interrupted { closed_in, remaining, report, text } => {
@@ -697,6 +697,24 @@ mod tests {
         assert!(CANCEL.load(Ordering::SeqCst));
         assert!(RECORDING_STARTED.load(Ordering::SeqCst));
         assert!(matches!(status(), Status::Running { cancelling: true, .. }));
+    }
+
+    #[test]
+    fn only_an_interrupted_check_resumes() {
+        let _file = note::tests::FILE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _statics = Statics::take();
+        let folder = tempfile::tempdir().unwrap();
+        note::use_path_for_tests(Some(folder.path().join("speech-check.json")));
+        let mut left = note::tests::note();
+        left.running = Some(StepKind::Whisper);
+        note::write(&left);
+        // A note on disk while the group shows something else resumes nothing.
+        assert_eq!(resumable().err().as_deref(), Some("There is no check to resume"));
+        let found = note::take_interrupted().unwrap();
+        *lock_status() = interrupted(&found);
+        assert_eq!(resumable().unwrap().closed_in, Some(StepKind::Whisper));
+        note::remove();
+        note::use_path_for_tests(None);
     }
 
     #[test]

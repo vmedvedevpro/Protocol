@@ -16,7 +16,10 @@ use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 
-use super::report::{Pair, StepKind, StepReport, System};
+use super::report::{Pair, StepKind, StepReport, StepStatus, System};
+
+/// The reason a step that closed the app gives.
+pub const CLOSED_REASON: &str = "Protocol closed while this step ran";
 
 /// What the check writes before each step.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -31,7 +34,9 @@ pub struct Note {
     /// The step running now.
     #[serde(default)]
     pub running: Option<StepKind>,
-    /// A step an earlier start found running: it closed the app.
+    /// The step an earlier start found running last: it closed the app. Every
+    /// step that did is also in `done`, as ClosedTheApp, so a second crash
+    /// in a resumed run neither hides the first nor runs it again.
     #[serde(default)]
     pub closed_in: Option<StepKind>,
     pub warnings: Vec<String>,
@@ -43,13 +48,14 @@ impl Note {
         Note { pair: plan.pair(), selected: plan.selected(), plan, system, done: Vec::new(), running: None, closed_in: None, warnings: Vec::new() }
     }
 
-    /// The steps still to run after the ones done and the one that closed the app.
+    /// The steps still to run after the ones done, those that closed the app among them.
     pub fn remaining(&self) -> Vec<StepKind> {
-        self.plan
-            .steps()
-            .into_iter()
-            .filter(|kind| Some(*kind) != self.closed_in && !self.done.iter().any(|step| step.kind == *kind))
-            .collect()
+        self.plan.steps().into_iter().filter(|kind| !self.done.iter().any(|step| step.kind == *kind)).collect()
+    }
+
+    /// The steps done, in the plan's order.
+    pub fn done_in_order(&self) -> Vec<StepReport> {
+        self.plan.steps().into_iter().filter_map(|kind| self.done.iter().find(|step| step.kind == kind).cloned()).collect()
     }
 }
 
@@ -96,9 +102,9 @@ pub fn remove() {
 }
 
 /// The note a run left, if any. A note with a step still running was left by
-/// a process that closed during that step: it is rewritten with that step as
-/// `closed_in`, so a second start does not count the crash again and a later
-/// one still shows it.
+/// a process that closed during that step: it is rewritten with that step
+/// done as ClosedTheApp and named in `closed_in`, so a second start does not
+/// count the crash again and a later one still shows it.
 pub fn take_interrupted() -> Option<Note> {
     let store = lock();
     let path = path_in(&store);
@@ -113,6 +119,9 @@ pub fn take_interrupted() -> Option<Note> {
     };
     if let Some(step) = note.running.take() {
         log::error!("[speech check] Protocol closed while checking {}", step.title());
+        if !note.done.iter().any(|done| done.kind == step) {
+            note.done.push(StepReport::new(step, StepStatus::ClosedTheApp).with_reason(CLOSED_REASON));
+        }
         note.closed_in = Some(step);
         if let Err(error) = write_at(&path, &note) {
             log::warn!("[speech check] cannot rewrite the crash note: {error}");
@@ -141,7 +150,6 @@ pub(crate) fn use_path_for_tests(path: Option<PathBuf>) {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use crate::speech_check::report::StepStatus;
 
     /// The note's file is process-wide; the tests that use it take turns.
     pub(crate) static FILE: Mutex<()> = Mutex::new(());
@@ -174,9 +182,34 @@ pub(crate) mod tests {
         assert_eq!(found.running, None);
         assert_eq!(found.remaining(), vec![StepKind::Pyannote, StepKind::Nemotron]);
         // A second start still shows it, once.
-        assert_eq!(take_interrupted().unwrap().closed_in, Some(StepKind::Whisper));
+        let again = take_interrupted().unwrap();
+        assert_eq!(again.closed_in, Some(StepKind::Whisper));
+        assert_eq!(again.done.iter().filter(|step| step.status == StepStatus::ClosedTheApp).count(), 1);
         remove();
         assert!(take_interrupted().is_none());
+        use_path_for_tests(None);
+    }
+
+    #[test]
+    fn a_second_crash_in_a_resumed_run_keeps_the_first() {
+        let _file = FILE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let folder = tempfile::tempdir().unwrap();
+        use_path_for_tests(Some(folder.path().join("speech-check.json")));
+        let mut written = note();
+        written.running = Some(StepKind::Whisper);
+        write(&written);
+        // The resumed run closes the app in another step.
+        let mut resumed = take_interrupted().unwrap();
+        resumed.running = Some(StepKind::Nemotron);
+        write(&resumed);
+
+        let found = take_interrupted().unwrap();
+        assert_eq!(found.closed_in, Some(StepKind::Nemotron));
+        let closed: Vec<StepKind> = found.done.iter().filter(|step| step.status == StepStatus::ClosedTheApp).map(|step| step.kind).collect();
+        assert_eq!(closed, vec![StepKind::Whisper, StepKind::Nemotron]);
+        assert_eq!(found.remaining(), vec![StepKind::Parakeet, StepKind::Pyannote], "Whisper does not run again");
+        assert_eq!(found.done_in_order().iter().map(|step| step.kind).collect::<Vec<_>>(), vec![StepKind::Whisper, StepKind::Nemotron]);
+        remove();
         use_path_for_tests(None);
     }
 

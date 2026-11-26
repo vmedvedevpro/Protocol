@@ -224,6 +224,8 @@ pub enum Outcome {
     Cancelled,
     /// Protocol closed during a step; the remaining steps may still be run.
     Interrupted,
+    /// No step ran: every model was missing or declined.
+    NothingChecked,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -258,7 +260,8 @@ pub struct Pair {
 
 impl Report {
     /// The outcome of the steps: any failure fails the check; a cancelled or
-    /// interrupted step leaves the check cancelled or interrupted.
+    /// interrupted step leaves the check cancelled or interrupted; a check
+    /// passes only when at least one step ran and passed.
     pub fn outcome_of(steps: &[StepReport]) -> Outcome {
         if steps.iter().any(|step| step.status == StepStatus::ClosedTheApp) {
             Outcome::Interrupted
@@ -266,8 +269,10 @@ impl Report {
             Outcome::Cancelled
         } else if steps.iter().any(|step| step.status == StepStatus::Failed) {
             Outcome::Failed
-        } else {
+        } else if steps.iter().any(|step| step.status == StepStatus::Passed) {
             Outcome::Passed
+        } else {
+            Outcome::NothingChecked
         }
     }
 
@@ -288,6 +293,7 @@ impl Report {
             Outcome::Failed => "failed",
             Outcome::Cancelled => "cancelled",
             Outcome::Interrupted => "interrupted: Protocol closed during a step",
+            Outcome::NothingChecked => "nothing was checked",
         };
         line(&mut out, format!("Protocol speech check: {outcome}"));
         line(&mut out, format!("Created {}", self.created));
@@ -631,6 +637,9 @@ mod tests {
         assert_eq!(Report::outcome_of(&[step(StepStatus::Passed), step(StepStatus::Failed)]), Outcome::Failed);
         assert_eq!(Report::outcome_of(&[step(StepStatus::Failed), step(StepStatus::Cancelled)]), Outcome::Cancelled);
         assert_eq!(Report::outcome_of(&[step(StepStatus::Cancelled), step(StepStatus::ClosedTheApp)]), Outcome::Interrupted);
+        // Not one model ran: that is no pass.
+        assert_eq!(Report::outcome_of(&[step(StepStatus::NotChecked), step(StepStatus::NotChecked)]), Outcome::NothingChecked);
+        assert_eq!(Report::outcome_of(&[]), Outcome::NothingChecked);
     }
 
     #[test]
