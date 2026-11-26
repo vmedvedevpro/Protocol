@@ -60,9 +60,10 @@ impl ModelConfig {
                 .and_then(|v| v.parse().ok()).unwrap_or(0);
             #[cfg(not(test))]
             let device = 0;
-            match force_cpu {
-                true => None,
-                false => match directml_session(environment, path, device) {
+            if force_cpu {
+                None
+            } else {
+                match directml_session(environment, path, device) {
                     Ok(session) => {
                         log::info!("Nemotron: DirectML session initialized on adapter 0");
                         record_session(NemotronSession::DirectMl);
@@ -72,7 +73,7 @@ impl ModelConfig {
                         log::warn!("Nemotron: DirectML unavailable, using CPU: {error}");
                         Some(error.to_string())
                     }
-                },
+                }
             }
         } else {
             None

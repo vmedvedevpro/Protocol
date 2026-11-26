@@ -118,7 +118,7 @@ fn npu_inputs() -> Vec<(String, String)> {
     {
         let npu = crate::parakeet_engine::npu::state::status();
         let state = if npu.present { format!("{:?}", npu.state).to_lowercase() } else { "none".into() };
-        return std::iter::once(("Intel NPU".to_string(), state)).chain(npu.reason.map(|reason| ("Intel NPU reason".to_string(), reason))).collect();
+        std::iter::once(("Intel NPU".to_string(), state)).chain(npu.reason.map(|reason| ("Intel NPU reason".to_string(), reason))).collect()
     }
     #[cfg(not(windows))]
     Vec::new()
