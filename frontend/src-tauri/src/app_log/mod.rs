@@ -6,7 +6,7 @@ pub mod bundle;
 pub mod scrub;
 
 use flexi_logger::{
-    Cleanup, Criterion, DeferredNow, Duplicate, ErrorChannel, FileSpec, FlexiLoggerError,
+    Cleanup, Criterion, DeferredNow, Duplicate, ErrorChannel, FileSpec,
     LogSpecification, Logger, LoggerHandle, Naming, WriteMode,
 };
 use serde::Serialize;
@@ -67,9 +67,10 @@ pub fn init() {
 
 /// [`init`] with the log in `dir`; tests give it a folder of their own.
 pub fn init_in(dir: &Path) {
+    // The probe's own error: flexi_logger's wrapper drops the OS's reason.
     let started = probe(dir)
-        .map_err(FlexiLoggerError::from)
-        .and_then(|()| file_logger(dir).start())
+        .map_err(|error| error.to_string())
+        .and_then(|()| file_logger(dir).start().map_err(|error| error.to_string()))
         .map_err(|error| format!("Protocol cannot write its log to {}: {error}", dir.display()))
         .or_else(|reason| {
             let _ = START_ERROR.set(reason);
