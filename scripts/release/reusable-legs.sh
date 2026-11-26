@@ -38,8 +38,13 @@ same_inputs() {
   [[ "$(leg_call "$1" "$2")" == "$(leg_call "$1" "$GITHUB_SHA")" ]]
 }
 
-runs=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/release.yml/runs?branch=main&event=push&per_page=50" \
-  --jq '.workflow_runs[] | "\(.id) \(.head_sha)"')
+# Reusing is only a shortcut: when GitHub does not answer, the leg is built,
+# with a warning (on stderr, which the runner reads too; stdout is the output).
+if ! runs=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/release.yml/runs?branch=main&event=push&per_page=50" \
+  --jq '.workflow_runs[] | "\(.id) \(.head_sha)"'); then
+  echo "::warning::Could not list the runs of release.yml; every leg is built" >&2
+  runs=
+fi
 
 for leg in windows macos linux; do
   found=
@@ -48,11 +53,17 @@ for leg in windows macos linux; do
     same_inputs "$leg" "$sha" || continue
     # A leg that run took from another run is skipped there, with no
     # artifact of its own; an older run then has it.
-    built=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$id/jobs?per_page=100" \
-      --jq ".jobs[] | select(.name == \"build-$leg / $leg\") | .conclusion")
+    if ! built=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$id/jobs?per_page=100" \
+      --jq ".jobs[] | select(.name == \"build-$leg / $leg\") | .conclusion"); then
+      echo "::warning::Could not read the jobs of run $id; not taking $leg from it" >&2
+      continue
+    fi
     [[ "$built" == success ]] || continue
-    artifact=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$id/artifacts?name=leg-$leg" \
-      --jq '.artifacts[] | select(.expired | not) | .id')
+    if ! artifact=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$id/artifacts?name=leg-$leg" \
+      --jq '.artifacts[] | select(.expired | not) | .id'); then
+      echo "::warning::Could not read the artifacts of run $id; not taking $leg from it" >&2
+      continue
+    fi
     [[ -n "$artifact" ]] || continue
     found=$id
     break
