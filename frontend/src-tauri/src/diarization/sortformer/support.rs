@@ -19,8 +19,8 @@ pub enum Provider {
     Cpu,
 }
 
-/// DirectML first on Windows, the CPU elsewhere: `build_session` follows
-/// it, and the Speech check reports it as the device picked.
+/// DirectML first on Windows, the CPU elsewhere, as `build_session` asks
+/// for them; the Speech check reports it as the device picked.
 pub fn planned_provider() -> Provider {
     if cfg!(windows) {
         Provider::DirectMl
@@ -49,8 +49,9 @@ pub struct ModelConfig;
 impl ModelConfig {
     pub fn build_session(&self, path: &std::path::Path) -> Result<Session> {
         let environment = crate::onnx_runtime::environment()?;
+        // Windows asks DirectML first (`planned_provider`).
         #[cfg(windows)]
-        let directml_error = if planned_provider() == Provider::DirectMl {
+        let directml_error = {
             #[cfg(test)]
             let force_cpu = std::env::var("MEETILY_NEMOTRON_TEST_CPU").as_deref() == Ok("1");
             #[cfg(not(test))]
@@ -75,8 +76,6 @@ impl ModelConfig {
                     }
                 }
             }
-        } else {
-            None
         };
         #[cfg(not(windows))]
         let directml_error = None;

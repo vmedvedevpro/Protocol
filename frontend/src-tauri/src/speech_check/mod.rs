@@ -17,9 +17,10 @@
 //! puts OpenVINO's outcome back. It changes no setting and no selection.
 //!
 //! Recording. Run is refused during a recording; a recording's start calls
-//! [`cancel_for_recording`] before it takes the lifecycle lock and does not
-//! wait: the piece in flight finishes on its worker, the check stops at the
-//! next piece and gives nothing back to the recording's engines.
+//! [`cancel_for_recording`] before it takes the lifecycle lock and waits a
+//! bounded time ([`RECORDING_WAIT`]): the piece in flight finishes on its
+//! worker, the check stops at the next piece and gives nothing back to the
+//! recording's engines.
 
 mod hardware;
 pub mod note;
@@ -206,7 +207,13 @@ const RECORDING_WAIT: Duration = Duration::from_secs(5);
 /// Called by a recording's start before it takes the lifecycle lock: the
 /// check stops, and the recording waits up to [`RECORDING_WAIT`] for the
 /// step in flight to drop its engines, so the two never hold models at once.
-pub async fn cancel_for_recording() {
+pub async fn cancel_for_recording<R: Runtime>(app: &AppHandle<R>) {
+    cancel_and_wait(app).await;
+}
+
+/// [`cancel_for_recording`], which shows the group "Cancelling" at once, as
+/// its Cancel does.
+async fn cancel_and_wait(emit: &impl Emit) {
     {
         let mut current = lock_status();
         if !matches!(*current, Status::Running { .. }) {
@@ -215,6 +222,7 @@ pub async fn cancel_for_recording() {
         log::info!("[speech check] a recording starts: cancelling the check");
         RECORDING_STARTED.store(true, Ordering::SeqCst);
         mark_cancelling(&mut current);
+        emit.changed(&current);
     }
     if !step_ended_within(RECORDING_WAIT).await {
         log::warn!("[speech check] the step in flight did not end within {RECORDING_WAIT:?}; the recording starts beside it");
@@ -711,13 +719,16 @@ mod tests {
     #[tokio::test]
     async fn a_recording_start_cancels_a_running_check_only() {
         let _statics = Statics::take();
-        cancel_for_recording().await;
+        let events = Events::default();
+        cancel_and_wait(&events).await;
         assert!(!CANCEL.load(Ordering::SeqCst), "nothing runs, nothing to cancel");
+        assert!(events.all().is_empty());
         *lock_status() = running();
-        cancel_for_recording().await;
+        cancel_and_wait(&events).await;
         assert!(CANCEL.load(Ordering::SeqCst));
         assert!(RECORDING_STARTED.load(Ordering::SeqCst));
         assert!(matches!(status(), Status::Running { cancelling: true, .. }));
+        assert!(matches!(events.all().as_slice(), [Status::Running { cancelling: true, .. }]), "the group shows Cancelling");
     }
 
     #[test]
@@ -778,7 +789,7 @@ mod tests {
         assert!(busy::current().contains(&BusyReason::SpeechCheck));
         assert!(matches!(events.all().as_slice(), [Status::Running { step: None, cancelling: false, .. }]));
         // A recording that starts now finds the check running and cancels it.
-        futures::executor::block_on(cancel_for_recording());
+        futures::executor::block_on(cancel_and_wait(&events));
         assert!(RECORDING_STARTED.load(Ordering::SeqCst));
         assert_eq!(begin(&events).err().as_deref(), Some("The speech check is already running"));
         drop(busy);
