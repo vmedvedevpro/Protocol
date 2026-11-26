@@ -11,13 +11,37 @@ impl Error {
     pub fn Audio(message: String) -> anyhow::Error { anyhow::anyhow!(message) }
 }
 
-/// The execution provider the last session got, and the DirectML error
-/// when DirectML was tried and failed: the Speech check reports the device
-/// Nemotron really ran on and its fallback (#233).
-pub static LAST_SESSION: std::sync::Mutex<Option<(&'static str, Option<String>)>> = std::sync::Mutex::new(None);
+/// The execution provider a Nemotron session asks for first (#233).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Provider {
+    /// DirectML adapter 0, on Windows.
+    DirectMl,
+    Cpu,
+}
 
-fn record_session(provider: &'static str, directml_error: Option<String>) {
-    *LAST_SESSION.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some((provider, directml_error));
+/// DirectML first on Windows, the CPU elsewhere: `build_session` follows
+/// it, and the Speech check reports it as the device picked.
+pub fn planned_provider() -> Provider {
+    if cfg!(windows) {
+        Provider::DirectMl
+    } else {
+        Provider::Cpu
+    }
+}
+
+/// The session a Nemotron run got: the Speech check reports the device it
+/// really ran on and its fallback (#233).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NemotronSession {
+    DirectMl,
+    /// On the CPU; with the DirectML error when DirectML was tried and failed.
+    Cpu { directml_error: Option<String> },
+}
+
+pub static LAST_SESSION: std::sync::Mutex<Option<NemotronSession>> = std::sync::Mutex::new(None);
+
+fn record_session(session: NemotronSession) {
+    *LAST_SESSION.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(session);
 }
 
 #[derive(Default)]
@@ -25,10 +49,8 @@ pub struct ModelConfig;
 impl ModelConfig {
     pub fn build_session(&self, path: &std::path::Path) -> Result<Session> {
         let environment = crate::onnx_runtime::environment()?;
-        #[allow(unused_mut)]
-        let mut directml_error = None;
         #[cfg(windows)]
-        {
+        let directml_error = if planned_provider() == Provider::DirectMl {
             #[cfg(test)]
             let force_cpu = std::env::var("MEETILY_NEMOTRON_TEST_CPU").as_deref() == Ok("1");
             #[cfg(not(test))]
@@ -38,23 +60,28 @@ impl ModelConfig {
                 .and_then(|v| v.parse().ok()).unwrap_or(0);
             #[cfg(not(test))]
             let device = 0;
-            if !force_cpu {
-                match directml_session(environment, path, device) {
+            match force_cpu {
+                true => None,
+                false => match directml_session(environment, path, device) {
                     Ok(session) => {
                         log::info!("Nemotron: DirectML session initialized on adapter 0");
-                        record_session("DirectML", None);
+                        record_session(NemotronSession::DirectMl);
                         return Ok(session);
                     }
                     Err(error) => {
                         log::warn!("Nemotron: DirectML unavailable, using CPU: {error}");
-                        directml_error = Some(error.to_string());
+                        Some(error.to_string())
                     }
-                }
+                },
             }
-        }
+        } else {
+            None
+        };
+        #[cfg(not(windows))]
+        let directml_error = None;
         log::info!("Nemotron: CPU execution provider");
         let session = cpu_session(environment, path)?;
-        record_session("CPU", directml_error);
+        record_session(NemotronSession::Cpu { directml_error });
         Ok(session)
     }
 }

@@ -27,9 +27,13 @@ export const CHECK_STEPS: readonly CheckStepKind[] = ['parakeet', 'whisper', 'py
 
 export type CheckStepStatus = 'passed' | 'failed' | 'notChecked' | 'cancelled' | 'closedTheApp'
 
+/** `DeviceKind` in native; picked and ran-on compare by it. */
+export type CheckDeviceKind = 'processor' | 'intelNpu' | 'intelGpu' | 'directMl' | 'vulkan' | 'metal'
+
 export interface CheckDevice {
+    kind: CheckDeviceKind
+    /** As the engine names it, for the report. */
     name: string
-    why: string
 }
 
 export interface CheckClip {
@@ -50,9 +54,10 @@ export interface CheckStep {
     reason?: string
     model?: {id: string, version?: string}
     picked?: CheckDevice
+    pickedBecause?: string
     inputs: [string, string][]
-    ranOn?: string
-    fallback?: {from: string, to: string, error: string}
+    ranOn?: CheckDevice
+    fallback?: {from: CheckDevice, to: CheckDevice, error: string}
     loadMs?: number
     clips: CheckClip[]
     keepsUp?: boolean

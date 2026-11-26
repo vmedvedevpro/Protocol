@@ -146,12 +146,12 @@ describe('Settings › Advanced › Speech check', () => {
     })
 
     it('words devices as the rest of Settings does', () => {
-        expect(deviceWords('Intel GPU (OpenVINO GPU.0)')).toBe('Intel GPU')
-        expect(deviceWords('GPU (Vulkan): AMD Radeon RX 7600')).toBe('graphics card')
-        expect(deviceWords('GPU (DirectML adapter 0)')).toBe('graphics card')
-        expect(deviceWords('Intel NPU')).toBe('Intel NPU')
-        expect(deviceWords('processor')).toBe('processor')
-        // A device this list does not know yet keeps native's name.
-        expect(deviceWords('Qualcomm Hexagon NPU')).toBe('Qualcomm Hexagon NPU')
+        expect(deviceWords({kind: 'intelGpu', name: 'Intel GPU (OpenVINO GPU.0)'})).toBe('Intel GPU')
+        expect(deviceWords({kind: 'vulkan', name: 'GPU (Vulkan): AMD Radeon RX 7600'})).toBe('graphics card')
+        expect(deviceWords({kind: 'directMl', name: 'GPU (DirectML adapter 0)'})).toBe('graphics card')
+        expect(deviceWords({kind: 'intelNpu', name: 'Intel NPU'})).toBe('Intel NPU')
+        expect(deviceWords({kind: 'processor', name: 'processor'})).toBe('processor')
+        // A kind this list does not know yet keeps native's name.
+        expect(deviceWords({kind: 'qualcommNpu' as never, name: 'Qualcomm Hexagon NPU'})).toBe('Qualcomm Hexagon NPU')
     })
 })

@@ -1,6 +1,7 @@
 import {emit} from '@tauri-apps/api/event'
 import {
     CHECK_STEPS,
+    type CheckDevice,
     type CheckPlan,
     type CheckReport,
     type CheckStep,
@@ -31,14 +32,15 @@ export function createMockSpeechCheck(): MockSpeechCheck {
 const TICK_MS = 40
 
 export function mockStep(kind: CheckStep['kind'], status: CheckStep['status'] = 'passed'): CheckStep {
-    const onGpu = kind === 'whisper'
+    const device: CheckDevice = kind === 'whisper' ? {kind: 'vulkan', name: 'GPU (Vulkan): Intel(R) Arc(TM) B390 GPU'} : {kind: 'processor', name: 'processor'}
     return {
         kind,
         status,
         reason: status === 'failed' ? 'The en clip came out with 92% of its words wrong (at most 50% pass)' : undefined,
-        picked: {name: onGpu ? 'GPU (Vulkan): Intel(R) Arc(TM) B390 GPU' : 'processor', why: 'mock'},
+        picked: device,
+        pickedBecause: 'mock',
         inputs: [],
-        ranOn: status === 'notChecked' ? undefined : onGpu ? 'GPU (Vulkan): Intel(R) Arc(TM) B390 GPU' : 'processor',
+        ranOn: status === 'notChecked' ? undefined : device,
         clips: [],
         keepsUp: kind === 'parakeet' ? true : undefined,
     }

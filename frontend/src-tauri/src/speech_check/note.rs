@@ -118,7 +118,7 @@ pub fn take_interrupted() -> Option<Note> {
     if let Some(step) = note.running.take() {
         log::error!("[speech check] Protocol closed while checking {}", step.title());
         if !note.done.iter().any(|done| done.kind == step) {
-            note.done.push(StepReport::new(step, StepStatus::ClosedTheApp).with_reason(CLOSED_REASON));
+            note.done.push(StepReport::closed(step));
         }
         note.closed_in = Some(step);
         if let Err(error) = write_at(&path, &note) {

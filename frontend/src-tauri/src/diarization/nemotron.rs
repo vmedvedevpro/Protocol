@@ -7,10 +7,11 @@ use super::{DiarizationResult, DiarizationSegment};
 #[allow(dead_code)] // Keep the attributed reference implementation's API intact.
 mod sortformer;
 pub(crate) use sortformer::SpeakerSegment as StreamingSpeakerSegment;
+pub use sortformer::{planned_provider, NemotronSession, Provider};
 
-/// The execution provider of the last Nemotron session ("DirectML" or
-/// "CPU") and, after a CPU fallback, the DirectML error (#233).
-pub fn last_session() -> Option<(&'static str, Option<String>)> {
+/// The last Nemotron session's provider, with the DirectML error after a
+/// CPU fallback (#233).
+pub fn last_session() -> Option<NemotronSession> {
     sortformer::LAST_SESSION.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone()
 }
 

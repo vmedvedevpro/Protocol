@@ -266,7 +266,7 @@ fn build_report(note: &Note, steps: Vec<StepReport>, outcome: Outcome) -> Report
     let mut warnings = note.warnings.clone();
     for step in &steps {
         if let Some(fallback) = &step.fallback {
-            warnings.push(format!("{}: fell back from {} to {}: {}", step.kind.title(), fallback.from, fallback.to, fallback.error));
+            warnings.push(format!("{}: fell back from {} to {}: {}", step.kind.title(), fallback.from.name, fallback.to.name, fallback.error));
         }
         if step.status == StepStatus::Failed {
             if let Some(reason) = &step.reason {
@@ -484,7 +484,6 @@ async fn give_back(held: Held, warnings: &mut Vec<String>) {
     }
     let _engines = crate::audio::common::acquire_engine_lifecycle_lock().await;
     let (whisper, parakeet) = app_engines();
-    let mut whisper_reloaded = false;
     if let (Some(engine), Some(model)) = (&parakeet, &held.parakeet) {
         if !recording() && engine.get_current_model().await.is_none() {
             if let Err(error) = engine.load_model(model).await {
@@ -492,21 +491,21 @@ async fn give_back(held: Held, warnings: &mut Vec<String>) {
             }
         }
     }
-    if let (Some(engine), Some(model)) = (&whisper, &held.whisper) {
-        if !recording() && engine.get_current_model().await.is_none() {
-            whisper_reloaded = true;
-            if let Err(error) = engine.load_model(model).await {
-                warnings.push(format!("Whisper {model} did not load again after the check: {error}"));
-            }
+    let whisper_reload = match (&whisper, &held.whisper) {
+        (Some(engine), Some(model)) if !recording() && engine.get_current_model().await.is_none() => Some((engine, model)),
+        _ => None,
+    };
+    if let Some((engine, model)) = whisper_reload {
+        if let Err(error) = engine.load_model(model).await {
+            warnings.push(format!("Whisper {model} did not load again after the check: {error}"));
         }
     }
     // A reload records its own outcome; otherwise the check's must not stand
     // in Settings for the app's last load.
     #[cfg(any(windows, target_os = "linux"))]
-    if !whisper_reloaded {
+    if whisper_reload.is_none() {
         crate::whisper_engine::openvino::record_status(held.backend.unwrap_or_default());
     }
-    let _ = whisper_reloaded;
 }
 
 async fn run(emit: &impl Emit, plan: Plan, resumed: Option<Note>, runner: &impl Runner) {
@@ -542,10 +541,9 @@ async fn run(emit: &impl Emit, plan: Plan, resumed: Option<Note>, runner: &impl 
                 // sees the flag and waits, or this step sees the Cancel.
                 STEP_IN_FLIGHT.store(true, Ordering::SeqCst);
                 let report = if let Err(reason) = &taken {
-                    StepReport::new(kind, StepStatus::Cancelled).with_reason(reason.clone())
+                    StepReport::cancelled(kind, reason)
                 } else if cancelled() {
-                    let reason = if RECORDING_STARTED.load(Ordering::SeqCst) { "A recording started" } else { "Cancelled" };
-                    StepReport::new(kind, StepStatus::Cancelled).with_reason(reason)
+                    StepReport::cancelled(kind, if RECORDING_STARTED.load(Ordering::SeqCst) { "A recording started" } else { "Cancelled" })
                 } else {
                     set_running_step(emit, kind, note.done.clone());
                     note.running = Some(kind);
@@ -596,7 +594,7 @@ mod tests {
     fn an_interrupted_run_reports_the_step_that_closed_the_app_and_offers_the_rest() {
         let mut note = note::tests::note();
         note.done.push(StepReport::new(StepKind::Parakeet, StepStatus::Passed));
-        note.done.push(StepReport::new(StepKind::Whisper, StepStatus::ClosedTheApp).with_reason(note::CLOSED_REASON));
+        note.done.push(StepReport::closed(StepKind::Whisper));
         note.closed_in = Some(StepKind::Whisper);
         match interrupted(&note) {
             Status::Interrupted { closed_in, remaining, report, text } => {

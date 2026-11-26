@@ -7,7 +7,8 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::score::{SpeakerScore, WordErrors};
+use super::sample::Clip;
+use super::score::{self, SpeakerScore, WordErrors};
 
 /// Bumped when a field changes meaning, so a tool comparing reports can tell.
 pub const FORMAT: u32 = 1;
@@ -59,21 +60,43 @@ impl StepStatus {
     }
 }
 
+/// What kind of device a model runs on; picked and ran-on compare by it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum DeviceKind {
+    Processor,
+    IntelNpu,
+    /// OpenVINO's GPU plugin.
+    IntelGpu,
+    DirectMl,
+    Vulkan,
+    Metal,
+}
+
 /// A device: the one Protocol picked, or the one the model ran on.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Device {
-    /// "Intel NPU", "Intel GPU (OpenVINO)", "GPU (Vulkan): <name>", "processor"…
+    pub kind: DeviceKind,
+    /// As the engine names it: "Intel GPU (OpenVINO GPU)", "GPU (Vulkan): <name>", "processor"…
     pub name: String,
-    /// Why, in a sentence.
-    pub why: String,
+}
+
+impl Device {
+    pub fn new(kind: DeviceKind, name: impl Into<String>) -> Self {
+        Self { kind, name: name.into() }
+    }
+
+    pub fn processor() -> Self {
+        Self::new(DeviceKind::Processor, "processor")
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Fallback {
-    pub from: String,
-    pub to: String,
+    pub from: Device,
+    pub to: Device,
     /// The exact error the app recorded.
     pub error: String,
 }
@@ -101,6 +124,42 @@ pub struct ClipResult {
     pub passed: bool,
 }
 
+impl ClipResult {
+    fn timed(clip: &Clip, processing_ms: f64) -> Self {
+        let audio_ms = clip.duration_ms();
+        Self {
+            clip: clip.id.clone(),
+            audio_ms,
+            processing_ms,
+            real_time_factor: processing_ms / audio_ms,
+            text: None,
+            language: None,
+            word_errors: None,
+            word_error_rate: None,
+            speakers: None,
+            passed: false,
+        }
+    }
+
+    /// A transcript of `clip`, scored against its text.
+    pub fn text(clip: &Clip, processing_ms: f64, text: String, language: Option<String>) -> Self {
+        let errors = score::word_errors(&clip.text(), &text);
+        Self {
+            text: Some(text),
+            language,
+            word_errors: Some(errors),
+            word_error_rate: Some(errors.rate()),
+            passed: score::transcript_passes(&errors),
+            ..Self::timed(clip, processing_ms)
+        }
+    }
+
+    /// A speaker model's labels of `clip`, scored.
+    pub fn speakers(clip: &Clip, processing_ms: f64, speakers: SpeakerScore) -> Self {
+        Self { speakers: Some(speakers), passed: score::speakers_pass(&speakers), ..Self::timed(clip, processing_ms) }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ModelId {
@@ -122,11 +181,14 @@ pub struct StepReport {
     pub model: Option<ModelId>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub picked: Option<Device>,
+    /// Why that device, in a sentence.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub picked_because: Option<String>,
     /// The inputs of the decision, name and value.
     #[serde(default)]
     pub inputs: Vec<(String, String)>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub ran_on: Option<String>,
+    pub ran_on: Option<Device>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fallback: Option<Fallback>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -146,6 +208,7 @@ impl StepReport {
             reason: None,
             model: None,
             picked: None,
+            picked_because: None,
             inputs: Vec::new(),
             ran_on: None,
             fallback: None,
@@ -157,6 +220,37 @@ impl StepReport {
 
     pub fn with_reason(mut self, reason: impl Into<String>) -> Self {
         self.reason = Some(reason.into());
+        self
+    }
+
+    /// A step a Cancel or a recording kept from running.
+    pub fn cancelled(kind: StepKind, reason: &str) -> Self {
+        Self::new(kind, StepStatus::Cancelled).with_reason(reason)
+    }
+
+    /// A step Protocol closed during (the crash note).
+    pub fn closed(kind: StepKind) -> Self {
+        Self::new(kind, StepStatus::ClosedTheApp).with_reason(super::note::CLOSED_REASON)
+    }
+
+    /// This step, failed for `reason`, with what it found so far.
+    pub fn failed(mut self, reason: impl Into<String>) -> Self {
+        self.status = StepStatus::Failed;
+        self.reason = Some(reason.into());
+        self
+    }
+
+    /// This step, stopped by a Cancel, with what it found so far.
+    pub fn stopped(mut self) -> Self {
+        self.status = StepStatus::Cancelled;
+        self.reason = Some("Cancelled".into());
+        self
+    }
+
+    /// This step, not run: its model is not on the computer.
+    pub fn not_downloaded(mut self) -> Self {
+        self.status = StepStatus::NotChecked;
+        self.reason = Some("The model is not downloaded".into());
         self
     }
 }
@@ -373,16 +467,17 @@ impl Report {
                 line(&mut out, format!("  Model: {}{version}", model.id));
             }
             if let Some(picked) = &step.picked {
-                line(&mut out, format!("  Picked: {} ({})", picked.name, picked.why));
+                let because = step.picked_because.as_ref().map(|because| format!(" ({because})")).unwrap_or_default();
+                line(&mut out, format!("  Picked: {}{because}", picked.name));
             }
             for (name, value) in &step.inputs {
                 line(&mut out, format!("    {name}: {value}"));
             }
             if let Some(ran_on) = &step.ran_on {
-                line(&mut out, format!("  Ran on: {ran_on}"));
+                line(&mut out, format!("  Ran on: {}", ran_on.name));
             }
             if let Some(fallback) = &step.fallback {
-                line(&mut out, format!("  Fallback: {} to {}: {}", fallback.from, fallback.to, fallback.error));
+                line(&mut out, format!("  Fallback: {} to {}: {}", fallback.from.name, fallback.to.name, fallback.error));
             }
             if let Some(load_ms) = step.load_ms {
                 line(&mut out, format!("  Load: {}", seconds(load_ms)));
@@ -538,15 +633,13 @@ impl Report {
             each([&mut pair.live, &mut pair.post_meeting].into_iter().flatten(), f);
         }
         for step in &mut self.steps {
-            each([&mut step.reason, &mut step.ran_on].into_iter().flatten(), f);
+            each([&mut step.reason, &mut step.picked_because].into_iter().flatten(), f);
+            each([&mut step.picked, &mut step.ran_on].into_iter().flatten().map(|device| &mut device.name), f);
             if let Some(model) = &mut step.model {
                 each(std::iter::once(&mut model.id).chain(model.version.as_mut()), f);
             }
-            if let Some(picked) = &mut step.picked {
-                each([&mut picked.name, &mut picked.why], f);
-            }
             if let Some(fallback) = &mut step.fallback {
-                each([&mut fallback.from, &mut fallback.to, &mut fallback.error], f);
+                each([&mut fallback.from.name, &mut fallback.to.name, &mut fallback.error], f);
             }
             each(step.inputs.iter_mut().flat_map(|(name, value)| [name, value]), f);
             for clip in &mut step.clips {
@@ -613,7 +706,9 @@ mod tests {
         s.gpus.push(Gpu { name: home.into(), vendor: Some(home.into()), driver: Some(home.into()), driver_version: Some(home.into()) });
         let step = &mut report.steps[0];
         step.model = Some(ModelId { id: home.into(), version: Some(home.into()) });
-        step.picked = Some(Device { name: home.into(), why: home.into() });
+        step.picked = Some(Device::new(DeviceKind::Processor, home));
+        step.picked_because = Some(home.into());
+        step.ran_on = Some(Device::new(DeviceKind::Processor, home));
         step.inputs.push((home.into(), home.into()));
         step.clips[0].language = Some(home.into());
         let json = serde_json::to_string(&report.scrubbed(&private())).unwrap();
@@ -632,9 +727,10 @@ mod tests {
 
     fn report() -> Report {
         let mut whisper = StepReport::new(StepKind::Whisper, StepStatus::Failed).with_reason("Failed to load /home/tyler/models/x.bin");
-        whisper.picked = Some(Device { name: "GPU (Vulkan): Intel(R) Arc(TM) B390 GPU".into(), why: "the Vulkan build found a GPU".into() });
-        whisper.ran_on = Some("processor".into());
-        whisper.fallback = Some(Fallback { from: "GPU".into(), to: "processor".into(), error: "vk error at /home/tyler/x".into() });
+        whisper.picked = Some(Device::new(DeviceKind::Vulkan, "GPU (Vulkan): Intel(R) Arc(TM) B390 GPU"));
+        whisper.picked_because = Some("the Vulkan build found a GPU".into());
+        whisper.ran_on = Some(Device::processor());
+        whisper.fallback = Some(Fallback { from: Device::new(DeviceKind::Vulkan, "GPU"), to: Device::processor(), error: "vk error at /home/tyler/x".into() });
         let mut parakeet = StepReport::new(StepKind::Parakeet, StepStatus::Passed);
         parakeet.clips.push(ClipResult {
             clip: "ru".into(),

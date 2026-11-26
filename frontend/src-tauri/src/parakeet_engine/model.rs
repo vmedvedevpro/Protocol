@@ -387,15 +387,49 @@ impl Drop for ParakeetModel {
     }
 }
 
+/// Where a load of Parakeet puts its encoder (#66, #233).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Encoder {
+    /// The Intel NPU (Windows).
+    Npu,
+    /// DirectML adapter 0, from Labs (Windows).
+    DirectMl,
+    Processor,
+}
+
+/// Where `ParakeetEngine::load_model(model_id)` puts the encoder, read
+/// before the load from what the load reads: the Intel NPU once it is ready
+/// for Parakeet v3; DirectML when [`directml_from_labs`]; else the
+/// processor. The load can still fall back from the NPU, which records why
+/// (`npu::state::encoder_for_load`). The load and the Speech check both ask
+/// here, so the rule exists once.
+pub fn planned_encoder(_model_id: &str) -> Encoder {
+    #[cfg(windows)]
+    if super::npu::state::ready_for(_model_id) {
+        return Encoder::Npu;
+    }
+    if directml_from_labs() {
+        Encoder::DirectMl
+    } else {
+        Encoder::Processor
+    }
+}
+
+/// Parakeet on the GPU is on in Labs (Windows only), and the NPU is neither
+/// preparing nor ready: then the encoder is the NPU's, or the processor's
+/// meanwhile, not DirectML's.
+pub fn directml_from_labs() -> bool {
+    #[cfg(windows)]
+    return super::labs::enabled() && !super::npu::state::overrides_labs();
+    #[cfg(not(windows))]
+    false
+}
+
 impl ParakeetModel {
+    /// The model with its encoder on ONNX Runtime: DirectML when
+    /// [`directml_from_labs`] says so, else the processor.
     pub fn new<P: AsRef<Path>>(model_dir: P, quantized: bool) -> Result<Self, ParakeetError> {
-        // While the NPU is being prepared or is ready the encoder is its (or
-        // the processor's meanwhile), not DirectML's.
-        #[cfg(windows)]
-        let gpu = super::labs::enabled() && !super::npu::state::overrides_labs();
-        #[cfg(not(windows))]
-        let gpu = super::labs::enabled();
-        Self::new_with_backend(model_dir, quantized, gpu)
+        Self::new_with_backend(model_dir, quantized, directml_from_labs())
     }
 
     fn new_with_backend<P: AsRef<Path>>(model_dir: P, quantized: bool, gpu: bool) -> Result<Self, ParakeetError> {

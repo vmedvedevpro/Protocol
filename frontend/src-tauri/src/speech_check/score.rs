@@ -8,47 +8,24 @@
 
 use serde::{Deserialize, Serialize};
 
-/// The most word errors per reference word a transcript may have and pass.
-///
-/// Measured on this sample (Core Ultra X7 358H, Arc B390, Kubuntu 26.10,
-/// 2026-11-26, the debug test build), Russian and English: Whisper Large V3
-/// Turbo 0.000 and 0.000 on OpenVINO GPU and on whisper.cpp's Vulkan, and
-/// Parakeet v3 int8 live 0.000 and 0.000 on the processor, each turn a live
-/// piece of its own now that the turns are 1.2 s apart. Broken output scores
-/// near or above 1.0: an empty transcript is 1.0 (every word deleted),
-/// another language about 1.0 (every word substituted), a repetition loop
-/// over 1.0 (insertions), noise near 1.0. Half the words wrong is far from
-/// both, and leaves room for a device that decodes a little worse.
+/// The most word errors per reference word a transcript may have and pass:
+/// working models score near 0 on this read speech and broken output
+/// (empty, another language, a loop, noise) near or above 1.0, so half is
+/// far from both (measurements in docs/SPEECH_CHECK.md).
 pub const MAX_WORD_ERROR_RATE: f64 = 0.5;
 
-/// The least share of the speech a speaker model labels that must go to the
-/// right voice.
-///
-/// The share counts only what the model labels inside the sample's turns, so
-/// the pauses within a reading, which no model labels, cost nothing. Measured
-/// on this sample (Core Ultra X7 358H, 2026-11-26), Pyannote and Nemotron
-/// labelled every second with the right voice: 1.00 on both clips. A model
-/// that hears one speaker everywhere scores the longer voice's part, at most
-/// 0.62 here (Russian: 11.9 of 19.0 s); a few hundred milliseconds late at
-/// each of the three turn changes cost a working model under 0.1. Three
-/// quarters is far from both.
+/// The least share of the labelled speech that must go to the right voice:
+/// working models give it all, one speaker everywhere at most 0.62 of it.
 pub const MIN_SPEAKER_SHARE: f64 = 0.75;
 
-/// The least share of the sample's turns a speaker model must label at all.
-///
-/// The turns run from a reading's first word to its last, pauses included;
-/// measured on this sample the models labelled 0.78 to 0.85 of them, the rest
-/// being those pauses and a reading's quiet lead-in. A model that labels
-/// under half of the speech misses whole turns, which the share alone would
-/// not show.
+/// The least share of the turns a speaker model must label at all, so a
+/// model that misses whole turns fails although what it labels is right
+/// (working models label about 0.8; the rest is pauses inside a reading).
 pub const MIN_SPEAKER_COVERAGE: f64 = 0.5;
 
-/// The highest real-time factor (processing time over audio time) at which
-/// the live model keeps up with a meeting.
-///
-/// A recording transcribes two sources live, the microphone and the system
-/// audio, on one engine, so each may take at most half of real time; the
-/// capture threads and the VAD need some of the processor too.
+/// The highest real-time factor at which the live model keeps up with a
+/// meeting: a recording decodes two sources on one engine, each in at most
+/// half of real time.
 pub const MAX_LIVE_REAL_TIME_FACTOR: f64 = 0.5;
 
 /// The text every comparison works on, as the measuring kit's
@@ -60,6 +37,11 @@ pub fn normalize(text: &str) -> String {
     let lowered: String = text.chars().flat_map(char::to_lowercase).map(|ch| if ch == 'ё' { 'е' } else { ch }).collect();
     let kept: String = lowered.chars().map(|ch| if ch.is_alphanumeric() { ch } else { ' ' }).collect();
     kept.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// The normalised words of `text`.
+fn words(text: &str) -> Vec<String> {
+    normalize(text).split_whitespace().map(str::to_string).collect()
 }
 
 /// Word errors of `hypothesis` against `reference`.
@@ -87,8 +69,7 @@ impl WordErrors {
 /// The edit distance between the normalised word lists, with its kinds of
 /// errors (Levenshtein; ties prefer a substitution, as jiwer's do).
 pub fn word_errors(reference: &str, hypothesis: &str) -> WordErrors {
-    let reference: Vec<String> = normalize(reference).split(' ').filter(|w| !w.is_empty()).map(str::to_string).collect();
-    let hypothesis: Vec<String> = normalize(hypothesis).split(' ').filter(|w| !w.is_empty()).map(str::to_string).collect();
+    let (reference, hypothesis) = (words(reference), words(hypothesis));
     let (rows, cols) = (reference.len() + 1, hypothesis.len() + 1);
     // (cost, substitutions, deletions, insertions) per cell.
     let mut table = vec![(0usize, 0usize, 0usize, 0usize); rows * cols];
@@ -114,13 +95,13 @@ pub fn word_errors(reference: &str, hypothesis: &str) -> WordErrors {
     WordErrors { reference_words: reference.len(), substitutions, deletions, insertions }
 }
 
-/// A stretch of speech and who says it: a voice of the sample (`"a"`,
-/// `"b"`), or a speaker a model found.
+/// A stretch of speech and who says it: a voice of the sample, numbered in
+/// the order the voices first speak, or a speaker a model found.
 #[derive(Debug, Clone, PartialEq)]
-pub struct Turn<L> {
+pub struct Turn {
     pub start_ms: f64,
     pub end_ms: f64,
-    pub label: L,
+    pub label: usize,
 }
 
 /// What a speaker model made of the sample.
@@ -159,61 +140,56 @@ fn merged(mut spans: Vec<(f64, f64)>) -> Vec<(f64, f64)> {
     out
 }
 
+/// The labels of `turns`, each once, in order.
+fn labels(turns: &[Turn]) -> Vec<usize> {
+    let mut labels: Vec<usize> = Vec::new();
+    for turn in turns {
+        if !labels.contains(&turn.label) {
+            labels.push(turn.label);
+        }
+    }
+    labels
+}
+
 /// Scores `found` against the sample's `voices`.
-pub fn speaker_score<F: PartialEq + Clone>(voices: &[Turn<&str>], found: &[Turn<F>]) -> SpeakerScore {
-    let mut voice_labels: Vec<&str> = Vec::new();
-    for turn in voices {
-        if !voice_labels.contains(&turn.label) {
-            voice_labels.push(turn.label);
-        }
-    }
-    let mut speakers: Vec<F> = Vec::new();
-    for turn in found {
-        if !speakers.contains(&turn.label) {
-            speakers.push(turn.label.clone());
-        }
-    }
+pub fn speaker_score(voices: &[Turn], found: &[Turn]) -> SpeakerScore {
+    let voice_labels = labels(voices);
+    let speakers = labels(found);
     // Each speaker's spans merged: Nemotron emits overlapping spans of one
     // speaker, which would otherwise count the same speech twice.
-    let spans_of = |speaker: &F| merged(found.iter().filter(|other| &other.label == speaker).map(|other| (other.start_ms, other.end_ms)).collect());
-    let speaker_spans: Vec<Vec<(f64, f64)>> = speakers.iter().map(spans_of).collect();
-    let inside_turns = |spans: &[(f64, f64)]| -> f64 {
-        spans.iter().map(|span| voices.iter().map(|turn| overlap((turn.start_ms, turn.end_ms), *span)).sum::<f64>()).sum()
-    };
-    // Time each found speaker shares with each voice.
-    let together = |voice: &str, speaker: usize| -> f64 {
+    let speaker_spans: Vec<Vec<(f64, f64)>> = speakers
+        .iter()
+        .map(|speaker| merged(found.iter().filter(|turn| turn.label == *speaker).map(|turn| (turn.start_ms, turn.end_ms)).collect()))
+        .collect();
+    let inside = |spans: &[(f64, f64)], voice: Option<usize>| -> f64 {
         voices
             .iter()
-            .filter(|turn| turn.label == voice)
-            .map(|turn| speaker_spans[speaker].iter().map(|span| overlap((turn.start_ms, turn.end_ms), *span)).sum::<f64>())
+            .filter(|turn| voice.is_none_or(|voice| turn.label == voice))
+            .map(|turn| spans.iter().map(|span| overlap((turn.start_ms, turn.end_ms), *span)).sum::<f64>())
             .sum()
     };
+    // Time each found speaker shares with each voice.
+    let together: Vec<Vec<f64>> = voice_labels.iter().map(|voice| speaker_spans.iter().map(|spans| inside(spans, Some(*voice))).collect()).collect();
     let speech: f64 = voices.iter().map(|turn| (turn.end_ms - turn.start_ms).max(0.0)).sum();
     // The share's whole: what each speaker labelled inside the turns (the
     // turns never overlap). Two speakers at one moment both count, as one
     // of them must be wrong: the sample's voices never overlap.
-    let labelled: f64 = speaker_spans.iter().map(|spans| inside_turns(spans)).sum();
+    let labelled: f64 = speaker_spans.iter().map(|spans| inside(spans, None)).sum();
     // Coverage: the time any speaker labelled inside the turns, counted once.
-    let covered = inside_turns(&merged(speaker_spans.concat()));
-    // The best one-to-one pairing; the sample has two voices, so trying every
-    // assignment of voices to distinct speakers is cheap.
-    fn best(voice: usize, voices: &[&str], speakers: usize, used: &mut Vec<bool>, gain: &dyn Fn(usize, usize) -> f64) -> f64 {
-        if voice == voices.len() {
-            return 0.0;
+    let covered = inside(&merged(speaker_spans.concat()), None);
+    // The best one-to-one pairing of voices with speakers (or with none):
+    // the sample has two voices, so every assignment is tried.
+    let options = speakers.len() + 1;
+    let mut matched: f64 = 0.0;
+    for code in 0..options.pow(voice_labels.len() as u32) {
+        let pick: Vec<usize> = (0..voice_labels.len()).map(|voice| code / options.pow(voice as u32) % options).collect();
+        let used: Vec<usize> = pick.iter().copied().filter(|speaker| *speaker < speakers.len()).collect();
+        if (1..used.len()).any(|index| used[..index].contains(&used[index])) {
+            continue;
         }
-        // The voice may also get no speaker.
-        let mut top = best(voice + 1, voices, speakers, used, gain);
-        for speaker in 0..speakers {
-            if !used[speaker] {
-                used[speaker] = true;
-                top = top.max(gain(voice, speaker) + best(voice + 1, voices, speakers, used, gain));
-                used[speaker] = false;
-            }
-        }
-        top
+        let gain: f64 = pick.iter().enumerate().filter(|(_, speaker)| **speaker < speakers.len()).map(|(voice, speaker)| together[voice][*speaker]).sum();
+        matched = matched.max(gain);
     }
-    let gain = |voice: usize, speaker: usize| together(voice_labels[voice], speaker);
-    let matched = best(0, &voice_labels, speakers.len(), &mut vec![false; speakers.len()], &gain);
     SpeakerScore {
         speakers: speakers.len(),
         voices: voice_labels.len(),
@@ -238,7 +214,7 @@ pub fn keeps_up(real_time_factor: f64) -> bool {
 mod tests {
     use super::*;
 
-    fn turn<L>(start_ms: f64, end_ms: f64, label: L) -> Turn<L> {
+    fn turn(start_ms: f64, end_ms: f64, label: usize) -> Turn {
         Turn { start_ms, end_ms, label }
     }
 
@@ -279,8 +255,9 @@ mod tests {
         assert_eq!(word_errors("", "words").rate(), 1.0);
     }
 
-    fn sample() -> Vec<Turn<&'static str>> {
-        vec![turn(0.0, 6000.0, "a"), turn(6600.0, 10000.0, "b"), turn(10600.0, 16000.0, "a"), turn(16600.0, 20000.0, "b")]
+    /// Voice 0 and voice 1 taking turns.
+    fn sample() -> Vec<Turn> {
+        vec![turn(0.0, 6000.0, 0), turn(6600.0, 10000.0, 1), turn(10600.0, 16000.0, 0), turn(16600.0, 20000.0, 1)]
     }
 
     #[test]
@@ -318,7 +295,7 @@ mod tests {
         // It labels the turns' 18.2 s, of which voice a has 11.4.
         assert!((score.share - 11400.0 / 18200.0).abs() < 1e-9);
         assert!(!speakers_pass(&score));
-        let none: Vec<Turn<usize>> = Vec::new();
+        let none: Vec<Turn> = Vec::new();
         assert_eq!(speaker_score(&sample(), &none).share, 0.0);
     }
 

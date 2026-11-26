@@ -64,8 +64,19 @@ impl Clip {
         self.samples.len() as f64 / 16.0
     }
 
-    pub fn voices(&self) -> Vec<Turn<&str>> {
-        self.turns.iter().map(|turn| Turn { start_ms: turn.start_ms, end_ms: turn.end_ms, label: turn.voice.as_str() }).collect()
+    /// The turns with each voice numbered in the order it first speaks.
+    pub fn voices(&self) -> Vec<Turn> {
+        let mut names: Vec<&str> = Vec::new();
+        self.turns
+            .iter()
+            .map(|turn| {
+                let label = names.iter().position(|name| *name == turn.voice).unwrap_or_else(|| {
+                    names.push(&turn.voice);
+                    names.len() - 1
+                });
+                Turn { start_ms: turn.start_ms, end_ms: turn.end_ms, label }
+            })
+            .collect()
     }
 }
 

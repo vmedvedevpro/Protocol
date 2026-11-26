@@ -699,6 +699,24 @@ async fn offer() -> Availability {
         .clone()
 }
 
+/// The OpenVINO model a load of the Whisper model `model` tries first: the
+/// Intel GPU version's own folder when `model` is its id (#88), else the
+/// installed companion of a ggml model (#79), when its files are there.
+/// `None`: whisper.cpp alone. The device inside OpenVINO is `device_for`'s,
+/// chosen in the load. `WhisperEngine::load_model` and the Speech check both
+/// ask here, so the rule exists once.
+pub(crate) fn openvino_model_for(model: &str) -> Option<crate::model_catalog::openvino::InstalledCompanion> {
+    let companion = match crate::speech_choice::gpu_version(model) {
+        Some(version) => crate::speech_choice::installed(&version),
+        None => crate::model_catalog::openvino::installed_companion(model),
+    }?;
+    if !is_model_dir(&companion.dir) {
+        log::warn!("The OpenVINO model for {model} at {} lacks model files; using whisper.cpp", companion.dir.display());
+        return None;
+    }
+    Some(companion)
+}
+
 /// [`Availability`]: whether to offer the download, from what the app knows
 /// without OpenVINO, and once the runtime is installed, the device the rule
 /// picks or why there is none, which Settings shows instead of staying
@@ -783,13 +801,9 @@ impl WhisperEngine {
     /// shown in Settings, and the model loads on whisper.cpp.
     pub(crate) async fn load_openvino_companion(&self, model_name: &str) -> bool {
         record(BackendStatus::default());
-        let Some(companion) = crate::model_catalog::openvino::installed_companion(model_name) else {
+        let Some(companion) = openvino_model_for(model_name) else {
             return false;
         };
-        if !is_model_dir(&companion.dir) {
-            log::warn!("The OpenVINO companion of {model_name} at {} lacks model files; using whisper.cpp", companion.dir.display());
-            return false;
-        }
         let taken = self.try_openvino(&companion.dir, &companion.commit).await;
         if taken {
             log::info!("Successfully loaded model: {model_name} on OpenVINO ({})", companion.dir.display());

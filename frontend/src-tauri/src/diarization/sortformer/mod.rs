@@ -19,6 +19,7 @@
 
 mod support;
 pub(crate) use support::LAST_SESSION;
+pub use support::{planned_provider, NemotronSession, Provider};
 use support::{Error, Result, ModelConfig, extract_3d_f32};
 use ndarray::{s, Array1, Array2, Array3, Axis};
 use ort::session::Session;
