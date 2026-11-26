@@ -3,3 +3,4 @@
 //! the tray's name.
 
 pub mod app_id;
+pub mod theme;

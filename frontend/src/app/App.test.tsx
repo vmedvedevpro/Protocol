@@ -222,13 +222,14 @@ describe('App navigation', () => {
         // setup.ts installed the mock as the main window; minibar.rs labels
         // the window that opens /minibar `minibar`.
         installMockIpc()
-        const setTheme = vi.spyOn(handlers, 'plugin:window|set_theme')
+        const setTheme = vi.spyOn(handlers, 'linux_set_window_theme')
 
         renderApp('/minibar')
 
         expect(await screen.findByRole('group', {name: 'Recording controls'})).toBeInTheDocument()
         expect(screen.queryByRole('banner')).not.toBeInTheDocument()
-        await waitFor(() => expect(setTheme).toHaveBeenCalledWith(expect.objectContaining({label: 'minibar'})))
+        // Its theme provider hands the mode to native code too.
+        await waitFor(() => expect(setTheme).toHaveBeenCalledWith(expect.objectContaining({theme: null})))
     })
 })
 
@@ -332,8 +333,11 @@ describe('Crash report', () => {
 })
 
 describe('Theme', () => {
+    // Tests run as Linux (jsdom's user agent), where native code takes the
+    // mode instead of Tauri's setTheme (src/api/window.ts).
     it('saves the chosen theme and forces it on the native window', async () => {
-        const setTheme = vi.spyOn(handlers, 'plugin:window|set_theme')
+        const setTheme = vi.spyOn(handlers, 'linux_set_window_theme')
+        const tauriSetTheme = vi.spyOn(handlers, 'plugin:window|set_theme')
         renderApp('/settings')
         await heading('Settings')
 
@@ -341,16 +345,18 @@ describe('Theme', () => {
 
         expect(screen.getByRole('radio', {name: 'Dark'})).toBeChecked()
         expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe('dark')
-        await waitFor(() => expect(setTheme).toHaveBeenLastCalledWith(expect.objectContaining({value: 'dark'})))
+        await waitFor(() => expect(setTheme).toHaveBeenLastCalledWith(expect.objectContaining({theme: 'dark'})))
 
         await userEvent.click(option('Match system'))
 
-        // null hands the window back to the OS theme.
-        await waitFor(() => expect(setTheme).toHaveBeenLastCalledWith(expect.objectContaining({value: null})))
+        // null follows the desktop's colour scheme again; tao's setTheme(null)
+        // would force light on Linux.
+        await waitFor(() => expect(setTheme).toHaveBeenLastCalledWith(expect.objectContaining({theme: null})))
+        expect(tauriSetTheme).not.toHaveBeenCalled()
     })
 
     it('follows the OS again when the other window removes the saved theme', async () => {
-        const setTheme = vi.spyOn(handlers, 'plugin:window|set_theme')
+        const setTheme = vi.spyOn(handlers, 'linux_set_window_theme')
         renderApp('/settings')
         await heading('Settings')
         await userEvent.click(option('Dark'))
@@ -361,7 +367,7 @@ describe('Theme', () => {
         })
 
         expect(await screen.findByRole('radio', {name: 'Match system', checked: true})).toBeInTheDocument()
-        await waitFor(() => expect(setTheme).toHaveBeenLastCalledWith(expect.objectContaining({value: null})))
+        await waitFor(() => expect(setTheme).toHaveBeenLastCalledWith(expect.objectContaining({theme: null})))
     })
 
     it('crossfades a theme change made in the other window', async () => {

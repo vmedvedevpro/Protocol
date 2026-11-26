@@ -123,6 +123,8 @@ is inherited from the project Protocol forked from; Protocol did not release it.
 
 - **Linux: Protocol's icon for its window.** The task manager and the window
   switcher show Protocol's ring instead of a generic icon on Wayland.
+- **Linux: Match system follows the desktop's dark mode.** With a dark colour
+  scheme the app is dark, and it repaints when the desktop's scheme changes.
 
 ## Protocol 1.0.0-rc.1 — 2026-11-26
 

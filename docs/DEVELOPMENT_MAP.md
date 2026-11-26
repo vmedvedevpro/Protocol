@@ -1643,7 +1643,8 @@ How the main window, the minibar and the tray sit on a Linux desktop (#215)
 is in [LINUX_DESKTOP.md](LINUX_DESKTOP.md): the desktop's own window frame
 (`tauri.linux.conf.json`, `TitleBar.tsx`); the windows' app id, which names
 the desktop file (`linux_desktop/app_id.rs`, `linux/main.desktop`, checked by
-`check-linux-desktop-entry.mjs` in the Linux release leg). Read it before changing the Linux
+`check-linux-desktop-entry.mjs` in the Linux release leg); Match system
+following the settings portal (`linux_desktop/theme.rs`). Read it before changing the Linux
 window configuration, the title strip, the theme, keep on top or the tray.
 
 ### Fork identity and updates
@@ -2006,7 +2007,9 @@ and must stay in step with it.
 theme, not the OS one. So the windows start with no forced theme
 (`tauri.conf.json` and `tauri.windows.conf.json` set none), `AppThemeProvider`
 calls `setTheme(null)` for `system` and `setTheme('light' | 'dark')`
-otherwise (`setWindowTheme` in `src/api/window.ts`), and on Windows Tauri
+otherwise (`setWindowTheme` in `src/api/window.ts`; on Linux, where tao's
+`setTheme(null)` forces light, the native `linux_set_window_theme` instead,
+see [LINUX_DESKTOP.md › Dark mode](LINUX_DESKTOP.md#dark-mode-from-the-desktop-198)), and on Windows Tauri
 passes each OS switch (tao's `WM_SETTINGCHANGE` handling emits
 `ThemeChanged`) on to WebView2's preferred color scheme, where
 `useResolvedTheme`'s media query listener picks it up. wry sets that scheme on
@@ -2019,8 +2022,8 @@ resolution, and `src/styles/themeBoot.test.ts` that the boot script paints
 what the module would. The browser
 preview was checked with emulated `prefers-color-scheme`. The OS switch in the
 desktop app rests on tauri-runtime-wry 2.12.3 and tao 0.37.2 as read in their
-source, not on a run in the app; on Linux the media query follows what
-WebKitGTK reports and was not checked.
+source, not on a run in the app. Linux was checked in the app on KDE Plasma
+(LINUX_DESKTOP.md).
 
 Labs roadmap features 1, 3, 7, 8, and 12 are mapped in
 [LABS_MACWHISPER_FEATURES.md](LABS_MACWHISPER_FEATURES.md). Read it before

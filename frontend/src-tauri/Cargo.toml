@@ -244,8 +244,13 @@ libloading = "0.8.9"
 whisper-rs = { version = "0.16.0", features = ["raw-api"] }
 ort = { version = "=2.0.0-rc.15", default-features = false, features = ["load-dynamic"] }
 libloading = "0.8.9"
-# Already in the tree through tao/gtk; names the app for the tray (src/tray.rs).
+# Already in the tree through tao/gtk; names the app for GTK and the tray
+# (src/linux_desktop/app_id.rs, src/tray.rs).
 glib = "0.18"
+# Both already in the tree through tao: GTK's dark-theme setting and the
+# settings portal's colour scheme (src/linux_desktop/theme.rs).
+gtk = "0.18"
+dbus = "0.9"
 # Unpacking Intel's OpenVINO GenAI archive for Linux, a .tar.gz
 # (model_catalog/runtime.rs, #178). Both are in the tree already, through zip,
 # ureq and tauri-plugin-updater, so naming them adds no crate.

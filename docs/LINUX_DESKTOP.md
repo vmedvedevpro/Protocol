@@ -86,3 +86,39 @@ AppImageLauncher or Gear Lever. Those tools install the desktop file under a
 name of their own (`appimagekit_<hash>-Protocol.desktop`), which KWin cannot
 match by `app_id`; Plasma's task manager and GNOME Shell should still match
 it by `StartupWMClass`, which was not tried.
+
+## Dark mode from the desktop (#198)
+
+WebKitGTK reports `prefers-color-scheme: dark` while GTK's
+`gtk-application-prefer-dark-theme` setting is on; the setting is one for the
+process, so both windows share it. tao 0.37.2 writes it when it creates a
+window (from the settings portal's `org.freedesktop.appearance
+color-scheme`), on the portal's `SettingChanged` for that key, and on
+`Window::set_theme(theme)` as `theme == Some(Dark)`. The last made Match
+system, which called Tauri's `setTheme(null)` to "hand the theme back to the
+system", force light.
+
+So on Linux the frontend's `setWindowTheme` (`src/api/window.ts`) calls the
+native `linux_set_window_theme` (`src-tauri/src/linux_desktop/theme.rs`)
+instead of Tauri's `setTheme`:
+
+- Match system sets the setting from the portal's colour scheme now (prefer
+  dark: on; prefer light or no preference: off), and tao's portal listener
+  follows its changes from then on. Where no portal answers, GTK's own value
+  (settings.ini or XSETTINGS) is restored with `reset_property`.
+- Light and Dark set the value and hold it: a notify handler installed in
+  setup (`theme::init`) sets it back whenever tao's listener changes it
+  while a forced mode is chosen.
+
+Windows and macOS keep Tauri's `setTheme`.
+
+Checked on KDE Plasma 6.7.5, Wayland (the "Protocol QA" build, Match system):
+with the owner's dark scheme (portal `color-scheme` 1) the app started dark;
+switching the desktop to Breeze Light (portal 2) repainted it light while it
+ran, and switching back repainted it dark. The unit test covers which modes
+force the setting; `App.test.tsx` that Linux hands every mode to the native
+command and never calls Tauri's `setTheme`.
+
+Not checked: GNOME (its portal answers the same key, but no GNOME session
+here), a desktop without the portal (GTK's own value), and Light or Dark held
+against a live desktop switch in the app.

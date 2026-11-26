@@ -41,6 +41,9 @@ export const handlers: Record<string, MockHandler> = {
     'plugin:app|version': () => mockState.appVersion,
     'plugin:window|set_theme': () => null,
 
+    // src-tauri/src/linux_desktop/theme.rs
+    linux_set_window_theme: () => null,
+
     // src-tauri/src/api/api.rs
     open_external_url: ({url}) => {
         // Tauri rejects before the command runs when the argument is missing.

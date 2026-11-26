@@ -371,6 +371,8 @@ pub fn run() {
             }
             #[cfg(unix)]
             quit::quit_on_termination_signals(_app.handle());
+            #[cfg(target_os = "linux")]
+            linux_desktop::theme::init();
             #[cfg(any(windows, target_os = "linux"))]
             onnx_runtime::initialize(_app.handle());
             log::info!("Application setup complete");
@@ -735,6 +737,9 @@ pub fn run() {
             audio::import::validate_audio_file_command,
             audio::import::start_import_audio_command,
             audio::import::cancel_import_command,
+            // The Linux windows' theme (docs/LINUX_DESKTOP.md)
+            #[cfg(target_os = "linux")]
+            linux_desktop::theme::linux_set_window_theme,
             // In-app updates
             updater::commands::updater_get_status,
             updater::commands::updater_check_now,
