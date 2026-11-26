@@ -460,96 +460,112 @@ pub struct Private {
     pub home: Option<String>,
     /// The user's login name, written as `<user>` where it stands as a word.
     pub user: Option<String>,
+    /// The computer's name, written as `<computer>` where it stands as a word.
+    pub computer: Option<String>,
 }
 
 impl Private {
     pub fn of_this_computer() -> Self {
-        let user = std::env::var("USER").or_else(|_| std::env::var("USERNAME")).ok();
-        Self { home: dirs::home_dir().map(|home| home.to_string_lossy().into_owned()), user }
+        let environment = |name: &str| std::env::var(name).ok().filter(|value| !value.trim().is_empty());
+        Self {
+            home: dirs::home_dir().map(|home| home.to_string_lossy().into_owned()),
+            user: environment("USER").or_else(|| environment("USERNAME")),
+            computer: sysinfo::System::host_name().or_else(|| environment("COMPUTERNAME")),
+        }
     }
 }
 
-/// `text` with the home folder as `~` (also with the other slash and in any
-/// case on Windows, whose paths ignore case) and the user's name as
-/// `<user>` wherever it stands as a word: in a path outside the home folder,
-/// a Windows profile path, an error text.
+/// `pattern`, ignoring case, as a regex; `None` for an empty one.
+fn ignoring_case(pattern: &str) -> Option<regex::Regex> {
+    regex::Regex::new(&format!("(?i){pattern}")).ok()
+}
+
+/// The 8.3 name Windows gives a long name, as `CHRIST~1`: the first six
+/// letters and digits upper-cased, a tilde and a number.
+fn short_name(name: &str) -> Option<String> {
+    let kept: String = name.chars().filter(|ch| ch.is_alphanumeric() || "_-!#$%&'()@^`{}~".contains(*ch)).take(6).collect();
+    (kept.chars().count() >= 2).then(|| format!(r"{}~\d+", regex::escape(&kept)))
+}
+
+/// `text` with the home folder as `~` (also with the other slash, in any case
+/// and with its 8.3 name on Windows, whose paths ignore case), the user's
+/// name as `<user>` and the computer's as `<computer>` wherever they stand
+/// as a word (an 8.3 form of the user's name too): in a path outside the
+/// home folder, a Windows profile path, an error text.
 pub fn scrub(text: &str, private: &Private) -> String {
     let mut out = text.to_string();
+    let mut replace = |pattern: Option<regex::Regex>, with: &str| {
+        if let Some(pattern) = pattern {
+            out = pattern.replace_all(&out, regex::NoExpand(with)).into_owned();
+        }
+    };
     if let Some(home) = private.home.as_deref().filter(|home| home.len() > 1) {
-        for form in [home.to_string(), home.replace('\\', "/"), home.replace('/', "\\")] {
-            out = replace_ignoring_case(&out, &form, "~");
+        let home = home.trim_end_matches(['/', '\\']);
+        let any_slash = |path: &str| regex::escape(path).replace(r"\\", "/").replace('/', r"[/\\]");
+        replace(ignoring_case(&any_slash(home)), "~");
+        // The profile's 8.3 form, `C:\Users\CHRIST~1`.
+        if let Some((parent, name)) = home.rsplit_once(['/', '\\']) {
+            if let Some(short) = short_name(name) {
+                replace(ignoring_case(&format!(r"{}[/\\]{short}\b", any_slash(parent))), "~");
+            }
         }
     }
-    if let Some(user) = private.user.as_deref().filter(|user| user.chars().count() >= 2) {
-        out = replace_word(&out, user, "<user>");
-    }
-    out
-}
-
-fn replace_ignoring_case(text: &str, needle: &str, with: &str) -> String {
-    if needle.is_empty() {
-        return text.to_string();
-    }
-    let lower_text = text.to_lowercase();
-    let lower_needle = needle.to_lowercase();
-    // Lower-casing can change a string's length; then match exactly only.
-    if lower_text.len() != text.len() || lower_needle.len() != needle.len() {
-        return text.replace(needle, with);
-    }
-    let mut out = String::with_capacity(text.len());
-    let mut at = 0;
-    while let Some(found) = lower_text[at..].find(&lower_needle) {
-        out.push_str(&text[at..at + found]);
-        out.push_str(with);
-        at += found + needle.len();
-    }
-    out.push_str(&text[at..]);
-    out
-}
-
-/// `needle` replaced where neither neighbour is a letter, digit or `_`, case ignored.
-fn replace_word(text: &str, needle: &str, with: &str) -> String {
-    let lower_text = text.to_lowercase();
-    let lower_needle = needle.to_lowercase();
-    if lower_text.len() != text.len() || lower_needle.len() != needle.len() || needle.is_empty() {
-        return text.to_string();
-    }
-    let is_word = |ch: Option<char>| ch.is_some_and(|ch| ch.is_alphanumeric() || ch == '_');
-    let mut out = String::with_capacity(text.len());
-    let mut at = 0;
-    let mut search = 0;
-    while let Some(found) = lower_text[search..].find(&lower_needle) {
-        let start = search + found;
-        let end = start + needle.len();
-        let before = text[..start].chars().next_back();
-        let after = text[end..].chars().next();
-        if !is_word(before) && !is_word(after) {
-            out.push_str(&text[at..start]);
-            out.push_str(with);
-            at = end;
+    if let Some(user) = private.user.as_deref().map(str::trim).filter(|user| user.chars().count() >= 2) {
+        replace(ignoring_case(&format!(r"\b{}\b", regex::escape(user))), "<user>");
+        if let Some(short) = short_name(user) {
+            replace(ignoring_case(&format!(r"\b{short}\b")), "<user>");
         }
-        search = end;
     }
-    out.push_str(&text[at..]);
+    // Three letters at least: a two-letter name such as "pc" stands as a
+    // word in too many texts ("x86_64-pc-linux").
+    if let Some(computer) = private.computer.as_deref().map(str::trim).filter(|name| name.chars().count() >= 3) {
+        replace(ignoring_case(&format!(r"\b{}\b", regex::escape(computer))), "<computer>");
+    }
     out
-}
-
-/// Every string of `value` through [`scrub`].
-pub fn scrub_json(value: &mut serde_json::Value, private: &Private) {
-    match value {
-        serde_json::Value::String(text) => *text = scrub(text, private),
-        serde_json::Value::Array(items) => items.iter_mut().for_each(|item| scrub_json(item, private)),
-        serde_json::Value::Object(map) => map.values_mut().for_each(|item| scrub_json(item, private)),
-        _ => {}
-    }
 }
 
 impl Report {
-    /// The report with every string scrubbed.
+    /// The report with every free text scrubbed. The kinds, statuses and
+    /// outcome are left alone: a login named "whisper" must not rename a step.
     pub fn scrubbed(&self, private: &Private) -> Report {
-        let mut value = serde_json::to_value(self).expect("a report serializes");
-        scrub_json(&mut value, private);
-        serde_json::from_value(value).expect("a scrubbed report deserializes")
+        let mut report = self.clone();
+        report.for_each_text(&mut |text| *text = scrub(text, private));
+        report
+    }
+
+    /// Every free-text string of the report; a new string field joins here.
+    fn for_each_text(&mut self, f: &mut dyn FnMut(&mut String)) {
+        fn each<'a>(texts: impl IntoIterator<Item = &'a mut String>, f: &mut dyn FnMut(&mut String)) {
+            texts.into_iter().for_each(f);
+        }
+        let s = &mut self.system;
+        each([&mut s.protocol_version, &mut s.package, &mut s.whisper_build, &mut s.os, &mut s.os_version, &mut s.processor, &mut s.onnx_runtime], f);
+        each([&mut s.distribution, &mut s.desktop, &mut s.session, &mut s.npu].into_iter().flatten(), f);
+        each(s.vulkan_devices.iter_mut().chain(s.onnx_providers.iter_mut()), f);
+        for gpu in &mut s.gpus {
+            each(std::iter::once(&mut gpu.name).chain([&mut gpu.vendor, &mut gpu.driver, &mut gpu.driver_version].into_iter().flatten()), f);
+        }
+        for pair in [&mut self.pair, &mut self.selected] {
+            each([&mut pair.live, &mut pair.post_meeting].into_iter().flatten(), f);
+            each(pair.inputs.iter_mut().flat_map(|(name, value)| [name, value]), f);
+        }
+        for step in &mut self.steps {
+            each([&mut step.reason, &mut step.ran_on, &mut step.untested_path].into_iter().flatten(), f);
+            if let Some(model) = &mut step.model {
+                each(std::iter::once(&mut model.id).chain(model.version.as_mut()), f);
+            }
+            if let Some(picked) = &mut step.picked {
+                each([&mut picked.name, &mut picked.why], f);
+            }
+            if let Some(fallback) = &mut step.fallback {
+                each([&mut fallback.from, &mut fallback.to, &mut fallback.error], f);
+            }
+            each(step.inputs.iter_mut().flat_map(|(name, value)| [name, value]), f);
+            for clip in &mut step.clips {
+                each(std::iter::once(&mut clip.clip).chain([&mut clip.text, &mut clip.language].into_iter().flatten()), f);
+            }
+        }
+        each(self.warnings.iter_mut(), f);
     }
 }
 
@@ -558,7 +574,7 @@ mod tests {
     use super::*;
 
     fn private() -> Private {
-        Private { home: Some("/home/tyler".into()), user: Some("tyler".into()) }
+        Private { home: Some("/home/tyler".into()), user: Some("tyler".into()), computer: None }
     }
 
     #[test]
@@ -569,8 +585,52 @@ mod tests {
 
     #[test]
     fn windows_paths_lose_the_profile_in_any_case_and_slash() {
-        let private = Private { home: Some(r"C:\Users\Tyler".into()), user: Some("Tyler".into()) };
+        let private = Private { home: Some(r"C:\Users\Tyler".into()), user: Some("Tyler".into()), computer: None };
         assert_eq!(scrub(r"c:\users\tyler\AppData\x.onnx and C:/Users/Tyler/y", &private), r"~\AppData\x.onnx and ~/y");
+    }
+
+    #[test]
+    fn windows_short_names_and_the_computer_name_go_too() {
+        let private = Private { home: Some(r"C:\Users\Christopher".into()), user: Some("Christopher".into()), computer: Some("DESKTOP-4F2K9".into()) };
+        assert_eq!(
+            scrub(r"cannot open C:\Users\CHRIST~1\AppData\Local\Temp\x.onnx on desktop-4f2k9", &private),
+            r"cannot open ~\AppData\Local\Temp\x.onnx on <computer>"
+        );
+        assert_eq!(scrub(r"D:\cache\CHRIST~2\y", &private), r"D:\cache\<user>\y");
+        // A name of two letters stays: it is a word in too many texts.
+        let short = Private { computer: Some("pc".into()), ..Private::default() };
+        assert_eq!(scrub("x86_64-pc-linux", &short), "x86_64-pc-linux");
+    }
+
+    #[test]
+    fn a_login_named_like_a_step_renames_no_step() {
+        let private = Private { home: None, user: Some("whisper".into()), computer: None };
+        let scrubbed = report().scrubbed(&private);
+        assert_eq!(scrubbed.steps[1].kind, StepKind::Whisper);
+        assert_eq!(scrubbed.pair.post_meeting.as_deref(), Some("<user>:large-v3-turbo-q5_0"));
+    }
+
+    #[test]
+    fn every_text_of_the_report_is_scrubbed() {
+        let home = "/home/tyler/x";
+        let mut report = report();
+        report.for_each_text(&mut |text| *text = format!("{text} {home}"));
+        // The fields a report may leave empty, filled.
+        let s = &mut report.system;
+        for field in [&mut s.distribution, &mut s.desktop, &mut s.session, &mut s.npu] {
+            *field = Some(home.into());
+        }
+        s.vulkan_devices.push(home.into());
+        s.onnx_providers.push(home.into());
+        s.gpus.push(Gpu { name: home.into(), vendor: Some(home.into()), driver: Some(home.into()), driver_version: Some(home.into()) });
+        let step = &mut report.steps[0];
+        step.untested_path = Some(home.into());
+        step.model = Some(ModelId { id: home.into(), version: Some(home.into()) });
+        step.picked = Some(Device { name: home.into(), why: home.into() });
+        step.inputs.push((home.into(), home.into()));
+        step.clips[0].language = Some(home.into());
+        let json = serde_json::to_string(&report.scrubbed(&private())).unwrap();
+        assert!(!json.contains("tyler"), "{json}");
     }
 
     #[test]
@@ -579,7 +639,7 @@ mod tests {
         // Inside another word it stays.
         assert_eq!(scrub("tylerson", &private()), "tylerson");
         // A one-letter name would eat every word.
-        let short = Private { home: None, user: Some("a".into()) };
+        let short = Private { user: Some("a".into()), ..Private::default() };
         assert_eq!(scrub("a b a", &short), "a b a");
     }
 
