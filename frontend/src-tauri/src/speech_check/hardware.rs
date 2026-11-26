@@ -21,6 +21,7 @@ pub fn system() -> System {
     let (avx2, avx512) = (None, None);
     let linux = cfg!(target_os = "linux");
     let environment = |name: &str| std::env::var(name).ok().map(|value| value.trim().to_string()).filter(|value| !value.is_empty());
+    let (onnx_runtime, onnx_providers) = onnx_runtime();
     System {
         protocol_version: env!("CARGO_PKG_VERSION").to_string(),
         package: package(),
@@ -39,8 +40,8 @@ pub fn system() -> System {
         vulkan_devices: vulkan_devices(),
         intel_opencl: intel_opencl(),
         npu: npu(),
-        onnx_runtime: onnx_runtime(),
-        onnx_providers: onnx_providers(),
+        onnx_runtime,
+        onnx_providers,
     }
 }
 
@@ -75,9 +76,8 @@ fn vendor_name(vendor: u32) -> Option<&'static str> {
 
 /// Linux: the kernel's DRM devices (`/sys/class/drm/cardN`), each with its
 /// PCI vendor and device, its kernel driver and, when the module states one
-/// (NVIDIA's does, the in-tree ones do not), its version. Mesa's version is
-/// not readable without a Vulkan or OpenGL context; the Vulkan driver's name
-/// comes from ggml's device lines ([`vulkan_devices`]).
+/// (NVIDIA's does, the in-tree ones do not), its version. Mesa's name and
+/// version are not readable without a Vulkan or OpenGL context of its own.
 #[cfg(target_os = "linux")]
 fn gpus() -> Vec<Gpu> {
     let read = |path: std::path::PathBuf| std::fs::read_to_string(path).ok().map(|text| text.trim().to_string());
@@ -190,30 +190,20 @@ fn gpus() -> Vec<Gpu> {
     Vec::new()
 }
 
-/// ggml-vulkan's device lines, `0 = <name> (<driver>) | uma: …`, or the
-/// names in ggml's registry when the lines are not kept (a build without
-/// the Linux tee, see `vulkan::device_lines`). Asking ggml looks for its
-/// devices inside the Vulkan guard, as every model load does first.
-fn vulkan_devices() -> Vec<String> {
-    let lines = crate::whisper_engine::vulkan::device_lines();
-    if !lines.is_empty() {
-        return lines.into_iter().map(|line| line.trim_start_matches("ggml_vulkan: ").to_string()).collect();
-    }
-    registry_devices()
-}
-
+/// The GPUs ggml's registry lists, as `<name>: <description>` (`Vulkan0:
+/// Intel(R) Arc(tm) B390 (PTL)`). The registry names a device but not its
+/// Vulkan driver; the GPU lines give the kernel driver. Asking ggml looks
+/// for its devices inside the Vulkan guard, as every model load does first.
 #[cfg(feature = "vulkan")]
-fn registry_devices() -> Vec<String> {
+fn vulkan_devices() -> Vec<String> {
     use whisper_rs::whisper_rs_sys as sys;
     crate::whisper_engine::vulkan::look_for_devices();
-    // `look_for_devices` may have printed the lines just now.
-    let lines = crate::whisper_engine::vulkan::device_lines();
-    if !lines.is_empty() {
-        return lines.into_iter().map(|line| line.trim_start_matches("ggml_vulkan: ").to_string()).collect();
-    }
+    let text = |pointer: *const std::ffi::c_char| {
+        // SAFETY: ggml's strings live as long as its devices and are copied here.
+        (!pointer.is_null()).then(|| unsafe { std::ffi::CStr::from_ptr(pointer) }.to_string_lossy().into_owned())
+    };
     // SAFETY: as `acceleration::ggml_device_kinds`: registry calls on the
-    // handles the registry returns, for indices below its count; the strings
-    // live as long as the devices and are copied here.
+    // handles the registry returns, for indices below its count.
     unsafe {
         (0..sys::ggml_backend_dev_count())
             .map(|index| sys::ggml_backend_dev_get(index))
@@ -223,16 +213,16 @@ fn registry_devices() -> Vec<String> {
                     sys::ggml_backend_dev_type_GGML_BACKEND_DEVICE_TYPE_GPU | sys::ggml_backend_dev_type_GGML_BACKEND_DEVICE_TYPE_IGPU
                 )
             })
-            .filter_map(|device| {
-                let pointer = sys::ggml_backend_dev_description(device);
-                (!pointer.is_null()).then(|| std::ffi::CStr::from_ptr(pointer).to_string_lossy().into_owned())
+            .filter_map(|device| match (text(sys::ggml_backend_dev_name(device)), text(sys::ggml_backend_dev_description(device))) {
+                (Some(name), Some(description)) => Some(format!("{name}: {description}")),
+                (name, description) => name.or(description),
             })
             .collect()
     }
 }
 
 #[cfg(not(feature = "vulkan"))]
-fn registry_devices() -> Vec<String> {
+fn vulkan_devices() -> Vec<String> {
     Vec::new()
 }
 
@@ -260,23 +250,17 @@ fn npu() -> Option<String> {
     None
 }
 
-fn onnx_runtime() -> String {
-    match crate::onnx_runtime::environment() {
-        Ok(_) => match crate::onnx_runtime::version() {
-            Some(version) => format!("{version} ({})", ort::info()),
-            None => ort::info().to_string(),
-        },
-        Err(error) => format!("not available: {error}"),
-    }
-}
-
-/// The execution providers this ONNX Runtime was built with, among those
-/// the app uses. Whether a session gets one is the step's business.
-fn onnx_providers() -> Vec<String> {
+/// ONNX Runtime's version and the execution providers it was built with,
+/// among those the app uses; whether a session gets one is the step's business.
+fn onnx_runtime() -> (String, Vec<String>) {
     use ort::ep::ExecutionProvider;
-    if crate::onnx_runtime::environment().is_err() {
-        return Vec::new();
+    if let Err(error) = crate::onnx_runtime::environment() {
+        return (format!("not available: {error}"), Vec::new());
     }
+    let version = match crate::onnx_runtime::version() {
+        Some(version) => format!("{version} ({})", ort::info()),
+        None => ort::info().to_string(),
+    };
     let mut providers = Vec::new();
     if ort::ep::CPU::is_available().unwrap_or(false) {
         providers.push("CPU".to_string());
@@ -285,5 +269,5 @@ fn onnx_providers() -> Vec<String> {
     if ort::ep::DirectML::is_available().unwrap_or(false) {
         providers.push("DirectML".to_string());
     }
-    providers
+    (version, providers)
 }

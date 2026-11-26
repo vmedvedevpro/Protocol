@@ -16,7 +16,7 @@ use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 
-use super::report::{StepKind, StepReport, StepStatus, System};
+use super::report::{StepKind, StepReport, System};
 
 /// The reason a step that closed the app gives.
 pub const CLOSED_REASON: &str = "Protocol closed while this step ran";
@@ -148,6 +148,7 @@ pub(crate) fn use_path_for_tests(path: Option<PathBuf>) {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+    use crate::speech_check::report::StepStatus;
 
     /// The note's file is process-wide; the tests that use it take turns.
     pub(crate) static FILE: Mutex<()> = Mutex::new(());

@@ -335,8 +335,6 @@ mod linux {
         static LOOKED: OnceLock<()> = OnceLock::new();
         LOOKED.get_or_init(|| {
             use whisper_rs::whisper_rs_sys as sys;
-            // SAFETY: a callback with ggml's signature that outlives the process's ggml calls.
-            unsafe { sys::ggml_log_set(Some(tee_log), std::ptr::null_mut()) };
             // SAFETY: takes no arguments; the registry initialises itself once.
             // `Err` when the guard keeps the GPU off: the forwarder then keeps
             // the loader closed for whichever call looks first.
@@ -344,52 +342,6 @@ mod linux {
                 log::info!("[vulkan] ggml registered {count} devices");
             }
         });
-    }
-
-    /// The lines ggml-vulkan prints once, when it first lists its devices:
-    /// `ggml_vulkan: 0 = <name> (<driver>) | uma: 1 | …`. ggml's registry
-    /// names a device but not its driver, which the Speech check reports
-    /// (#233). At most `MAX_DEVICE_LINES`: a machine has a few GPUs.
-    static DEVICE_LINES: std::sync::Mutex<(String, Vec<String>)> = std::sync::Mutex::new((String::new(), Vec::new()));
-    const MAX_DEVICE_LINES: usize = 16;
-
-    /// ggml's default logger (the text to stderr, as it comes), keeping the
-    /// device lines. ggml may log a line in parts, so the text is gathered
-    /// up to each newline.
-    unsafe extern "C" fn tee_log(_level: whisper_rs::whisper_rs_sys::ggml_log_level, text: *const c_char, _user: *mut c_void) {
-        if text.is_null() {
-            return;
-        }
-        // SAFETY: ggml passes a NUL-terminated string that lives for the call.
-        let bytes = unsafe { CStr::from_ptr(text) }.to_bytes();
-        use std::io::Write;
-        let mut stderr = std::io::stderr();
-        let _ = stderr.write_all(bytes);
-        let _ = stderr.flush();
-        let mut state = DEVICE_LINES.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        let (pending, lines) = &mut *state;
-        pending.push_str(&String::from_utf8_lossy(bytes));
-        while let Some(end) = pending.find('\n') {
-            let line: String = pending.drain(..=end).collect();
-            let line = line.trim_end();
-            if is_device_line(line) && lines.len() < MAX_DEVICE_LINES {
-                lines.push(line.to_string());
-            }
-        }
-        // A line without its end is not one of ggml's device lines.
-        if pending.len() > 4096 {
-            pending.clear();
-        }
-    }
-
-    fn is_device_line(line: &str) -> bool {
-        line.strip_prefix("ggml_vulkan: ")
-            .and_then(|rest| rest.split_once(" = "))
-            .is_some_and(|(index, _)| index.chars().all(|ch| ch.is_ascii_digit()) && !index.is_empty())
-    }
-
-    pub fn device_lines() -> Vec<String> {
-        DEVICE_LINES.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).1.clone()
     }
 
     /// Whether the loaded model's first GPU inference is still to come.
@@ -443,15 +395,6 @@ mod linux {
         use super::*;
 
         #[test]
-        fn only_ggml_vulkan_device_lines_are_kept() {
-            assert!(is_device_line("ggml_vulkan: 0 = Intel(R) Arc(TM) B390 GPU (Intel open-source Mesa driver) | uma: 1 | fp16: 1"));
-            assert!(is_device_line("ggml_vulkan: 12 = X (Y)"));
-            assert!(!is_device_line("ggml_vulkan: Found 1 Vulkan devices:"));
-            assert!(!is_device_line("ggml_vulkan: Compiling shaders = slow"));
-            assert!(!is_device_line("whisper_init: 0 = x"));
-        }
-
-        #[test]
         fn without_a_loader_only_the_instance_version_answers_and_it_fails() {
             let version = without_loader(c"vkEnumerateInstanceVersion".as_ptr()).expect("a function");
             // SAFETY: the function behind it is `no_instance_version`.
@@ -490,7 +433,7 @@ mod linux {
 }
 
 #[cfg(all(target_os = "linux", feature = "vulkan"))]
-pub use linux::{device_lines, first_run, get_instance_proc_addr, instance_loader, load, look_for_devices, VoidFunction};
+pub use linux::{first_run, get_instance_proc_addr, instance_loader, load, look_for_devices, VoidFunction};
 
 /// Defines the Vulkan functions ggml-vulkan calls by symbol, forwarding them
 /// to the system loader (module docs): `main.rs` for the executable, and this
@@ -543,12 +486,6 @@ pub fn first_run<T>(work: impl FnOnce() -> T) -> T {
 
 #[cfg(not(all(target_os = "linux", feature = "vulkan")))]
 pub fn look_for_devices() {}
-
-/// The device lines ggml-vulkan printed; only the Linux Vulkan build keeps them.
-#[cfg(not(all(target_os = "linux", feature = "vulkan")))]
-pub fn device_lines() -> Vec<String> {
-    Vec::new()
-}
 
 #[cfg(test)]
 mod tests {

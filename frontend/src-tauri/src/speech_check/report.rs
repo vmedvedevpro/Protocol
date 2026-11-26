@@ -291,7 +291,7 @@ pub struct System {
     pub ram_gb: f64,
     #[serde(default)]
     pub gpus: Vec<Gpu>,
-    /// The Vulkan devices ggml lists, as it names them.
+    /// The GPUs ggml's registry lists, as it names and describes them.
     #[serde(default)]
     pub vulkan_devices: Vec<String>,
     /// Linux: Intel's OpenCL driver is registered (OpenVINO needs it).

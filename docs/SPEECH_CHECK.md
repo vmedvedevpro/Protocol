@@ -140,10 +140,10 @@ and how Whisper is built; the OS and version, on Linux the distribution,
 AVX-512, threads, RAM; each GPU (Linux: PCI vendor and device, address,
 kernel driver and the module's version where it states one, NVIDIA's;
 Windows: the display class's name, vendor and `DriverVersion` of each
-present adapter); ggml's Vulkan
-device lines, which name the Vulkan driver (`vulkan::device_lines`, kept by a
-ggml log callback that still writes everything to stderr; Mesa's version is
-not readable without a Vulkan or OpenGL context); Intel's OpenCL driver
+present adapter); the GPUs ggml's registry lists, by name and description
+(`ggml_backend_dev_*`; the registry does not name the Vulkan driver, and
+Mesa's version is not readable without a Vulkan or OpenGL context of the
+check's own); Intel's OpenCL driver
 (Linux); the NPU and its state (Windows); ONNX Runtime's version and
 providers. Then the pair and the selected models (the report says when they
 differ; the check still runs the pair), and per step: the model and its catalog commit, picked device with the inputs,
@@ -208,8 +208,7 @@ check asks first ("the speech check is running"), as for other work.
   interrupted run, a recording's cancel and its bounded wait, a recording
   that started after Run, a cancel after the finish or before the next step,
   a start that resets the flags and shows Running, a step that panics, only
-  an interrupted check resuming, the refusals both ways, the plan),
-  `vulkan::linux::tests::only_ggml_vulkan_device_lines_are_kept`.
+  an interrupted check resuming, the refusals both ways, the plan).
 - Ignored, with installed models in the test binary's `data/models`:
   `speech_check::tests::every_engine_runs_the_sample_on_the_installed_models`
   prints the whole report (`--ignored --nocapture`; `SPEECH_CHECK_WHISPER`
