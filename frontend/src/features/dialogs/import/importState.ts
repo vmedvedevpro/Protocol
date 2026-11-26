@@ -25,6 +25,13 @@ interface ImportState {
      * in it when native says the import is complete, whatever the form shows.
      */
     folder: { id: string, name: string } | null
+    /**
+     * The last drop onto the sheet's drop area held no audio or video file:
+     * the area says so under itself until the next drag, pick or file.
+     */
+    rejectedDrop: boolean
+    /** Files are being dragged over the main window (Tauri's drag events, DropOverlay). */
+    dragging: boolean
 }
 
 /**
@@ -32,9 +39,15 @@ interface ImportState {
  * whatever the sheet shows, and the sheet's footer and its form both read
  * it. A drop onto the open sheet changes the file here.
  */
-export const useImportState = create<ImportState>(() => ({phase: {step: 'pick'}, file: null, title: '', folder: null}))
+export const useImportState = create<ImportState>(() => ({phase: {step: 'pick'}, file: null, title: '', folder: null, rejectedDrop: false, dragging: false}))
 
 export const isRunning = (phase: ImportPhase) => phase.step === 'importing' || phase.step === 'cancelling'
 
+/**
+ * Whether the open sheet shows its drop area, which then takes a drop in
+ * place of the window's overlay: not while an import runs or its failure shows.
+ */
+export const takesDrops = (phase: ImportPhase) => !isRunning(phase) && phase.step !== 'failed'
+
 /** Back to an empty form; the sheet leaves a running import alone. */
-export const resetImport = () => useImportState.setState({phase: {step: 'pick'}, file: null, title: '', folder: null})
+export const resetImport = () => useImportState.setState({phase: {step: 'pick'}, file: null, title: '', folder: null, rejectedDrop: false})

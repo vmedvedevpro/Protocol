@@ -101,6 +101,11 @@ is inherited from the project Protocol forked from; Protocol did not release it.
   ([#219](https://github.com/vmedvedevpro/Protocol/issues/219)). Fields and
   selects have a clearer edge, so a field on a sheet, such as the speaker
   sheet's contact search, no longer blends into it.
+- **The whole import drop area opens the file picker**
+  ([#219](https://github.com/vmedvedevpro/Protocol/issues/219)). Click
+  anywhere in it, or press Enter or Space. A file dragged over the window
+  lights the area up while Import is open, and a file that isn't audio or
+  video is turned down right under it.
 
 ## Protocol 1.0.0-rc.1 — 2026-11-26
 

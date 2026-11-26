@@ -23,7 +23,7 @@ async function pick(dialog: HTMLElement, select: string, option: string) {
 async function chooseFile() {
     const dialog = await sheet()
     await listened()
-    await userEvent.click(within(dialog).getByRole('button', {name: 'Choose a file'}))
+    await userEvent.click(within(dialog).getByRole('button', {name: 'Choose a file or drop one here'}))
     await within(dialog).findByText('client-call-nov-21.m4a')
     return dialog
 }
@@ -138,7 +138,7 @@ describe('ImportSheet', () => {
         mockState.dialogs.pickedFile = null
         renderDialogs({kind: 'import'})
         const dialog = await sheet()
-        await userEvent.click(within(dialog).getByRole('button', {name: 'Choose a file'}))
+        await userEvent.click(within(dialog).getByRole('button', {name: 'Choose a file or drop one here'}))
         expect(within(dialog).getByRole('button', {name: 'Import'})).toBeDisabled()
         expect(within(dialog).getByText(/MP4, M4A, WAV/)).toBeInTheDocument()
     })
@@ -180,6 +180,31 @@ describe('dropping a file on the window', () => {
         await act(() => emitMockEvent(DRAG_DROP, {paths: ['/tmp/notes.txt']}))
         expect(await screen.findByText('Please drop an audio file')).toBeInTheDocument()
         expect(screen.queryByRole('dialog', {name: 'Import a recording'})).not.toBeInTheDocument()
+    })
+
+    it('lights up the open sheet\'s drop area instead of dimming the window', async () => {
+        renderDialogs({kind: 'import'})
+        const dialog = await sheet()
+        await listened()
+        await act(() => emitMockEvent(DRAG_ENTER, {paths: ['/tmp/call.mp3']}))
+        const area = within(dialog).getByRole('button', {name: 'Choose a file or drop one here'})
+        expect(area).toHaveTextContent('Drop to import this recording')
+        // The window's own card is not drawn over the sheet.
+        expect(screen.getAllByText('Drop to import this recording')).toHaveLength(1)
+    })
+
+    it('says under the open sheet\'s drop area that a dropped file is not audio, without a toast', async () => {
+        renderDialogs({kind: 'import'})
+        const dialog = await sheet()
+        await listened()
+        await act(() => emitMockEvent(DRAG_ENTER, {paths: ['/tmp/notes.txt']}))
+        await act(() => emitMockEvent(DRAG_DROP, {paths: ['/tmp/notes.txt']}))
+        expect(await within(dialog).findByRole('alert')).toHaveTextContent('That isn’t an audio or video file')
+        expect(screen.queryByText('Please drop an audio file')).not.toBeInTheDocument()
+
+        // The next drag clears it.
+        await act(() => emitMockEvent(DRAG_ENTER, {paths: ['/tmp/call.mp3']}))
+        expect(within(dialog).queryByRole('alert')).not.toBeInTheDocument()
     })
 
     it('replaces the file of an open Import', async () => {

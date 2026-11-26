@@ -1498,7 +1498,14 @@ another meeting starts from fresh state).
   stop them.
 - Files dragged over the main window dim it (`import/DropOverlay.tsx`,
   Tauri's `tauri://drag-*` events of that window); the first audio or
-  video file dropped opens Import with it.
+  video file dropped opens Import with it. The webview gets no DOM drag
+  events, so the drag state lives in `importState` (`dragging`). While
+  Import is open with its drop area (`takesDrops`: no import running, no
+  failure shown), the window does not dim: the area lights up instead,
+  and a drop with no audio says so under the area (`rejectedDrop`) rather
+  than in the toast a drop gets otherwise. The area is one button, "Choose
+  a file or drop one here": a click, Enter or Space anywhere in it opens
+  the picker, and the "Choose a file" inside is only its look (#219).
 - Export renders the document Copy builds (`components/transcript/meetingText.ts`,
   `lib/summaryMarkdown.ts`, moved down from features/meetings): Markdown,
   with Obsidian wikilinks to named voices on request (the choice is

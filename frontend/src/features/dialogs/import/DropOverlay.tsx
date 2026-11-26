@@ -1,4 +1,3 @@
-import {useState} from 'react'
 import {DownloadSimpleIcon} from '@phosphor-icons/react'
 import {getCurrentWindow} from '@tauri-apps/api/window'
 import {AnimatePresence} from 'motion/react'
@@ -9,9 +8,10 @@ import {type NativeEvent, useNativeEvent} from '@/api/events'
 import {px} from '@/components/ui/styles'
 import {toast} from '@/components/ui/toastStore'
 import {Veil} from '@/components/ui/Veil'
-import {openDialog} from '@/lib/dialogs'
+import {openDialog, useDialog} from '@/lib/dialogs'
 import {platform} from '@/lib/platform'
 import {tween} from '@/styles/motion'
+import {takesDrops, useImportState} from './importState'
 
 // What Tauri sends while files are dragged over a webview (DragDropEvent).
 const DRAG_ENTER_EVENT = 'tauri://drag-enter' as NativeEvent<{ paths: string[] }>
@@ -73,27 +73,34 @@ const Formats = styled.p`
 /**
  * Files dragged anywhere over the main window: the window dims and says a
  * drop imports the recording. The first audio or video file dropped opens
- * Import with it; a drop with none says which formats work. Mounted with the
- * dialogs, so it hears nothing before first launch is done.
+ * Import with it; a drop with none says which formats work. While Import is
+ * open with its drop area, the area lights up instead and a drop with no
+ * audio is turned down under it, not in a toast. Mounted with the dialogs,
+ * so it hears nothing before first launch is done.
  */
 export function DropOverlay() {
     const theme = useTheme()
-    const [dragging, setDragging] = useState(false)
+    const dragging = useImportState((state) => state.dragging)
+    const {request, open} = useDialog()
+    const phase = useImportState((state) => state.phase)
+    const toArea = open && request?.kind === 'import' && takesDrops(phase)
     // The main window's own drags; a drop on the minibar is not an import.
     const target = getCurrentWindow().label
 
-    useNativeEvent(DRAG_ENTER_EVENT, () => setDragging(true), {target})
-    useNativeEvent(DRAG_LEAVE_EVENT, () => setDragging(false), {target})
+    useNativeEvent(DRAG_ENTER_EVENT, () => useImportState.setState({dragging: true, rejectedDrop: false}), {target})
+    useNativeEvent(DRAG_LEAVE_EVENT, () => useImportState.setState({dragging: false}), {target})
     useNativeEvent(DRAG_DROP_EVENT, ({paths}) => {
-        setDragging(false)
+        useImportState.setState({dragging: false})
         const audio = paths.find(isAudioPath)
         if (audio) openDialog({kind: 'import', path: audio})
-        else if (paths.length > 0) toast.error('Please drop an audio file', {description: `Supported formats: ${AUDIO_FORMATS_TEXT}`})
+        else if (paths.length === 0) return
+        else if (toArea) useImportState.setState({rejectedDrop: true})
+        else toast.error('Please drop an audio file', {description: `Supported formats: ${AUDIO_FORMATS_TEXT}`})
     }, {target})
 
     return (
         <AnimatePresence>
-            {dragging && (
+            {dragging && !toArea && (
                 <Scrim aria-hidden>
                     <Dim
                         initial={{opacity: 0}}
