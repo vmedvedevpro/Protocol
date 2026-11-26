@@ -254,6 +254,74 @@ and log-off exit without asking (tao ends the process on `WM_ENDSESSION`); only
 the latest handoff is tracked, so a second Stop during a save is answered
 `notSaved`.
 
+### Linux audio devices (#216)
+
+On Linux the device select, recording and the level preview use the sound
+server, PipeWire (through `pipewire-pulse`) or PulseAudio, not cpal. cpal
+0.15 only has an ALSA host there: listing its inputs opened all 25 ALSA PCMs
+of the owner's laptop on each call (about 1,800 `pcm_dmix ... supports only
+playback stream` lines an hour on stderr), named them by raw PCM names
+(`dsnoop:…`, `plughw:…`) and never saw a monitor source, so computer audio
+was not found at all.
+
+- `audio/pulse/mod.rs` finds the server's socket as libpulse does
+  (`$PULSE_SERVER`, `$PULSE_RUNTIME_PATH`, `$XDG_RUNTIME_DIR/pulse/native`)
+  and speaks the PulseAudio protocol with the pure-Rust `pulseaudio` crate
+  (no libpulse to link or ship; cpal 0.18's PulseAudio host uses the same
+  crate). Its `Client` is not used: its reactor ignores `RecordStreamKilled`.
+  One blocking connection per listing and one per record stream, each with a
+  3-second reply timeout. Auth sends libpulse's cookie, or 256 zero bytes
+  when there is none: `pipewire-pulse` lets the user's own socket in by its
+  credentials but refuses a cookie of another length, which left a fresh
+  profile without a microphone.
+- `audio/pulse/devices.rs` lists sources in one round trip without opening a
+  device: inputs, and the monitor of each output ("Monitor of …") as
+  computer audio. A device is shown and stored by the server's description;
+  two that share one get the server's name in brackets. The choice survives
+  a restart and a reconnect because the server gives a device back under
+  the same description and name, whatever its index. A listing asked for
+  while another runs waits for it and takes its answer (`LAST`), so Settings,
+  the inputs menu and a recording start do not each list again.
+  `discovery.rs` runs it on a blocking thread.
+- `audio/devices/platform/linux.rs` resolves a stored device to a source
+  name (`Capture::SoundServer`). Without a sound server only "ALSA default
+  input" is offered (cpal's ALSA `default`), and computer audio reports that
+  it needs PipeWire or PulseAudio.
+- `audio/pulse/record.rs` opens a record stream for that source as 48 kHz
+  mono f32 (the server converts) with 20 ms fragments and `no_move`: an
+  unplugged device ends the stream (`Ended::SourceRemoved` →
+  `DeviceNotAvailable`) instead of the server moving it to another source.
+  Its thread only reads the socket and enqueues blocks;
+  `stream.rs::create_pulse_stream` gives them to the same `CaptureWorker`
+  as Windows capture (the ALSA path uses it on Linux now too). Stop
+  shuts the socket down, which wakes the thread's read at once.
+- Timestamps come from the samples, not from arrival (`record.rs` `Clock`).
+  PipeWire hands a record stream its audio per 1024-sample quantum, so 20 ms
+  blocks arrive 21 ms apart with a 10 ms gap every 15 or so (measured with
+  `parec` on this laptop); stamped on arrival, each block was 1.3 ms off the
+  one before and the mixer padded or dropped the difference. Each block ends
+  one block after the one before, never after it arrived; the clock restarts
+  at arrival only when a block with nothing behind it lags by over 100 ms
+  (the server lost audio). A backlog after a stall keeps its capture times.
+- `simple_level_monitor.rs` opens the same streams for the level ring,
+  matching the select's label exactly (an input first, then a monitor).
+
+Tests: `cargo test -p protocol --lib audio::pulse` (naming, duplicate
+descriptions, a reconnect under a new index, sample decoding, the capture
+clock against PipeWire's quantum, a backlog and lost audio). Ignored ones
+need a running server: `lists_the_running_sound_server`, and
+`records_the_chosen_input_and_output_monitor`, which records two seconds from
+the labels in `PROTOCOL_QA_INPUT` and `PROTOCOL_QA_OUTPUT` and checks
+`PROTOCOL_QA_MIN_RMS`. Checked on Kubuntu 26.10 with PipeWire 1.6.8
+(`pipewire-pulse`), with a virtual microphone (`module-remap-source` over a
+null sink) and the monitor of a null sink, fed a 440 Hz and an 880 Hz tone:
+the dev build in a fresh profile listed both by name, opened the stored
+choice by name in onboarding's level preview, and recorded them into the
+microphone and computer-audio tracks with only their own tone, the
+microphone's tone level steady for 32 s. The laptop's own digital microphone
+and speaker monitor recorded too. Not checked: PulseAudio itself, a system
+without a sound server, Bluetooth headsets.
+
 ## 3. Post-call processing and model selection
 
 Summary-generated title ownership, placeholder rejection and completion refresh

@@ -251,6 +251,9 @@ glib = "0.18"
 # ureq and tauri-plugin-updater, so naming them adds no crate.
 flate2 = "1"
 tar = "0.4"
+# The sound server's devices and record streams over the PulseAudio protocol,
+# which PipeWire speaks too (audio/pulse/, #216). Pure Rust: no libpulse.
+pulseaudio = "0.3.2"
 
 [dev-dependencies]
 tempfile = "3.3.0"

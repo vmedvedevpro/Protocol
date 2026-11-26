@@ -14,7 +14,7 @@ use tauri::{AppHandle, Emitter, Manager, Runtime};
 use tokio::task::JoinHandle;
 
 use super::{
-    get_device_and_config,
+    devices::ensure_available,
     parse_audio_device,
     default_input_device,   // Get default microphone
     default_output_device,  // Get default system audio
@@ -333,7 +333,7 @@ pub async fn start_recording_with_meeting_name<R: Runtime>(
             info!("ðŸŽ¤ Attempting to use preferred microphone: '{}'", pref_name);
             match parse_audio_device(&pref_name) {
                 Ok(device) => {
-                    match get_device_and_config(&device).await {
+                    match ensure_available(&device).await {
                         Ok(_) => {
                             info!("âœ… Using preferred microphone: '{}'", device.name);
                             Some(Arc::new(device))
@@ -413,7 +413,7 @@ pub async fn start_recording_with_meeting_name<R: Runtime>(
             info!("ðŸ”Š Attempting to use preferred system audio: '{}'", pref_name);
             match parse_audio_device(&pref_name) {
                 Ok(device) => {
-                    match get_device_and_config(&device).await {
+                    match ensure_available(&device).await {
                         Ok(_) => {
                             info!("âœ… Using preferred system audio: '{}'", device.name);
                             Some(Arc::new(device))
@@ -637,7 +637,7 @@ pub async fn start_recording_with_devices_and_meeting<R: Runtime>(
     let mic_device = if let Some(ref name) = mic_device_name {
         let preferred = parse_audio_device(name)
             .map_err(|e| format!("Invalid microphone device '{}': {}", name, e))?;
-        match get_device_and_config(&preferred).await {
+        match ensure_available(&preferred).await {
             Ok(_) => Some(Arc::new(preferred)),
             Err(error) => {
                 warn!(
@@ -679,7 +679,7 @@ pub async fn start_recording_with_devices_and_meeting<R: Runtime>(
     let system_device = if let Some(ref name) = system_device_name {
         let preferred = parse_audio_device(name)
             .map_err(|e| format!("Invalid system device '{}': {}", name, e))?;
-        match get_device_and_config(&preferred).await {
+        match ensure_available(&preferred).await {
             Ok(_) => Some(Arc::new(preferred)),
             Err(error) => {
                 warn!(

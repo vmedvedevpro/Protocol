@@ -116,7 +116,19 @@ pub async fn get_device_and_config(
         return super::platform::get_windows_device(audio_device);
     }
 
-    #[cfg(not(target_os = "windows"))]
+    // Linux opens sound-server sources without cpal (audio/stream.rs); only
+    // ALSA's default device, without a sound server, is a cpal device (#216).
+    #[cfg(target_os = "linux")]
+    {
+        return match super::platform::linux::resolve(audio_device)? {
+            super::platform::linux::Capture::Alsa(device, config) => Ok((device, config)),
+            super::platform::linux::Capture::SoundServer { .. } => Err(anyhow!(
+                "'{}' is a sound-server device, which cpal does not open", audio_device.name
+            )),
+        };
+    }
+
+    #[cfg(target_os = "macos")]
     {
         use cpal::traits::{DeviceTrait, HostTrait};
 
@@ -152,25 +164,24 @@ pub async fn get_device_and_config(
                     }
                 }
 
-                #[cfg(target_os = "linux")]
-                {
-                    // For Linux, we use PulseAudio monitor sources for system audio
-                    if let Ok(pulse_host) = cpal::host_from_id(cpal::HostId::Alsa) {
-                        for device in pulse_host.input_devices()? {
-                            if let Ok(name) = device.name() {
-                                if name == audio_device.name {
-                                    let default_config = device
-                                        .default_input_config()
-                                        .map_err(|e| anyhow!("Failed to get default input config: {}", e))?;
-                                    return Ok((device, default_config));
-                                }
-                            }
-                        }
-                    }
-                }
             }
         }
 
         Err(anyhow!("Device not found: {}", audio_device.name))
     }
+}
+
+/// Whether a stored device can be opened now, without opening it. A recording
+/// start checks this to fall back to the default for a device that is not
+/// connected.
+pub async fn ensure_available(audio_device: &AudioDevice) -> Result<()> {
+    #[cfg(target_os = "linux")]
+    {
+        let device = audio_device.clone();
+        return tokio::task::spawn_blocking(move || super::platform::linux::resolve(&device).map(|_| ()))
+            .await
+            .map_err(|error| anyhow!("the device check stopped: {error}"))?;
+    }
+    #[cfg(not(target_os = "linux"))]
+    get_device_and_config(audio_device).await.map(|_| ())
 }

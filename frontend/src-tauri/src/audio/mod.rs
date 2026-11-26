@@ -19,7 +19,7 @@ pub mod ffmpeg_mixer;  // NEW: FFmpeg-style adaptive audio mixer
 pub mod recording_state;
 pub mod pipeline;
 pub mod stream;
-#[cfg(any(target_os = "macos", target_os = "windows", test))]
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux", test))]
 pub mod capture_worker;
 pub mod recording_manager;
 pub mod recording_commands;
@@ -38,6 +38,9 @@ pub mod batch_processor;
 pub mod device_monitor;  // NEW: Device disconnect/reconnect monitoring
 #[cfg(target_os = "windows")]
 pub mod windows_audio_sessions;
+// PipeWire or PulseAudio, over the PulseAudio protocol (#216).
+#[cfg(target_os = "linux")]
+pub mod pulse;
 
 // Transcription module (provider abstraction, engine management, worker pool)
 pub mod transcription;
