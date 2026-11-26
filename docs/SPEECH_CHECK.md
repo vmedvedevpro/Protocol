@@ -164,8 +164,10 @@ ran-on device, fallback with its exact error, load time, each clip's time,
 real-time factor, text, language, word errors or speaker score, pass or fail.
 Which platform paths were never run before is development history, kept in
 Limits below, not in a tester's report. Warnings: fallbacks, failures, a selection that differs. The
-outcome is passed only when a step ran and passed; a check where every
-model was missing or declined says "nothing was checked".
+outcome is interrupted when a step closed the app, else failed when any
+step failed (a Cancel after a failure too), else cancelled after a Cancel,
+and passed only when a step ran and passed; a check where no model was on
+the computer says "nothing was checked".
 
 Nothing personal: the check reads only the sample, never a meeting or an
 audio device, and adds no host name; `report::scrub` writes the home folder as

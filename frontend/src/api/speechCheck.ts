@@ -28,7 +28,7 @@ export const CHECK_STEPS: readonly CheckStepKind[] = ['parakeet', 'whisper', 'py
 export type CheckStepStatus = 'passed' | 'failed' | 'notChecked' | 'cancelled' | 'closedTheApp'
 
 /** `DeviceKind` in native; picked and ran-on compare by it. */
-export type CheckDeviceKind = 'processor' | 'intelNpu' | 'intelGpu' | 'directMl' | 'vulkan' | 'metal'
+export type CheckDeviceKind = 'processor' | 'intelNpu' | 'intelGpu' | 'directMl' | 'vulkan' | 'metal' | 'cuda' | 'hip'
 
 export interface CheckDevice {
     kind: CheckDeviceKind
@@ -86,7 +86,12 @@ export interface CheckPlan {
     selectedPostMeeting: string | null
 }
 
-/** The steps' names in the group and the report. */
+/**
+ * The steps' names in the group. Native's `StepKind::title` names them for
+ * the report in one line, by the engines it runs ("Pyannote and WeSpeaker
+ * (speakers)"); the group lists the steps before native has sent anything,
+ * and names them as Settings' model rows do, the role on a line of its own.
+ */
 export const STEP_NAMES: Record<CheckStepKind, string> = {
     parakeet: 'Parakeet',
     whisper: 'Whisper',

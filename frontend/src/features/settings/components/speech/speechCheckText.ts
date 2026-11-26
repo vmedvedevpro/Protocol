@@ -7,6 +7,8 @@ const DEVICE_WORDS: Record<CheckDeviceKind, string> = {
     directMl: 'graphics card',
     vulkan: 'graphics card',
     metal: 'Apple GPU',
+    cuda: 'graphics card',
+    hip: 'graphics card',
 }
 
 /** A device in the UI's words, by its kind; a kind this list does not know yet shows native's name. */

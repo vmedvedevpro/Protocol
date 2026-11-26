@@ -25,7 +25,12 @@ pub enum StepKind {
 impl StepKind {
     pub const ALL: [StepKind; 4] = [StepKind::Parakeet, StepKind::Whisper, StepKind::Pyannote, StepKind::Nemotron];
 
-    /// The step's name in the report and the UI.
+    /// The step's name in the report and the log: one line that names the
+    /// engines a developer looks for ("Pyannote and WeSpeaker"). The group
+    /// keeps its own names (`STEP_NAMES` and `STEP_ROLES` in
+    /// `api/speechCheck.ts`): it lists the steps before native has sent
+    /// anything, and it words them as Settings' model rows do, the model's
+    /// name with its role on a line of its own.
     pub fn title(self) -> &'static str {
         match self {
             StepKind::Parakeet => "Parakeet (live text)",
@@ -71,6 +76,9 @@ pub enum DeviceKind {
     DirectMl,
     Vulkan,
     Metal,
+    /// whisper.cpp's CUDA and HIP builds, which Protocol does not ship.
+    Cuda,
+    Hip,
 }
 
 /// A device: the one Protocol picked, or the one the model ran on.
@@ -313,7 +321,7 @@ pub enum Outcome {
     Cancelled,
     /// Protocol closed during a step; the remaining steps may still be run.
     Interrupted,
-    /// No step ran: every model was missing or declined.
+    /// No step ran: none of the models was on this computer.
     NothingChecked,
 }
 
@@ -353,16 +361,18 @@ impl Pair {
 }
 
 impl Report {
-    /// The outcome of the steps: any failure fails the check; a cancelled or
-    /// interrupted step leaves the check cancelled or interrupted; a check
-    /// passes only when at least one step ran and passed.
+    /// The outcome of the steps: a step that closed the app leaves the check
+    /// interrupted, since the rest can still be run; otherwise any failure
+    /// fails it, a Cancel after it included, since a failure is what a
+    /// tester reports; a cancelled step leaves it cancelled; it passes only
+    /// when at least one step ran and passed.
     pub fn outcome_of(steps: &[StepReport]) -> Outcome {
         if steps.iter().any(|step| step.status == StepStatus::ClosedTheApp) {
             Outcome::Interrupted
-        } else if steps.iter().any(|step| step.status == StepStatus::Cancelled) {
-            Outcome::Cancelled
         } else if steps.iter().any(|step| step.status == StepStatus::Failed) {
             Outcome::Failed
+        } else if steps.iter().any(|step| step.status == StepStatus::Cancelled) {
+            Outcome::Cancelled
         } else if steps.iter().any(|step| step.status == StepStatus::Passed) {
             Outcome::Passed
         } else {
@@ -536,7 +546,8 @@ impl Private {
     }
 }
 
-/// `pattern`, ignoring case, as a regex; `None` for an empty one.
+/// `pattern`, ignoring case, as a regex; `None` when it does not compile,
+/// which the escaped names here always do.
 fn ignoring_case(pattern: &str) -> Option<regex::Regex> {
     regex::Regex::new(&format!("(?i){pattern}")).ok()
 }
@@ -755,7 +766,8 @@ mod tests {
         let step = |status| StepReport::new(StepKind::Parakeet, status);
         assert_eq!(Report::outcome_of(&[step(StepStatus::Passed), step(StepStatus::NotChecked)]), Outcome::Passed);
         assert_eq!(Report::outcome_of(&[step(StepStatus::Passed), step(StepStatus::Failed)]), Outcome::Failed);
-        assert_eq!(Report::outcome_of(&[step(StepStatus::Failed), step(StepStatus::Cancelled)]), Outcome::Cancelled);
+        assert_eq!(Report::outcome_of(&[step(StepStatus::Failed), step(StepStatus::Cancelled)]), Outcome::Failed);
+        assert_eq!(Report::outcome_of(&[step(StepStatus::Passed), step(StepStatus::Cancelled)]), Outcome::Cancelled);
         assert_eq!(Report::outcome_of(&[step(StepStatus::Cancelled), step(StepStatus::ClosedTheApp)]), Outcome::Interrupted);
         // Not one model ran: that is no pass.
         assert_eq!(Report::outcome_of(&[step(StepStatus::NotChecked), step(StepStatus::NotChecked)]), Outcome::NothingChecked);

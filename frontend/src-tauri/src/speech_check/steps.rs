@@ -264,14 +264,8 @@ fn whisper_cpp_device() -> (Device, String) {
     let (_, acceleration) = crate::whisper_engine::whisper_engine::context_parameters(crate::audio::HardwareProfile::detect());
     let backend = acceleration.compiled_backend;
     if acceleration.use_gpu {
-        return match backend {
-            WhisperCompiledBackend::Vulkan => {
-                let name = whisper_gpu(backend).map(|gpu| gpu.name).unwrap_or_else(|| format!("device {}", acceleration.gpu_device));
-                (Device::new(DeviceKind::Vulkan, format!("GPU (Vulkan): {name}")), "the first discrete GPU ggml lists, else its first GPU".into())
-            }
-            WhisperCompiledBackend::Metal => (Device::new(DeviceKind::Metal, "Apple GPU (Metal)"), "the macOS build runs Whisper on Metal".into()),
-            other => (Device::new(DeviceKind::Vulkan, format!("GPU ({})", other.as_str())), "this build's GPU backend".into()),
-        };
+        let name = whisper_gpu(backend).map(|gpu| gpu.name).unwrap_or_else(|| format!("device {}", acceleration.gpu_device));
+        return whisper_cpp_gpu(backend, &name);
     }
     let because = match (backend, crate::whisper_engine::vulkan::stopped()) {
         (_, Some(stopped)) => stopped,
@@ -279,6 +273,20 @@ fn whisper_cpp_device() -> (Device, String) {
         (_, None) => "ggml lists no GPU here".into(),
     };
     (Device::processor(), because)
+}
+
+/// The GPU a whisper.cpp context of `backend` runs on, `name` being the
+/// device ggml reports or its number, with why.
+fn whisper_cpp_gpu(backend: crate::whisper_engine::acceleration::WhisperCompiledBackend, name: &str) -> (Device, String) {
+    use crate::whisper_engine::acceleration::WhisperCompiledBackend;
+    match backend {
+        WhisperCompiledBackend::Vulkan => (Device::new(DeviceKind::Vulkan, format!("GPU (Vulkan): {name}")), "the first discrete GPU ggml lists, else its first GPU".into()),
+        WhisperCompiledBackend::Metal => (Device::new(DeviceKind::Metal, "Apple GPU (Metal)"), "the macOS build runs Whisper on Metal".into()),
+        WhisperCompiledBackend::Cuda => (Device::new(DeviceKind::Cuda, format!("GPU (CUDA): {name}")), "this build runs Whisper on CUDA".into()),
+        WhisperCompiledBackend::HipBlas => (Device::new(DeviceKind::Hip, format!("GPU (HIP): {name}")), "this build runs Whisper on HIP".into()),
+        // A CPU build never puts a context on a GPU (`whisper_context_acceleration_for`).
+        WhisperCompiledBackend::Cpu => (Device::processor(), "this build of Protocol runs Whisper on the processor".into()),
+    }
 }
 
 /// The device the loaded engine runs on.
@@ -531,6 +539,18 @@ mod tests {
         let failed = finish(step);
         assert_eq!(failed.status, StepStatus::Failed);
         assert_eq!(failed.reason.as_deref(), Some("The en clip came out with 90% of its words wrong (at most 50% pass)"));
+    }
+
+    #[test]
+    fn whisper_cpp_is_named_by_the_backend_it_runs_on() {
+        use crate::whisper_engine::acceleration::WhisperCompiledBackend as Backend;
+        let kind = |backend| whisper_cpp_gpu(backend, "device 0").0.kind;
+        assert_eq!(kind(Backend::Vulkan), DeviceKind::Vulkan);
+        assert_eq!(kind(Backend::Metal), DeviceKind::Metal);
+        assert_eq!(kind(Backend::Cuda), DeviceKind::Cuda);
+        assert_eq!(kind(Backend::HipBlas), DeviceKind::Hip);
+        assert_eq!(kind(Backend::Cpu), DeviceKind::Processor);
+        assert_eq!(whisper_cpp_gpu(Backend::Cuda, "device 0").0.name, "GPU (CUDA): device 0");
     }
 
     #[test]
