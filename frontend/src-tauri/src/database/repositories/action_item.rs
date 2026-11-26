@@ -24,6 +24,7 @@
 //! change); nothing reads or writes its rows for display any more, except
 //! contact merges and deletions that keep their owner links consistent.
 
+use std::collections::HashSet;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
@@ -165,9 +166,21 @@ static UNDERLINE_BOLD: Lazy<Regex> = Lazy::new(|| Regex::new(r"__(.+?)__").expec
 static CODE: Lazy<Regex> = Lazy::new(|| Regex::new(r"`([^`]+)`").expect("code pattern"));
 static LIST_PREFIX: Lazy<Regex> = Lazy::new(|| Regex::new(r"^\s*(?:[-*+•]|\d+[.)])\s+").expect("list pattern"));
 static CHECKBOX_PREFIX: Lazy<Regex> = Lazy::new(|| Regex::new(r"^\[[ xX]\]\s*").expect("checkbox pattern"));
-/// A list item a done mark can go on: its indent, its checkbox, its text.
+/// A list item a done mark can go on: its indent, its list mark, its
+/// checkbox, its text.
 static LIST_ITEM: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"^(\s*)(?:[-*+•]|\d+[.)])\s+(?:\[([ xX])\]\s*)?(.*)$").expect("item pattern"));
+    Lazy::new(|| Regex::new(r"^(\s*)([-*+•]|\d+[.)])\s+(?:\[([ xX])\]\s*)?(.*)$").expect("item pattern"));
+/// A line that says the section has no items; the old UI made no row of it.
+static NONE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"(?i)^(?:none|n/a|no (?:action items?|actions|tasks|follow[- ]?ups?|next steps)\b.*)$").expect("none pattern")
+});
+static TABLE_SEPARATOR: Lazy<Regex> = Lazy::new(|| Regex::new(r"^:?-{2,}:?$").expect("separator pattern"));
+static NO_VALUE: Lazy<Regex> = Lazy::new(|| Regex::new(r"^[-–—]$").expect("dash pattern"));
+// The header words the old UI took a table's columns by (`parseTable`).
+static OWNER_COLUMN: Lazy<Regex> = Lazy::new(|| Regex::new(r"owner|assignee|assigned|who|responsible").expect("column pattern"));
+static TASK_COLUMN: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"task|action|item|descr|to-?do|deliverable|what|next").expect("column pattern"));
+static DUE_COLUMN: Lazy<Regex> = Lazy::new(|| Regex::new(r"due|date|when|deadline|timeline|by").expect("column pattern"));
 static INDENTED_ITEM: Lazy<Regex> = Lazy::new(|| Regex::new(r"^(?:\s{2,}|\t)(?:[-*+•]|\d+[.)])").expect("sub-item pattern"));
 static RULE: Lazy<Regex> = Lazy::new(|| Regex::new(r"^[-=*_]{3,}$").expect("rule pattern"));
 static OWNER_AT: Lazy<Regex> = Lazy::new(|| {
@@ -234,8 +247,9 @@ fn action_line_text(line: &str) -> String {
     SPACES.replace_all(&text, " ").trim().to_string()
 }
 
-/// A table row's cells; `\|` is a pipe inside a cell, not a column break.
-fn table_cells(row: &str) -> Vec<String> {
+/// A table row's cells as written (marks and `\|` escapes kept, trimmed).
+/// `\|` is a pipe inside a cell, not a column break.
+fn raw_cells(row: &str) -> Vec<String> {
     let mut body = row.trim();
     body = body.strip_prefix('|').unwrap_or(body);
     if body.ends_with('|') && !body.ends_with("\\|") {
@@ -247,71 +261,208 @@ fn table_cells(row: &str) -> Vec<String> {
     while let Some(char) = chars.next() {
         match char {
             '\\' if chars.peek() == Some(&'|') => {
-                cell.push('|');
+                cell.push_str("\\|");
                 chars.next();
             }
-            '|' => cells.push(strip_inline(&std::mem::take(&mut cell))),
+            '|' => cells.push(std::mem::take(&mut cell).trim().to_string()),
             other => cell.push(other),
         }
     }
-    cells.push(strip_inline(&cell));
+    cells.push(cell.trim().to_string());
     cells
 }
 
-/// One item of an action section: a line, or a table row, and every text a
-/// row made from it could have (`comparable`).
+/// A table row's cells as text: no escapes, bold or code marks.
+fn table_cells(row: &str) -> Vec<String> {
+    raw_cells(row).iter().map(|cell| strip_inline(&cell.replace("\\|", "|"))).collect()
+}
+
+/// The columns of a table, from its first row as the old UI read them.
+#[derive(Debug, Clone, Copy, Default)]
+struct Columns {
+    owner: Option<usize>,
+    task: Option<usize>,
+    due: Option<usize>,
+}
+
+impl Columns {
+    fn of(header: &[String]) -> Self {
+        let find = |pattern: &Regex| header.iter().position(|cell| pattern.is_match(&cell.to_lowercase()));
+        Self { owner: find(&OWNER_COLUMN), task: find(&TASK_COLUMN), due: find(&DUE_COLUMN) }
+    }
+
+    /// The first row names a column, so it is the header, not an item.
+    fn named(&self) -> bool {
+        self.owner.is_some() || self.task.is_some() || self.due.is_some()
+    }
+
+    /// A row's task, as the old UI took it: the task column's cell, else the
+    /// longest cell that is not the owner or the due date.
+    fn task(&self, cells: &[String]) -> Option<String> {
+        let task = self.task.and_then(|at| cells.get(at)).filter(|cell| !cell.is_empty()).cloned().or_else(|| {
+            cells
+                .iter()
+                .enumerate()
+                .filter(|&(at, cell)| !cell.is_empty() && Some(at) != self.owner && Some(at) != self.due)
+                .map(|(_, cell)| cell)
+                // The first of the longest, as the old UI's stable sort.
+                .fold(None::<&String>, |best, cell| match best {
+                    Some(best) if best.chars().count() >= cell.chars().count() => Some(best),
+                    _ => Some(cell),
+                })
+                .cloned()
+        })?;
+        (!NO_VALUE.is_match(&task)).then_some(task)
+    }
+}
+
+fn is_separator(cells: &[String]) -> bool {
+    cells.iter().all(|cell| cell.is_empty() || TABLE_SEPARATOR.is_match(&cell.replace(char::is_whitespace, "")))
+}
+
+/// What kind of line an item is.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Kind {
+    /// A list item, which can carry a done mark as a `- [x]` task item.
+    List,
+    /// A line of plain text.
+    Text,
+    /// A table row, with its table's owner and due date columns. It has no
+    /// place for a done mark.
+    Row { owner: Option<usize>, due: Option<usize> },
+}
+
+/// One item of an action section: a line, or a table row.
 #[derive(Debug)]
 struct Item {
     line: usize,
-    /// A list item, which can carry a done mark as a `- [x]` task item. A
-    /// table row cannot.
-    list: bool,
+    kind: Kind,
+    /// Every text a row made from it could have (`comparable`): a line's
+    /// content and its text without owner and due date; a table row's task
+    /// cell, never its owner or due cell.
     texts: Vec<String>,
+    /// Its text as the old UI read it, without owner and due date.
+    text: String,
+    /// The old UI made a row of it; a sub-point joined its parent's row instead.
+    draft: bool,
+    /// A draft's text with its sub-points joined by "; ", after each one
+    /// (`comparable`), as the old UI made one row of them.
+    joined: Vec<String>,
+    /// A draft's sub-point lines.
+    subs: Vec<usize>,
 }
 
-/// The items of the action sections at `ranges`: each list or text line, each
-/// table cell, and a parent item with its sub-points joined by "; ", as the
-/// old UI made one row of them.
+impl Item {
+    fn names(&self, text: &str) -> bool {
+        self.texts.iter().chain(&self.joined).any(|own| own == text)
+    }
+}
+
+/// The items of the action sections at `ranges`, read as the old UI read
+/// them (`parseSectionBody`): each list or text line, each table row after
+/// its header, and a sub-point as part of the draft above it.
 fn section_items(lines: &[&str], ranges: &[(usize, usize)]) -> Vec<Item> {
     let mut items: Vec<Item> = Vec::new();
     for &(start, end) in ranges {
-        let mut parent: Option<(usize, String)> = None;
+        let mut last_draft: Option<usize> = None;
+        // The table being read; a line that is not a table row ends it.
+        let mut table: Option<Columns> = None;
         for (at, line) in lines.iter().enumerate().take(end).skip(start + 1) {
             let trimmed = line.trim();
+            if !trimmed.starts_with('|') {
+                table = None;
+            }
             if trimmed.is_empty() || heading_of(trimmed).is_some() || RULE.is_match(trimmed) {
                 continue;
             }
             if trimmed.starts_with('|') {
-                let texts = table_cells(trimmed).iter().map(|cell| comparable(cell)).collect();
-                items.push(Item { line: at, list: false, texts });
+                let cells = table_cells(trimmed);
+                if cells.iter().all(String::is_empty) {
+                    continue;
+                }
+                let columns = match table {
+                    Some(columns) => columns,
+                    None => {
+                        let columns = Columns::of(&cells);
+                        table = Some(columns);
+                        if columns.named() {
+                            continue;
+                        }
+                        columns
+                    }
+                };
+                if is_separator(&cells) {
+                    continue;
+                }
+                let Some(task) = columns.task(&cells) else { continue };
+                items.push(Item {
+                    line: at,
+                    kind: Kind::Row { owner: columns.owner, due: columns.due },
+                    texts: vec![comparable(&task)],
+                    text: task,
+                    draft: true,
+                    joined: Vec::new(),
+                    subs: Vec::new(),
+                });
+                last_draft = Some(items.len() - 1);
                 continue;
             }
             let content = strip_inline(&LIST_PREFIX.replace(trimmed, ""));
-            let text = action_line_text(trimmed);
-            let indented = INDENTED_ITEM.is_match(line);
-            if indented {
-                if let Some((index, joined)) = parent.as_mut() {
-                    *joined = SPACES.replace_all(&format!("{joined}; {content}"), " ").to_string();
-                    items[*index].texts.push(comparable(joined));
-                }
+            if NONE.is_match(content.strip_suffix('.').unwrap_or(&content)) {
+                continue;
             }
-            items.push(Item { line: at, list: LIST_ITEM.is_match(line), texts: vec![comparable(&content), comparable(&text)] });
-            if !indented {
-                parent = Some((items.len() - 1, text));
+            let text = action_line_text(trimmed);
+            let kind = if LIST_ITEM.is_match(line) { Kind::List } else { Kind::Text };
+            let parent = last_draft.filter(|_| INDENTED_ITEM.is_match(line));
+            if let Some(parent) = parent {
+                let parent = &mut items[parent];
+                let base = parent.joined.last().cloned().unwrap_or_else(|| parent.text.clone());
+                parent.joined.push(comparable(&format!("{base}; {content}")));
+                parent.subs.push(at);
+            }
+            let draft = parent.is_none() && !text.is_empty();
+            items.push(Item {
+                line: at,
+                kind,
+                texts: vec![comparable(&content), comparable(&text)],
+                text,
+                draft,
+                joined: Vec::new(),
+                subs: Vec::new(),
+            });
+            if draft {
+                last_draft = Some(items.len() - 1);
             }
         }
     }
     items
 }
 
+/// `line` as a task item with `body`, keeping its indent and list mark (a
+/// `•`, which Markdown does not read as a list, becomes `-`).
+fn task_line(line: &str, done: bool, body: &str) -> String {
+    let check = if done { 'x' } else { ' ' };
+    match LIST_ITEM.captures(line) {
+        Some(found) => {
+            let mark = if &found[2] == "•" { "-" } else { &found[2] };
+            format!("{}{mark} [{check}] {body}", &found[1])
+        }
+        None => format!("- [{check}] {body}"),
+    }
+}
+
+fn is_checked(line: &str) -> bool {
+    LIST_ITEM.captures(line).and_then(|found| found.get(3)).is_some_and(|mark| mark.as_str().eq_ignore_ascii_case("x"))
+}
+
 /// `line` as a checked task item, or `None` when it is one already or is not
 /// a list item.
 fn checked_off(line: &str) -> Option<String> {
     let found = LIST_ITEM.captures(line)?;
-    if found.get(2).is_some_and(|mark| mark.as_str().eq_ignore_ascii_case("x")) {
+    if is_checked(line) {
         return None;
     }
-    Some(format!("{}- [x] {}", &found[1], &found[3]))
+    Some(task_line(line, true, &found[4]))
 }
 
 /// An `action_items` row as the restore reads it.
@@ -332,26 +483,137 @@ impl ActionRow {
         self.source == "user" || self.edited
     }
 
+    fn owner(&self) -> Option<&str> {
+        self.owner_label.as_deref().map(str::trim).filter(|owner| !owner.is_empty())
+    }
+
+    fn due(&self) -> Option<&str> {
+        self.due_text.as_deref().map(str::trim).filter(|due| !due.is_empty())
+    }
+
+    /// "Priya Shah: Send the terms (due Friday)", for `text`.
+    fn body(&self, text: &str) -> String {
+        let text = SPACES.replace_all(text.trim(), " ");
+        let due = self.due().map(|due| format!(" (due {due})")).unwrap_or_default();
+        match self.owner() {
+            Some(owner) => format!("{owner}: {text}{due}"),
+            None => format!("{text}{due}"),
+        }
+    }
+
     /// "- [x] Priya Shah: Send the terms (due Friday)": a task item, so the
     /// editor shows the done mark as its checkbox.
     fn render(&self) -> String {
-        let text = SPACES.replace_all(self.text.trim(), " ");
-        let check = if self.done { 'x' } else { ' ' };
-        let owner = self.owner_label.as_deref().map(str::trim).filter(|owner| !owner.is_empty());
-        let due = match self.due_text.as_deref().map(str::trim).filter(|due| !due.is_empty()) {
-            Some(due) => format!(" (due {due})"),
-            None => String::new(),
-        };
-        match owner {
-            Some(owner) => format!("- [{check}] {owner}: {text}{due}"),
-            None => format!("- [{check}] {text}{due}"),
-        }
+        format!("- [{}] {}", if self.done { 'x' } else { ' ' }, self.body(&self.text))
     }
 }
 
 /// Text for "is this the same item": no emphasis, one space, lower case.
 fn comparable(text: &str) -> String {
     SPACES.replace_all(&text.replace("**", "").replace("__", "").replace('`', ""), " ").trim().to_lowercase()
+}
+
+/// What a row of the user's found in the summary changes there.
+#[derive(Debug, PartialEq)]
+enum Update {
+    Nothing,
+    /// The item's line, rewritten.
+    Line(String),
+    /// The item stays as it is and the row is added as an item of its own:
+    /// its table has no column for an owner or due date the user set.
+    Add,
+}
+
+/// What `row`, found as `item` (`line`), changes. An owner or due date the
+/// user set that the item does not show rewrites the item with them: a line
+/// becomes the row's task item (its done mark kept), a table row gets the
+/// cell. `via_joined`: the row named the item with its sub-points, which stay
+/// on their own lines, so the item keeps its own text.
+fn update_for(row: &ActionRow, item: &Item, line: &str, via_joined: bool) -> Update {
+    let wanted: Vec<&str> = [row.owner(), row.due()].into_iter().flatten().collect();
+    match item.kind {
+        Kind::Row { owner, due } => {
+            let shown = table_cells(line);
+            let row_text = comparable(&shown.join(" "));
+            let mut cells = raw_cells(line);
+            let mut changed = false;
+            for (value, column) in [(row.owner(), owner), (row.due(), due)] {
+                let Some(value) = value else { continue };
+                match column {
+                    Some(at) => {
+                        if !shown.get(at).is_some_and(|cell| comparable(cell).contains(&comparable(value))) {
+                            if cells.len() <= at {
+                                cells.resize(at + 1, String::new());
+                            }
+                            cells[at] = value.replace('|', "\\|");
+                            changed = true;
+                        }
+                    }
+                    None if !row_text.contains(&comparable(value)) => return Update::Add,
+                    None => {}
+                }
+            }
+            if !changed {
+                return Update::Nothing;
+            }
+            let trimmed = line.trim();
+            let indent = &line[..line.len() - line.trim_start().len()];
+            let close = if trimmed.ends_with('|') && !trimmed.ends_with("\\|") { " |" } else { "" };
+            Update::Line(format!("{indent}| {}{close}", cells.join(" | ")))
+        }
+        Kind::List | Kind::Text => {
+            let shown = comparable(&strip_inline(line));
+            if wanted.iter().all(|value| shown.contains(&comparable(value))) {
+                return match (row.done, item.kind) {
+                    (true, Kind::List) => checked_off(line).map_or(Update::Nothing, Update::Line),
+                    _ => Update::Nothing,
+                };
+            }
+            let text = if via_joined { item.text.as_str() } else { row.text.as_str() };
+            Update::Line(task_line(line, row.done || is_checked(line), &row.body(&strip_inline(text))))
+        }
+    }
+}
+
+/// `sections` from `original_markdown` without the model's items the user
+/// deleted in the old UI. Reading a section made a row of each draft
+/// (`sync_ai`), and deleting an item deleted its row, so a draft no row
+/// names was deleted. That holds only when every model row names a draft:
+/// a model row whose text the user changed could be any draft's, and then
+/// every item comes back (CHANGELOG). A section whose every draft was
+/// deleted stays out.
+fn without_deleted(sections: Vec<Section>, rows: &[ActionRow]) -> Vec<Section> {
+    let parsed: Vec<(Vec<&str>, Vec<Item>)> = sections
+        .iter()
+        .map(|section| {
+            let lines: Vec<&str> = section.text.lines().collect();
+            let items = section_items(&lines, &[(0, lines.len())]);
+            (lines, items)
+        })
+        .collect();
+    let named: Vec<String> = rows.iter().map(|row| comparable(&strip_inline(&row.text))).collect();
+    let drafts = || parsed.iter().flat_map(|(_, items)| items).filter(|item| item.draft);
+    let known = rows.iter().zip(&named).filter(|(row, _)| row.source == "ai").all(|(_, text)| drafts().any(|item| item.names(text)));
+    if !known {
+        return sections;
+    }
+    let kept: Vec<Section> = sections
+        .iter()
+        .zip(&parsed)
+        .filter_map(|(section, (lines, items))| {
+            let deleted: Vec<&Item> = items.iter().filter(|item| item.draft && !named.iter().any(|text| item.names(text))).collect();
+            if deleted.is_empty() {
+                return Some(section.clone());
+            }
+            if deleted.len() == items.iter().filter(|item| item.draft).count() {
+                return None;
+            }
+            let gone: HashSet<usize> = deleted.iter().flat_map(|item| std::iter::once(item.line).chain(item.subs.iter().copied())).collect();
+            let text = lines.iter().enumerate().filter(|(at, _)| !gone.contains(at)).map(|(_, line)| *line).collect::<Vec<_>>();
+            Some(Section { text: text.join("\n"), before: section.before.clone() })
+        })
+        .collect();
+    kept
 }
 
 /// Which rows to write into the summary besides the items it already has.
@@ -392,11 +654,14 @@ enum Restored {
 ///
 /// A row is in the summary when its text is a whole item of an action
 /// section: a list or text line (also without its owner and due date, as the
-/// old UI read it) or a table cell. Never a substring: a hand-added "Budget"
-/// is not in "Review the budget", and an edited row is added next to the
-/// line it came from rather than dropped. A rare duplicate beats a lost
-/// item. A done row found as a list item checks that item off (`- [x]`); a
-/// table row has no place for the mark, which is not kept.
+/// old UI read it) or a table row's task cell. Never a substring: a
+/// hand-added "Budget" is not in "Review the budget", and an edited row is
+/// added next to the line it came from rather than dropped. A rare duplicate
+/// beats a lost item. A done row found as a list item checks that item off
+/// (`- [x]`); a table row has no place for the mark, which is not kept. An
+/// owner or due date the user set that the item does not show rewrites it
+/// (`update_for`). A model item the user deleted stays out when the rows
+/// tell (`without_deleted`).
 fn restored_summary(value: &Value, rows: &[ActionRow], trigger: Trigger) -> Restored {
     let Some((object, current)) = value
         .as_object()
@@ -415,31 +680,41 @@ fn restored_summary(value: &Value, rows: &[ActionRow], trigger: Trigger) -> Rest
         Trigger::Launch { was_read: true } if !in_place && sections.is_empty() => RowsToAdd::All,
         _ => RowsToAdd::UsersOnly,
     };
+    // Only rows the old UI made from these sections tell what was deleted.
+    let sections = match trigger {
+        Trigger::Launch { was_read: true } => without_deleted(sections, rows),
+        _ => sections,
+    };
     let joined = sections.iter().fold(current.to_string(), |text, section| insert_section(&text, section));
     let mut lines: Vec<String> = joined.lines().map(str::to_string).collect();
-    let (ranges, checked, missing) = {
+    let (ranges, updated, missing) = {
         let view: Vec<&str> = lines.iter().map(String::as_str).collect();
         let ranges = action_section_ranges(&view);
         let items = section_items(&view, &ranges);
-        let mut checked = Vec::new();
+        let mut updated = Vec::new();
         let mut missing = Vec::new();
         for row in rows.iter().filter(|row| wanted == RowsToAdd::All || row.is_users()) {
             let text = comparable(&strip_inline(&row.text));
             if text.is_empty() {
                 continue;
             }
-            match items.iter().find(|item| item.texts.contains(&text)) {
-                Some(item) if row.done && item.list => checked.extend(checked_off(&lines[item.line]).map(|line| (item.line, line))),
-                Some(_) => {}
-                None => missing.push(row.render()),
+            let Some(item) = items.iter().find(|item| item.names(&text)) else {
+                missing.push(row.render());
+                continue;
+            };
+            let line = updated.iter().rev().find(|(at, _)| *at == item.line).map_or(view[item.line], |(_, line): &(usize, String)| line.as_str());
+            match update_for(row, item, line, !item.texts.contains(&text)) {
+                Update::Nothing => {}
+                Update::Line(line) => updated.push((item.line, line)),
+                Update::Add => missing.push(row.render()),
             }
         }
-        (ranges, checked, missing)
+        (ranges, updated, missing)
     };
-    if sections.is_empty() && checked.is_empty() && missing.is_empty() {
+    if sections.is_empty() && updated.is_empty() && missing.is_empty() {
         return Restored::Unchanged;
     }
-    for (at, line) in checked {
+    for (at, line) in updated {
         lines[at] = line;
     }
     let mut markdown = lines.join("\n");
@@ -717,7 +992,7 @@ mod tests {
     fn a_section_that_ended_the_summary_goes_back_at_the_end() {
         let original = "## Summary\n\nShort.\n\n**Next steps**\n- Book the room";
         let moved = json!({"markdown": "## Summary\n\nShort.", "original_markdown": original});
-        assert_eq!(markdown(restored_summary(&moved, &[], LAUNCH)), original);
+        assert_eq!(markdown(restored_summary(&moved, &[row("Book the room", None, "ai", false)], LAUNCH)), original);
     }
 
     #[test]
@@ -794,6 +1069,97 @@ mod tests {
         let table = json!({"markdown": ORIGINAL});
         let done = [ActionRow { done: true, ..row("Send the terms", Some("Priya"), "ai", true) }];
         assert_eq!(restored_summary(&table, &done, LAUNCH), Restored::Unchanged);
+    }
+
+    #[test]
+    fn an_owner_or_due_date_the_user_set_rewrites_its_list_item() {
+        let moved = json!({
+            "markdown": "## Summary\n\nTerms.",
+            "original_markdown": "## Summary\n\nTerms.\n\n## Action items\n\n- Priya: Send the terms (due Friday)\n1. Book the room by tomorrow\n- [x] Print the deck\n- **Lena**: Draft the FAQ\n  - with legal",
+        });
+        let rows = [
+            ActionRow { due_text: Some("Friday".into()), ..row("Send the terms", Some("Sam"), "ai", true) },
+            ActionRow { due_text: Some("Monday".into()), done: true, ..row("Book the room", None, "ai", true) },
+            // Already checked in the text: the mark stays though the row is open.
+            row("Print the deck", Some("Lena"), "ai", true),
+            // Named with its sub-point, which keeps its own line.
+            row("Draft the FAQ; with legal", Some("Priya"), "ai", true),
+        ];
+        assert_eq!(
+            markdown(restored_summary(&moved, &rows, LAUNCH)),
+            "## Summary\n\nTerms.\n\n## Action items\n\n- [ ] Sam: Send the terms (due Friday)\n1. [x] Book the room (due Monday)\n- [x] Lena: Print the deck\n- [ ] Priya: Draft the FAQ\n  - with legal"
+        );
+
+        // An owner and due date the line shows already change nothing.
+        let summary = json!({"markdown": "## Action Items\n\n- Priya: Send the terms (due Friday)"});
+        let same = [ActionRow { due_text: Some("friday".into()), ..row("Send the terms", Some("Priya"), "user", false) }];
+        assert_eq!(restored_summary(&summary, &same, LAUNCH), Restored::Unchanged);
+    }
+
+    #[test]
+    fn an_owner_or_due_date_the_user_set_goes_into_its_table_row() {
+        let moved = json!({"markdown": "## Summary\n\nWe planned the launch.\n\n## Open questions\n\n- Pricing?", "original_markdown": ORIGINAL});
+        let rows = [ActionRow { due_text: Some("Monday".into()), ..row("Send the terms", Some("Sam"), "ai", true) }];
+        assert_eq!(
+            markdown(restored_summary(&moved, &rows, LAUNCH)),
+            ORIGINAL.replace("| Priya | Send the terms | Friday |", "| Sam | Send the terms | Monday |")
+        );
+
+        // A table with no due column: the row stays, the item is added below.
+        let table = json!({"markdown": "## Action Items\n\n| Owner | Task |\n| --- | --- |\n| **Priya** | Send the terms |\n\n## Notes"});
+        let due = [ActionRow { due_text: Some("Monday".into()), ..row("Send the terms", Some("Priya"), "ai", true) }];
+        assert_eq!(
+            markdown(restored_summary(&table, &due, LAUNCH)),
+            "## Action Items\n\n| Owner | Task |\n| --- | --- |\n| **Priya** | Send the terms |\n\n- [ ] Priya: Send the terms (due Monday)\n\n## Notes"
+        );
+    }
+
+    #[test]
+    fn a_table_row_is_found_by_its_task_cell_only() {
+        let summary = json!({"markdown": ORIGINAL});
+        let rows = [row("Friday", None, "user", false), row("Priya", None, "user", false), row("send the terms", None, "user", false)];
+        let markdown = markdown(restored_summary(&summary, &rows, LAUNCH));
+        assert!(markdown.contains("| Priya | Send the terms | Friday |\n\n- [ ] Friday\n- [ ] Priya\n\n## Open questions"), "{markdown}");
+
+        // No header names a column: the longest cell is the task.
+        let bare = json!({"markdown": "## Next steps\n\n| Sam | Book the venue for the offsite | Fri |"});
+        assert_eq!(restored_summary(&bare, &[row("Book the venue for the offsite", None, "user", false)], LAUNCH), Restored::Unchanged);
+        assert_ne!(restored_summary(&bare, &[row("Fri", None, "user", false)], LAUNCH), Restored::Unchanged);
+    }
+
+    #[test]
+    fn a_model_item_the_user_deleted_stays_out() {
+        let original = "## Summary\n\nTerms.\n\n## Action items\n\n- Priya: Send the terms\n- Book the room\n  - the big one\n- Print the deck\n\n## Notes\n\nMore.";
+        let moved = json!({"markdown": "## Summary\n\nTerms.\n\n## Notes\n\nMore.", "original_markdown": original});
+        // "Book the room" was deleted; its sub-point goes with it.
+        let rows = [row("Send the terms", Some("Priya"), "ai", false), ActionRow { done: true, ..row("Print the deck", None, "ai", true) }];
+        assert_eq!(
+            markdown(restored_summary(&moved, &rows, LAUNCH)),
+            "## Summary\n\nTerms.\n\n## Action items\n\n- Priya: Send the terms\n- [x] Print the deck\n\n## Notes\n\nMore."
+        );
+
+        // In a table too.
+        let table = json!({
+            "markdown": "## Summary\n\nT.",
+            "original_markdown": "## Summary\n\nT.\n\n## Action Items\n\n| Owner | Task |\n| --- | --- |\n| Priya | Send the terms |\n| Sam | Book the room |",
+        });
+        assert_eq!(
+            markdown(restored_summary(&table, &[row("Book the room", Some("Sam"), "ai", false)], LAUNCH)),
+            "## Summary\n\nT.\n\n## Action Items\n\n| Owner | Task |\n| --- | --- |\n| Sam | Book the room |"
+        );
+
+        // Every item deleted: the section stays out; an item of the user's
+        // gets a section of its own.
+        assert_eq!(restored_summary(&moved, &[], LAUNCH), Restored::Unchanged);
+        assert_eq!(
+            markdown(restored_summary(&moved, &[row("Call the venue", None, "user", false)], LAUNCH)),
+            "## Summary\n\nTerms.\n\n## Notes\n\nMore.\n\n## Action Items\n\n- [ ] Call the venue"
+        );
+
+        // A model row whose text the user changed may be any item's: all come back.
+        let changed = [row("Send the terms", Some("Priya"), "ai", false), row("Book the big room", None, "ai", true)];
+        let markdown = markdown(restored_summary(&moved, &changed, LAUNCH));
+        assert!(markdown.contains("- Book the room\n  - the big one\n- Print the deck\n- [ ] Book the big room"), "{markdown}");
     }
 
     #[test]

@@ -73,7 +73,11 @@ is inherited from the project Protocol forked from; Protocol did not release it.
   first time this version starts, with any items you added by hand; items
   you added to a meeting that has no summary yet go into its first summary.
   A checked-off item stays checked when the summary lists it as a list item;
-  in a table the check mark is not kept. Each summary this changes is saved
+  in a table the check mark is not kept. An owner or due date you changed
+  goes into the item (or its table row). An item you deleted stays deleted,
+  unless you also reworded one of the AI's items in that meeting: then the
+  app cannot tell which one you deleted, and every item comes back, with
+  the reworded one added. Each summary this changes is saved
   first as it was, in `summary-backups` in Protocol's data folder. AI
   agents read the items in the summary; the MCP server's `get_action_items`
   tool is gone.

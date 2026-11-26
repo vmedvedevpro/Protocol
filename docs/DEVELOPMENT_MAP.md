@@ -454,10 +454,24 @@ list when the summary was edited after the move and has no original, and
 marks the meeting in the same transaction.
 - **Whole items.** A row is in the summary when its text is a whole item of
   an action section: a list or text line (also as the old UI read it,
-  without owner and due date, sub-points joined by "; ") or a table cell.
-  Never a substring: a hand-added "Budget" is not in "Review the budget",
-  and an edited row is added next to its original line. A rare duplicate
-  beats a lost item.
+  without owner and due date, sub-points joined by "; ") or a table row's
+  task cell (the column the old UI took it from; an owner or due cell never
+  matches). Never a substring: a hand-added "Budget" is not in "Review the
+  budget", and an edited row is added next to its original line. A rare
+  duplicate beats a lost item.
+- **Owner and due edits.** A row found in the summary whose owner or due
+  date the item does not show (the user changed it) rewrites the item: a
+  line becomes the row's task item, keeping its indent, list mark and done
+  mark (sub-points stay on their lines); a table row gets the owner or due
+  cell, or, with no such column, the row is added below as a task item
+  (`update_for`).
+- **Deleted items.** The old UI made a row of every item of a section it
+  read and deleted the row when the user deleted the item. So when every
+  model row (`source = 'ai'`) names an item of the sections coming back from
+  `original_markdown`, an item no row names was deleted and stays out, with
+  its sub-points; a section with none left stays out (`without_deleted`).
+  A model row whose text the user changed could be any item's: then every
+  item comes back, and the CHANGELOG says so.
 - **Done marks.** A done row found as a list item checks that item off
   (`- [x]`); added rows are task items (`- [ ]`, `- [x]`), which the editor
   shows as checkboxes. A table row has no place for the mark: it is not kept.
