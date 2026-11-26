@@ -1,0 +1,281 @@
+/*
+ * The page looks like the app: every value below is a token from
+ * frontend/src/styles/theme.ts (motion from frontend/src/styles/motion.ts),
+ * copied by hand under the same name, so the two can be compared side by
+ * side. A value that is not a token says why next to it.
+ */
+
+/* Geist ships with the app as @fontsource-variable/geist 5.3.0; this is its
+   latin, normal-style file and @font-face. The licence is fonts/LICENSE. */
+@font-face {
+    font-family: 'Geist Variable';
+    font-style: normal;
+    font-display: swap;
+    font-weight: 100 900;
+    src: url(fonts/geist-latin-wght-normal.woff2) format('woff2-variations');
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+:root {
+    color-scheme: light dark;
+
+    /* colors.light */
+    --bg: #FCFCFC;
+    --surface: #F2F2F2;
+    --raised: #FFFFFF;
+    --text: #000000;
+    --soft: #262626;
+    --muted: #525252;
+    --border: #E4E4E4;
+    --control-border: #8A8A8A;
+    /* shadows.light */
+    --shadow-raised: 0 1px 2px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(0, 0, 0, 0.04);
+    --shadow-dialog: 0 24px 60px rgba(0, 0, 0, 0.18), 0 2px 6px rgba(0, 0, 0, 0.06);
+
+    /* fonts.sans */
+    --font-sans: 'Geist Variable', system-ui, sans-serif;
+
+    /* radii */
+    --radius-md: 8px;
+    --radius-lg: 10px;
+
+    /* space (the key times 4 px) */
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-5: 20px;
+    --space-6: 24px;
+    --space-8: 32px;
+    --space-9: 36px;
+
+    /* sizes.control.lg */
+    --control-lg: 36px;
+    /* sizes.window: the window the screenshot shows, at 2x. */
+    --window-width: 460px;
+    --window-height: 700px;
+    /* Not a token: the intro column's width, two download buttons side by
+       side. The screenshot's size depends on it (.window img). */
+    --intro-width: 360px;
+
+    /* motion.duration.fast, motion.easing.standard */
+    --duration-fast: 120ms;
+    --easing-standard: cubic-bezier(0.2, 0, 0, 1);
+}
+
+/* colors.dark and shadows.dark: the system's choice, as Match system does. */
+@media (prefers-color-scheme: dark) {
+    :root {
+        --bg: #0A0A0A;
+        --surface: #1A1A1A;
+        --raised: #232323;
+        --text: #FFFFFF;
+        --soft: #D4D4D4;
+        --muted: #A4A4A4;
+        --border: #262626;
+        --control-border: #6E6E6E;
+        --shadow-raised: 0 0 0 1px rgba(255, 255, 255, 0.06);
+        --shadow-dialog: 0 24px 60px rgba(0, 0, 0, 0.6);
+    }
+}
+
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+}
+
+html {
+    background: var(--bg);
+}
+
+/* text.body */
+body {
+    margin: 0;
+    min-height: 100vh;
+    min-height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    font-family: var(--font-sans);
+    font-size: 13px;
+    line-height: 20px;
+    color: var(--text);
+    background: var(--bg);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+h1,
+p,
+ul {
+    margin: 0;
+}
+
+a {
+    color: inherit;
+    border-radius: var(--radius-md);
+    transition: color var(--duration-fast) var(--easing-standard),
+        border-color var(--duration-fast) var(--easing-standard);
+}
+
+/* The app's focus ring: `text`, 2 px. */
+a:focus-visible {
+    outline: 2px solid var(--text);
+    outline-offset: 2px;
+}
+
+main {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-9);
+    padding: var(--space-8) var(--space-6) var(--space-4);
+}
+
+.intro {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-4);
+    max-width: var(--intro-width);
+}
+
+/* The GIF is the ring on a square of near-`bg`; the radial fade lets the
+   square's edge vanish into the page in both themes. */
+.ring img {
+    display: block;
+    width: 96px;
+    height: 96px;
+    margin-left: calc(-1 * var(--space-3));
+    -webkit-mask-image: radial-gradient(closest-side, #000 75%, transparent);
+    mask-image: radial-gradient(closest-side, #000 75%, transparent);
+}
+
+/* text.display */
+h1 {
+    font-size: 22px;
+    line-height: 28px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+}
+
+/* text.input, the largest body-weight style */
+.lead {
+    font-size: 14px;
+    line-height: 20px;
+    color: var(--soft);
+}
+
+.downloads {
+    list-style: none;
+    padding: 0;
+    margin-top: var(--space-2);
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-2);
+    width: 100%;
+}
+
+/* A secondary button: `raised` fill, `controlBorder` edge, `muted` on hover;
+   text.label at control.lg height. */
+.downloads a {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: var(--control-lg);
+    padding: 0 var(--space-3);
+    font-size: 12.5px;
+    line-height: 18px;
+    font-weight: 500;
+    text-decoration: none;
+    white-space: nowrap;
+    background: var(--raised);
+    border: 1px solid var(--control-border);
+    border-radius: var(--radius-md);
+}
+
+.downloads a:hover {
+    border-color: var(--muted);
+}
+
+/* The screenshot as the window it was taken from: radii.lg, a hairline and
+   the dialog shadow. Its size follows the viewport so the page never
+   scrolls on a desktop screen: 140 px is the height main's padding and the
+   footer take, and --row-room the width the intro, the gap and main's
+   padding take beside it, so a narrow window shrinks the screenshot
+   instead of pushing the row off both edges. */
+.window img {
+    --row-room: calc(var(--intro-width) + var(--space-9) + 2 * var(--space-6));
+    display: block;
+    height: min(var(--window-height), calc(100vh - 140px),
+        calc((100vw - var(--row-room)) * 700 / 460));
+    height: min(var(--window-height), calc(100dvh - 140px),
+        calc((100vw - var(--row-room)) * 700 / 460));
+    width: auto;
+    aspect-ratio: 460 / 700;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-dialog);
+}
+
+/* text.small, in `muted` */
+footer {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: var(--space-1) var(--space-6);
+    padding: var(--space-4) var(--space-6) var(--space-5);
+    font-size: 12px;
+    line-height: 16px;
+    color: var(--muted);
+    text-align: center;
+}
+
+footer nav {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: var(--space-1) var(--space-4);
+}
+
+/* The underline is the link's own colour: `muted` reads as a link in both
+   themes, where `border` was too faint to tell links from text. */
+footer a {
+    text-decoration-color: currentColor;
+    text-underline-offset: 3px;
+}
+
+footer a:hover {
+    color: var(--text);
+}
+
+/* A phone or a narrow window: one column, the screenshot below the
+   downloads and small enough that the page stays short. */
+@media (max-width: 720px) {
+    main {
+        flex-direction: column;
+        align-items: stretch;
+        gap: var(--space-8);
+        padding: var(--space-6) var(--space-4) var(--space-2);
+    }
+
+    .intro {
+        max-width: none;
+    }
+
+    .window {
+        align-self: center;
+    }
+
+    .window img {
+        height: auto;
+        width: min(240px, 70vw);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    a {
+        transition: none;
+    }
+}
