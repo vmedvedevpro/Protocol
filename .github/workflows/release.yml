@@ -338,6 +338,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     environment: release
+    outputs:
+      release_id: ${{ steps.create.outputs.id }}
     permissions:
       actions: read
       contents: write
@@ -407,6 +409,7 @@ jobs:
             ${{ runner.temp }}/dist/protocol-linux-x86_64.AppImage
             ${{ runner.temp }}/dist/protocol_${{ needs.validate.outputs.version }}_amd64.deb
       - name: Create the draft release
+        id: create
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -421,22 +424,41 @@ jobs:
             fi
             gh release delete "$TAG" --yes
           fi
-          prerelease=()
-          if [[ "$PRERELEASE" == true ]]; then prerelease=(--prerelease); fi
+          # The tag must exist, as `gh release create --verify-tag` checked:
+          # publishing a release whose tag is missing creates that tag.
+          if ! gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" > /dev/null; then
+            echo "::error::$TAG is not a tag of $GITHUB_REPOSITORY"
+            exit 1
+          fi
+          prerelease=false
+          if [[ "$PRERELEASE" == true ]]; then prerelease=true; fi
+          # Created through the API so that the id comes from the response:
+          # a draft whose tag_name became an untagged-… placeholder (#231) is
+          # not found by its tag. keep-release-tag.sh sets the tag back before
+          # the uploads look the release up by it, and again after them.
+          id=$(gh api -X POST "repos/$GITHUB_REPOSITORY/releases" -f tag_name="$TAG" -f name="Protocol $VERSION" \
+            -F body=@"$RUNNER_TEMP/notes.md" -F draft=true -F prerelease="$prerelease" --jq .id)
+          echo "id=$id" >> "$GITHUB_OUTPUT"
+          bash scripts/release/keep-release-tag.sh "$id" "$TAG" "$RUNNER_TEMP/release.json"
+          # --clobber makes a retry replace what a failed attempt uploaded.
           for attempt in 1 2 3; do
-            if gh release create "$TAG" --draft --verify-tag --title "Protocol $VERSION" \
-              --notes-file "$RUNNER_TEMP/notes.md" "${prerelease[@]}" "$RUNNER_TEMP"/dist/*; then
-              break
-            fi
+            if gh release upload "$TAG" "$RUNNER_TEMP"/dist/* --clobber; then break; fi
             echo "::warning::Upload attempt $attempt failed"
-            gh release delete "$TAG" --yes 2>/dev/null || true
             if [[ $attempt == 3 ]]; then exit 1; fi
             sleep 30
           done
-          id=$(gh release view "$TAG" --json databaseId --jq .databaseId)
-          gh api "repos/$GITHUB_REPOSITORY/releases/$id" > "$RUNNER_TEMP/release.json"
-          node scripts/release/check-release-assets.mjs --version "$VERSION" --dir "$RUNNER_TEMP/dist" --platforms windows,linux --release "$RUNNER_TEMP/release.json"
+          bash scripts/release/keep-release-tag.sh "$id" "$TAG" "$RUNNER_TEMP/release.json"
+          node scripts/release/check-release-assets.mjs --version "$VERSION" --dir "$RUNNER_TEMP/dist" --platforms windows,linux --release "$RUNNER_TEMP/release.json" --tag "$TAG"
           url=$(node -p "require(process.argv[1]).html_url" "$RUNNER_TEMP/release.json")
+          # A prerelease cannot be the latest release, so only a stable one
+          # is published with --latest.
+          if [[ "$PRERELEASE" == true ]]; then
+            how="Publish with **Set as a pre-release** left checked, or:"
+            publish="gh release edit $TAG --draft=false"
+          else
+            how="Publish with **Set as the latest release** checked, or:"
+            publish="gh release edit $TAG --draft=false --latest"
+          fi
           {
             echo "## Draft $TAG"
             echo
@@ -445,10 +467,10 @@ jobs:
             echo "Windows and Linux only: join-macos adds macOS to this release when its leg finishes, also after it is published."
             echo
             echo "Before publishing: read the notes, install protocol-windows-x64-setup.exe from the draft, record a short meeting."
-            echo "Publish with **Set as the latest release** checked (stable releases), or:"
+            echo "$how"
             echo
             echo '```'
-            echo "gh release edit $TAG --draft=false --latest"
+            echo "$publish"
             echo '```'
             echo
             echo '### SHA256SUMS.txt'
@@ -510,15 +532,22 @@ jobs:
       - name: Read the release of this tag
         id: release
         env:
+          RELEASE_ID: ${{ needs.draft.outputs.release_id }}
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          # The release is looked up by the tag validate checked, and every
-          # later call goes to its id or that tag: no other release is read
-          # or written. merge-macos.mjs refuses a feed of another version.
-          id=$(gh release view "$TAG" --json databaseId --jq .databaseId)
-          gh api "repos/$GITHUB_REPOSITORY/releases/$id" > "$RUNNER_TEMP/release.json"
+          # The release is the one draft created, read by its id: a draft
+          # whose tag_name became an untagged-… placeholder (#231) is not
+          # found by its tag. keep-release-tag.sh sets the tag validate
+          # checked back on a draft and fails on a published release with
+          # another tag, so the later calls by that tag reach this release
+          # and no other. merge-macos.mjs refuses a feed of another version.
+          if [[ -z "$RELEASE_ID" ]]; then
+            echo "::error::draft passed no release id"
+            exit 1
+          fi
+          bash scripts/release/keep-release-tag.sh "$RELEASE_ID" "$TAG" "$RUNNER_TEMP/release.json"
           mkdir -p "$RUNNER_TEMP/release"
           for name in latest.json SHA256SUMS.txt; do
             asset=$(jq -r --arg name "$name" '.assets[] | select(.name == $name) | .id' "$RUNNER_TEMP/release.json")
@@ -530,7 +559,7 @@ jobs:
             gh api -H 'Accept: application/octet-stream' "repos/$GITHUB_REPOSITORY/releases/assets/$asset" > "$RUNNER_TEMP/release/$name"
           done
           jq -r '.body // ""' "$RUNNER_TEMP/release.json" > "$RUNNER_TEMP/body.md"
-          echo "id=$id" >> "$GITHUB_OUTPUT"
+          echo "id=$RELEASE_ID" >> "$GITHUB_OUTPUT"
           echo "$TAG is $(jq -r 'if .draft then "a draft" else "published" end' "$RUNNER_TEMP/release.json") with $(jq '.assets | length' "$RUNNER_TEMP/release.json") assets"
       - name: Sign the macOS bundle and merge it into the release
         env:
@@ -605,8 +634,8 @@ jobs:
           else
             body_kept=true
           fi
-          gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" > "$RUNNER_TEMP/joined.json"
-          node scripts/release/check-release-assets.mjs --version "$VERSION" --dir "$dist" --platforms macos --stage joined --release "$RUNNER_TEMP/joined.json"
+          bash scripts/release/keep-release-tag.sh "$RELEASE_ID" "$TAG" "$RUNNER_TEMP/joined.json"
+          node scripts/release/check-release-assets.mjs --version "$VERSION" --dir "$dist" --platforms macos --stage joined --release "$RUNNER_TEMP/joined.json" --tag "$TAG"
           draft=$(jq -r .draft "$RUNNER_TEMP/joined.json")
           echo "draft=$draft" >> "$GITHUB_OUTPUT"
           url=$(jq -r .html_url "$RUNNER_TEMP/joined.json")
