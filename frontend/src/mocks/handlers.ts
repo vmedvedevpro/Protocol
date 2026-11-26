@@ -46,6 +46,7 @@ export const handlers: Record<string, MockHandler> = {
     // src-tauri/src/linux_desktop/keep_above.rs: as on X11 or KDE Plasma.
     linux_keep_on_top_available: () => true,
     linux_set_keep_on_top: () => null,
+    linux_take_minibar_notice: () => null,
 
     // src-tauri/src/api/api.rs
     open_external_url: ({url}) => {

@@ -261,16 +261,32 @@ describe('Keep on top', () => {
         await waitFor(() => expect(onTop).toHaveBeenCalledWith(expect.objectContaining({onTop: true})))
     })
 
-    it('offers no pin where the session cannot keep a window on top', async () => {
+    it('says where the pin would be that the session cannot keep a window on top', async () => {
         // GNOME or wlroots on Wayland (keep_above.rs).
-        const available = vi.spyOn(handlers, 'linux_keep_on_top_available').mockReturnValue(false)
+        vi.spyOn(handlers, 'linux_keep_on_top_available').mockReturnValue(false)
         const onTop = vi.spyOn(handlers, 'linux_set_keep_on_top')
         renderApp()
         await heading('Meetings')
 
-        await waitFor(() => expect(available).toHaveBeenCalled())
+        expect(await screen.findByText("Keep on top isn't available in this session")).toBeInTheDocument()
         expect(screen.queryByRole('button', {name: 'Keep on top'})).not.toBeInTheDocument()
         expect(onTop).not.toHaveBeenCalled()
+    })
+
+    it('sets the pin back and says why when native code cannot keep the window on top', async () => {
+        vi.spyOn(handlers, 'linux_set_keep_on_top').mockImplementation(({onTop}) => {
+            if (onTop) throw 'KWin refused the script (id -1); KWin scripting may be disabled'
+            return null
+        })
+        renderApp()
+        await heading('Meetings')
+
+        await userEvent.click(await screen.findByRole('button', {name: 'Keep on top'}))
+
+        expect(await screen.findByText("Couldn't keep the window on top")).toBeInTheDocument()
+        expect(screen.getByText('KWin refused the script (id -1); KWin scripting may be disabled')).toBeInTheDocument()
+        await waitFor(() => expect(screen.getByRole('button', {name: 'Keep on top'})).toHaveAttribute('aria-pressed', 'false'))
+        expect(JSON.parse(localStorage.getItem(KEEP_ON_TOP_STORAGE_KEY)!).state).toEqual({onTop: false})
     })
 })
 

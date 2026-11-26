@@ -92,7 +92,7 @@ export function Shell() {
     const onTop = useKeepOnTopStore((state) => state.onTop)
     const setOnTop = useKeepOnTopStore((state) => state.setOnTop)
     const keepOnTop = useKeepOnTopAvailable()
-    useKeepOnTopSync(keepOnTop)
+    useKeepOnTopSync(keepOnTop === true)
     // In front of the startup gate: first launch starts the downloads, and
     // native activates Whisper after its download.
     useModelDownloadSync()
@@ -112,6 +112,7 @@ export function Shell() {
                     onBack={handle.back ? () => void navigate(paths.home) : undefined}
                     onTop={onTop}
                     onTopChange={keepOnTop ? setOnTop : undefined}
+                    onTopUnavailable={keepOnTop === false}
                 />
                 {phase === 'ready' && (
                     <DownloadLineContext value>

@@ -39,10 +39,18 @@ describe('TitleBar', () => {
         expect(screen.getByRole('banner')).not.toHaveAttribute('data-tauri-drag-region')
     })
 
-    it('offers no pin without a handler (no keep on top in this session)', () => {
+    it('offers no pin without a handler', () => {
         renderUi(<TitleBar platform="linux" onTop={false}/>)
 
         expect(screen.queryByRole('button', {name: 'Keep on top'})).not.toBeInTheDocument()
+        expect(screen.queryByText(/Keep on top/)).not.toBeInTheDocument()
+    })
+
+    it('says where the pin would be that this session cannot keep the window on top', () => {
+        renderUi(<TitleBar platform="linux" onTop={false} onTopUnavailable/>)
+
+        expect(screen.queryByRole('button', {name: 'Keep on top'})).not.toBeInTheDocument()
+        expect(screen.getByText("Keep on top isn't available in this session")).toBeInTheDocument()
     })
 
     it('leaves the window buttons to macOS', () => {

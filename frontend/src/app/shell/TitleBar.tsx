@@ -68,6 +68,16 @@ const Caption = styled.span<{ $alone: boolean }>`
     padding-left: ${({theme, $alone}) => ($alone ? theme.space[2] : 0)};
 `
 
+// Where the pin would be, in a session that cannot keep the window on top.
+const Note = styled.span`
+    ${({theme}) => theme.text.small};
+    color: ${({theme}) => theme.colors.muted};
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+`
+
 // The back button comes and goes with the screen.
 const Appear = styled(m.span)`
     display: flex;
@@ -88,9 +98,12 @@ export interface TitleBarProps {
     /** Shows the Keep on top pin; left out where the session cannot keep
      *  the window on top (Wayland outside KDE Plasma, #199). */
     onTopChange?: (onTop: boolean) => void
+    /** Says in the pin's place that this session cannot keep the window on
+     *  top, rather than leave the user looking for it. */
+    onTopUnavailable?: boolean
 }
 
-export function TitleBar({platform, onBack, onTop, onTopChange}: TitleBarProps) {
+export function TitleBar({platform, onBack, onTop, onTopChange, onTopUnavailable = false}: TitleBarProps) {
     // Linux's buttons are the 32 px of its header bars; the others 28 px.
     const size = platform === 'linux' ? 'md' : 'sm'
 
@@ -105,11 +118,11 @@ export function TitleBar({platform, onBack, onTop, onTopChange}: TitleBarProps) 
             )}
         </AnimatePresence>
     )
-    const pin = onTopChange && (
+    const pin = onTopChange ? (
         <IconButton label="Keep on top" size={size} pressed={onTop} onClick={() => onTopChange(!onTop)}>
             <PushPinIcon size={14}/>
         </IconButton>
-    )
+    ) : onTopUnavailable && <Note>Keep on top isn't available in this session</Note>
 
     return (
         <Strip $platform={platform} data-tauri-drag-region={platform === 'linux' ? undefined : 'deep'}>
