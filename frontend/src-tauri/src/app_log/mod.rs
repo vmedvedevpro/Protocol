@@ -226,6 +226,12 @@ fn shorten(text: &str, max: usize) -> String {
     }
 }
 
+/// A JSON error for the log: its kind and place. serde's own text quotes
+/// the value it could not read, which can be a stored transcript or summary.
+pub fn json_error(error: &serde_json::Error) -> String {
+    format!("{:?} error at line {}, column {}", error.classify(), error.line(), error.column())
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LogStatus {
@@ -410,6 +416,12 @@ mod tests {
         assert_eq!(admitted, WEBVIEW_ERRORS_PER_MINUTE as usize);
         assert_eq!(limiter.admit(start + Duration::from_secs(61)), (true, 10));
         assert_eq!(limiter.admit(start + Duration::from_secs(62)), (true, 0));
+    }
+
+    #[test]
+    fn a_json_error_names_its_place_and_not_the_value() {
+        let error = serde_json::from_str::<u32>(r#""the transcript""#).unwrap_err();
+        assert_eq!(json_error(&error), "Data error at line 1, column 16");
     }
 
     #[test]

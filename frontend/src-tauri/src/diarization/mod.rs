@@ -764,10 +764,7 @@ pub async fn rename_meeting_speaker(
     )
     .await
     .map_err(|e| format!("Failed to rename speaker: {}", e))?;
-    log::info!(
-        "🧑‍🤝‍🧑 Renamed speaker '{}' → '{}' across {} segments of meeting {}",
-        from, outcome.speaker, outcome.count, meeting_id
-    );
+    log::info!("🧑‍🤝‍🧑 Renamed a speaker across {} segments of meeting {}", outcome.count, meeting_id);
     // The voices follow the contacts, as api_merge_people and
     // api_delete_person keep them.
     match &outcome.removed_contact {
@@ -1680,7 +1677,7 @@ pub(crate) fn plan_labels(
                 assigned_names.insert(name.clone());
             }
         }
-        log::info!("🧑‍🤝‍🧑 Matched voice clusters to manual speaker names: {:?}", cluster_to_manual_name);
+        log::info!("🧑‍🤝‍🧑 Matched {} voice clusters to manual speaker names", cluster_to_manual_name.len());
     }
 
     let speaker_label = |spk: usize| -> String {

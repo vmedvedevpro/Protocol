@@ -3,7 +3,6 @@ use log::{debug as log_debug, error as log_error, info as log_info, warn as log_
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tauri::{AppHandle, Runtime};
-use tauri_plugin_store::StoreExt;
 
 use crate::{
     database::{
@@ -189,32 +188,6 @@ pub struct TranscriptSegment {
     /// at save time silently erases the user's identity from every meeting.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub speaker: Option<String>,
-}
-
-// Helper function to get auth token from store (optional)
-#[allow(dead_code)]
-async fn get_auth_token<R: Runtime>(app: &AppHandle<R>) -> Option<String> {
-    let store = match app.store("store.json") {
-        Ok(store) => store,
-        Err(_) => return None,
-    };
-
-    match store.get("authToken") {
-        Some(token) => {
-            if let Some(token_str) = token.as_str() {
-                let truncated = token_str.chars().take(20).collect::<String>();
-                log_info!("Found auth token: {}", truncated);
-                Some(token_str.to_string())
-            } else {
-                log_warn!("Auth token is not a string");
-                None
-            }
-        }
-        None => {
-            log_warn!("No auth token found in store");
-            None
-        }
-    }
 }
 
 // API Commands for Tauri
@@ -975,21 +948,13 @@ pub async fn api_save_transcript<R: Runtime>(
         auth_token.is_some()
     );
 
-    // Log first transcript for debugging
-    if let Some(first) = transcripts.first() {
-        log_debug!(
-            "First transcript data: {}",
-            serde_json::to_string_pretty(first).unwrap_or_default()
-        );
-    }
-
     // Convert serde_json::Value to TranscriptSegment
     let transcripts_to_save: Vec<TranscriptSegment> = transcripts
         .into_iter()
         .map(serde_json::from_value)
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| {
-            log_error!("Failed to parse transcript segments: {}", e);
+            log_error!("Failed to parse transcript segments: {}", crate::app_log::json_error(&e));
             format!("Invalid transcript data format: {}. Please check the data structure.", e)
         })?;
 
@@ -1199,7 +1164,7 @@ pub async fn api_save_custom_openai_config<R: Runtime>(
 ) -> Result<serde_json::Value, String> {
     log_info!(
         "api_save_custom_openai_config called: endpoint='{}', model='{}'",
-        &endpoint,
+        crate::app_log::scrub::address(&endpoint),
         &model
     );
 
@@ -1246,7 +1211,7 @@ pub async fn api_save_custom_openai_config<R: Runtime>(
 
     match SettingsRepository::save_custom_openai_config(pool, &config).await {
         Ok(()) => {
-            log_info!("✅ Successfully saved custom OpenAI config for endpoint: {}", config.endpoint);
+            log_info!("✅ Successfully saved custom OpenAI config for endpoint: {}", crate::app_log::scrub::address(&config.endpoint));
             Ok(serde_json::json!({
                 "status": "success",
                 "message": "Custom OpenAI configuration saved successfully"
@@ -1273,7 +1238,7 @@ pub async fn api_get_custom_openai_config<R: Runtime>(
         Ok(config) => {
             if let Some(ref c) = config {
                 log_info!("✅ Found custom OpenAI config: endpoint='{}', model='{}'",
-                    c.endpoint, c.model);
+                    crate::app_log::scrub::address(&c.endpoint), c.model);
             } else {
                 log_info!("No custom OpenAI config found");
             }

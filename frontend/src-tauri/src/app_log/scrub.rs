@@ -47,6 +47,21 @@ pub fn secrets(line: &str) -> Cow<'_, str> {
     sub(&USERINFO, text, "${1}<redacted>@")
 }
 
+/// A service address for the log, without the `user:password@`, query and
+/// fragment that can carry a key.
+pub fn address(url: &str) -> String {
+    match reqwest::Url::parse(url.trim()) {
+        Ok(mut parsed) => {
+            let _ = parsed.set_username("");
+            let _ = parsed.set_password(None);
+            parsed.set_query(None);
+            parsed.set_fragment(None);
+            parsed.to_string()
+        }
+        Err(_) => "(not a valid address)".to_string(),
+    }
+}
+
 /// Logins that are ordinary words; replacing them would garble the text.
 const COMMON_LOGINS: [&str; 5] = ["root", "user", "admin", "administrator", "guest"];
 
@@ -161,6 +176,12 @@ mod tests {
         // A plain address, and a `key` that is not a query parameter.
         let plain = "https://host:8080/v1 cache key=abc";
         assert_eq!(secrets(plain), plain);
+    }
+
+    #[test]
+    fn an_address_loses_its_credentials_and_query() {
+        assert_eq!(address(" https://anna:pw@host:8443/v1?key=abc#x "), "https://host:8443/v1");
+        assert_eq!(address("not a url"), "(not a valid address)");
     }
 
     #[test]

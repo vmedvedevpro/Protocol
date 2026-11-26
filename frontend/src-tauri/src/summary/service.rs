@@ -419,7 +419,7 @@ impl SummaryService {
             if provider == LLMProvider::CustomOpenAI {
                 match SettingsRepository::get_custom_openai_config(&pool).await {
                     Ok(Some(config)) => {
-                        info!("✓ Using custom OpenAI endpoint: {}", config.endpoint);
+                        info!("✓ Using custom OpenAI endpoint: {}", crate::app_log::scrub::address(&config.endpoint));
                         (
                             Some(config.endpoint),
                             config.api_key,
@@ -725,9 +725,10 @@ impl SummaryService {
     /// * `meeting_id` - Meeting identifier
     /// * `error_msg` - Error message to store
     async fn update_process_failed(pool: &SqlitePool, meeting_id: &str, error_msg: &str) {
+        // log-audit: loggable() cuts the provider's reply off
         error!(
             "Processing failed for meeting_id {}: {}",
-            meeting_id, error_msg
+            meeting_id, crate::summary::llm_client::loggable(error_msg)
         );
         if let Err(e) =
             SummaryProcessesRepository::update_process_failed(pool, meeting_id, error_msg).await
