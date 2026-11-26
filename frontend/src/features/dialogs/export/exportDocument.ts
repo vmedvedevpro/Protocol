@@ -10,6 +10,7 @@
 import type {TranscriptSegment} from '@/api/meetings'
 import {meetingDocument, summaryMarkdown, transcriptMarkdown} from '@/components/transcript/meetingText'
 import {displaySpeaker, isUnnamedSpeaker, isUserSpeaker, speakerParts} from '@/components/transcript/turns'
+import {isoDate} from '@/lib/dates'
 import {safely} from '@/lib/storage'
 
 export type ExportContent = 'transcript' | 'summary' | 'both'
@@ -62,9 +63,6 @@ function yamlString(value: string): string {
         .replace(/[\x00-\x1f]/g, (char) => `\\x${char.charCodeAt(0).toString(16).padStart(2, '0')}`)
     return `"${escaped}"`
 }
-
-const isoDate = (date: Date) =>
-    `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 
 function frontmatter(source: ExportSource, linkStyle: LinkStyle): string {
     const attendees = [...new Set(source.lines.flatMap((line) => speakerParts(line.speaker ?? '')))].filter(isLinkableSpeaker)

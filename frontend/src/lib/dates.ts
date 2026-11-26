@@ -11,6 +11,10 @@ function daysAgo(date: Date, now: Date): number {
     return Math.round((start(now) - start(date)) / DAY_MS)
 }
 
+/** `2026-11-26`, the local date. */
+export const isoDate = (date: Date) =>
+    `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+
 export function parseDate(value?: string | null): Date | null {
     if (!value) return null
     const date = new Date(value)

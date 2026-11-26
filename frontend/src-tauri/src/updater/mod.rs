@@ -194,16 +194,21 @@ impl UpdaterState {
     }
 }
 
+/// The updater's cache folder, which holds `updater.log` (`journal.rs`);
+/// Save logs reads the journal from here.
+pub fn journal_dir<R: Runtime>(app: &AppHandle<R>) -> std::path::PathBuf {
+    app.path()
+        .app_cache_dir()
+        .unwrap_or_else(|_| crate::paths::install_data_root().join("cache"))
+        .join("updates")
+}
+
 /// Registers the updater state and starts the scheduler. Call at the end of
 /// `.setup`, after the database, so onboarding and paths are available.
 pub fn init<R: Runtime>(app: &AppHandle<R>) {
     let support = support::detect();
     let current_version = app.package_info().version.to_string();
-    let cache_dir = app
-        .path()
-        .app_cache_dir()
-        .unwrap_or_else(|_| crate::paths::install_data_root().join("cache"))
-        .join("updates");
+    let cache_dir = journal_dir(app);
     let prefs = prefs::load(app);
     let state = UpdaterState::new(support, current_version, Cache::new(cache_dir), prefs);
     state.journal(&format!("start {} {:?}", state.current_version, support));
@@ -313,6 +318,7 @@ async fn restore<R: Runtime>(app: &AppHandle<R>) {
     let updater = match engine::updater(app, state.support) {
         Ok(updater) => updater,
         Err((_, message)) => {
+            // log-audit: the updater plugin's error
             log::warn!("[updater] cannot restore the cached update: {message}");
             return;
         }

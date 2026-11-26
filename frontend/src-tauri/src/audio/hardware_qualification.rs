@@ -165,6 +165,7 @@ async fn physical_windows_capture_continuity() -> Result<()> {
     tokio::time::timeout(Duration::from_secs(15), processing).await???;
     let output = tokio::time::timeout(Duration::from_secs(15), recorded).await??;
     let segments = tokio::time::timeout(Duration::from_secs(15), speech).await??;
+    // log-audit: test output: counts and timings of the capture test
     println!("HARDWARE TEST RESULT: input={input:?}; retained={output:?}; max_capture_gap_seconds={gaps:?}; VAD_segments={segments:?}; native_stop_ms={}; total_stop_ms={}",
         native_stop.as_millis(), stop_start.elapsed().as_millis());
     mic_stop?;

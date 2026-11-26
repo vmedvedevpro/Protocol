@@ -149,6 +149,15 @@ impl LLMProvider {
     }
 }
 
+/// Starts the provider's own reply in an error: the UI shows it, and the log
+/// stops before it ([`loggable`]), since a reply can quote the prompt.
+pub const PROVIDER_REPLY: &str = "\nThe provider replied: ";
+
+/// `error` without the provider's reply, for a log line.
+pub fn loggable(error: &str) -> &str {
+    error.split_once(PROVIDER_REPLY).map_or(error, |(head, _)| head)
+}
+
 /// Generates a summary using the specified LLM provider
 ///
 /// # Arguments
@@ -349,11 +358,10 @@ pub async fn generate_summary(
     };
 
     if !response.status().is_success() {
-        let error_body = response
-            .text()
-            .await
-            .unwrap_or_else(|_| "Unknown error".to_string());
-        return Err(format!("LLM API request failed: {}", error_body));
+        let status = response.status();
+        let reply = response.text().await.unwrap_or_default();
+        log::warn!("LLM API request failed with status {status} ({} bytes of reply)", reply.len());
+        return Err(format!("LLM API request failed with status {status}.{PROVIDER_REPLY}{reply}"));
     }
 
     // Parse response based on provider

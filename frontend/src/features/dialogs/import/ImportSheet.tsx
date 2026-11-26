@@ -30,6 +30,7 @@ import {Spinner} from '@/components/ui/Spinner'
 import {colorTransition, focusRing} from '@/components/ui/styles'
 import {TextField} from '@/components/ui/TextField'
 import {toast} from '@/components/ui/toastStore'
+import {basename} from '@/lib/basename'
 import {closeDialog, type OpenedDialog, useDialog} from '@/lib/dialogs'
 import {DETECT_LANGUAGE, MEETING_LANGUAGES} from '@/lib/languages'
 import {paths} from '@/lib/paths'
@@ -471,7 +472,7 @@ function ImportForm({request, completeHeard}: { request: Extract<OpenedDialog, {
                 <File>
                     <WaveformIcon size={16} aria-hidden/>
                     <FileText>
-                        <FileName>{file.path.split(/[\\/]/).pop() || file.filename}</FileName>
+                        <FileName>{basename(file.path) || file.filename}</FileName>
                         <Hint>{fileLength(file.duration_seconds)}, {file.format}</Hint>
                     </FileText>
                     {!busy && (

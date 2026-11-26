@@ -3,7 +3,6 @@ use log::{debug as log_debug, error as log_error, info as log_info, warn as log_
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tauri::{AppHandle, Runtime};
-use tauri_plugin_store::StoreExt;
 
 use crate::{
     database::{
@@ -189,32 +188,6 @@ pub struct TranscriptSegment {
     /// at save time silently erases the user's identity from every meeting.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub speaker: Option<String>,
-}
-
-// Helper function to get auth token from store (optional)
-#[allow(dead_code)]
-async fn get_auth_token<R: Runtime>(app: &AppHandle<R>) -> Option<String> {
-    let store = match app.store("store.json") {
-        Ok(store) => store,
-        Err(_) => return None,
-    };
-
-    match store.get("authToken") {
-        Some(token) => {
-            if let Some(token_str) = token.as_str() {
-                let truncated = token_str.chars().take(20).collect::<String>();
-                log_info!("Found auth token: {}", truncated);
-                Some(token_str.to_string())
-            } else {
-                log_warn!("Auth token is not a string");
-                None
-            }
-        }
-        None => {
-            log_warn!("No auth token found in store");
-            None
-        }
-    }
 }
 
 // API Commands for Tauri
@@ -975,32 +948,23 @@ pub async fn api_save_transcript<R: Runtime>(
         auth_token.is_some()
     );
 
-    // Log first transcript for debugging
-    if let Some(first) = transcripts.first() {
-        log_debug!(
-            "First transcript data: {}",
-            serde_json::to_string_pretty(first).unwrap_or_default()
-        );
-    }
-
     // Convert serde_json::Value to TranscriptSegment
     let transcripts_to_save: Vec<TranscriptSegment> = transcripts
         .into_iter()
         .map(serde_json::from_value)
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| {
-            log_error!("Failed to parse transcript segments: {}", e);
+            log_error!("Failed to parse transcript segments: {}", crate::app_log::json_error(&e));
             format!("Invalid transcript data format: {}. Please check the data structure.", e)
         })?;
 
     // Log parsed segments count and first segment details
     if let Some(first_seg) = transcripts_to_save.first() {
-        log_debug!("First parsed segment: text='{}', audio_start_time={:?}, audio_end_time={:?}, duration={:?}, speaker={:?}",
-                   first_seg.text.chars().take(50).collect::<String>(),
+        log_debug!("First parsed segment: {} chars, audio_start_time={:?}, audio_end_time={:?}, duration={:?}",
+                   first_seg.text.chars().count(),
                    first_seg.audio_start_time,
                    first_seg.audio_end_time,
-                   first_seg.duration,
-                   first_seg.speaker);
+                   first_seg.duration);
     }
     let with_speaker = transcripts_to_save.iter().filter(|s| s.speaker.as_ref().map(|x| !x.is_empty()).unwrap_or(false)).count();
     log_info!(
@@ -1127,30 +1091,7 @@ pub async fn open_meeting_folder<R: Runtime>(
                     return Err(format!("Recording folder not found: {}", folder_path));
                 }
 
-                // Open folder based on OS
-                #[cfg(target_os = "macos")]
-                {
-                    std::process::Command::new("open")
-                        .arg(&folder_path)
-                        .spawn()
-                        .map_err(|e| format!("Failed to open folder: {}", e))?;
-                }
-
-                #[cfg(target_os = "windows")]
-                {
-                    std::process::Command::new("explorer")
-                        .arg(&folder_path)
-                        .spawn()
-                        .map_err(|e| format!("Failed to open folder: {}", e))?;
-                }
-
-                #[cfg(target_os = "linux")]
-                {
-                    std::process::Command::new("xdg-open")
-                        .arg(&folder_path)
-                        .spawn()
-                        .map_err(|e| format!("Failed to open folder: {}", e))?;
-                }
+                crate::paths::open_in_system(path.as_os_str(), false).map_err(|e| format!("Failed to open folder: {}", e))?;
 
                 log_info!("Successfully opened folder: {}", folder_path);
                 Ok(())
@@ -1200,14 +1141,7 @@ pub async fn open_external_url(url: String) -> Result<(), String> {
 
     #[cfg(not(target_os = "windows"))]
     {
-        use std::process::Command;
-        let result = if cfg!(target_os = "macos") {
-            Command::new("open").arg(&url).spawn()
-        } else {
-            Command::new("xdg-open").arg(&url).spawn()
-        };
-        result
-            .map(|_| ())
+        crate::paths::open_in_system(std::ffi::OsStr::new(&url), false)
             .map_err(|error| format!("Failed to open URL: {error}"))
     }
 }
@@ -1229,7 +1163,7 @@ pub async fn api_save_custom_openai_config<R: Runtime>(
 ) -> Result<serde_json::Value, String> {
     log_info!(
         "api_save_custom_openai_config called: endpoint='{}', model='{}'",
-        &endpoint,
+        crate::app_log::scrub::address(&endpoint),
         &model
     );
 
@@ -1276,7 +1210,7 @@ pub async fn api_save_custom_openai_config<R: Runtime>(
 
     match SettingsRepository::save_custom_openai_config(pool, &config).await {
         Ok(()) => {
-            log_info!("✅ Successfully saved custom OpenAI config for endpoint: {}", config.endpoint);
+            log_info!("✅ Successfully saved custom OpenAI config for endpoint: {}", crate::app_log::scrub::address(&config.endpoint));
             Ok(serde_json::json!({
                 "status": "success",
                 "message": "Custom OpenAI configuration saved successfully"
@@ -1303,7 +1237,7 @@ pub async fn api_get_custom_openai_config<R: Runtime>(
         Ok(config) => {
             if let Some(ref c) = config {
                 log_info!("✅ Found custom OpenAI config: endpoint='{}', model='{}'",
-                    c.endpoint, c.model);
+                    crate::app_log::scrub::address(&c.endpoint), c.model);
             } else {
                 log_info!("No custom OpenAI config found");
             }
@@ -1404,7 +1338,7 @@ pub async fn api_test_custom_openai_connection<R: Runtime>(
                         }
 
                         // Response was 200 but doesn't match OpenAI format
-                        log_warn!("⚠️ Endpoint returned 200 but response doesn't match OpenAI format: {}", response_text);
+                        log_warn!("⚠️ Endpoint returned 200 but its {}-byte response doesn't match OpenAI format", response_text.len());
                         Err("Endpoint is reachable but doesn't appear to be OpenAI-compatible. Response is missing 'choices' array or 'message.content' / 'message.reasoning_content' field.".to_string())
                     }
                     Err(e) => {
@@ -1413,7 +1347,9 @@ pub async fn api_test_custom_openai_connection<R: Runtime>(
                     }
                 }
             } else {
-                log_warn!("⚠️ Custom OpenAI connection test failed with status {}: {}", status, response_text);
+                // The reply goes to the user in the error below; the log keeps
+                // only its size, since an endpoint can echo the request.
+                log_warn!("⚠️ Custom OpenAI connection test failed with status {} ({}-byte reply)", status, response_text.len());
                 Err(format!("Connection failed with status {}: {}", status, response_text))
             }
         }

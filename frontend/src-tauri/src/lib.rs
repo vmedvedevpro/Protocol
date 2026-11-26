@@ -35,6 +35,7 @@ macro_rules! perf_trace {
 // Declare audio module
 pub mod agent_access;
 pub mod api;
+pub mod app_log;
 pub mod audio;
 pub mod claude_desktop_extension;
 pub mod config;
@@ -80,6 +81,7 @@ mod linux_desktop;
 pub mod updater;
 pub mod utils;
 pub mod whisper_engine;
+mod zip_util;
 #[cfg(windows)]
 mod windows_app_identity;
 
@@ -179,6 +181,7 @@ async fn stop_recording<R: Runtime>(app: AppHandle<R>, args: RecordingArgs) -> R
                     log_info!("Creating directory: {:?}", parent);
                     if let Err(e) = std::fs::create_dir_all(parent) {
                         let err_msg = format!("Failed to create save directory: {}", e);
+                        // log-audit: built from an I/O error just above
                         log_error!("{}", err_msg);
                         return Err(err_msg);
                     }
@@ -585,6 +588,10 @@ pub fn run() {
             crash_report::get_pending_crash_report,
             crash_report::create_crash_report_zip,
             crash_report::dismiss_pending_crash_report,
+            app_log::get_log_status,
+            app_log::log_webview_error,
+            app_log::bundle::save_logs_zip,
+            app_log::bundle::show_saved_logs,
             trigger_microphone_permission,
             onnx_runtime::check_transcription_runtime,
             start_recording_with_devices_and_meeting,
@@ -840,6 +847,9 @@ pub fn run() {
                         log::warn!("Failed to mark the crash session as clean: {error}");
                     }
                     log::info!("Application cleanup complete");
+                    // The last lines, before the process ends with the static
+                    // logger never dropped.
+                    app_log::shutdown();
                 }
                 _ => {}
             }

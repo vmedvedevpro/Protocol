@@ -10,7 +10,7 @@
 //! directory is not writable (for example, under `C:\Program Files`), storage
 //! transparently falls back to the OS data directory.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 /// The subfolder (relative to the executable) that holds portable app data.
@@ -22,7 +22,8 @@ const DATA_SUBDIR: &str = "data";
 const FALLBACK_PUBLISHER: &str = "vmedvedevpro";
 const FALLBACK_APP_NAME: &str = "Protocol";
 
-static ROOT: OnceLock<PathBuf> = OnceLock::new();
+/// The data root and how it was chosen.
+static ROOT: OnceLock<(PathBuf, String)> = OnceLock::new();
 
 /// Returns the app-managed data root, creating it if needed. Resolved once and
 /// cached for the lifetime of the process.
@@ -30,38 +31,39 @@ static ROOT: OnceLock<PathBuf> = OnceLock::new();
 /// This is the single source of truth that replaces every previous use of
 /// Tauri's `app_data_dir()` and `dirs::data_dir()` for app-managed storage.
 pub fn install_data_root() -> PathBuf {
+    resolved_root().0.clone()
+}
+
+/// How the data root was chosen, for the log's first line: the root is
+/// resolved before the logger starts, so it cannot log this itself.
+pub fn data_root_origin() -> &'static str {
+    &resolved_root().1
+}
+
+fn resolved_root() -> &'static (PathBuf, String) {
     ROOT.get_or_init(|| {
         #[cfg(target_os = "macos")]
         {
-            let root = os_data_root();
-            log::info!("📁 macOS data root: {}", root.display());
-            root
+            (os_data_root(), "the macOS data folder".to_string())
         }
 
         #[cfg(not(target_os = "macos"))]
         {
             // Preferred: next to the executable, under `data/`.
+            let mut origin = "the OS data folder".to_string();
             if let Some(exe_dir) = std::env::current_exe()
                 .ok()
                 .and_then(|p| p.parent().map(|d| d.to_path_buf()))
             {
                 let candidate = exe_dir.join(DATA_SUBDIR);
                 if ensure_writable(&candidate) {
-                    log::info!("📁 Portable data root: {}", candidate.display());
-                    return candidate;
+                    return (candidate, "portable, beside the executable".to_string());
                 }
-                log::warn!(
-                    "Install directory not writable ({}); falling back to OS data dir",
-                    candidate.display()
-                );
+                origin = format!("the OS data folder, since {} is not writable", candidate.display());
             }
-
-            let fallback = os_data_root();
-            log::info!("📁 Fallback data root: {}", fallback.display());
-            fallback
+            (os_data_root(), origin)
         }
     })
-    .clone()
 }
 
 fn os_data_root() -> PathBuf {
@@ -72,6 +74,53 @@ fn os_data_root() -> PathBuf {
         .join(FALLBACK_APP_NAME);
     let _ = std::fs::create_dir_all(&root);
     root
+}
+
+/// Opens `target` with the system: a folder in the file manager, a link in
+/// the browser (`open` and `xdg-open` take a URL as they take a path; Windows
+/// opens links through `ShellExecuteW` in `open_external_url`). With `select`,
+/// a file is shown selected in Explorer and Finder; Linux has no common way to
+/// select one, so its folder opens.
+pub fn open_in_system(target: &std::ffi::OsStr, select: bool) -> std::io::Result<()> {
+    use std::process::Command;
+    #[cfg(windows)]
+    let mut command = {
+        use std::os::windows::process::CommandExt;
+        let mut command = Command::new("explorer.exe");
+        if select {
+            // raw_arg: Explorer reads /select,"path" and not a quoted whole.
+            let mut argument = std::ffi::OsString::from("/select,\"");
+            argument.push(target);
+            argument.push("\"");
+            command.raw_arg(argument);
+        } else {
+            command.arg(target);
+        }
+        command
+    };
+    #[cfg(target_os = "macos")]
+    let mut command = {
+        let mut command = Command::new("open");
+        if select {
+            command.arg("-R");
+        }
+        command.arg(target);
+        command
+    };
+    #[cfg(target_os = "linux")]
+    let mut command = {
+        let mut command = Command::new("xdg-open");
+        let folder = Path::new(target).parent().unwrap_or(Path::new("."));
+        command.arg(if select { folder.as_os_str() } else { target });
+        command
+    };
+    let mut child = command.spawn()?;
+    // Reaped on a thread of its own, so the launcher does not stay behind as
+    // a zombie while the app runs.
+    std::thread::spawn(move || {
+        let _ = child.wait();
+    });
+    Ok(())
 }
 
 /// Directory that holds all downloaded speech/LLM models

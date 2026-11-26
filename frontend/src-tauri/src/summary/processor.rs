@@ -200,7 +200,7 @@ fn english_markdown_after_normalization_result(
         Err(e) => {
             error!(
                 "English normalization pass failed; returning pass-1 markdown without hard fail: {}",
-                e
+                crate::summary::llm_client::loggable(&e)
             );
             Ok(original_markdown.to_string())
         }
@@ -595,7 +595,7 @@ pub async fn generate_meeting_summary(
                         if e.contains("cancelled") {
                             return Err(e);
                         }
-                        error!("Failed processing chunk {}/{}: {}", i + 1, num_chunks, e);
+                        error!("Failed processing chunk {}/{}: {}", i + 1, num_chunks, crate::summary::llm_client::loggable(&e));
                         return Err(format!(
                             "Summary generation failed while processing transcript chunk {}/{}: {}",
                             i + 1,

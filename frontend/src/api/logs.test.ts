@@ -1,0 +1,46 @@
+import {waitFor} from '@testing-library/react'
+import {describe, expect, it} from 'vitest'
+import {mockState} from '@/mocks/state'
+import {installErrorLogging, logWebViewError} from './logs'
+
+describe('installErrorLogging', () => {
+    it('writes uncaught errors and unhandled rejections to the log until removed', async () => {
+        const remove = installErrorLogging()
+        window.dispatchEvent(new ErrorEvent('error', {error: new Error('boom'), message: 'boom'}))
+        const rejection = new Event('unhandledrejection') as PromiseRejectionEvent
+        Object.defineProperty(rejection, 'reason', {value: 'the summary request failed'})
+        window.dispatchEvent(rejection)
+        await waitFor(() => expect(mockState.logs.webViewErrors).toEqual([
+            {kind: 'error', message: 'boom'},
+            {kind: 'unhandled rejection', message: 'the summary request failed'},
+        ]))
+
+        remove()
+        window.dispatchEvent(new ErrorEvent('error', {message: 'after removal'}))
+        await new Promise((resolve) => setTimeout(resolve, 0))
+        expect(mockState.logs.webViewErrors).toHaveLength(2)
+    })
+})
+
+describe('logWebViewError', () => {
+    it('drops a repeat within 5 s and the ResizeObserver loop note', async () => {
+        const error = new Error('the list failed')
+        logWebViewError('error', error, 1_000)
+        logWebViewError('error', error, 5_999)
+        logWebViewError('error', 'ResizeObserver loop completed with undelivered notifications.', 6_000)
+        logWebViewError('error', error, 6_000)
+        await waitFor(() => expect(mockState.logs.webViewErrors).toEqual([
+            {kind: 'error', message: 'the list failed'},
+            {kind: 'error', message: 'the list failed'},
+        ]))
+    })
+
+    it('forgets the errors it remembers past 100, so changing texts do not pile up', async () => {
+        logWebViewError('error', 'the first error', 10_000)
+        for (let index = 0; index < 100; index++) logWebViewError('error', `error ${index}`, 10_000)
+        // Forgotten with the others, so its repeat within 5 s is logged.
+        logWebViewError('error', 'the first error', 10_001)
+        await waitFor(() => expect(mockState.logs.webViewErrors).toHaveLength(102))
+        expect(mockState.logs.webViewErrors.at(-1)).toEqual({kind: 'error', message: 'the first error'})
+    })
+})

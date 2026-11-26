@@ -351,9 +351,8 @@ fn convert_to_wav_with_ffmpeg(
         .map_err(|e| anyhow!("Failed to wait for ffmpeg process: {}", e))?;
 
     let stderr_text = String::from_utf8_lossy(&output.stderr);
-    debug!("FFmpeg stderr: {}", stderr_text);
-
     if !output.status.success() {
+        // log-audit: ffmpeg's own diagnostics (codecs, streams, the file's path), no transcript.
         error!(
             "FFmpeg conversion failed (exit code: {}): {}",
             output.status, stderr_text

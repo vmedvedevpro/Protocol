@@ -335,9 +335,9 @@ impl<'a, K: Copy + PartialEq + Debug> Pass<'a, K> {
             let rms = rms(&piece.samples);
             if is_silence_hallucination(&text, rms) {
                 warn!(
-                    "Dropping suspected silence hallucination at {:.1}s: '{}' (rms={:.5})",
+                    "Dropping suspected silence hallucination at {:.1}s: {} chars (rms={:.5})",
                     piece.start_timestamp_ms / 1000.0,
-                    text,
+                    text.chars().count(),
                     rms
                 );
                 return Ok(PieceOutcome::Dropped(rows));

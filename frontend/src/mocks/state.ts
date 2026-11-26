@@ -1,4 +1,5 @@
 import type {PendingCrashReport} from '@/api/crashReport'
+import type {LogStatus} from '@/api/logs'
 import type {OnboardingStatus} from '@/api/onboarding'
 import type {SystemAudioPermission} from '@/api/permissions'
 import type {Release} from '@/api/updater'
@@ -50,6 +51,15 @@ function createMockState() {
         crashReport: null as PendingCrashReport | null,
         crashReportZips: [] as string[],
         saveDialogPath: '/home/user/Protocol-crash.zip' as string | null,
+        // Protocol's log (src/api/logs.ts): its status, the ZIPs Save logs
+        // wrote, the ZIPs shown in a file manager, and the WebView errors
+        // written into it.
+        logs: {
+            status: {problem: null} as LogStatus,
+            zips: [] as string[],
+            shown: [] as string[],
+            webViewErrors: [] as {kind: string, message: string}[],
+        },
         // Which platform-only commands answer (`platformHandlers`). Starts as
         // the page's platform; a test or story of a Windows- or macOS-only
         // screen sets it before rendering.

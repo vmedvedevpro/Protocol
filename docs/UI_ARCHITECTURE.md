@@ -148,6 +148,14 @@ minibar window has none of it.
   `downloadLabel` (`src/api/models.ts`), and a click opens Settings ›
   Speech models. With nothing in it, the footer is `:empty` and hidden from the
   eye and from screen readers.
+- A route that throws while rendering shows `RouteError` (`src/app/RouteError.tsx`):
+  "Something went wrong", the error, Reload and Back to meetings, and the
+  error goes to the native log. It is the `errorElement` of a pathless route
+  inside the shell, so the title bar stays, and of the shell itself. It is an
+  alert and takes focus. The minibar has its own, `MinibarError`: one line
+  and Reload in its pill. `main.tsx` sends uncaught errors and unhandled
+  rejections to the log too (`installErrorLogging`, `src/api/logs.ts`),
+  without the ResizeObserver loop note and a repeat within 5 s.
 - A screen arrives with a fade and a 4 px rise over `base`; the screen it
   replaces leaves at once, so a click never waits for an exit.
 - A screen opened by a navigation focuses its `<main>` (`tabIndex={-1}`,
@@ -1250,7 +1258,11 @@ recording and hides the main window: minimizing the main window does it
 - AI › Summaries is the simple page's summary rows in full: the recent
   summary languages as chips (pin, remove, "+ Add language", under the old
   keys), the summary model, and Templates with the stored default's name.
-  Advanced holds Disk (the data folder, `src/api/app.ts`) and AI agents.
+  Advanced holds Disk (the data folder, `src/api/app.ts`), AI agents, and
+  last Bug reports (`LogsGroup`): Save logs asks where through the crash
+  report's save dialog (`src/api/saveDialog.ts`), then names the file with
+  Show in folder; when native cannot write the log, the row says why in
+  place of its description ([APP_LOG.md](APP_LOG.md)).
 - Summary model keeps a draft until Save (`components/summaryModel/draft.ts`,
   shared with first launch, as are `CloudGroup` and `src/api/summaryProviders.ts`;
   Claude's maximum length row stays in Settings, `ClaudeLengthRow`), which

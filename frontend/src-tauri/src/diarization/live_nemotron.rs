@@ -53,6 +53,7 @@ struct Session {
 static SESSION: Mutex<Option<Session>> = Mutex::new(None);
 
 fn report_failure(notify: &Arc<dyn Fn(String) + Send + Sync>, shared: &Arc<(Mutex<Timeline>, Condvar)>, message: String) {
+    // log-audit: a failure's description, never a transcript
     log::error!("Live Nemotron: {message}");
     if let Ok(mut state) = shared.0.lock() { state.failed = true; }
     shared.1.notify_all();

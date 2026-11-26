@@ -3,9 +3,6 @@
     windows_subsystem = "windows"
 )]
 
-use log;
-use env_logger;
-
 // ggml-vulkan's direct Vulkan calls, answered here so the executable does not
 // link `libvulkan.so.1` and starts without it (whisper_engine/vulkan.rs). In
 // the binary, not the library: the linker takes them from an object file
@@ -47,10 +44,7 @@ fn main() {
         std::process::exit(1);
     }
 
-    std::env::set_var("RUST_LOG", "info");
-    env_logger::init();
-
-    // Async logger will be initialized lazily when first needed (after Tauri runtime starts)
-    log::info!("Starting application...");
+    // The log folder and stderr, before anything else logs (app_log/mod.rs).
+    app_lib::app_log::init();
     app_lib::run();
 }

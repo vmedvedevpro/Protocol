@@ -25,8 +25,16 @@ const SPACE_FACTOR: u64 = 3;
 pub type Failure = (ErrorKind, String);
 
 pub fn updater<R: Runtime>(app: &AppHandle<R>, support: Support) -> Result<Updater, Failure> {
+    let handle = app.clone();
     let mut builder = app
         .updater_builder()
+        // The Windows install ends in `process::exit`, past `RunEvent::Exit`
+        // and the log's shutdown there. This replaces the plugin's own hook,
+        // whose cleanup it keeps.
+        .on_before_exit(move || {
+            handle.cleanup_before_exit();
+            crate::app_log::shutdown();
+        })
         .timeout(CHECK_TIMEOUT)
         .configure_client(|client| client.connect_timeout(CONNECT_TIMEOUT).read_timeout(READ_TIMEOUT));
     if let Some(target) = support::manual_only_feed_target(support) {

@@ -263,7 +263,7 @@ pub async fn api_get_summary<R: Runtime>(
                 match serde_json::from_str::<serde_json::Value>(&result_str) {
                     Ok(parsed) => Some(parsed),
                     Err(e) => {
-                        log_error!("Failed to parse summary result JSON: {}", e);
+                        log_error!("Failed to parse summary result JSON: {}", crate::app_log::json_error(&e));
                         None
                     }
                 }

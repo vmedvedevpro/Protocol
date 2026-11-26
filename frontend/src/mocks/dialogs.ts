@@ -9,6 +9,7 @@ import {
     isAudioPath,
 } from '@/api/audioImport'
 import type {NativeEvent} from '@/api/events'
+import {basename} from '@/lib/basename'
 import type {MockArgs, MockHandler} from './handlers'
 import {sampleTranscript} from './meetings'
 import type {MockState} from './state'
@@ -44,7 +45,7 @@ export function createMockDialogs() {
 
 /** The file native's check would describe: 38 minutes of it. */
 export function mockAudioFile(path: string, seconds = 2_280): AudioFileInfo {
-    const name = path.split(/[\\/]/).pop() ?? path
+    const name = basename(path)
     const dot = name.lastIndexOf('.')
     return {
         path,

@@ -91,7 +91,10 @@ chrono = { version = "0.4.31", features = ["serde"] }
 
 # Log
 log = "0.4"
-env_logger = "0.11"
+# The app's log on disk (src/app_log/, #234): size rotation, cleanup by
+# count, and `async`, a writer thread of its own, so a log call never waits
+# for the disk.
+flexi_logger = { version = "=0.31.10", default-features = false, features = ["async"] }
 tracing = "0.1.40"
 which = "6.0.1"
 
@@ -219,7 +222,7 @@ dasp = "0.11.0"
 
 # PERFORMANCE: Enable Metal GPU + CoreML acceleration automatically on macOS
 # CoreML provides additional acceleration for Apple Silicon chips
-whisper-rs = { version = "0.16.0", features = ["raw-api", "metal", "coreml"] }
+whisper-rs = { version = "0.16.0", features = ["raw-api", "log_backend", "metal", "coreml"] }
 ort = { version = "=2.0.0-rc.15", default-features = false, features = ["download-binaries", "copy-dylibs", "tls-native"] }
 
 # Windows-specific dependencies
@@ -229,7 +232,7 @@ ort = { version = "=2.0.0-rc.15", default-features = false, features = ["downloa
 #   --features vulkan   (AMD/Intel GPUs)
 #   --features openblas (OpenBLAS optimization, requires BLAS_INCLUDE_DIRS)
 [target.'cfg(target_os = "windows")'.dependencies]
-whisper-rs = { version = "0.16.0", features = ["raw-api"] }
+whisper-rs = { version = "0.16.0", features = ["raw-api", "log_backend"] }
 ort = { version = "=2.0.0-rc.15", default-features = false, features = ["load-dynamic", "directml"] }
 libloading = "0.8.9"
 
@@ -241,7 +244,7 @@ libloading = "0.8.9"
 #   --features hipblas  (AMD ROCm)
 #   --features openblas (OpenBLAS optimization, requires BLAS_INCLUDE_DIRS)
 [target.'cfg(target_os = "linux")'.dependencies]
-whisper-rs = { version = "0.16.0", features = ["raw-api"] }
+whisper-rs = { version = "0.16.0", features = ["raw-api", "log_backend"] }
 ort = { version = "=2.0.0-rc.15", default-features = false, features = ["load-dynamic"] }
 libloading = "0.8.9"
 # Already in the tree through tao/gtk; names the app for GTK and the tray
@@ -268,6 +271,9 @@ memory-stats = "1.0"
 strsim = "0.10.0"
 futures = "0.3.31"
 tracing-subscriber = "0.3.16"
+# The test-only modes (measure, the hardware qualification) log to stderr
+# through it; the app logs through flexi_logger.
+env_logger = "0.11"
 
 [patch.crates-io]
 cpal = { git = "https://github.com/RustAudio/cpal", rev = "51c3b43" }

@@ -10,8 +10,6 @@ use std::sync::{Mutex, OnceLock};
 use sysinfo::System;
 use tempfile::NamedTempFile;
 use uuid::Uuid;
-use zip::write::SimpleFileOptions;
-use zip::{CompressionMethod, ZipWriter};
 
 const REPORT_SCHEMA_VERSION: u8 = 1;
 const README: &str = "Protocol crash report\n\
@@ -128,7 +126,7 @@ pub fn install_panic_hook() {
             let _ = write_json_atomic(&panic_path(&data_root), &record);
         }
         append_legacy_crash_log(&data_root, &occurred_at, info, &backtrace);
-        log::error!("Protocol encountered a panic; a local crash record was written");
+        crate::app_log::record_panic(info);
         previous(info);
     }));
 }
@@ -196,6 +194,34 @@ pub fn dismiss_pending_crash_report() -> Result<(), String> {
         &crate::paths::install_data_root(),
     )))
     .map_err(|error| format!("Failed to dismiss crash report: {error}"))
+}
+
+/// The pending report as stored, for Save logs (`app_log/bundle.rs`).
+pub(crate) fn pending_report_json() -> Option<Vec<u8>> {
+    fs::read(pending_path(&crash_root(&crate::paths::install_data_root()))).ok()
+}
+
+/// The same facts a crash report holds about this computer, as text, for
+/// Save logs' `system.txt`.
+pub(crate) fn system_summary() -> String {
+    let session = current_session_record();
+    format!(
+        "Protocol {}\n\
+         Operating system: {} {}\n\
+         Architecture: {}\n\
+         Acceleration backend: {}\n\
+         Processor cores (rounded up): {}\n\
+         Memory (GiB, rounded up): {}\n\
+         Saved at: {}\n",
+        session.app_version,
+        session.operating_system,
+        session.os_version.as_deref().unwrap_or("(version unknown)"),
+        session.architecture,
+        session.backend,
+        session.cpu_core_bucket,
+        session.memory_gib_bucket,
+        chrono::Local::now().to_rfc3339(),
+    )
 }
 
 fn crash_root(data_root: &Path) -> PathBuf {
@@ -396,44 +422,12 @@ fn append_legacy_crash_log(
 }
 
 fn write_report_zip(destination: &Path, report: &CrashReport) -> io::Result<()> {
-    if !destination
-        .extension()
-        .and_then(|value| value.to_str())
-        .is_some_and(|value| value.eq_ignore_ascii_case("zip"))
-    {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "Crash report destination must use the .zip extension",
-        ));
-    }
-    if let Some(parent) = destination.parent() {
-        if !parent.is_dir() {
-            return Err(io::Error::new(
-                io::ErrorKind::NotFound,
-                "Crash report destination directory does not exist",
-            ));
-        }
-    }
-    let parent = destination.parent().unwrap_or_else(|| Path::new("."));
-    let mut temporary = NamedTempFile::new_in(parent)?;
-    {
-        let mut zip = ZipWriter::new(temporary.as_file_mut());
-        let options = SimpleFileOptions::default()
-            .compression_method(CompressionMethod::Deflated)
-            .unix_permissions(0o600);
-        let report_json = serde_json::to_vec_pretty(report).map_err(io::Error::other)?;
-
-        zip.start_file("report.json", options)?;
-        zip.write_all(&report_json)?;
-        zip.start_file("README.txt", options)?;
-        zip.write_all(README.as_bytes())?;
-        zip.finish()?;
-    }
-    temporary.as_file().sync_all()?;
-    temporary
-        .persist(destination)
-        .map(|_| ())
-        .map_err(|error| error.error)
+    let report_json = serde_json::to_vec_pretty(report).map_err(io::Error::other)?;
+    crate::zip_util::write_zip(destination, |zip| {
+        zip.add("report.json", &report_json)?;
+        zip.add("README.txt", README.as_bytes())
+    })
+    .map(drop)
 }
 
 fn write_json_atomic<T: Serialize>(path: &Path, value: &T) -> io::Result<()> {

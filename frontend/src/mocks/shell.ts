@@ -4,10 +4,11 @@ import {mockState} from './state'
 
 /**
  * What the window shell (src/app/shell) asks of native code: the window
- * plugin's calls from the title bar, the save dialog of the crash report,
- * whether first launch is done, and the crash report itself. Its fields sit
- * inline in `createMockState` (`window`, `onboarding`, `crashReport`,
- * `crashReportZips`, `saveDialogPath`), so these read `mockState`.
+ * plugin's calls from the title bar, the save dialog of the crash report
+ * and Save logs, whether first launch is done, the crash report itself, and
+ * the log. Its fields sit inline in `createMockState` (`window`,
+ * `onboarding`, `crashReport`, `crashReportZips`, `saveDialogPath`, `logs`),
+ * so these read `mockState`.
  */
 export const shellHandlers: Record<string, MockHandler> = {
     'plugin:window|set_always_on_top': () => null,
@@ -36,6 +37,21 @@ export const shellHandlers: Record<string, MockHandler> = {
     },
     dismiss_pending_crash_report: () => {
         mockState.crashReport = null
+        return null
+    },
+
+    // src-tauri/src/app_log/
+    get_log_status: () => mockState.logs.status,
+    save_logs_zip: ({destination}) => {
+        mockState.logs.zips.push(String(destination))
+        return null
+    },
+    show_saved_logs: ({path}) => {
+        mockState.logs.shown.push(String(path))
+        return null
+    },
+    log_webview_error: ({kind, message}) => {
+        mockState.logs.webViewErrors.push({kind: String(kind), message: String(message)})
         return null
     },
 }
