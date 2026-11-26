@@ -445,16 +445,32 @@ fn app_engines() -> (Option<std::sync::Arc<crate::whisper_engine::WhisperEngine>
     (whisper, parakeet)
 }
 
-/// Why the check must not take the app's engines now: a recording or other
-/// speech work that started after Run, or a Cancel.
-fn stop_reason(recording: bool) -> Option<String> {
-    if recording || RECORDING_STARTED.load(Ordering::SeqCst) {
-        return Some("A recording started".into());
+/// Whether a recording runs (`IS_RECORDING`), or the tests' stand-in for one.
+fn recording() -> bool {
+    #[cfg(test)]
+    if tests::RECORDING.load(Ordering::SeqCst) {
+        return true;
     }
-    if CANCEL.load(Ordering::SeqCst) {
-        return Some("Cancelled".into());
+    crate::audio::recording_commands::is_recording_active()
+}
+
+/// What stops the steps, read before each step and between pieces: a
+/// Cancel, or a recording. A recording's start cancels the check
+/// (`RECORDING_STARTED`), but one whose `cancel_for_recording` ran just
+/// before Run found nothing to cancel; it sets `IS_RECORDING` only under the
+/// lifecycle lock, which can be after `take_engines` let go of it, so the
+/// flag is read here too.
+fn steps_stop() -> Option<&'static str> {
+    if RECORDING_STARTED.load(Ordering::SeqCst) || recording() {
+        return Some("A recording started");
     }
-    refusal()
+    CANCEL.load(Ordering::SeqCst).then_some("Cancelled")
+}
+
+/// Why the check must not take the app's engines now: what stops the
+/// steps, or other speech work that started after Run.
+fn stop_reason() -> Option<String> {
+    steps_stop().map(str::to_string).or_else(refusal)
 }
 
 /// Puts the app's idle engines away, under the lifecycle lock. A recording
@@ -464,7 +480,7 @@ fn stop_reason(recording: bool) -> Option<String> {
 /// those models, and the steps, alone.
 async fn take_engines() -> Result<Held, String> {
     let _engines = crate::audio::common::acquire_engine_lifecycle_lock().await;
-    if let Some(reason) = stop_reason(crate::audio::recording_commands::is_recording().await) {
+    if let Some(reason) = stop_reason() {
         return Err(reason);
     }
     let (whisper, parakeet) = app_engines();
@@ -489,21 +505,21 @@ async fn take_engines() -> Result<Held, String> {
 /// Loads back what the app's engines held, unless a recording started (it
 /// loads what it needs) or something loaded meanwhile.
 async fn give_back(held: Held, warnings: &mut Vec<String>) {
-    let recording = || RECORDING_STARTED.load(Ordering::SeqCst);
-    if recording() || crate::audio::recording_commands::is_recording().await {
+    let recording_started = || RECORDING_STARTED.load(Ordering::SeqCst) || recording();
+    if recording_started() {
         return;
     }
     let _engines = crate::audio::common::acquire_engine_lifecycle_lock().await;
     let (whisper, parakeet) = app_engines();
     if let (Some(engine), Some(model)) = (&parakeet, &held.parakeet) {
-        if !recording() && engine.get_current_model().await.is_none() {
+        if !recording_started() && engine.get_current_model().await.is_none() {
             if let Err(error) = engine.load_model(model).await {
                 warnings.push(format!("Parakeet {model} did not load again after the check: {error}"));
             }
         }
     }
     let whisper_reload = match (&whisper, &held.whisper) {
-        (Some(engine), Some(model)) if !recording() && engine.get_current_model().await.is_none() => Some((engine, model)),
+        (Some(engine), Some(model)) if !recording_started() && engine.get_current_model().await.is_none() => Some((engine, model)),
         _ => None,
     };
     if let Some((engine, model)) = whisper_reload {
@@ -544,7 +560,7 @@ async fn run(emit: &impl Emit, plan: Plan, resumed: Option<Note>, runner: &impl 
     let to_run: Vec<StepKind> = note.remaining();
 
     let clips = tokio::task::spawn_blocking(sample::load).await.map_err(|error| anyhow::anyhow!(error.to_string())).and_then(|loaded| loaded);
-    let cancelled = || CANCEL.load(Ordering::SeqCst);
+    let cancelled = || steps_stop().is_some();
     match &clips {
         Ok(clips) => {
             let context = steps::Context { clips, cancelled: &cancelled };
@@ -554,8 +570,8 @@ async fn run(emit: &impl Emit, plan: Plan, resumed: Option<Note>, runner: &impl 
                 STEP_IN_FLIGHT.store(true, Ordering::SeqCst);
                 let report = if let Err(reason) = &taken {
                     StepReport::cancelled(kind, reason)
-                } else if cancelled() {
-                    StepReport::cancelled(kind, if RECORDING_STARTED.load(Ordering::SeqCst) { "A recording started" } else { "Cancelled" })
+                } else if let Some(reason) = steps_stop() {
+                    StepReport::cancelled(kind, reason)
                 } else {
                     set_running_step(emit, kind, note.done.clone());
                     note.running = Some(kind);
@@ -633,8 +649,12 @@ mod tests {
         }
     }
 
+    /// A recording runs, for `recording()`.
+    pub(super) static RECORDING: AtomicBool = AtomicBool::new(false);
+
     fn reset() {
         *lock_status() = Status::Idle;
+        RECORDING.store(false, Ordering::SeqCst);
         STEP_IN_FLIGHT.store(false, Ordering::SeqCst);
         CANCEL.store(false, Ordering::SeqCst);
         RECORDING_STARTED.store(false, Ordering::SeqCst);
@@ -745,14 +765,48 @@ mod tests {
     #[tokio::test]
     async fn the_check_leaves_the_engines_of_a_recording_that_started_after_run() {
         let _statics = Statics::take();
-        assert_eq!(stop_reason(true).as_deref(), Some("A recording started"));
+        RECORDING.store(true, Ordering::SeqCst);
+        assert_eq!(stop_reason().as_deref(), Some("A recording started"));
+        RECORDING.store(false, Ordering::SeqCst);
         RECORDING_STARTED.store(true, Ordering::SeqCst);
-        assert_eq!(stop_reason(false).as_deref(), Some("A recording started"));
+        assert_eq!(stop_reason().as_deref(), Some("A recording started"));
         RECORDING_STARTED.store(false, Ordering::SeqCst);
         CANCEL.store(true, Ordering::SeqCst);
         assert_eq!(take_engines().await.err().as_deref(), Some("Cancelled"));
         CANCEL.store(false, Ordering::SeqCst);
-        assert_eq!(stop_reason(false), None);
+        assert_eq!(stop_reason(), None);
+    }
+
+    /// Steps that pass, after a recording starts during the first one
+    /// without cancelling the check: its `cancel_for_recording` ran before
+    /// Run, and its `IS_RECORDING` came after the engines were taken.
+    struct RecordingStartsIn(StepKind);
+
+    impl Runner for RecordingStartsIn {
+        fn system(&self) -> BoxFuture<'_, report::System> {
+            Box::pin(async { report::System::default() })
+        }
+
+        fn step<'a>(&'a self, kind: StepKind, _plan: &'a Plan, context: &'a steps::Context<'a>) -> BoxFuture<'a, StepReport> {
+            Box::pin(async move {
+                if kind == self.0 {
+                    RECORDING.store(true, Ordering::SeqCst);
+                }
+                assert_eq!(context.is_cancelled(), kind == self.0, "a step's own check of the Cancel sees the recording");
+                StepReport::new(kind, StepStatus::Passed)
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn a_recording_that_did_not_cancel_the_check_still_stops_its_steps() {
+        let _file = note::tests::FILE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _statics = Statics::take();
+        let (events, _folder) = run_on_the_sample(&RecordingStartsIn(StepKind::Parakeet)).await;
+        let Some(Status::Finished { report, .. }) = events.last() else { panic!("{events:?}") };
+        let statuses: Vec<StepStatus> = report.steps.iter().map(|step| step.status).collect();
+        assert_eq!(statuses, vec![StepStatus::Passed, StepStatus::Cancelled, StepStatus::Cancelled, StepStatus::Cancelled]);
+        assert_eq!(report.steps[1].reason.as_deref(), Some("A recording started"));
     }
 
     #[tokio::test]
