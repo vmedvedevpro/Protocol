@@ -1,0 +1,28 @@
+Third-party data in resources/speech-check/
+=============================================
+
+ru.flac and en.flac are the sample of Protocol's Speech check (Settings >
+Advanced). They are not covered by Protocol's own MIT license (LICENSE.md in
+the repository): they are made from FLEURS and keep its license.
+
+Data:       FLEURS (Few-shot Learning Evaluation of Universal Representations
+            of Speech), the dev split of ru_ru and en_us
+Source:     https://huggingface.co/datasets/google/fleurs at revision
+            70bb2e84b976b7e960aa89f1c648e09c59f894dd
+Authors:    Alexis Conneau, Min Ma, Simran Khanuja, Yu Zhang, Vera Axelrod,
+            Siddharth Dalmia, Jason Riesa, Clara Rivera, Ankur Bapna,
+            "FLEURS: Few-shot Learning Evaluation of Universal Representations
+            of Speech", 2022, https://arxiv.org/abs/2205.12446
+Copyright:  Google
+License:    Creative Commons Attribution 4.0 International (CC BY 4.0),
+            https://creativecommons.org/licenses/by/4.0/
+Changes:    from each language, one woman's and one man's reading (the FLEURS
+            files named in sample.json), each scaled to a peak of -6 dBFS, cut
+            to its speech, and cut in two at the pause on its comma; the four
+            halves laid out as two voices taking turns with 0.6 s between
+            them; 16 kHz mono, 16-bit, FLAC. The transcripts in sample.json are
+            FLEURS's, split at the same comma. Built by
+            scripts/measure/measure.py speech-check-sample in Protocol's
+            repository (scripts/measure/kit/speech_check.py).
+
+The data is provided as is, without warranties of any kind.
