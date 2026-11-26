@@ -196,6 +196,7 @@ impl Guard {
             let message = format!(
                 "Protocol closed unexpectedly the last time OpenVINO was {steps}, so Whisper runs on Vulkan. Try OpenVINO again in Settings › Transcription."
             );
+            // log-audit: built from the guard's own step names just above
             log::error!("{message}");
             self.stopped = Some(message);
         }

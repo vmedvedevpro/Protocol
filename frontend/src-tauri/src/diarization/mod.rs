@@ -716,6 +716,7 @@ pub async fn download_diarization_models<R: tauri::Runtime>(
         if message == download::CANCELLED {
             download::emit_end(&app, &target, "cancelled", message.clone());
         } else {
+            // log-audit: the download's error, never a transcript
             log::error!("Diarization model download failed: {}", message);
             download::emit_end(&app, &target, "error", message.clone());
         }

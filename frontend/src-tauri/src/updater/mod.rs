@@ -318,6 +318,7 @@ async fn restore<R: Runtime>(app: &AppHandle<R>) {
     let updater = match engine::updater(app, state.support) {
         Ok(updater) => updater,
         Err((_, message)) => {
+            // log-audit: the updater plugin's error
             log::warn!("[updater] cannot restore the cached update: {message}");
             return;
         }

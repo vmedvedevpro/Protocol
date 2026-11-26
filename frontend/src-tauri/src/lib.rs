@@ -180,6 +180,7 @@ async fn stop_recording<R: Runtime>(app: AppHandle<R>, args: RecordingArgs) -> R
                     log_info!("Creating directory: {:?}", parent);
                     if let Err(e) = std::fs::create_dir_all(parent) {
                         let err_msg = format!("Failed to create save directory: {}", e);
+                        // log-audit: built from an I/O error just above
                         log_error!("{}", err_msg);
                         return Err(err_msg);
                     }

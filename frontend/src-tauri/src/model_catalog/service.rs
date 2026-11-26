@@ -391,6 +391,7 @@ pub async fn check<R: Runtime>(app: &AppHandle<R>, manual: bool) -> Result<Statu
             log::info!("[model catalog] fetched from main ({})", if *changed { "changed" } else { "unchanged" });
             state.history().fetched_at = Some(now);
         }
+        // log-audit: the catalog fetch's error
         Err(error) => log::warn!("[model catalog] fetch failed; keeping the {:?} list: {}", super::source(), error.message),
     }
     // Hugging Face is asked even when GitHub was not reachable.

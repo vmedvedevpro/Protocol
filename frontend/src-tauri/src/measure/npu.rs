@@ -376,6 +376,7 @@ fn window_trace() {
             };
             let ((start, end), found) = decode_with_retry(window.start_ms, window.end_ms, stretch_end, &mut call).expect("decode");
             for (from, to, words) in &calls {
+                // log-audit: test output of a measurement run, never in the app's log
                 println!("window {k} call {from:.0}-{to:.0} ({} words): {}", words.len(), fmt(words));
             }
             if calls.len() > 1 {
@@ -425,6 +426,7 @@ fn window_trace() {
     });
     println!();
     for (index, (start, text)) in texts.iter().enumerate() {
+        // log-audit: test output of a measurement run, never in the app's log
         println!("{start:8.0} NPU {text}");
         if let Some(cpu) = &cpu {
             println!("         CPU {}", cpu[index]);

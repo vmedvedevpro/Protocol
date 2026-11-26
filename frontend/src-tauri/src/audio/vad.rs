@@ -413,6 +413,7 @@ impl ContinuousVadProcessor {
                 } else {
                     "unknown panic".to_string()
                 };
+                // log-audit: the ONNX session's own panic text
                 error!("VAD: Silero session panicked: {}. Recreating session safely to prevent pipeline crash.", panic_msg);
                 if let Ok(new_session) = new_vad_session(self.config) {
                     self.session = new_session;

@@ -173,8 +173,8 @@ pub fn flush_and_wait(dir: &Path, timeout: Duration) {
     if HANDLE.get().is_none() || START_ERROR.get().is_some() {
         return;
     }
-    let line = format!("Saving the logs (save {})", SAVES.fetch_add(1, Ordering::Relaxed) + 1);
-    log::info!("{line}");
+    let marker = format!("Saving the logs (save {})", SAVES.fetch_add(1, Ordering::Relaxed) + 1);
+    log::info!("{marker}");
     flush();
     let deadline = Instant::now() + timeout;
     while Instant::now() < deadline {
@@ -182,7 +182,7 @@ pub fn flush_and_wait(dir: &Path, timeout: Duration) {
             .ok()
             .and_then(|files| files.last().cloned())
             .and_then(|newest| fs::read(newest).ok())
-            .is_some_and(|bytes| bytes.windows(line.len()).any(|window| window == line.as_bytes()));
+            .is_some_and(|bytes| bytes.windows(marker.len()).any(|window| window == marker.as_bytes()));
         if written {
             return;
         }
@@ -208,6 +208,7 @@ pub fn record_panic(info: &std::panic::PanicHookInfo<'_>) {
         .map(|place| format!("{}:{}:{}", place.file(), place.line(), place.column()))
         .unwrap_or_else(|| "an unknown place".to_string());
     let message = info.payload_as_str().unwrap_or("a non-text payload");
+    // log-audit: the panic's own text, cut short (docs/APP_LOG.md, Limits)
     log::error!(target: "panic", "thread '{name}' panicked at {location}: {}", shorten(message, 500));
     // The main thread's panic ends the process; any other thread's leaves the
     // app running, and a stopped writer would lose the rest of its log.

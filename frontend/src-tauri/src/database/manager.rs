@@ -336,7 +336,7 @@ impl DatabaseManager {
                 let error_msg = e.to_string();
                 if error_msg.contains("malformed") || error_msg.contains("corrupt") {
                     log::warn!("Database appears corrupted, likely due to orphaned WAL file. Attempting recovery...");
-                    log::warn!("Error details: {}", error_msg);
+                    log::warn!("Error details: {}", e);
 
                     // Delete potentially corrupted WAL/SHM files
                     if wal_path.exists() {
@@ -369,7 +369,7 @@ impl DatabaseManager {
                     }
                 } else {
                     // Not a WAL-related error, propagate original error
-                    log::error!("Database connection failed: {}", error_msg);
+                    log::error!("Database connection failed: {}", e);
                     Err(e)
                 }
             }

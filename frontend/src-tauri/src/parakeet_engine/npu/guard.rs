@@ -69,6 +69,7 @@ impl Guard {
             let steps: Vec<&str> = marker.lines().map(str::trim).filter(|step| !step.is_empty()).collect();
             let steps = if steps.is_empty() { "running".to_string() } else { steps.join(" and ") };
             let message = format!("Protocol closed unexpectedly the last time it was {steps}, so Parakeet runs on the processor.");
+            // log-audit: built from the guard's own step names just above
             log::error!("[npu] {message}");
             self.stopped = Some(message);
         }
