@@ -106,6 +106,10 @@ is inherited from the project Protocol forked from; Protocol did not release it.
   anywhere in it, or press Enter or Space. A file dragged over the window
   lights the area up while Import is open, and a file that isn't audio or
   video is turned down right under it.
+- **The settings search fits beside the tabs**
+  ([#219](https://github.com/vmedvedevpro/Protocol/issues/219)). At the
+  window's default width it shows "Search" whole instead of "Searc"; in a
+  narrower window it moves to a line of its own under the tabs.
 
 ## Protocol 1.0.0-rc.1 — 2026-11-26
 

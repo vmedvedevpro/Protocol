@@ -4,8 +4,8 @@ import {useAdvancedSettingsStore} from '../store/advanced'
 import {SettingsStoryWindow} from '../stories/SettingsStoryWindow'
 import {SettingsPage} from './SettingsPage'
 
-function Page({path}: {path?: string}) {
-    return <SettingsStoryWindow path={path}><SettingsPage/></SettingsStoryWindow>
+function Page({path, width}: {path?: string, width?: string}) {
+    return <SettingsStoryWindow path={path} width={width}><SettingsPage/></SettingsStoryWindow>
 }
 
 const meta = {
@@ -33,11 +33,27 @@ export const Advanced: Story = {
     args: {path: '/settings?section=general'},
 }
 
-/** At the window's narrowest, 460 px: the tabs keep their width and the search takes the rest. */
-export const AdvancedNarrow: Story = {
+/**
+ * The tab row at the width the window opens at, 460 px: the four tabs, a
+ * little denser, and the search beside them with its placeholder whole.
+ */
+export const AdvancedDefaultWidth: Story = {
     globals: {theme: 'light'},
-    args: {path: '/settings?section=general'},
-    decorators: [(Story) => <div style={{width: 460}}><Story/></div>],
+    args: {path: '/settings?section=general', width: '460px'},
+}
+
+/**
+ * At the window's minimum, 360 px: the four tabs whole, and the search on a
+ * line of its own under them, since it has no room beside them.
+ */
+export const AdvancedNarrowest: Story = {
+    globals: {theme: 'light'},
+    args: {path: '/settings?section=general', width: '360px'},
+}
+
+export const AdvancedNarrowestDark: Story = {
+    globals: {theme: 'dark'},
+    args: {path: '/settings?section=general', width: '360px'},
 }
 
 export const AdvancedDark: Story = {

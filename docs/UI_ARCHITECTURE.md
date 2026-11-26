@@ -1212,8 +1212,14 @@ recording and hides the main window: minimizing the main window does it
   descriptions of every row it can show, data rows such as models or apps
   left out). `SettingsSubpage` draws the head and Back, `paths.settingsPage`
   lists the ids. A page opened from the simple page goes back to it.
-- Search sits beside the tabs; its query is `?q=`, and picking a tab or
-  turning Advanced off drops it. Results render every section under a
+- Search sits beside the tabs (`TabList dense`, 8 px a side) while the
+  row leaves it `sizes.settingsSearch` (96 px: the 77 px its placeholder,
+  magnifier and padding take in Geist, plus slack), as at the 460 px the
+  window opens at; in a narrower window, down to the 360 px minimum, the
+  row wraps and the search takes a line of its own under the tabs.
+  Wrapping needs no width threshold, so no renderer cuts it mid-word
+  (#202; stories `AdvancedDefaultWidth` and `AdvancedNarrowest`). Its
+  query is `?q=`, and picking a tab or turning Advanced off drops it. Results render every section under a
   `SettingsSearchScope` named after it, so a section's rows match by their
   own text with no list kept by hand. Pages are looked up in their index
   without rendering, so a search loads nothing of theirs (running apps,

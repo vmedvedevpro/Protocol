@@ -254,6 +254,14 @@ const sizes = {
     search: {field: '48px', icon: '26px', glyph: '14px', hints: '36px'},
     /** The person screen's Details: the column of field names. */
     detailLabel: '72px',
+    /**
+     * The narrowest the settings search stands beside the section tabs.
+     * Its "Search" placeholder, the magnifier and the field's padding take
+     * 77 px in Geist (Chromium and WebKitGTK measure the same); the rest is
+     * slack for another renderer's text. Below it the field wraps to a line
+     * of its own (SettingsPage).
+     */
+    settingsSearch: '96px',
 }
 
 /** Motion tokens for CSS transitions; the values live in ./motion.ts. */
