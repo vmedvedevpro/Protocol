@@ -12,6 +12,7 @@ import {
 } from '../api/recording'
 import {beginRecovery, listRecoverable, setRecoveryFolder, storeRecoveryLine} from '../api/recovery'
 import type {TranscriptUpdate} from '../api/transcript'
+import {automaticTitle} from '../lib/titles'
 import {registerLinks} from '../store/links'
 import {recoverMeeting} from '../store/recover'
 import {session} from '../store/session'
@@ -159,17 +160,25 @@ describe('RecordingRuntime', () => {
     })
 
     it('takes an automatic title in an older copy as not the user’s', async () => {
-        await beginRecovery({meetingId: 'meeting-1', title: 'Meeting · Wed, Nov 25 · 2:34 PM', startTime: Date.now() - 600_000})
+        const startTime = Date.now() - 600_000
+        const automatic = automaticTitle(new Date(startTime))
+        // #224's coming form of the same title.
+        const commas = automatic.replaceAll(' · ', ', ')
+        await beginRecovery({meetingId: 'meeting-1', title: automatic, startTime})
         await storeRecoveryLine('meeting-1', line(1, 'Hello.'))
-        await beginRecovery({meetingId: 'meeting-2', title: 'Meeting, Wed, Nov 25, 2:34 PM', startTime: Date.now() - 600_000})
+        await beginRecovery({meetingId: 'meeting-2', title: commas, startTime})
         await storeRecoveryLine('meeting-2', line(1, 'Hello.'))
+        await beginRecovery({meetingId: 'meeting-3', title: 'Meeting, budget review, 10:30', startTime})
+        await storeRecoveryLine('meeting-3', line(1, 'Hello.'))
 
         await recoverMeeting('meeting-1')
         await recoverMeeting('meeting-2')
+        await recoverMeeting('meeting-3')
 
-        expect(mockState.meetings.meetings.slice(-2)).toEqual([
-            expect.objectContaining({title: 'Meeting · Wed, Nov 25 · 2:34 PM', titleIsManual: false}),
-            expect.objectContaining({title: 'Meeting, Wed, Nov 25, 2:34 PM', titleIsManual: false}),
+        expect(mockState.meetings.meetings.slice(-3)).toEqual([
+            expect.objectContaining({title: automatic, titleIsManual: false}),
+            expect.objectContaining({title: commas, titleIsManual: false}),
+            expect.objectContaining({title: 'Meeting, budget review, 10:30', titleIsManual: true}),
         ])
     })
 

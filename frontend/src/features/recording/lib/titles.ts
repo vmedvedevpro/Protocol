@@ -53,20 +53,24 @@ export function finalTitle(title: string, start: Date, end: Date): string {
 // alone or as a range.
 const CLOCK = String.raw`(?:\p{L}+\.?\s?)?\d{1,2}[:.]\d{2}(?:\s?[\p{L}.]+)?`
 const SLOT = String.raw`${CLOCK}(?:\s?[–-]\s?${CLOCK})?`
-const GENERATED_TITLES = [
-    // This version's: "Meeting · Mon, Sep 28 · 2:30 PM".
-    new RegExp(String.raw`^Meeting · [^·]+ · ${SLOT}$`, 'u'),
-    // #224's coming one: "Meeting, Mon, Sep 28, 2:30 PM".
-    new RegExp(String.raw`^Meeting, .+, ${SLOT}$`, 'u'),
-]
+const escaped = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
 /**
- * Whether the whole of `title` is a recording's automatic title. For a crash
- * copy made before the save recorded `titleManual` (#218): its title counts
- * as the user's unless it is one of these; "Meeting, budget" is the user's.
+ * Whether the whole of `title` is the automatic title of a recording that
+ * started at `start`. For a crash copy made before the save recorded
+ * `titleManual` (#218): its title counts as the user's unless it is one of
+ * these. The day must be the one the app writes for `start` (`dayLabel`),
+ * so "Meeting, budget review, 10:30" stays the user's; a copy read in
+ * another locale than it was made in keeps its title, the safe side.
+ *
+ *   "Meeting · Mon, Sep 28 · 2:30 PM"   this version's
+ *   "Meeting, Mon, Sep 28, 2:30 PM"     #224's coming form
  */
-export function isGeneratedTitle(title: string): boolean {
-    return GENERATED_TITLES.some((pattern) => pattern.test(title))
+export function isGeneratedTitle(title: string, start: Date): boolean {
+    const day = escaped(dayLabel(start))
+    return [String.raw`^Meeting · ${day} · ${SLOT}$`, String.raw`^Meeting, ${day}, ${SLOT}$`].some((pattern) =>
+        new RegExp(pattern, 'u').test(title),
+    )
 }
 
 /** "Today, 9:30 AM", or "Mon, Sep 28, 9:30 AM" on another day: when a recording started. */

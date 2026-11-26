@@ -130,7 +130,7 @@ async function saveRecovered(recoveryId: string): Promise<Recovered> {
         title: meeting.title,
         // A copy made before the record existed: its title is the user's
         // unless it is an automatic one, which the summary may then replace.
-        titleIsManual: meeting.titleManual ?? !isGeneratedTitle(meeting.title),
+        titleIsManual: meeting.titleManual ?? !isGeneratedTitle(meeting.title, new Date(meeting.startTime)),
         transcripts: segments,
         folderPath: folder,
         recordingStartedAt: new Date(meeting.startTime).toISOString(),

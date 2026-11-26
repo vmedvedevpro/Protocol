@@ -12,27 +12,33 @@ describe('titles', () => {
         expect(automaticTitle(at(14, 30), 'Weekly Standup', [first])).toMatch(/^Weekly Standup — Sep 28, 2:30/)
     })
 
-    it('tells an automatic title from one the user typed, by the whole title', () => {
+    it('tells an automatic title from one the user typed, by the whole title and its day', () => {
         const start = at(14, 30)
+        // The day the app writes for this start, in the test's locale ("Mon, Sep 28").
+        const day = automaticTitle(start).slice(AUTOMATIC_PREFIX.length).split(' · ')[0]
         for (const title of [
             automaticTitle(start),
             finalTitle(automaticTitle(start), start, at(15, 15)),
-            'Meeting · Wed, Nov 25 · 11:30 AM–12:15 PM',
-            'Meeting · 25 нояб., ср · 14:30',
-            'Meeting, Wed, Nov 25, 2:34 PM',
-            'Meeting, Wed, Nov 25, 2:34–3:10 PM',
+            `Meeting · ${day} · 11:30 AM–12:15 PM`,
+            `Meeting, ${day}, 2:30 PM`,
+            `Meeting, ${day}, 2:30–3:10 PM`,
         ]) {
-            expect(isGeneratedTitle(title), title).toBe(true)
+            expect(isGeneratedTitle(title, start), title).toBe(true)
         }
         for (const title of [
             'Meeting · budget',
-            'Meeting · Wed, Nov 25 · 2:34 PM with Priya',
+            `Meeting · ${day} · 2:30 PM with Priya`,
+            'Meeting · budget review · 10:30',
+            'Meeting, budget review, 10:30',
             'Meeting, budget review',
-            'Meeting, Wed, Nov 25',
+            `Meeting, ${day}`,
+            'Meeting v2.10',
             'Pricing call',
             'Weekly Standup — Sep 28',
+            // Another day's automatic title is not this recording's.
+            automaticTitle(new Date(2026, 8, 29, 14, 30)),
         ]) {
-            expect(isGeneratedTitle(title), title).toBe(false)
+            expect(isGeneratedTitle(title, start), title).toBe(false)
         }
     })
 

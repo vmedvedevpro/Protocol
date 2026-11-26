@@ -388,7 +388,9 @@ Whose title it is lives in `meetings.title_is_manual`, an explicit record:
 `api_save_transcript` takes `title_is_manual` from the recording (the
 session's `titleManual`, also kept in the crash copy for recovery; a copy
 made before the record has none, and its title counts as the user's unless
-the whole title is an automatic one, `titles.ts::isGeneratedTitle`),
+the whole title is the automatic one for its start, `Meeting · <day> ·
+<time>` or #224's `Meeting, <day>, <time>` with `<day>` exactly what
+`dayLabel` writes for the copy's `startTime`, `titles.ts::isGeneratedTitle`),
 `start_import_audio_command` takes it from the import
 sheet (`titleIsManual`: the user changed the file name the sheet proposed;
 absent means the user's), and a rename sets it for good. The title's text is never
