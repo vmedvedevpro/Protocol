@@ -21,6 +21,41 @@ const PREEMPH: f32 = 0.97;
 const LOW_FREQ: f32 = 20.0;
 const LOG_FLOOR: f32 = 1.1921e-07; // torch.finfo(float32).eps
 
+/// Writes 16 kHz mono 32-bit float samples as a WAV file, which [`read_wav`]
+/// reads back exactly: the measuring kit's tracks, the Speech check's clips
+/// and the qualification's constructions go to the speaker engines this way.
+/// Written through a buffer, not built in memory: a track can be several
+/// hundred MB.
+pub fn write_wav_f32(path: &Path, samples: &[f32]) -> Result<()> {
+    use anyhow::Context;
+    use std::io::Write;
+    // A RIFF size is 32-bit: about 18 hours of these samples.
+    let data_bytes = u32::try_from(samples.len() * 4)
+        .ok()
+        .filter(|bytes| bytes.checked_add(36).is_some())
+        .context("the track is too long for a WAV file")?;
+    let write = || -> std::io::Result<()> {
+        let mut out = std::io::BufWriter::new(std::fs::File::create(path)?);
+        out.write_all(b"RIFF")?;
+        out.write_all(&(36 + data_bytes).to_le_bytes())?;
+        out.write_all(b"WAVEfmt ")?;
+        out.write_all(&16u32.to_le_bytes())?;
+        out.write_all(&3u16.to_le_bytes())?; // IEEE float
+        out.write_all(&1u16.to_le_bytes())?; // mono
+        out.write_all(&SAMPLE_RATE.to_le_bytes())?;
+        out.write_all(&(SAMPLE_RATE * 4).to_le_bytes())?; // bytes per second
+        out.write_all(&4u16.to_le_bytes())?; // bytes per frame
+        out.write_all(&32u16.to_le_bytes())?;
+        out.write_all(b"data")?;
+        out.write_all(&data_bytes.to_le_bytes())?;
+        for sample in samples {
+            out.write_all(&sample.to_le_bytes())?;
+        }
+        out.flush()
+    };
+    write().with_context(|| format!("writing {}", path.display()))
+}
+
 /// Read a WAV file and return (mono samples in [-1, 1], sample_rate).
 /// Supports PCM 16-bit and 32-bit float, mono or multi-channel (downmixed).
 pub fn read_wav(path: &Path) -> Result<(Vec<f32>, u32)> {
@@ -255,4 +290,17 @@ pub fn compute_fbank(samples: &[f32]) -> Vec<Vec<f32>> {
     }
 
     feats
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_float_wav_reads_back_exactly() {
+        let folder = tempfile::tempdir().unwrap();
+        let path = folder.path().join("clip.wav");
+        write_wav_f32(&path, &[0.0, 0.5, -0.25]).unwrap();
+        assert_eq!(read_wav(&path).unwrap(), (vec![0.0, 0.5, -0.25], SAMPLE_RATE));
+    }
 }

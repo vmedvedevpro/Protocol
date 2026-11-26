@@ -77,9 +77,8 @@ fn version_of(record: &std::path::Path) -> Option<String> {
 }
 
 /// The start the two speech steps share: the step with its model, picked
-/// device and the inputs of the pick, ended here when the model is not on
-/// the computer; then the timed load, ended when a Cancel came or the load
-/// failed.
+/// device and the inputs of the pick; then [`load_timed`], which ends the
+/// step when a Cancel came or the load failed.
 fn speech_step(kind: StepKind, model: &str, picked: Device, because: String, inputs: Vec<(String, String)>) -> StepReport {
     let mut step = StepReport::new(kind, StepStatus::Failed);
     step.model = Some(ModelId { id: model.into(), version: None });
@@ -421,30 +420,6 @@ pub async fn whisper(model: &str, context: &Context<'_>) -> StepReport {
 
 // --- Speakers --------------------------------------------------------------
 
-/// 16 kHz mono 32-bit float, which `dsp::read_wav` reads, as the measuring
-/// kit writes a track for the speaker engines (`measure/diarize.rs`).
-fn write_wav(path: &std::path::Path, samples: &[f32]) -> std::io::Result<()> {
-    use std::io::Write;
-    let data_bytes = u32::try_from(samples.len() * 4).map_err(std::io::Error::other)?;
-    let mut out = std::io::BufWriter::new(std::fs::File::create(path)?);
-    out.write_all(b"RIFF")?;
-    out.write_all(&(36 + data_bytes).to_le_bytes())?;
-    out.write_all(b"WAVEfmt ")?;
-    out.write_all(&16u32.to_le_bytes())?;
-    out.write_all(&3u16.to_le_bytes())?; // IEEE float
-    out.write_all(&1u16.to_le_bytes())?; // mono
-    out.write_all(&16_000u32.to_le_bytes())?;
-    out.write_all(&(16_000u32 * 4).to_le_bytes())?;
-    out.write_all(&4u16.to_le_bytes())?;
-    out.write_all(&32u16.to_le_bytes())?;
-    out.write_all(b"data")?;
-    out.write_all(&data_bytes.to_le_bytes())?;
-    for sample in samples {
-        out.write_all(&sample.to_le_bytes())?;
-    }
-    out.flush()
-}
-
 /// A speaker engine on each clip, as an import diarizes a file: the whole
 /// clip as one track (`diarize_file_with_engine`), with the saved settings.
 async fn speakers(engine_name: &'static str, context: &Context<'_>, mut step: StepReport) -> StepReport {
@@ -458,8 +433,8 @@ async fn speakers(engine_name: &'static str, context: &Context<'_>, mut step: St
             return step.stopped();
         }
         let wav = folder.path().join(format!("{}.wav", clip.id));
-        if let Err(error) = write_wav(&wav, &clip.samples) {
-            return step.failed(format!("The {} clip could not be written: {error}", clip.id));
+        if let Err(error) = crate::diarization::dsp::write_wav_f32(&wav, &clip.samples) {
+            return step.failed(format!("The {} clip could not be written: {error:#}", clip.id));
         }
         let started = Instant::now();
         let result = tokio::task::spawn_blocking(move || crate::diarization::diarize_file_with_engine(&wav, engine_name, None, None)).await;
@@ -553,14 +528,6 @@ mod tests {
         let failed = finish(step);
         assert_eq!(failed.status, StepStatus::Failed);
         assert_eq!(failed.reason.as_deref(), Some("The en clip came out with 90% of its words wrong (at most 50% pass)"));
-    }
-
-    #[test]
-    fn the_wav_for_the_speaker_engines_reads_back() {
-        let folder = tempfile::tempdir().unwrap();
-        let path = folder.path().join("clip.wav");
-        write_wav(&path, &[0.0, 0.5, -0.25]).unwrap();
-        assert_eq!(crate::diarization::dsp::read_wav(&path).unwrap(), (vec![0.0, 0.5, -0.25], 16_000));
     }
 
     #[test]

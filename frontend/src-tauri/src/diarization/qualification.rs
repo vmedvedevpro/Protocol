@@ -787,29 +787,6 @@ fn cached(name: &str, url: &str, size: u64, sha256: &str) -> PathBuf {
 }
 
 #[cfg(target_os = "linux")]
-fn write_wav16(path: &Path, samples: &[f32]) {
-    let data: Vec<u8> = samples
-        .iter()
-        .flat_map(|s| ((s.clamp(-1.0, 1.0) * 32767.0) as i16).to_le_bytes())
-        .collect();
-    let mut out = Vec::with_capacity(44 + data.len());
-    out.extend_from_slice(b"RIFF");
-    out.extend_from_slice(&(36 + data.len() as u32).to_le_bytes());
-    out.extend_from_slice(b"WAVEfmt ");
-    out.extend_from_slice(&16u32.to_le_bytes());
-    out.extend_from_slice(&1u16.to_le_bytes());
-    out.extend_from_slice(&1u16.to_le_bytes());
-    out.extend_from_slice(&16_000u32.to_le_bytes());
-    out.extend_from_slice(&32_000u32.to_le_bytes());
-    out.extend_from_slice(&2u16.to_le_bytes());
-    out.extend_from_slice(&16u16.to_le_bytes());
-    out.extend_from_slice(b"data");
-    out.extend_from_slice(&(data.len() as u32).to_le_bytes());
-    out.extend_from_slice(&data);
-    std::fs::write(path, out).unwrap();
-}
-
-#[cfg(target_os = "linux")]
 /// 2 s of the third voice's speech, scaled to `peak`: from 0.1 s before the
 /// first 10 ms with an RMS of at least a fiftieth of the peak, as the kit
 /// cuts FLEURS clips to their speech.
@@ -866,7 +843,7 @@ fn a_chosen_count_is_spent_on_the_two_voices() {
     audio.resize(40 * second, 0.0);
     audio.extend(&sample);
     let construction = dir.path().join("construction.wav");
-    write_wav16(&construction, &audio);
+    dsp::write_wav_f32(&construction, &audio).unwrap();
 
     let reference: Vec<Turn> = read_rttm(&sample_rttm)
         .into_iter()
