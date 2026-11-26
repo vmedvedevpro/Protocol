@@ -23,9 +23,10 @@ from pathlib import Path
 
 from . import fixture
 
-# Between turns: under the batch VAD's 2 s redemption time, so a clip is one post-meeting piece (under its 25 s cut),
-# and long enough (0.6 s) for the live VAD and the speaker models to see a change of voice; as in the fixtures' groups.
-GAP_S = 0.6
+# Between turns: longer than the live VAD's 800 ms redemption with room for its frames, so each turn is a live piece
+# of its own (the check is about devices and errors; a piece joining two recordings is #239's business), and under
+# the batch VAD's 2 s redemption, so a clip is one post-meeting piece (under its 25 s cut).
+GAP_S = 1.2
 # The pause a reading is cut at lies in its middle half, where both halves keep several words.
 MIDDLE = (0.25, 0.75)
 FORMAT = 1
@@ -50,9 +51,9 @@ class Clip:
 
 CLIPS = (
     Clip("ru", "ru", (Reading("12682213204980623644.wav", 677), Reading("15069537867704390147.wav", 435)),
-         "4c8dfe806d9315e555113d7fecc3149043a877435215467bc57868aa2aaf09b8"),
+         "597c3adc29958c8b588abe3799ade5b4bf9139ae21b341979e820bb413a340a9"),
     Clip("en", "en", (Reading("9957590450625488532.wav", 351), Reading("10796058897134434902.wav", 813)),
-         "37c4844a349cd70e002ae074cf7663afc57cfe7a0c55226e73ce5dfe2e48761c"),
+         "6eaa61aa29af86acf5557a66507cc53e6c341c2711525e7a69a2b4e6b25dc867"),
 )
 
 

@@ -75,7 +75,7 @@ one engine.
 
 Two clips in `frontend/src-tauri/resources/speech-check/` (bundled on every
 platform), with `sample.json` and `THIRD_PARTY_DATA.txt` (the FLEURS
-attribution). `ru.flac` 20.8 s (328 KB), `en.flac` 22.9 s (359 KB).
+attribution). `ru.flac` 22.6 s (329 KB), `en.flac` 24.6 s (359 KB).
 
 - **Source**: FLEURS dev (`ru_ru`, `en_us`), Google, CC BY 4.0, the kit's
   pinned commit and downloads (`kit/fixture.py`).
@@ -83,7 +83,10 @@ attribution). `ru.flac` 20.8 s (328 KB), `en.flac` 22.9 s (359 KB).
   readings never certainly share a voice. Each clip takes one woman's reading
   (voice `a`) and one man's (voice `b`), each with one comma, and cuts each at
   the longest pause in its middle half, which falls on the comma: `a1 b1 a2
-  b2`, 0.6 s apart. The words up to the comma are the first turn's text.
+  b2`, 1.2 s apart: longer than the live VAD's 800 ms redemption, so each
+  turn is a live piece of its own, and under the batch VAD's 2 s, so a clip
+  is one post-meeting piece. The words up to the comma are the first turn's
+  text.
   Russian: `12682213204980623644.wav` (cut at frame 677) and
   `15069537867704390147.wav` (435); English: `9957590450625488532.wav` (351)
   and `10796058897134434902.wav` (813).
@@ -194,25 +197,23 @@ check asks first ("the speech check is running"), as for other work.
 
 Core Ultra X7 358H, Intel Arc B390 (Mesa Vulkan), Kubuntu 26.10.
 
-Release build of the QA deb (the report attached to #233's PR) and the
-ignored end-to-end test (debug build, so slower), same models:
+The ignored end-to-end test (debug build, so the processor steps are slower
+than in a release), 2026-11-26, on the clips with 1.2 s between turns:
 
 | Step | Device | Russian | English |
 | --- | --- | --- | --- |
-| Parakeet v3 int8, live | processor | WER 0.031 to 0.062, RTF 0.03 | WER 0.271, RTF 0.03 |
-| Whisper Large V3 Turbo, Intel GPU version | OpenVINO GPU | WER 0.000, RTF 0.08 | WER 0.000, RTF 0.03 |
-| Whisper Large V3 Turbo Compressed | whisper.cpp, Vulkan (test build) | WER 0.000, RTF 0.47 | WER 0.000, RTF 0.51 |
-| Pyannote and WeSpeaker | processor | 2 of 2 voices, share 1.00, 82 % labelled | 2 of 2, share 1.00, 87 % |
-| Nemotron | processor | 2 of 2, share 1.00, 81 % labelled | 2 of 2, share 1.00, 80 % |
+| Parakeet v3 int8, live | processor | WER 0.000, RTF 0.03 | WER 0.000, RTF 0.03 |
+| Whisper Large V3 Turbo, Intel GPU version | OpenVINO GPU | WER 0.000, RTF 0.04 | WER 0.000, RTF 0.02 |
+| Whisper Large V3 Turbo Compressed | whisper.cpp, Vulkan | WER 0.000, RTF 0.14 | WER 0.000, RTF 0.14 |
+| Pyannote and WeSpeaker | processor | 2 of 2 voices, share 1.00, 82 % labelled | 2 of 2, share 1.00, 83 % |
+| Nemotron | processor | 2 of 2, share 1.00, 81 % labelled | 2 of 2, share 1.00, 80 % (RTF 0.30 and 0.27) |
 
-Parakeet's English 0.271 is one live piece: the live VAD (800 ms) does not
-end the segment in the 0.6 s gap, so the first turn and the first 2.2 s of
-the second become one capped piece (0.4 to 6.2 s), and Parakeet returns
-nothing for it. Decoded alone, the first turn (0 to 3.4 s) and the second
-(4.0 to 12.0 s) come out whole; 0 to 6.2 s comes out empty, and the whole
-clip in one call loses most of the second voice. The splice joins two
-FLEURS recordings with different rooms and levels; whether a call's mixed
-system audio does the same to Parakeet is not known yet.
+With the earlier 0.6 s gaps the live VAD did not end the segment between
+the first two English turns, and Parakeet returned nothing for the piece
+that joined them (WER 0.271). That is #239, a live-path issue the check
+does not test; the gaps now let each turn end on its own. The live VAD
+still caps a long turn at 5 s pieces (`capped` in the debug log), as it does
+in a meeting.
 
 ## Limits
 
@@ -221,8 +222,6 @@ system audio does the same to Parakeet is not known yet.
   on those platforms. On Linux only an Intel Arc iGPU was run.
 - The live step runs the live VAD's settings over the whole clip at once,
   not the live pipeline's frames, queue and per-source workers.
-- Parakeet loses the first English turn of the sample (see Measured), which
-  the threshold allows; a device that decodes worse can fail there first.
 - The NPU's preparation is not waited for: a check during `preparing` runs
   Parakeet on the processor and says why.
 - A failure of the NPU or OpenVINO in the check is recorded by the engines as

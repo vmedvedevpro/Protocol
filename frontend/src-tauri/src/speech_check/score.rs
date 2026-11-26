@@ -11,21 +11,14 @@ use serde::{Deserialize, Serialize};
 /// The most word errors per reference word a transcript may have and pass.
 ///
 /// Measured on this sample (Core Ultra X7 358H, Arc B390, Kubuntu 26.10,
-/// 2026-11-26), Russian and English:
-///
-/// - Whisper Large V3 Turbo, Intel GPU version (OpenVINO GPU): 0.000, 0.000
-/// - Whisper Large V3 Turbo Compressed (whisper.cpp, Vulkan): 0.000, 0.000
-/// - Parakeet v3 int8 live (processor): 0.031 to 0.062, 0.271
-///
-/// Parakeet's English 0.271 is one live piece decoded empty: the live VAD
-/// joins the first turn and the start of the second across the 0.6 s gap
-/// (one capped 5.8 s piece), and Parakeet returns nothing for that splice of
-/// two recordings although it decodes each turn alone (docs/SPEECH_CHECK.md).
-/// The worst working model scores about half of this; broken output
-/// scores near or above 1.0: an empty transcript is 1.0 (every word
-/// deleted), another language is about 1.0 (every word substituted), a
-/// repetition loop exceeds 1.0 (insertions), and noise is near 1.0. Half
-/// the words wrong is far from both.
+/// 2026-11-26, the debug test build), Russian and English: Whisper Large V3
+/// Turbo 0.000 and 0.000 on OpenVINO GPU and on whisper.cpp's Vulkan, and
+/// Parakeet v3 int8 live 0.000 and 0.000 on the processor, each turn a live
+/// piece of its own now that the turns are 1.2 s apart. Broken output scores
+/// near or above 1.0: an empty transcript is 1.0 (every word deleted),
+/// another language about 1.0 (every word substituted), a repetition loop
+/// over 1.0 (insertions), noise near 1.0. Half the words wrong is far from
+/// both, and leaves room for a device that decodes a little worse.
 pub const MAX_WORD_ERROR_RATE: f64 = 0.5;
 
 /// The least share of the speech a speaker model labels that must go to the

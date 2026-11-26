@@ -8,9 +8,9 @@
    "id": "ru",
    "language": "ru",
    "file": "ru.flac",
-   "sha256": "b6dd5b012bbf364b6f9b5ccdf217d5c1f3637a7bc7f3db0cd2023ff8de9fd1a6",
-   "pcm_sha256": "4c8dfe806d9315e555113d7fecc3149043a877435215467bc57868aa2aaf09b8",
-   "duration_ms": 20810,
+   "sha256": "46755a778d4221880437abb31f0c3cf5856cd8683d8a2ded9cdc8e163393f125",
+   "pcm_sha256": "597c3adc29958c8b588abe3799ade5b4bf9139ae21b341979e820bb413a340a9",
+   "duration_ms": 22610,
    "turns": [
     {
      "start_ms": 0,
@@ -19,20 +19,20 @@
      "text": "Однако большинство знаков указываются только на каталанском языке,"
     },
     {
-     "start_ms": 7160,
-     "end_ms": 11150,
+     "start_ms": 7760,
+     "end_ms": 11750,
      "voice": "b",
      "text": "Рождество – это один из наиболее важных праздников в христианстве,"
     },
     {
-     "start_ms": 11750,
-     "end_ms": 17070,
+     "start_ms": 12950,
+     "end_ms": 18270,
      "voice": "a",
      "text": "поскольку он по закону является первым официальным языком."
     },
     {
-     "start_ms": 17670,
-     "end_ms": 20810,
+     "start_ms": 19470,
+     "end_ms": 22610,
      "voice": "b",
      "text": "и оно отмечается как день рождения Иисуса."
     }
@@ -46,9 +46,9 @@
    "id": "en",
    "language": "en",
    "file": "en.flac",
-   "sha256": "b49e0a41c668a2de234e4bfd836c414ab2ee72b8e7ce7da519c9781e5d2f6377",
-   "pcm_sha256": "37c4844a349cd70e002ae074cf7663afc57cfe7a0c55226e73ce5dfe2e48761c",
-   "duration_ms": 22850,
+   "sha256": "540819f74a8b6710fa6339a07c48965c478348589622458c120756b8f81213fe",
+   "pcm_sha256": "6eaa61aa29af86acf5557a66507cc53e6c341c2711525e7a69a2b4e6b25dc867",
+   "duration_ms": 24650,
    "turns": [
     {
      "start_ms": 0,
@@ -57,20 +57,20 @@
      "text": "Since students are often the most critical audience,"
     },
     {
-     "start_ms": 4030,
-     "end_ms": 11980,
+     "start_ms": 4630,
+     "end_ms": 12580,
      "voice": "b",
      "text": "If you visit the Arctic or Antarctic areas in the winter you will experience the polar night,"
     },
     {
-     "start_ms": 12580,
-     "end_ms": 17680,
+     "start_ms": 13780,
+     "end_ms": 18880,
      "voice": "a",
      "text": "the blog writer begins to strive to improve writing to avoid criticism."
     },
     {
-     "start_ms": 18280,
-     "end_ms": 22850,
+     "start_ms": 20080,
+     "end_ms": 24650,
      "voice": "b",
      "text": "which means that the sun doesn't rise above the horizon."
     }
