@@ -13,6 +13,12 @@ is inherited from the project Protocol forked from; Protocol did not release it.
   updater's journal and a pending crash report into one ZIP to attach to a
   bug report. Its lines are written to leave out transcripts, summaries,
   prompts and keys; the live transcript's text no longer reaches it.
+- **Speech check**
+  ([#233](https://github.com/vmedvedevpro/Protocol/issues/233)). Settings ›
+  Advanced › Speech check runs each speech model on a short sample, on the
+  device Protocol picks for this computer, and writes a report to copy or
+  save for the developers. It shows which device each model ran on and
+  whether it passed.
 
 ## Protocol 1.0.0-rc.2 — 2026-11-26
 
