@@ -17,7 +17,7 @@ import {queryOptions} from '@tanstack/react-query'
 import {writeFile} from '@tauri-apps/plugin-fs'
 import {command} from './core'
 import {type NativeEvent, useEventQuerySync} from './events'
-import {type CompanionStatus, gpuOffered, type OpenVinoAvailability} from './intel'
+import {type CompanionStatus, getCompanionStatus, getOpenVinoAvailability, gpuOffered, intelKeys, type OpenVinoAvailability} from './intel'
 import {PARAKEET_MODEL, POST_CALL_WHISPER_MODEL} from './models'
 import {isWhisperProvider, type PostCallTranscriptConfig, type TranscriptConfig} from './speech'
 
@@ -138,6 +138,26 @@ export const speechCheckStatusQuery = queryOptions({
 export const useSpeechCheckSync = () => useEventQuerySync(SPEECH_CHECK_CHANGED_EVENT, speechCheckStatusQuery.queryKey)
 
 // --- The pair --------------------------------------------------------------
+
+/**
+ * Settings' reads of the Intel GPU version's offer and status, with their
+ * failures kept. Settings takes a failed read for "not offered"
+ * (`openVinoAvailabilityQuery`, `companionQuery`); the check would then run
+ * the Compressed copy for a pair it never read, so it waits for these and
+ * says when one fails. Under `intelKeys`, so whatever refreshes Settings'
+ * reads refreshes these too.
+ */
+export const pairAvailabilityQuery = queryOptions({
+    queryKey: [...intelKeys.availability(), 'speechCheck'],
+    queryFn: getOpenVinoAvailability,
+    staleTime: Infinity,
+})
+
+export const pairCompanionQuery = queryOptions({
+    queryKey: [...intelKeys.companion(), 'speechCheck'],
+    queryFn: () => getCompanionStatus(),
+    staleTime: Infinity,
+})
 
 /**
  * The pair the check runs, by the card's rule: the Intel GPU version where

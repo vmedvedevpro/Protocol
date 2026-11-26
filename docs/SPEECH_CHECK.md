@@ -13,7 +13,7 @@ compares nothing.
 | Owner | Role |
 | --- | --- |
 | `frontend/src/api/speechCheck.ts` | The pair the check runs (`checkPair`, the rule of For this computer: Parakeet v3 live, the Intel GPU version where `gpuOffered`, else the Compressed copy), the selected models, the commands and `speech-check-changed`, Save report. |
-| `features/settings/components/speech/SpeechCheckGroup.tsx` | The group: idle, the list with downloads, running with Cancel, the report with Copy and Save, and an interrupted check with Run the remaining steps. `speechCheckText.ts` words devices as Settings does. |
+| `features/settings/components/speech/SpeechCheckGroup.tsx` | The group: one head row whose line says the state and whose right side holds the main action (Run check; Back and Start check; Cancel; Run again, or Run again and Check the rest after a crash), a row per model with a failure in Settings' warning tone, and the report with Copy and Save, its text behind Show report. `speechCheckText.ts` words devices as Settings does. |
 | `src-tauri/src/speech_check/mod.rs` | The commands (`speech_check_status`, `_run`, `_resume`, `_cancel`, `_dismiss`), the status, the run: busy hold, the app's engines taken and given back, the steps in order, the report. |
 | `speech_check/steps.rs` | The four steps on engines of their own: picked device, load, ran-on device, fallback, the sample, scores. |
 | `speech_check/sample.rs` | `sample::load()`: the clips from the app's resources, decoded. |
@@ -189,8 +189,8 @@ after each step with the plan, the steps done and the step running. A start
 that finds a step still running records it among the done steps as
 ClosedTheApp and names it in `closedIn`, so a second crash in a resumed run
 keeps the first and does not run it again; the group then says
-"Protocol closed while checking …", shows the partial report, and offers Run
-the remaining steps (`speech_check_resume`, the note's own plan, only while
+"Protocol closed while checking …", shows the partial report, and offers
+Check the rest (`speech_check_resume`, the note's own plan, only while
 the status is Interrupted) or Run again
 (`speech_check_dismiss` first). The step that closed the app is reported, not
 run again. A clean quit (`RunEvent::Exit`) is not a crash: `note::set_closing`

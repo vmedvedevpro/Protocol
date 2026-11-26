@@ -85,8 +85,26 @@ describe('Settings › Advanced › Speech check', () => {
         expect(within(check).getAllByText('On the processor, passed')).toHaveLength(2)
         expect(within(check).getByText('On the graphics card, passed')).toBeInTheDocument()
         expect(within(check).getAllByText('Not checked')).toHaveLength(1)
-        // The whole report shows before it is copied.
-        expect(within(check).getByLabelText('Speech check report')).toHaveTextContent('Protocol speech check: passed')
+        // The report waits behind Show report; Copy and Save do not.
+        expect(within(check).queryByLabelText('Speech check report')).not.toBeInTheDocument()
+        await userEvent.click(within(check).getByRole('button', {name: 'Show report'}))
+        expect(await within(check).findByLabelText('Speech check report')).toHaveTextContent('Protocol speech check: passed')
+        expect(within(check).getByRole('button', {name: 'Hide report'})).toHaveAttribute('aria-expanded', 'true')
+    })
+
+    it('keeps Start off and says why when the pair cannot be read', async () => {
+        const availability = handlers.get_openvino_availability
+        handlers.get_openvino_availability = () => Promise.reject(new Error('no runtime'))
+        try {
+            renderAdvanced()
+            await runCheck()
+            const check = group()
+            expect(await within(check).findByRole('alert')).toHaveTextContent('Protocol couldn’t tell which Whisper suits this computer')
+            expect(within(check).getByRole('button', {name: 'Start check'})).toBeDisabled()
+            expect(within(check).queryByText('Ready')).not.toBeInTheDocument()
+        } finally {
+            handlers.get_openvino_availability = availability
+        }
     })
 
     it('saves the report where the tester chooses', async () => {
@@ -133,13 +151,13 @@ describe('Settings › Advanced › Speech check', () => {
         }
         renderAdvanced()
         const check = await screen.findByRole('region', {name: 'Speech check'})
-        expect(await within(check).findByText('Protocol closed while checking Whisper. Still to check: Pyannote, NVIDIA Nemotron')).toBeInTheDocument()
+        expect(await within(check).findByText('Protocol closed while checking Whisper. Still to check: Pyannote, NVIDIA Nemotron.')).toBeInTheDocument()
         expect(within(check).getByText('Protocol closed here')).toBeInTheDocument()
         expect(within(check).getByRole('button', {name: 'Copy report'})).toBeInTheDocument()
 
-        await userEvent.click(within(check).getByRole('button', {name: 'Run the remaining steps'}))
+        await userEvent.click(within(check).getByRole('button', {name: 'Check the rest'}))
         await waitFor(() => expect(within(group()).getByText('Protocol closed while checking Whisper')).toBeInTheDocument())
-        expect(within(group()).queryByRole('button', {name: 'Run the remaining steps'})).not.toBeInTheDocument()
+        expect(within(group()).queryByRole('button', {name: 'Check the rest'})).not.toBeInTheDocument()
         // The step that closed the app stays in the report; the rest ran.
         expect(within(group()).getByText('Protocol closed here')).toBeInTheDocument()
         expect(within(group()).getAllByText(/passed$/)).toHaveLength(3)

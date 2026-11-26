@@ -1,9 +1,10 @@
 import {type ReactNode, useState} from 'react'
+import {CaretDownIcon, WarningCircleIcon} from '@phosphor-icons/react'
 import {useQuery, useQueryClient} from '@tanstack/react-query'
 import styled from 'styled-components'
 import {errorMessage} from '@/api/core'
 import {DIARIZATION_DOWNLOAD_CANCELLED, diarizationKeys, diarizationStatusQuery, cancelNemotronDownload, downloadNemotron, NEMOTRON} from '@/api/diarization'
-import {cancelIntelDownload, companionQuery, downloadGpuVersion, intelError, isIntelCancelled, openVinoAvailabilityQuery} from '@/api/intel'
+import {cancelIntelDownload, downloadGpuVersion, intelError, isIntelCancelled} from '@/api/intel'
 import {trackIntelDownload} from '@/api/modelDownloadSync'
 import {useRecordingBusy} from '@/api/recordingPhase'
 import {parakeetModelsQuery, whisperModelsQuery} from '@/api/models'
@@ -15,6 +16,8 @@ import {
     type CheckStepKind,
     checkPair,
     dismissSpeechCheck,
+    pairAvailabilityQuery,
+    pairCompanionQuery,
     resumeSpeechCheck,
     runSpeechCheck,
     saveReport,
@@ -26,37 +29,50 @@ import {
     useSpeechCheckSync,
 } from '@/api/speechCheck'
 import {Button} from '@/components/ui/Button'
+import {Collapse} from '@/components/ui/Collapse'
 import {SettingsGroup, SettingsRow} from '@/components/ui/SettingsRow'
 import {StatusLine} from '@/components/ui/StatusLine'
 import {toast} from '@/components/ui/toastStore'
 import {speechModelLabel} from '@/lib/speechModels'
 import {useSpeechModels} from '../../hooks/useSpeechModels'
 import {ModelRow} from '../ModelRow'
-import {RowControls, RowValue, Warning} from '../styles'
+import {Disclosure, QuietButton, RowControls, RowValue, Warning} from '../styles'
 import {deviceWords} from './speechCheckText'
 
 const Report = styled.pre`
-    max-height: 240px;
-    margin: 0;
+    max-height: 320px;
+    margin: ${({theme}) => theme.space[2]} 0 0;
     padding: ${({theme}) => theme.space[2]} ${({theme}) => theme.space[2.5]};
     overflow: auto;
     border: 1px solid ${({theme}) => theme.colors.border};
     border-radius: ${({theme}) => theme.radii.md};
     background: ${({theme}) => theme.colors.raised};
     font-family: ${({theme}) => theme.fonts.mono};
-    ${({theme}) => theme.text.small};
+    ${({theme}) => theme.text.caption};
     white-space: pre-wrap;
     overflow-wrap: anywhere;
 `
 
-// Up to two buttons after a check, Copy and Save sitting with the report:
-// they wrap rather than run past the card.
-const Actions = styled(RowControls)`
-    flex: 1 1 auto;
-    flex-wrap: wrap;
+// The failed value: Settings' warning tone with the sign a failed step has
+// in a meeting's processing steps, on one line like the other values.
+const Failure = styled(Warning)`
+    display: inline-flex;
+    align-items: center;
+    gap: ${({theme}) => theme.space[1]};
+    white-space: nowrap;
+
+    > svg {
+        flex: none;
+    }
 `
 
-const ABOUT = 'Runs each speech model on a short sample and writes a report to send to the developers. Takes a few minutes'
+/** The head row's label in every state; its line says the state, its control holds the main action. */
+const HEAD = 'Check the speech models'
+
+const ABOUT = 'Runs each speech model on a short sample and writes a report to send to the developers. Takes a few minutes.'
+
+/** Parts as sentences: one stands alone, as the rows' single facts do; more end with a period, as the neighbours' do. */
+const sentences = (parts: string[]) => (parts.length > 1 ? `${parts.join('. ')}.` : parts[0])
 
 /** "On the Intel GPU, passed", "Failed", "Not checked". */
 function stepValue(step: CheckStep): string {
@@ -75,15 +91,19 @@ function stepValue(step: CheckStep): string {
     }
 }
 
-/** Why a step failed or was not checked, and a fallback it took. */
-function stepDescription(step: CheckStep): string | undefined {
-    const parts: string[] = []
-    if (step.fallback) parts.push(`Fell back from the ${deviceWords(step.fallback.from)} to the ${deviceWords(step.fallback.to)}`)
-    if (step.status === 'failed' || step.status === 'notChecked' || step.status === 'closedTheApp') {
-        if (step.reason) parts.push(step.reason)
-    }
-    if (step.keepsUp === false) parts.push('Too slow to keep up with a meeting')
-    return parts.length ? parts.join('. ') : undefined
+/**
+ * Under a step's name: a fallback it took, why it was not checked, and a
+ * failure's reason in Settings' warning tone, as a failed download's is.
+ */
+function stepDescription(step: CheckStep): ReactNode {
+    const notes: string[] = []
+    if (step.fallback) notes.push(`Fell back from the ${deviceWords(step.fallback.from)} to the ${deviceWords(step.fallback.to)}`)
+    if ((step.status === 'notChecked' || step.status === 'closedTheApp') && step.reason) notes.push(step.reason)
+    if (step.keepsUp === false) notes.push('Too slow to keep up with a meeting')
+    const failure = step.status === 'failed' ? step.reason : undefined
+    if (!failure) return notes.length ? sentences(notes) : undefined
+    if (!notes.length) return <Warning as="span">{failure}</Warning>
+    return <><Warning as="span">{`${failure}.`}</Warning> {`${notes.join('. ')}.`}</>
 }
 
 function StepRows({steps}: {steps: CheckStep[]}) {
@@ -92,7 +112,7 @@ function StepRows({steps}: {steps: CheckStep[]}) {
             key={step.kind}
             label={STEP_NAMES[step.kind]}
             description={stepDescription(step)}
-            control={<RowValue $strong={step.status === 'failed'}>{stepValue(step)}</RowValue>}
+            control={step.status === 'failed' ? <Failure as="span"><WarningCircleIcon size={14} aria-hidden/>{stepValue(step)}</Failure> : <RowValue>{stepValue(step)}</RowValue>}
         />
     ))
 }
@@ -105,7 +125,34 @@ const OUTCOME_LINES = {
     nothingChecked: 'No model was checked: none of them is on this computer',
 } as const
 
-/** The finished report: one row per model, the text, Copy and Save. */
+/** The report's row: Copy and Save at hand, the text behind Show report. */
+function ReportRow({text, onCopy, onSave}: {text: string, onCopy: () => void, onSave: () => void}) {
+    const [shown, setShown] = useState(false)
+    return (
+        <SettingsRow
+            label="Report"
+            description="Text, then the same data as JSON"
+            control={(
+                <RowControls>
+                    <Button size="sm" onClick={onCopy}>Copy report</Button>
+                    <Button size="sm" onClick={onSave}>Save report</Button>
+                </RowControls>
+            )}
+        >
+            <div>
+                <Disclosure type="button" aria-expanded={shown} onClick={() => setShown(!shown)}>
+                    {shown ? 'Hide report' : 'Show report'}
+                    <CaretDownIcon size={11} aria-hidden/>
+                </Disclosure>
+                <Collapse open={shown}>
+                    <Report aria-label="Speech check report" tabIndex={0}>{text}</Report>
+                </Collapse>
+            </div>
+        </SettingsRow>
+    )
+}
+
+/** The finished report: one row per model, then the report with Copy and Save. */
 function Results({status, onAgain}: {status: Extract<SpeechCheckStatus, {state: 'finished' | 'interrupted'}>, onAgain: () => void}) {
     const [resuming, setResuming] = useState(false)
     const locked = useRecordingBusy()
@@ -128,31 +175,22 @@ function Results({status, onAgain}: {status: Extract<SpeechCheckStatus, {state: 
     const closedIn = interrupted ? status.closedIn : status.report.steps.find((step) => step.status === 'closedTheApp')?.kind
     const headline = closedIn ? `Protocol closed while checking ${STEP_NAMES[closedIn]}` : OUTCOME_LINES[status.report.outcome]
     const remaining = interrupted ? status.remaining.map((kind) => STEP_NAMES[kind]).join(', ') : ''
+    const resumable = interrupted && status.remaining.length > 0
     return (
         <>
             <SettingsRow
-                label="Speech check"
-                description={<span role="status">{interrupted && remaining ? `${headline}. Still to check: ${remaining}` : headline}</span>}
-            >
-                <Actions>
-                    {interrupted && status.remaining.length > 0 && (
-                        <Button size="sm" variant="filled" disabled={locked} pending={resuming} onClick={resume}>Run the remaining steps</Button>
-                    )}
-                    <Button size="sm" variant="ghost" disabled={locked} onClick={onAgain}>Run again</Button>
-                </Actions>
-            </SettingsRow>
-            <StepRows steps={status.report.steps}/>
-            <SettingsRow
-                label="Report"
+                label={HEAD}
+                description={<span role="status">{remaining ? sentences([headline, `Still to check: ${remaining}`]) : headline}</span>}
                 control={(
                     <RowControls>
-                        <Button size="sm" onClick={() => void copy()}>Copy report</Button>
-                        <Button size="sm" onClick={() => void save()}>Save report</Button>
+                        {resumable && <QuietButton type="button" disabled={locked} onClick={onAgain}>Run again</QuietButton>}
+                        {resumable && <Button size="sm" variant="filled" disabled={locked} pending={resuming} onClick={resume}>Check the rest</Button>}
+                        {!resumable && <Button size="sm" disabled={locked} onClick={onAgain}>Run again</Button>}
                     </RowControls>
                 )}
-            >
-                <Report aria-label="Speech check report" tabIndex={0}>{status.text}</Report>
-            </SettingsRow>
+            />
+            <StepRows steps={status.report.steps}/>
+            <ReportRow text={status.text} onCopy={() => void copy()} onSave={() => void save()}/>
         </>
     )
 }
@@ -162,7 +200,7 @@ function Running({status}: {status: Extract<SpeechCheckStatus, {state: 'running'
     return (
         <>
             <SettingsRow
-                label="Speech check"
+                label={HEAD}
                 description={<StatusLine status={{key: status.cancelling ? 'cancelling' : status.step ?? 'ready', text: status.cancelling ? 'Cancelling' : step, busy: true}}/>}
                 control={<Button size="sm" disabled={status.cancelling} onClick={() => void cancelSpeechCheck().catch(() => undefined)}>Cancel</Button>}
             />
@@ -185,19 +223,24 @@ function Offer({onBack, onStarted}: {onBack: () => void, onStarted: () => void})
     const locked = useRecordingBusy()
     const [starting, setStarting] = useState(false)
     const {parakeet, whisper, gpuVersion, downloads, download, cancel} = useSpeechModels()
-    const availabilityQuery = useQuery(openVinoAvailabilityQuery)
-    const companionQuery_ = useQuery(companionQuery)
+    const availabilityResult = useQuery(pairAvailabilityQuery)
+    const companionResult = useQuery(pairCompanionQuery)
     const speakers = useQuery(diarizationStatusQuery)
     const parakeetList = useQuery(parakeetModelsQuery)
     const whisperList = useQuery(whisperModelsQuery)
     const live = useQuery(transcriptConfigQuery).data
     const postCall = useQuery(postCallConfigQuery).data
-    const availability = availabilityQuery.data
-    const companion = companionQuery_.data
+    const availability = availabilityResult.data
+    const companion = companionResult.data
     // The pair and what is installed follow from all of these: until each has
-    // loaded, a row could say Ready for a model that is not the one checked.
-    const loading = [availabilityQuery, companionQuery_, speakers, parakeetList, whisperList].some((query) => query.isPending)
+    // loaded, a row could say Ready for a model that is not the one checked,
+    // and one that failed would leave the pair unknown.
+    const loading = [availabilityResult, companionResult, speakers, parakeetList, whisperList].some((query) => query.isPending)
     const unreadable = speakers.isError || parakeetList.isError || whisperList.isError
+        ? 'Protocol couldn’t read its speech models'
+        : availabilityResult.isError || companionResult.isError
+            ? 'Protocol couldn’t tell which Whisper suits this computer'
+            : null
 
     const pair = checkPair(availability, companion)
     const parakeetModel = parakeet.find(({name}) => name === pair.live)
@@ -255,13 +298,13 @@ function Offer({onBack, onStarted}: {onBack: () => void, onStarted: () => void})
                     name={STEP_NAMES.parakeet}
                     engine="parakeet"
                     model={parakeetModel}
-                    description={`${STEP_ROLES.parakeet}. ${missingNote}`}
+                    description={sentences([STEP_ROLES.parakeet, missingNote])}
                     downloads={downloads}
                     onDownload={() => download(parakeetModel)}
                     onCancel={() => cancel(parakeetModel)}
                 />
             )
-            : notChecked('parakeet', `${STEP_ROLES.parakeet}. Protocol has no ${pair.live}`),
+            : notChecked('parakeet', sentences([STEP_ROLES.parakeet, `Protocol has no ${pair.live}`])),
         whisper: usesGpuVersion && companion
             ? (
                 <ModelRow
@@ -269,7 +312,7 @@ function Offer({onBack, onStarted}: {onBack: () => void, onStarted: () => void})
                     name="Whisper for the Intel GPU"
                     engine="intelGpu"
                     model={{name: companion.id, status: 'Missing', size_bytes: companion.downloadSize}}
-                    description={`${STEP_ROLES.whisper}. ${missingNote}`}
+                    description={sentences([STEP_ROLES.whisper, missingNote])}
                     downloads={downloads}
                     onDownload={getGpuVersion}
                     onCancel={() => void cancelIntelDownload(companion.id).catch(() => undefined)}
@@ -282,13 +325,13 @@ function Offer({onBack, onStarted}: {onBack: () => void, onStarted: () => void})
                         name={speechModelLabel('whisper', copy)}
                         engine="whisper"
                         model={copy}
-                        description={`${STEP_ROLES.whisper}. ${missingNote}`}
+                        description={sentences([STEP_ROLES.whisper, missingNote])}
                         downloads={downloads}
                         onDownload={() => download(copy)}
                         onCancel={() => cancel(copy)}
                     />
                 )
-                : notChecked('whisper', `${STEP_ROLES.whisper}. Protocol has no ${pair.postMeeting}`),
+                : notChecked('whisper', sentences([STEP_ROLES.whisper, `Protocol has no ${pair.postMeeting}`])),
         pyannote: notChecked('pyannote', 'Its files are missing from this copy of Protocol'),
         nemotron: (
             <ModelRow
@@ -296,7 +339,7 @@ function Offer({onBack, onStarted}: {onBack: () => void, onStarted: () => void})
                 name={STEP_NAMES.nemotron}
                 engine="nemotron"
                 model={{name: NEMOTRON, status: 'Missing', size_bytes: speakers.data?.nemotron_download_size}}
-                description={`${STEP_ROLES.nemotron}. ${missingNote}`}
+                description={sentences([STEP_ROLES.nemotron, missingNote])}
                 downloads={downloads}
                 onDownload={getNemotron}
                 onCancel={() => void cancelNemotronDownload().catch(() => undefined)}
@@ -309,16 +352,20 @@ function Offer({onBack, onStarted}: {onBack: () => void, onStarted: () => void})
 
     return (
         <>
-            <SettingsRow label="Speech check" description="It runs these models, each on the device Protocol picks for this computer. It changes no settings">
-                <Actions>
-                    <Button size="sm" variant="filled" disabled={!ready || downloading || locked} pending={starting} onClick={start}>Start check</Button>
-                    <Button size="sm" variant="ghost" onClick={onBack}>Back</Button>
-                </Actions>
-            </SettingsRow>
+            <SettingsRow
+                label={HEAD}
+                description="Runs these models, each on the device Protocol picks for this computer. Changes no settings."
+                control={(
+                    <RowControls>
+                        <QuietButton type="button" onClick={onBack}>Back</QuietButton>
+                        <Button size="sm" variant="filled" disabled={!ready || downloading || locked} pending={starting} onClick={start}>Start check</Button>
+                    </RowControls>
+                )}
+            />
             {locked && <SettingsRow label="During a recording" description="The check can run once the recording is saved"/>}
             {loading && <SettingsRow label="Models" description={<StatusLine status={{key: 'loading', text: 'Looking for the models on this computer', busy: true}}/>}/>}
             {!loading && !unreadable && modelRows}
-            {unreadable && <SettingsRow label="Models" description={<Warning role="alert">Protocol couldn’t read its speech models</Warning>}/>}
+            {!loading && unreadable && <SettingsRow label="Models" description={<Warning as="span" role="alert">{unreadable}</Warning>}/>}
         </>
     )
 }
@@ -350,7 +397,7 @@ export function SpeechCheckGroup() {
     } else {
         body = (
             <SettingsRow
-                label="Speech check"
+                label={HEAD}
                 description={locked ? 'Can’t run during a recording' : ABOUT}
                 control={<Button size="sm" disabled={!status || locked} onClick={() => setOffering(true)}>Run check</Button>}
             />
