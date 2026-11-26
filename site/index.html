@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light dark">
+    <title>Protocol</title>
+    <meta name="description" content="Protocol records your calls, transcribes them on your computer, tells the speakers apart and writes a summary.">
+    <link rel="icon" type="image/png" href="favicon.png">
+    <link rel="preload" href="fonts/geist-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main>
+    <section class="intro">
+        <picture class="ring">
+            <source media="(prefers-color-scheme: dark)" srcset="media/ring-dark.gif">
+            <img src="media/ring-light.gif" alt="" width="240" height="240">
+        </picture>
+        <h1>Protocol</h1>
+        <p class="lead">
+            Protocol records your calls, transcribes them on your computer,
+            tells the speakers apart and writes a summary.
+        </p>
+        <!-- Stable asset names under releases/latest (WORKFLOWS_OVERVIEW.md,
+             Release assets). The deb's name carries the version, so it opens
+             the latest release's page instead. -->
+        <ul class="downloads" aria-label="Download">
+            <li><a href="https://github.com/vmedvedevpro/Protocol/releases/latest/download/protocol-windows-x64-setup.exe">Windows</a></li>
+            <li><a href="https://github.com/vmedvedevpro/Protocol/releases/latest/download/protocol-macos-arm64.dmg">macOS (Apple Silicon)</a></li>
+            <li><a href="https://github.com/vmedvedevpro/Protocol/releases/latest/download/protocol-linux-x86_64.AppImage">Linux (AppImage)</a></li>
+            <li><a href="https://github.com/vmedvedevpro/Protocol/releases/latest">Linux (deb)</a></li>
+        </ul>
+    </section>
+    <picture class="window">
+        <source media="(prefers-color-scheme: dark)" srcset="media/home-dark.png">
+        <img src="media/home-light.png" width="920" height="1400"
+             alt="Home: the search field, folder chips for Acme Corp, Design Team and Weekly Standup, meetings grouped under Today, Yesterday, This week and Earlier this month, and at the bottom the ring with Ready to record and the Record button">
+    </picture>
+</main>
+<footer>
+    <nav aria-label="Project">
+        <a href="https://github.com/vmedvedevpro/Protocol">GitHub</a>
+        <a href="https://github.com/vmedvedevpro/Protocol/blob/main/LICENSE.md">MIT license</a>
+        <a href="https://github.com/vmedvedevpro/Protocol/blob/main/PRIVACY_POLICY.md">Privacy policy</a>
+    </nav>
+    <p>
+        Built on <a href="https://github.com/TylerBuza/Meetily-ActuallyFree">Meetily – Actually Free</a>
+        by Tyler Buza and the original <a href="https://github.com/Zackriya-Solutions/meetily">Meetily</a>
+        by Zackriya Solutions.
+    </p>
+</footer>
+</body>
+</html>
