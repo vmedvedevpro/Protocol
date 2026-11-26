@@ -49,7 +49,8 @@ const Report = styled.pre`
     overflow-wrap: anywhere;
 `
 
-// Up to four buttons after a check: they wrap rather than run past the card.
+// Up to two buttons after a check, Copy and Save sitting with the report:
+// they wrap rather than run past the card.
 const Actions = styled(RowControls)`
     flex: 1 1 auto;
     flex-wrap: wrap;
@@ -134,8 +135,6 @@ function Results({status, onAgain}: {status: Extract<SpeechCheckStatus, {state: 
                 description={<span role="status">{interrupted && remaining ? `${headline}. Still to check: ${remaining}` : headline}</span>}
             >
                 <Actions>
-                    <Button size="sm" onClick={() => void copy()}>Copy report</Button>
-                    <Button size="sm" onClick={() => void save()}>Save report</Button>
                     {interrupted && status.remaining.length > 0 && (
                         <Button size="sm" variant="filled" disabled={locked} pending={resuming} onClick={resume}>Run the remaining steps</Button>
                     )}
@@ -143,7 +142,15 @@ function Results({status, onAgain}: {status: Extract<SpeechCheckStatus, {state: 
                 </Actions>
             </SettingsRow>
             <StepRows steps={status.report.steps}/>
-            <SettingsRow label="Report">
+            <SettingsRow
+                label="Report"
+                control={(
+                    <RowControls>
+                        <Button size="sm" onClick={() => void copy()}>Copy report</Button>
+                        <Button size="sm" onClick={() => void save()}>Save report</Button>
+                    </RowControls>
+                )}
+            >
                 <Report aria-label="Speech check report" tabIndex={0}>{status.text}</Report>
             </SettingsRow>
         </>
@@ -160,6 +167,10 @@ function Running({status}: {status: Extract<SpeechCheckStatus, {state: 'running'
                 control={<Button size="sm" disabled={status.cancelling} onClick={() => void cancelSpeechCheck().catch(() => undefined)}>Cancel</Button>}
             />
             <StepRows steps={status.done}/>
+            {/* The steps to come, so the run shows its length from the start. */}
+            {status.steps.filter((kind) => !status.done.some((step) => step.kind === kind)).map((kind) => (
+                <SettingsRow key={kind} label={STEP_NAMES[kind]} control={<RowValue>{kind === status.step ? 'Checking' : 'Waiting'}</RowValue>}/>
+            ))}
         </>
     )
 }
