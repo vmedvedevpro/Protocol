@@ -118,19 +118,26 @@ is inherited from the project Protocol forked from; Protocol did not release it.
   ([#215](https://github.com/vmedvedevpro/Protocol/issues/215)). The main
   window has the desktop's title bar, buttons, rounded corners and shadow,
   like the other windows, and its title names the open screen.
-
-### Fixed
-
-- **Linux: Protocol's icon for its window.** The task manager and the window
-  switcher show Protocol's ring instead of a generic icon on Wayland.
-- **Linux: Match system follows the desktop's dark mode.** With a dark colour
-  scheme the app is dark, and it repaints when the desktop's scheme changes.
-- **Linux: Keep on top and the floating bar under Wayland.** On KDE Plasma
-  the pin keeps the window on top and the floating bar stays above other
-  windows at the top of the screen. Where Wayland gives an app no way to stay
-  on top (GNOME), the pin is not shown; GNOME's window menu has Always on Top.
-- **Linux: the floating bar is only as big as the bar.** It no longer sits
-  in an invisible square that caught clicks meant for the windows below.
+- **Linux: Protocol's icon for its window**
+  ([#215](https://github.com/vmedvedevpro/Protocol/issues/215)). The task
+  manager and the window switcher show Protocol's ring instead of a generic
+  icon on Wayland.
+- **Linux: Match system follows the desktop's dark mode**
+  ([#215](https://github.com/vmedvedevpro/Protocol/issues/215)). With a dark
+  colour scheme the app is dark, and it repaints when the desktop's scheme
+  changes.
+- **Linux: Keep on top and the floating bar under Wayland**
+  ([#215](https://github.com/vmedvedevpro/Protocol/issues/215)). On KDE
+  Plasma the pin keeps the window on top and the floating bar stays above
+  other windows at the top of the screen. Where Wayland gives an app no way
+  to stay on top (GNOME), the pin is not shown; GNOME's window menu has
+  Always on Top.
+- **Linux: the floating bar is only as big as the bar**
+  ([#215](https://github.com/vmedvedevpro/Protocol/issues/215)). It no
+  longer sits in an invisible square that caught clicks meant for the
+  windows below.
+- **Linux: the tray icon shows Protocol's name on hover**
+  ([#215](https://github.com/vmedvedevpro/Protocol/issues/215)).
 
 ## Protocol 1.0.0-rc.1 — 2026-11-26
 

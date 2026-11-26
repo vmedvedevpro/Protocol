@@ -217,3 +217,30 @@ KWin's own view of the windows read through a KWin script):
 
 Not checked: GNOME (the hidden pin and the window menu's Always on Top),
 wlroots compositors, and X11 sessions (no such session on this machine).
+
+## The tray icon's name on hover
+
+The panel names a tray icon on hover from its StatusNotifierItem's
+`ToolTip`. Tauri's tray on Linux is libayatana-appindicator through
+tray-icon, which ignores `.tooltip()` there. libayatana-appindicator 0.5.94
+exports `Title` (GLib's application name, which `tray.rs` sets to the product
+name) but no `ToolTip` property at all, and Plasma 6.7 does not fall back to
+`Title`: read over D-Bus, Protocol's item had `Title "Protocol QA"` and no
+`ToolTip` and showed nothing on hover, while Bitwarden's had an empty `Title`,
+a `ToolTip` titled "Bitwarden", and showed its name.
+
+libayatana-appindicator registers its item on GLib's shared session-bus
+connection, which `gio::bus_get_sync` returns in the same process.
+`linux_desktop/tray_name.rs` adds a filter to that connection: it notes each
+incoming `Properties.GetAll("org.kde.StatusNotifierItem")` on an
+`/org/ayatana/NotificationItem/` path and adds a `ToolTip` (title: the
+product name) to the outgoing reply to it. Both Plasma and GNOME's
+AppIndicator extension read the item through `GetAll`. A separate
+StatusNotifierItem implementation (the `ksni` crate, say) would set
+`ToolTip` directly but would replace Tauri's tray, its menu and its icon
+updates on Linux.
+
+Checked on KDE Plasma 6.7.5, Wayland: `GetAll` on the "Protocol QA" build's
+item returned `ToolTip ("", [], "Protocol QA", "")` beside its other
+properties, and hovering the icon in the panel showed "Protocol QA". Not
+checked: GNOME with the AppIndicator extension (no GNOME session here).
