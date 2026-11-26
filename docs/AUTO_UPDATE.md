@@ -14,12 +14,12 @@ procedures and their results, and the remaining limits.
 | State | Sidebar pill (above Settings) | Tray | Settings › About |
 | --- | --- | --- | --- |
 | Up to date | hidden | Check for Updates… | "Protocol is up to date. Last checked …" |
-| Release found | Update available · X.Y.Z | Update Available (X.Y.Z) | "Protocol X.Y.Z is available." **Download** |
-| Downloading | Downloading · N% | Downloading Update… (disabled) | progress bar |
-| Download requested during a recording | Update available · X.Y.Z | Update Available (X.Y.Z) | "The download starts after the recording." |
-| Downloaded and verified | Restart and update · X.Y.Z | Restart to Update to X.Y.Z | **Restart and update** |
-| Downloaded, Protocol busy | Restart and update · X.Y.Z | Update Ready — Protocol Is Busy (disabled) | button disabled, "Protocol can't restart while …" |
-| Download or install failed | Update failed · X.Y.Z | as before the failure | the error sentence and **Try again** |
+| Release found | Update available (X.Y.Z) | Update Available (X.Y.Z) | "Protocol X.Y.Z is available." **Download** |
+| Downloading | Downloading (N%) | Downloading Update… (disabled) | progress bar |
+| Download requested during a recording | Update available (X.Y.Z) | Update Available (X.Y.Z) | "The download starts after the recording." |
+| Downloaded and verified | Restart and update (X.Y.Z) | Restart to Update to X.Y.Z | **Restart and update** |
+| Downloaded, Protocol busy | Restart and update (X.Y.Z) | Update Ready — Protocol Is Busy (disabled) | button disabled, "Protocol can't restart while …" |
+| Download or install failed | Update failed (X.Y.Z) | as before the failure | the error sentence and **Try again** |
 
 The pill opens a panel with the release notes (the CHANGELOG section from the
 feed, rendered without raw HTML or images), a link to the release on GitHub,
@@ -305,8 +305,8 @@ feed log, registry and folder snapshots) stays outside the repository.
 
 | Scenario | Result |
 | --- | --- |
-| Manual check | Pill "Update available · 0.3.1", one toast, notes in the panel and Settings. The feed log shows only `latest.json`: nothing downloaded before the click. |
-| Download | One request for the installer, "verified and cached", pill "Restart and update · 0.3.1". |
+| Manual check | Pill "Update available (0.3.1)", one toast, notes in the panel and Settings. The feed log shows only `latest.json`: nothing downloaded before the click. |
+| Download | One request for the installer, "verified and cached", pill "Restart and update (0.3.1)". |
 | Busy | During an import the tray item was disabled ("Update Ready — Protocol Is Busy"); during a model download Settings said "Protocol can't restart while a model is downloading." with the button disabled, and enabled it again when the download finished. |
 | Quit while busy | Tray Quit during an import exited without installing (journal: install refused, busy); the next start restored the downloaded update without a new request to the feed. |
 | Restart and update | 0.3.0 → 0.3.1 and 0.3.2 → 0.3.3: passive installer with `/P /UPDATE /R`, relaunch about 15 s later, "Updated to Protocol 0.3.x" toast, meetings and settings kept, no crash report. |

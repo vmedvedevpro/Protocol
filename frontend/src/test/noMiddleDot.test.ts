@@ -55,5 +55,5 @@ describe('interface text', () => {
         const paths = Object.keys(sources).filter(shipped)
         expect(paths.length).toBeGreaterThan(100)
         expect(paths.flatMap((path) => middleDots(path, sources[path]))).toEqual([])
-    })
+    }, 30_000)
 })

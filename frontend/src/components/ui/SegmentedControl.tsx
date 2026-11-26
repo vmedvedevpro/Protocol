@@ -14,7 +14,7 @@ export interface SegmentedOption<T extends string> {
 
 /**
  * segments: a compact radio group on the window, such as the theme switch;
- * tabs: a larger track of tabs over panels, such as Notes · Transcript ·
+ * tabs: a larger track of tabs over panels, such as Notes, Transcript and
  * Summary.
  */
 type Variant = 'segments' | 'tabs'

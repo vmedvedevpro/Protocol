@@ -8,7 +8,7 @@ export type FieldSize = 'sm' | 'md' | 'lg'
 
 /**
  * outline: a bordered field on any surface (window, card, sheet), its edge
- * in `fieldBorder`; soft: a borderless grey field on the window, such as a
+ * in `controlBorder`; soft: a borderless grey field on the window, such as a
  * search box, which reads as a field only off a `surface`.
  */
 export type FieldTone = 'outline' | 'soft'
@@ -22,7 +22,7 @@ const fieldBox = (focus: '&:focus' | '&:focus-within') => css<{ $tone: FieldTone
     width: 100%;
     min-width: 0;
     margin: 0;
-    border: 1px solid ${({theme, $tone}) => $tone === 'soft' ? 'transparent' : theme.colors.fieldBorder};
+    border: 1px solid ${({theme, $tone}) => $tone === 'soft' ? 'transparent' : theme.colors.controlBorder};
     background: ${({theme, $tone}) => $tone === 'soft' ? theme.colors.surface : theme.colors.raised};
     color: ${({theme}) => theme.colors.text};
     ${colorTransition};

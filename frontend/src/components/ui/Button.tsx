@@ -31,7 +31,7 @@ const VARIANTS = {
         }
     `,
     secondary: css`
-        border-color: ${({theme}) => theme.colors.border};
+        border-color: ${({theme}) => theme.colors.controlBorder};
         background: ${({theme}) => theme.colors.raised};
         color: ${({theme}) => theme.colors.text};
 

@@ -28,7 +28,7 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
-/** A meeting's date, length and folder; the last part is cut when the line runs out. */
+/** A meeting's date, length and folder; parts wrap whole when the line runs out. */
 export const Light: Story = {globals: {theme: 'light'}}
 
 export const Dark: Story = {globals: {theme: 'dark'}}

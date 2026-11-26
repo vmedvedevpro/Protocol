@@ -239,7 +239,7 @@ such a command only on its platform
 | `api_update_person_notes` | command | `lib/workspace-api.ts` | #118 | Private notes, saved as you type, never sent to AI. |
 | `delete_voice_profile` | command | `lib/voice-profiles.ts` | #118 | Forget a voice. |
 | `diarization_models_available` | command | `components/meeting/MeetingHeader.tsx` | #113 | Shows "change the count" only when a speaker engine is ready. |
-| `diarize_meeting` | command | `components/MeetingDetails/PostCallProcessingWorker.tsx`, `components/meeting/MeetingHeader.tsx` | #112 | Post-call speaker pass; "4 speakers · Identify speakers…" reruns it with a count picked and confirmed in a sheet (#113). Changes labels only. |
+| `diarize_meeting` | command | `components/MeetingDetails/PostCallProcessingWorker.tsx`, `components/meeting/MeetingHeader.tsx` | #112 | Post-call speaker pass; "4 speakers (Identify speakers…)" reruns it with a count picked and confirmed in a sheet (#113). Changes labels only. |
 | `enroll_person_voice` | command | `lib/voice-profiles.ts` | #118 | Update a contact's voice (Labs); also from Who said this (#119). |
 | `enroll_voice_profile` | command | `lib/voice-profiles.ts` | #118 | Learn a voice from a meeting (Labs). |
 | `list_voice_profiles` | command | `lib/voice-profiles.ts` | #118 | Labs voices on the person screen. |
@@ -599,7 +599,7 @@ removal #126).
 | The recording stopped | dialog | `app/_components/SettingsModal.tsx` | #112 | `transcription-error`. |
 | Transcription is falling behind | dialog | `app/_components/SettingsModal.tsx` | dropped | Opens only on `chunk-drop-warning`, which native never emits. |
 | Finishing your recording / Saving your meeting / Opening your meeting | notice | `components/PostCallHandoffCard.tsx` | #112 | The design: minibar "Finishing…", then the processing screen. |
-| Post-call processing: speaker count, progress, cancel, continue without audio | dialog | `components/MeetingDetails/PostCallProcessingDialog.tsx`, `PostCallProcessingWorker.tsx` | #112 | The design drops the count question for a status line and "N speakers · change" (#113). |
+| Post-call processing: speaker count, progress, cancel, continue without audio | dialog | `components/MeetingDetails/PostCallProcessingDialog.tsx`, `PostCallProcessingWorker.tsx` | #112 | The design drops the count question for a status line and "N speakers (Change)" (#113). |
 | Identify speakers again (count or automatic) | dialog | `components/meeting/MeetingHeader.tsx` | #113 | The Identify speakers sheet (`features/dialogs/identify`), from "Identify speakers…" next to the count on the Transcript tab and the menu's Identify speakers again: Detect automatically or a count, then Identify. Picking a count alone starts nothing. |
 | Delete this meeting? | dialog | `components/meeting/MeetingHeader.tsx`, `components/Sidebar/index.tsx`, `app/meetings/page.tsx` | #113 | Audio stays in the recordings folder. |
 | Regenerate the summary (instructions, template, language) | dialog | `components/meeting/MeetingDocument.tsx` | #119 | Summary options › Write again. |

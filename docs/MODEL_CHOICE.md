@@ -173,13 +173,13 @@ transcribed a meeting." (during the download, and afterwards while
 
 | State | Parakeet row | Whisper row |
 | --- | --- | --- |
-| Nothing installed (N1, N7) | — | — ; the header's "Download both · size" downloads both (on an NPU-only PC also Intel's libraries); one missing model gets its own "Download · size" |
+| Nothing installed (N1, N7) | — | — ; the header's "Download both (size)" downloads both (on an NPU-only PC also Intel's libraries); one missing model gets its own "Download (size)" |
 | Downloading (N3) | progress with Cancel | progress in the download's own bytes (`CompanionStatus.progress`) with Cancel; "The Compressed copy stays…" when the copy is installed |
-| NPU `waiting` / `preparing` | a note; "Preparing · about 2 min" with an indeterminate bar | |
+| NPU `waiting` / `preparing` | a note; "Preparing (about 2 min)" with an indeterminate bar | |
 | NPU `needs_runtime` | "Runs on the Intel NPU once Intel's libraries are downloaded.", their download with its bytes and Cancel, a failure under it (also with an Intel GPU version installed before the NPU files existed); with the Intel GPU version still to download the note says that download brings them | |
 | Installed (N4) | Installed, Remove | Installed, Remove; an update of Intel's libraries; "used after a restart" |
 | NPU `failed` (N6) | "The Intel NPU didn't start, so Parakeet runs on the processor." Try again (`parakeet_npu_retry`; #66's `reason` goes to the log only, never the UI) | |
-| Intel GPU version fell back (N6) | | with a copy: the copy's row and "The Intel GPU version didn't start, so Whisper uses this copy. Nothing to download." Try again (`openvino_retry`); without: "… and no regular copy is installed …", Try again and "Download the standard version · size" (`whisper_download_model`, `enablePostCall: false`, so the choice stays) |
+| Intel GPU version fell back (N6) | | with a copy: the copy's row and "The Intel GPU version didn't start, so Whisper uses this copy. Nothing to download." Try again (`openvino_retry`); without: "… and no regular copy is installed …", Try again and "Download the standard version (size)" (`whisper_download_model`, `enablePostCall: false`, so the choice stays) |
 
 "Fell back" is `CompanionStatus.stopped` (the crash guard), the last load's
 `fallbackReason` in this run (`get_local_stack_status`), or
@@ -197,12 +197,12 @@ During and After the meeting badge the device each installed model runs on
 which reads apart from the Intel GPU version by name); Parakeet v3 "Intel NPU" once the
 NPU is `ready` or `active`. whisper.cpp on Vulkan or the processor gets no
 badge. The live list groups "On this computer" and "Not downloaded"; Parakeet
-carries "recommended for live text" ("Light on power · …" on the NPU), and the
+carries "recommended for live text" ("Light on power, …" on the NPU), and the
 last entry opens All models without saving anything.
 
 ## Labs
 
-The "Parakeet on the GPU" switch (Settings › Labs) and its "GPU · Labs" badge
+The "Parakeet on the GPU" switch (Settings › Labs) and its "GPU" and "Labs" badges
 are hidden while the NPU state is `preparing` or `ready`: the NPU wins (#66).
 
 ## Tests

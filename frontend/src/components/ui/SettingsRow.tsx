@@ -205,13 +205,19 @@ const Label = styled.span`
 `
 
 // A description may give a second fact its own line ("\n"), such as a
-// folder's path under what the folder holds; a long path breaks anywhere.
-const Description = styled.span`
+// folder's path under what the folder holds (`$lines`); such a path breaks
+// anywhere. Other descriptions wrap as text does.
+const Description = styled.span<{ $lines?: boolean }>`
     ${({theme}) => theme.text.small};
     color: ${({theme}) => theme.colors.muted};
-    white-space: pre-line;
-    overflow-wrap: anywhere;
+
+    ${({$lines}) => $lines && css`
+        white-space: pre-line;
+        overflow-wrap: anywhere;
+    `};
 `
+
+const hasLines = (description: ReactNode) => typeof description === 'string' && description.includes('\n')
 
 const Badge = styled.span`
     flex: none;
@@ -257,7 +263,7 @@ export function SettingsRow({label, description, badge, control, children}: Sett
                             <span id={labelId}>{label}</span>
                             {badge && <Badge>{badge}</Badge>}
                         </Label>
-                        {description && <Description id={descriptionId}>{description}</Description>}
+                        {description && <Description id={descriptionId} $lines={hasLines(description)}>{description}</Description>}
                     </Text>
                     {control}
                 </Line>
@@ -332,7 +338,7 @@ export function SettingsNavRow({label, description, value, external = false, onC
                     {/* The arrow says it to the eye. */}
                     {external && <VisuallyHidden> (opens in browser)</VisuallyHidden>}
                 </Label>
-                {description && <Description>{description}</Description>}
+                {description && <Description $lines={hasLines(description)}>{description}</Description>}
             </Text>
             {value && <Value>{value}</Value>}
             {external ? <ArrowSquareOutIcon size={12} aria-hidden/> : <CaretRightIcon size={11} aria-hidden/>}
@@ -408,7 +414,7 @@ const RadioTile = styled(RadixRadio.Item)`
     min-width: 0;
     margin: 0;
     padding: ${({theme}) => theme.space[2]} ${({theme}) => theme.space[2.5]};
-    border: 1px solid ${({theme}) => theme.colors.border};
+    border: 1px solid ${({theme}) => theme.colors.controlBorder};
     border-radius: ${({theme}) => theme.radii.md};
     background: ${({theme}) => theme.colors.raised};
     color: ${({theme}) => theme.colors.text};
@@ -509,7 +515,7 @@ export function SettingsRadioRow({value, label, description, badge, disabled}: S
         return (
             <RadioTile value={value} disabled={disabled} aria-labelledby={labelId} aria-describedby={description ? descriptionId : undefined}>
                 <Label id={labelId}>{label}</Label>
-                {description && <Description id={descriptionId}>{description}</Description>}
+                {description && <Description id={descriptionId} $lines={hasLines(description)}>{description}</Description>}
             </RadioTile>
         )
     }
@@ -526,7 +532,7 @@ export function SettingsRadioRow({value, label, description, badge, disabled}: S
             </Ring>
             <Text>
                 <Label id={labelId}>{label}</Label>
-                {description && <Description id={descriptionId}>{description}</Description>}
+                {description && <Description id={descriptionId} $lines={hasLines(description)}>{description}</Description>}
             </Text>
             {badge && <Badge>{badge}</Badge>}
         </RadioButton>

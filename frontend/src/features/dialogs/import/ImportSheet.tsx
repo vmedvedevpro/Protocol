@@ -53,7 +53,7 @@ const Form = styled.form`
 
 // The whole area is the picker's one button: a click, Enter or Space
 // anywhere in it opens the picker, and a file dragged over the window lights
-// it up (`$dragging`, from DropOverlay). Its edge is a field's (`fieldBorder`),
+// it up (`$dragging`, from DropOverlay). Its edge is a field's (`controlBorder`),
 // and hover and drag fill it with `surface`, so it reads as a target on a
 // sheet in both themes.
 const Drop = styled.button<{ $dragging: boolean }>`
@@ -64,7 +64,7 @@ const Drop = styled.button<{ $dragging: boolean }>`
     width: 100%;
     margin: 0;
     padding: ${({theme}) => theme.space[4]} ${({theme}) => theme.space[3]};
-    border: ${({theme}) => theme.sizes.radio.ring} dashed ${({theme}) => theme.colors.fieldBorder};
+    border: ${({theme}) => theme.sizes.radio.ring} dashed ${({theme}) => theme.colors.controlBorder};
     border-radius: ${({theme}) => theme.radii.lg};
     background: transparent;
     font: inherit;
@@ -79,17 +79,19 @@ const Drop = styled.button<{ $dragging: boolean }>`
         color: ${({theme}) => theme.colors.muted};
     }
 
-    &:hover:not(:disabled) {
+    &:hover:not([aria-busy='true']) {
         border-color: ${({theme}) => theme.colors.muted};
         background: ${({theme}) => theme.colors.surface};
     }
 
-    &:disabled {
+    /* While native checks a file the area stays focusable (focus is not
+       lost to the sheet) and ignores clicks; aria-busy says why. */
+    &[aria-busy='true'] {
         cursor: default;
     }
 
     ${({$dragging}) => $dragging && css`
-        &, &:hover:not(:disabled) {
+        &, &:hover {
             border-color: ${({theme}) => theme.colors.text};
             background: ${({theme}) => theme.colors.surface};
         }
@@ -109,7 +111,7 @@ const ChooseLook = styled.span`
     height: ${({theme}) => theme.sizes.control.sm};
     margin: ${({theme}) => theme.space[0.5]} 0;
     padding: 0 ${({theme}) => theme.space[2.5]};
-    border: 1px solid ${({theme}) => theme.colors.fieldBorder};
+    border: 1px solid ${({theme}) => theme.colors.controlBorder};
     border-radius: ${({theme}) => theme.radii.sm};
     background: ${({theme}) => theme.colors.raised};
     ${({theme}) => theme.text.label};
@@ -443,11 +445,12 @@ function ImportForm({request, completeHeard}: { request: Extract<OpenedDialog, {
                     <Drop
                         type="button"
                         $dragging={dragging}
-                        disabled={phase.step === 'checking'}
                         aria-busy={phase.step === 'checking' || undefined}
                         aria-label={file ? 'Choose another file or drop one here' : 'Choose a file or drop one here'}
                         aria-describedby={file ? undefined : `${FORM_ID}-formats`}
-                        onClick={() => void checkFile(chooseAudioFile)}
+                        onClick={() => {
+                            if (phase.step !== 'checking') void checkFile(chooseAudioFile)
+                        }}
                     >
                         <DownloadSimpleIcon size={20} aria-hidden/>
                         {dragging ? 'Drop to import this recording' : 'Drop an audio or video file here'}

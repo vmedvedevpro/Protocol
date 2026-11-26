@@ -80,14 +80,14 @@ function Settings({query: initialQuery = ''}: {query?: string}) {
                     badge="Labs"
                     control={<Switch checked={autoSummary} onCheckedChange={setAutoSummary}/>}
                 />
-                <SettingsNavRow label="Summary model" value="Built-in · Qwen 3.5 4B" onClick={() => {}}/>
+                <SettingsNavRow label="Summary model" value="Built-in (Qwen 3.5 4B)" onClick={() => {}}/>
                 <SettingsNavRow label="Release notes" external onClick={() => {}}/>
             </SettingsGroup>
 
             <SettingsGroup title="Speech models">
                 <SettingsRow
                     label="Gemma 3 4B"
-                    description="Downloading · 40%"
+                    description="Downloading (40%)"
                     control={<Button size="sm">Cancel</Button>}
                 >
                     <ProgressBar label="Downloading Gemma 3 4B" value={40}/>

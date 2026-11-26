@@ -18,7 +18,7 @@ async function interrupted() {
     const start = Date.now() - 3 * 60 * 60 * 1000
     for (const [meetingId, title, folder] of [
         ['meeting-story-1', 'Onboarding copy review', '/recordings/onboarding'],
-        ['meeting-story-2', 'Meeting · Tue, Nov 24 · 4:10 PM', null],
+        ['meeting-story-2', 'Meeting, Tue, Nov 24, 4:10 PM', null],
     ] as const) {
         await deleteRecovery(meetingId)
         await beginRecovery({meetingId, title, startTime: start})
