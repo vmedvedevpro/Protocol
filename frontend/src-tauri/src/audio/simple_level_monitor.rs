@@ -7,7 +7,9 @@ use std::thread;
 use std::time::Duration;
 
 use anyhow::{anyhow, Result};
-use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use cpal::traits::{DeviceTrait, StreamTrait};
+#[cfg(not(target_os = "linux"))]
+use cpal::traits::HostTrait;
 use cpal::{Sample, SampleFormat};
 use log::{error, info, warn};
 use serde::Serialize;
@@ -43,7 +45,8 @@ pub async fn start_monitoring<R: Runtime>(
     tokio::time::sleep(Duration::from_millis(80)).await;
 
     if device_names.is_empty() {
-        device_names = default_monitor_devices();
+        // Asks the system (on Linux the sound server's socket): not on the runtime.
+        device_names = tokio::task::spawn_blocking(default_monitor_devices).await?;
     }
     if device_names.is_empty() {
         return Err(anyhow!("No audio devices available to monitor"));
@@ -62,17 +65,22 @@ pub async fn start_monitoring<R: Runtime>(
     let stream_thread = thread::Builder::new()
         .name("af-level-monitor".into())
         .spawn(move || {
-            let mut _streams: Vec<cpal::Stream> = Vec::new();
+            let mut _streams: Vec<LevelStream> = Vec::new();
 
             for name in &names {
                 match open_level_stream(name, levels.clone()) {
-                    Ok(stream) => {
+                    Ok(LevelStream::Cpal(stream)) => {
                         if let Err(e) = stream.play() {
                             warn!("Failed to play level stream for '{}': {}", name, e);
                         } else {
                             info!("Level stream playing: {}", name);
-                            _streams.push(stream);
+                            _streams.push(LevelStream::Cpal(stream));
                         }
+                    }
+                    #[cfg(target_os = "linux")]
+                    Ok(stream) => {
+                        info!("Level stream playing: {}", name);
+                        _streams.push(stream);
                     }
                     Err(e) => warn!("Could not open level stream for '{}': {}", name, e),
                 }
@@ -90,8 +98,16 @@ pub async fn start_monitoring<R: Runtime>(
             }
 
             for s in _streams {
-                let _ = s.pause();
-                drop(s);
+                match s {
+                    LevelStream::Cpal(stream) => {
+                        let _ = stream.pause();
+                        drop(stream);
+                    }
+                    #[cfg(target_os = "linux")]
+                    LevelStream::SoundServer(stream) => {
+                        let _ = stream.stop();
+                    }
+                }
             }
             running_flag.store(false, Ordering::SeqCst);
             info!("Level monitor streams stopped");
@@ -139,6 +155,25 @@ pub async fn stop_monitoring() -> Result<()> {
     Ok(())
 }
 
+/// A preview stream: cpal's, or a sound-server source's on Linux (#216).
+enum LevelStream {
+    Cpal(cpal::Stream),
+    #[cfg(target_os = "linux")]
+    SoundServer(crate::audio::pulse::record::RecordStream),
+}
+
+/// The sound server's default input and the monitor of its default output.
+#[cfg(target_os = "linux")]
+fn default_monitor_devices() -> Vec<String> {
+    use crate::audio::devices::{default_input_device, default_output_device};
+    [default_input_device(), default_output_device()]
+        .into_iter()
+        .filter_map(|device| device.map_err(|error| warn!("No default to preview: {error:#}")).ok())
+        .map(|device| device.name)
+        .collect()
+}
+
+#[cfg(not(target_os = "linux"))]
 fn default_monitor_devices() -> Vec<String> {
     let mut out = Vec::new();
 
@@ -162,8 +197,43 @@ fn default_monitor_devices() -> Vec<String> {
     out
 }
 
+/// Linux: the device the select names, by its label as `Listing::find`
+/// looks it up; an input first, then an output's monitor (#216). Substring
+/// matching would take the input "X" for "Monitor of X".
+#[cfg(target_os = "linux")]
+fn open_level_stream(device_name: &str, levels: LevelMap) -> Result<LevelStream> {
+    use crate::audio::devices::platform::linux::{resolve, Capture};
+    use crate::audio::devices::{AudioDevice, DeviceType};
+
+    let input = AudioDevice::new(device_name.to_string(), DeviceType::Input);
+    let output = AudioDevice::new(device_name.to_string(), DeviceType::Output);
+    let (capture, device_type) = match resolve(&input) {
+        Ok(capture) => (capture, "input"),
+        Err(input_error) => match resolve(&output) {
+            Ok(capture) => (capture, "output"),
+            Err(_) => return Err(input_error),
+        },
+    };
+    match capture {
+        Capture::Alsa(device, config) => {
+            build_input_level_stream(&device, config, device_name.to_string(), device_type, levels).map(LevelStream::Cpal)
+        }
+        Capture::SoundServer { source } => {
+            let name = device_name.to_string();
+            let stream = crate::audio::pulse::record::RecordStream::open(
+                &source,
+                "Level preview",
+                move |samples: &[f32], _| push_levels(samples, 1, &name, device_type, &levels),
+                |ended| warn!("Level preview stream ended: {ended:?}"),
+            )?;
+            Ok(LevelStream::SoundServer(stream))
+        }
+    }
+}
+
 /// Open a cpal input stream for levels. Tries mic input first, then WASAPI loopback on output.
-fn open_level_stream(device_name: &str, levels: LevelMap) -> Result<cpal::Stream> {
+#[cfg(not(target_os = "linux"))]
+fn open_level_stream(device_name: &str, levels: LevelMap) -> Result<LevelStream> {
     #[cfg(target_os = "windows")]
     let host = cpal::host_from_id(cpal::HostId::Wasapi).unwrap_or_else(|_| cpal::default_host());
     #[cfg(not(target_os = "windows"))]
@@ -182,7 +252,8 @@ fn open_level_stream(device_name: &str, levels: LevelMap) -> Result<cpal::Stream
                             device_name.to_string(),
                             "input",
                             levels,
-                        );
+                        )
+                        .map(LevelStream::Cpal);
                     }
                 }
             }
@@ -203,7 +274,8 @@ fn open_level_stream(device_name: &str, levels: LevelMap) -> Result<cpal::Stream
                             device_name.to_string(),
                             "output",
                             levels,
-                        );
+                        )
+                        .map(LevelStream::Cpal);
                     }
                     // Fallback: use output config shape with input stream (WASAPI loopback)
                     if let Ok(cfg) = device.default_output_config() {
@@ -213,7 +285,8 @@ fn open_level_stream(device_name: &str, levels: LevelMap) -> Result<cpal::Stream
                             device_name.to_string(),
                             "output",
                             levels,
-                        );
+                        )
+                        .map(LevelStream::Cpal);
                     }
                 }
             }

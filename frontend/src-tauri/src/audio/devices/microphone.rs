@@ -1,4 +1,6 @@
-use anyhow::{anyhow, Result};
+use anyhow::Result;
+#[cfg(not(target_os = "linux"))]
+use anyhow::anyhow;
 use cpal::traits::{HostTrait, DeviceTrait};
 use log::{info, warn};
 
@@ -6,11 +8,20 @@ use super::configuration::{AudioDevice, DeviceType};
 
 /// Get the default input (microphone) device for the system
 pub fn default_input_device() -> Result<AudioDevice> {
-    let host = cpal::default_host();
-    let device = host
-        .default_input_device()
-        .ok_or_else(|| anyhow!("No default input device found"))?;
-    Ok(AudioDevice::new(device.name()?, DeviceType::Input))
+    // The sound server's default input, not ALSA's `default` PCM (#216).
+    #[cfg(target_os = "linux")]
+    {
+        super::platform::linux::default_device(DeviceType::Input)
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        let host = cpal::default_host();
+        let device = host
+            .default_input_device()
+            .ok_or_else(|| anyhow!("No default input device found"))?;
+        Ok(AudioDevice::new(device.name()?, DeviceType::Input))
+    }
 }
 
 /// Find the built-in microphone device (wired, stable, consistent sample rate)

@@ -13,6 +13,11 @@ use env_logger;
 #[cfg(all(target_os = "linux", feature = "vulkan"))]
 app_lib::export_vulkan_symbols!();
 
+// Before any static initializer, ggml's included: a processor ggml's
+// x86-64-v3 build cannot run gets one plain message instead of an illegal
+// instruction (cpu_support.rs).
+app_lib::cpu_check_before_static_initializers!();
+
 fn main() {
     // A short-lived copy of the app reports TCC's uncached Audio Capture status
     // (see audio/permissions.rs). Exit before logging or Tauri start.

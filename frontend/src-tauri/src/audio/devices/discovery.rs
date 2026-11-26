@@ -1,24 +1,36 @@
 use anyhow::Result;
+#[cfg(not(target_os = "linux"))]
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+#[cfg(not(target_os = "linux"))]
 use log::error;
 
-use super::configuration::{AudioDevice, DeviceType};
+use super::configuration::AudioDevice;
+#[cfg(not(target_os = "linux"))]
+use super::configuration::DeviceType;
 use super::platform;
 
 /// List all available audio devices on the system
 pub async fn list_audio_devices() -> Result<Vec<AudioDevice>> {
+    // The sound server's list, read on a blocking thread. Callers that ask
+    // while a listing runs share its answer (audio/pulse/devices.rs). The
+    // default host's other devices are not added: on Linux that would open
+    // every ALSA PCM again (#216).
+    #[cfg(target_os = "linux")]
+    {
+        return tokio::task::spawn_blocking(|| platform::configure_linux_audio(&cpal::default_host()))
+            .await
+            .map_err(|error| anyhow::anyhow!("the device listing stopped: {error}"))?;
+    }
+
+    #[cfg(not(target_os = "linux"))]
     let host = cpal::default_host();
 
     // Platform-specific device enumeration
+    #[cfg(not(target_os = "linux"))]
     let mut devices = {
         #[cfg(target_os = "windows")]
         {
             platform::configure_windows_audio(&host)?
-        }
-
-        #[cfg(target_os = "linux")]
-        {
-            platform::configure_linux_audio(&host)?
         }
 
         #[cfg(target_os = "macos")]
@@ -28,6 +40,7 @@ pub async fn list_audio_devices() -> Result<Vec<AudioDevice>> {
     };
 
     // Add any additional devices from the default host
+    #[cfg(not(target_os = "linux"))]
     if let Ok(other_devices) = host.devices() {
         for device in other_devices {
             if let Ok(name) = device.name() {
@@ -38,11 +51,25 @@ pub async fn list_audio_devices() -> Result<Vec<AudioDevice>> {
         }
     }
 
+    #[cfg(not(target_os = "linux"))]
     Ok(devices)
 }
 
 /// Trigger audio permission request on platforms that require it
 /// Returns Ok(true) if permission is granted, Ok(false) if denied, Err if something went wrong
+///
+/// Linux asks no permission; opening a device here would only open ALSA's
+/// default PCM behind the sound server's back (#216), so it answers whether
+/// a microphone is there.
+#[cfg(target_os = "linux")]
+pub fn trigger_audio_permission() -> Result<bool> {
+    let present = platform::linux::microphone_present()
+        .inspect_err(|error| log::error!("[trigger_audio_permission] Linux: {error:#}"))?;
+    log::info!("[trigger_audio_permission] Linux: a microphone is present: {present}");
+    Ok(present)
+}
+
+#[cfg(not(target_os = "linux"))]
 pub fn trigger_audio_permission() -> Result<bool> {
     use log::info;
 

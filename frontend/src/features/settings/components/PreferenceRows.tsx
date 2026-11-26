@@ -112,7 +112,9 @@ export function DeviceRow({type, action}: DeviceRowProps) {
     return (
         <SettingsRow
             label={type === 'Input' ? 'Microphone' : 'System audio'}
-            description={missing ? `${missing} isn’t connected, so the default is used` : undefined}
+            // A device list that failed says why (a sound server PULSE_SERVER
+            // points at but cannot reach, #216), not just an empty select.
+            description={devices.isError ? devices.error.message : missing ? `${missing} isn’t connected, so the default is used` : undefined}
             control={(
                 <DeviceControls>
                     <Select

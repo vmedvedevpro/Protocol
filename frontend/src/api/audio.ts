@@ -131,8 +131,8 @@ const sameDevice = (name: string, wanted: string) =>
 /** The level of the device the feed follows in one update; 0 when none is in it. */
 function deviceLevel(update: AudioLevelUpdate, feed: Extract<LevelFeed, { kind: 'device' }>): number {
     const {device: wanted, type, gain} = feed
-    // Only devices of the feed's type: on Linux an output is named after its
-    // card ("X (System Audio)"), which the loose match takes for the input "X".
+    // Only devices of the feed's type: on Linux an output's monitor is named
+    // after it ("Monitor of X"), which the loose match takes for the input "X".
     const ofType = update.levels.filter((device) => device.device_type === type)
     const named = wanted ? ofType.find((device) => sameDevice(device.device_name, wanted)) : undefined
     const candidates = named ? [named] : ofType

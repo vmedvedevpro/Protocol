@@ -38,6 +38,8 @@ pub mod api;
 pub mod audio;
 pub mod claude_desktop_extension;
 pub mod config;
+// The x86-64-v3 check that runs before static initializers (#216).
+pub mod cpu_support;
 pub mod crash_report;
 pub mod database;
 pub mod diarization;
@@ -250,8 +252,14 @@ async fn get_audio_devices() -> Result<Vec<AudioDevice>, String> {
 
 #[tauri::command]
 async fn trigger_microphone_permission() -> Result<bool, String> {
-    trigger_audio_permission()
-        .map_err(|e| format!("Failed to trigger microphone permission: {}", e))
+    // Linux asks the sound server, a blocking socket (#216): not on the runtime.
+    #[cfg(target_os = "linux")]
+    let answer = tokio::task::spawn_blocking(trigger_audio_permission)
+        .await
+        .map_err(|e| format!("Failed to trigger microphone permission: {}", e))?;
+    #[cfg(not(target_os = "linux"))]
+    let answer = trigger_audio_permission();
+    answer.map_err(|e| format!("Failed to trigger microphone permission: {}", e))
 }
 
 #[tauri::command]

@@ -254,6 +254,110 @@ and log-off exit without asking (tao ends the process on `WM_ENDSESSION`); only
 the latest handoff is tracked, so a second Stop during a save is answered
 `notSaved`.
 
+### Linux audio devices (#216)
+
+On Linux the device select, recording and the level preview use the sound
+server, PipeWire (through `pipewire-pulse`) or PulseAudio, not cpal. cpal
+0.15 only has an ALSA host there: listing its inputs opened all 25 ALSA PCMs
+of the owner's laptop on each call (about 1,800 `pcm_dmix ... supports only
+playback stream` lines an hour on stderr), named them by raw PCM names
+(`dsnoop:…`, `plughw:…`) and never saw a monitor source, so computer audio
+was not found at all.
+
+- `audio/pulse/mod.rs` finds the server's socket as libpulse does
+  (`$PULSE_SERVER`, `$PULSE_RUNTIME_PATH`, `$XDG_RUNTIME_DIR/pulse/native`)
+  and speaks the PulseAudio protocol with the pure-Rust `pulseaudio` crate
+  (no libpulse to link or ship; cpal 0.18's PulseAudio host uses the same
+  crate). Its `Client` is not used: its reactor ignores `RecordStreamKilled`.
+  One blocking connection per listing and one per record stream, each with a
+  3-second reply timeout. A `$PULSE_SERVER` that names no local socket that
+  exists (a TCP server, a stale path) is an error naming the variable and
+  its value, logged by the listing and shown in Settings, the inputs menu
+  and onboarding's microphone check; only with no socket at all is ALSA
+  offered. Auth sends libpulse's cookie (`$PULSE_COOKIE`,
+  `$XDG_CONFIG_HOME/pulse/cookie`, `~/.pulse-cookie`; `choose_cookie`), or
+  256 zero bytes when it is missing, unreadable or of another length, and
+  logs which case applied once: `pipewire-pulse` lets the user's own socket
+  in by its credentials but refuses a cookie of another length, which left
+  a fresh profile without a microphone.
+- `audio/pulse/devices.rs` lists sources in one round trip without opening a
+  device: inputs, and the monitor of each output ("Monitor of …") as
+  computer audio. A device is shown and stored by the server's description;
+  two that share one get the server's name in brackets. The choice survives
+  a restart and a reconnect because the server gives a device back under
+  the same description and name, whatever its index. A listing asked for
+  while another runs waits for it and takes its answer (`LAST`), so Settings,
+  the inputs menu and a recording start do not each list again.
+  `discovery.rs` runs it on a blocking thread.
+- A stored label is looked up by `Listing::find`: exactly; by the server's
+  name in its brackets (a twin's label once the other twin is gone); a plain
+  label two twins now share is ambiguous, not either of them; and the forms
+  Linux stored before #216, each only where it names one device: ALSA's
+  `default`, `pulse`, `pipewire` and "ALSA default input" are the default
+  input, a hardware PCM (`hw:CARD=X,DEV=N`, `plughw:`, `dsnoop:`, `front:`,
+  `sysdefault:CARD=X`) is the one input with that `alsa.card` and
+  `alsa.device` (the card id resolved through `/proc/asound`), and
+  "<name> (System Audio)" is a monitor with that server name or label.
+  `get_recording_preferences` answers a matched device under its current
+  label, so the select and the bar do not call it missing. Settings sends
+  every preference back on any change, so `set_recording_preferences`
+  keeps the stored value when the device sent is only its current label
+  (`kept_device_name`): a gain change does not turn a twin's bracketed
+  label or an ALSA `default` into a plain label. Choosing another device
+  saves it.
+- `audio/devices/platform/linux.rs` resolves a stored device to a source
+  name (`Capture::SoundServer`). Without a sound server only "ALSA default
+  input" is offered (cpal's ALSA `default`), and computer audio reports that
+  it needs PipeWire or PulseAudio.
+- A recording start that cannot open the stored microphone or computer
+  audio records the default instead and says so in the warning toast
+  (`recording_commands.rs` `stored_or_default`, `substitution_warning`):
+  "Your microphone “X” isn’t connected; recording from “Y”.", or that the
+  name now matches several devices (choose one in Settings). "Isn’t
+  connected" only for `MissingDevice`, which each platform returns when no
+  device answers to the name; any other failure (a busy device, no usable
+  format, the sound server) reads "couldn’t be opened (<reason>)", the
+  error's outermost message cut to 120 characters. All platforms.
+- `audio/pulse/record.rs` opens a record stream for that source as 48 kHz
+  mono f32 (the server converts) with 20 ms fragments and `no_move`: an
+  unplugged device ends the stream (`Ended::SourceRemoved` →
+  `DeviceNotAvailable`) instead of the server moving it to another source.
+  Its thread only reads the socket and enqueues blocks;
+  `stream.rs::create_pulse_stream` gives them to the same `CaptureWorker`
+  as Windows capture (the ALSA path uses it on Linux now too). Stop
+  shuts the socket down, which wakes the thread's read at once.
+- Timestamps come from the samples, not from arrival (`record.rs` `Clock`).
+  PipeWire hands a record stream its audio per 1024-sample quantum, so 20 ms
+  blocks arrive 21 ms apart with a 10 ms gap every 15 or so (measured with
+  `parec` on this laptop); stamped on arrival, each block was 1.3 ms off the
+  one before and the mixer padded or dropped the difference. Each block ends
+  one block after the one before, never after it arrived; the clock restarts
+  at arrival only when a block with nothing behind it lags by over 100 ms
+  (the server lost audio, or the card's clock runs slow). A backlog after a
+  stall keeps its capture times. A message announced over 4 MiB ends the
+  stream as failed before anything is allocated for it.
+- `simple_level_monitor.rs` opens the same streams for the level ring,
+  matching the select's label exactly (an input first, then a monitor).
+
+Tests: `cargo test -p protocol --lib audio::pulse` (naming, duplicate
+descriptions, a reconnect under a new index, stored-label lookup with
+twins and pre-#216 ALSA names, `PULSE_SERVER` errors, the cookie choice,
+sample decoding, the capture clock against PipeWire's quantum, a backlog,
+lost audio and a slow card, the message bound) and `substitution_tests` in
+`recording_commands.rs` (the notice). Ignored ones
+need a running server: `lists_the_running_sound_server`, and
+`records_the_chosen_input_and_output_monitor`, which records two seconds from
+the labels in `PROTOCOL_QA_INPUT` and `PROTOCOL_QA_OUTPUT` and checks
+`PROTOCOL_QA_MIN_RMS`. Checked on Kubuntu 26.10 with PipeWire 1.6.8
+(`pipewire-pulse`), with a virtual microphone (`module-remap-source` over a
+null sink) and the monitor of a null sink, fed a 440 Hz and an 880 Hz tone:
+the dev build in a fresh profile listed both by name, opened the stored
+choice by name in onboarding's level preview, and recorded them into the
+microphone and computer-audio tracks with only their own tone, the
+microphone's tone level steady for 32 s. The laptop's own digital microphone
+and speaker monitor recorded too. Not checked: PulseAudio itself, a system
+without a sound server, Bluetooth headsets.
+
 ## 3. Post-call processing and model selection
 
 Summary-generated title ownership, placeholder rejection and completion refresh
@@ -993,6 +1097,36 @@ CRT's `__isa_available >= 6` check, which also appear in `protocol-mcp.exe`.
 Locally a `--features vulkan` test binary built with these variables had no
 EVEX instruction and loaded Large V3 Turbo on the Arc B390 and, with the
 Vulkan drivers hidden, on the CPU of a Core Ultra X7 358H (no AVX-512).
+
+Data in code (#216): MSVC keeps a switch's jump table of 32-bit RVAs in
+`.text`, and in 1.0.0-rc.1 one table happened to decode as
+`vblendmps %zmm18,%zmm15,%zmm21{%k3}{z}` and failed the Windows leg, though
+only the version string had moved the layout. `excludeJumpTables` reads the
+PE section headers and does not count a zmm decode that starts inside two
+neighbouring RVAs into executable sections; the script's header explains why
+a real zmm instruction cannot look like that. `zlib-rs`, the first suspect,
+has its AVX-512 code behind a feature the tree does not enable. This rule is
+proven on Windows only by the release dry run on `main`.
+
+### Processor check at startup (#216)
+
+`cpu_support.rs` checks CPUID and XCR0 for everything x86-64-v3 adds (AVX,
+AVX2, FMA, F16C, BMI1/2, LZCNT, MOVBE and the v2 set) before any ggml code can
+run, ggml's C++ static initializers included: `main.rs` expands
+`cpu_check_before_static_initializers!`, which puts the check in the
+executable's `.preinit_array` (Linux) or `.CRT$XCB` (Windows, ahead of the
+`.CRT$XCU` initializers). The check is plain Rust: Cargo sets no
+`target-cpu`, only ggml's CMake gets the `GGML_*` flags. On a processor that
+lacks them it prints one message to stderr, shows it (`MessageBoxW`;
+`kdialog` or `zenity` on Linux, KDE's first under KDE) and exits with 1.
+On Linux it reads the environment from the loader's `envp`: `environ` is
+still null in preinit functions (glibc bug 30424), and a dialog started
+without `DISPLAY` and `WAYLAND_DISPLAY` shows nothing.
+
+Tests: `cargo test -p protocol --lib cpu_support` fakes CPUID and XCR0
+(Haswell, Sandy Bridge, a Pentium without AVX, a VM without ymm state) and
+parses an `envp`. The real binary was run under `qemu-x86_64 -cpu
+SandyBridge` on Linux, which showed the dialog; Windows only by build.
 
 ### Whisper on OpenVINO (Intel GPUs)
 

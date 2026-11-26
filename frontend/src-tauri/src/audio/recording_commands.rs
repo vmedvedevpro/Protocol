@@ -14,7 +14,7 @@ use tauri::{AppHandle, Emitter, Manager, Runtime};
 use tokio::task::JoinHandle;
 
 use super::{
-    get_device_and_config,
+    devices::{ensure_available, AmbiguousDevice, AudioDevice, MissingDevice},
     parse_audio_device,
     default_input_device,   // Get default microphone
     default_output_device,  // Get default system audio
@@ -158,6 +158,144 @@ fn install_capture_warning_callback<R: Runtime>(
             );
         }
     });
+}
+
+/// Which stored device a recording start looked for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(target_os = "macos", allow(dead_code))] // macOS records the current output, never a stored one.
+enum StoredDevice {
+    Microphone,
+    ComputerAudio,
+}
+
+/// A stored device the recording could not use, and what it records instead.
+#[derive(Debug, PartialEq, Eq)]
+struct Substitution {
+    kind: StoredDevice,
+    /// The stored device's name, as the select showed it.
+    wanted: String,
+    /// Why it could not be used.
+    problem: Problem,
+    /// The default device recorded instead; None when there is none.
+    used: Option<String>,
+}
+
+/// Why a stored device could not be used, as the toast words it: "isn't
+/// connected" only for a device that is gone, since a busy device or a
+/// sound-server failure needs another fix than plugging it back in.
+#[derive(Debug, PartialEq, Eq)]
+enum Problem {
+    Missing,
+    /// The name now fits this many connected devices.
+    Ambiguous(usize),
+    /// Any other failure, with its reason shortened for the toast.
+    Unusable(String),
+}
+
+impl Problem {
+    fn of(error: &anyhow::Error) -> Self {
+        if let Some(found) = error.downcast_ref::<AmbiguousDevice>() {
+            Problem::Ambiguous(found.count)
+        } else if error.downcast_ref::<MissingDevice>().is_some() {
+            Problem::Missing
+        } else {
+            Problem::Unusable(short_reason(error))
+        }
+    }
+}
+
+/// The outermost message of an error, on one line and at most
+/// `SHORT_REASON_CHARS` characters: the toast carries it in brackets, the log
+/// keeps the whole chain.
+fn short_reason(error: &anyhow::Error) -> String {
+    const SHORT_REASON_CHARS: usize = 120;
+    let message = error.to_string();
+    let line = message.lines().next().unwrap_or_default().trim();
+    if line.chars().count() <= SHORT_REASON_CHARS {
+        return line.to_string();
+    }
+    let cut: String = line.chars().take(SHORT_REASON_CHARS - 1).collect();
+    format!("{}…", cut.trim_end())
+}
+
+/// The stored device as it can be opened now, or the default when it
+/// cannot be, with what the user is told about the swap. A microphone with
+/// no default either is an error; computer audio is then left out.
+async fn stored_or_default(kind: StoredDevice, stored: &str) -> Result<(Option<AudioDevice>, Option<Substitution>), String> {
+    let parsed = parse_audio_device(stored);
+    let reason = match &parsed {
+        Ok(device) => match ensure_available(device).await {
+            Ok(current) => {
+                info!("Using the stored {kind:?} '{}'", current.name);
+                return Ok((Some(current), None));
+            }
+            Err(error) => error,
+        },
+        Err(error) => anyhow::anyhow!("{error}"),
+    };
+    warn!("The stored {kind:?} '{stored}' cannot be used ({reason:#}); using the current default");
+    let wanted = parsed.as_ref().map_or(stored, |device| device.name.as_str()).to_string();
+    let problem = Problem::of(&reason);
+    let default = match kind {
+        StoredDevice::Microphone => default_input_device(),
+        StoredDevice::ComputerAudio => default_output_device(),
+    };
+    match default {
+        Ok(device) => {
+            let used = Some(device.name.clone());
+            Ok((Some(device), Some(Substitution { kind, wanted, problem, used })))
+        }
+        Err(error) if kind == StoredDevice::Microphone => Err(format!(
+            "No microphone device available. Preferred device '{stored}' was not found, and the default microphone is unavailable: {error}"
+        )),
+        Err(error) => {
+            warn!("No default computer audio either ({error}); recording the microphone only");
+            Ok((None, Some(Substitution { kind, wanted, problem, used: None })))
+        }
+    }
+}
+
+/// The toast's title and text for the devices a recording replaced: the
+/// log alone would let a recording run on another microphone unnoticed.
+fn substitution_warning(substitutions: &[Substitution]) -> Option<(&'static str, String)> {
+    if substitutions.is_empty() {
+        return None;
+    }
+    let lines: Vec<String> = substitutions
+        .iter()
+        .map(|each| {
+            let what = match each.kind {
+                StoredDevice::Microphone => "microphone",
+                StoredDevice::ComputerAudio => "computer audio",
+            };
+            let problem = match &each.problem {
+                Problem::Ambiguous(count) => format!("Your {what} “{}” now matches {count} connected devices", each.wanted),
+                Problem::Missing => format!("Your {what} “{}” isn’t connected", each.wanted),
+                Problem::Unusable(reason) => format!("Your {what} “{}” couldn’t be opened ({reason})", each.wanted),
+            };
+            let instead = match (&each.used, each.kind) {
+                (Some(used), StoredDevice::Microphone) => format!("; recording from “{used}”."),
+                (Some(used), StoredDevice::ComputerAudio) => format!("; recording computer audio from “{used}”."),
+                (None, _) => ", and there is no other to record; only the microphone is recording.".to_string(),
+            };
+            let choose = if matches!(each.problem, Problem::Ambiguous(_)) { " Choose one in Settings › Recording." } else { "" };
+            format!("{problem}{instead}{choose}")
+        })
+        .collect();
+    let title = if substitutions.iter().any(|each| each.used.is_none()) {
+        "Computer audio is not being captured"
+    } else {
+        "Recording from another device"
+    };
+    Some((title, lines.join(" ")))
+}
+
+/// Shows the swap in the main window's warning toast, once the recording runs.
+fn notify_substitutions<R: Runtime>(app: &AppHandle<R>, substitutions: &[Substitution]) {
+    let Some((title, message)) = substitution_warning(substitutions) else { return };
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.emit("recording-audio-route-warning", serde_json::json!({ "title": title, "message": message }));
+    }
 }
 
 /// The recording-start toast for a transcription model that is not ready.
@@ -328,46 +466,15 @@ pub async fn start_recording_with_meeting_name<R: Runtime>(
     // ============================================================================
     // MICROPHONE DEVICE RESOLUTION: Preference â†’ Default â†’ Error
     // ============================================================================
+    // A stored device that cannot be used is replaced by the default, and
+    // the user is told once the recording runs (#216).
+    let mut substitutions: Vec<Substitution> = Vec::new();
     let microphone_device = match preferred_mic_name {
         Some(pref_name) => {
             info!("ðŸŽ¤ Attempting to use preferred microphone: '{}'", pref_name);
-            match parse_audio_device(&pref_name) {
-                Ok(device) => {
-                    match get_device_and_config(&device).await {
-                        Ok(_) => {
-                            info!("âœ… Using preferred microphone: '{}'", device.name);
-                            Some(Arc::new(device))
-                        }
-                        Err(e) => {
-                            warn!("Preferred microphone '{}' is no longer available: {}", pref_name, e);
-                            warn!("Falling back to the current default microphone...");
-                            Some(Arc::new(default_input_device().map_err(|default_err| {
-                                format!(
-                                    "No microphone device available. Preferred device '{}' was not found, and the default microphone is unavailable: {}",
-                                    pref_name, default_err
-                                )
-                            })?))
-                        }
-                    }
-                }
-                Err(e) => {
-                    warn!("âš ï¸ Preferred microphone '{}' not available: {}", pref_name, e);
-                    warn!("   Falling back to system default microphone...");
-                    match default_input_device() {
-                        Ok(device) => {
-                            info!("âœ… Using default microphone: '{}'", device.name);
-                            Some(Arc::new(device))
-                        }
-                        Err(default_err) => {
-                            error!("âŒ No microphone available (preferred and default both failed)");
-                            return Err(format!(
-                                "No microphone device available. Preferred device '{}' not found, and default microphone unavailable: {}",
-                                pref_name, default_err
-                            ));
-                        }
-                    }
-                }
-            }
+            let (device, notice) = stored_or_default(StoredDevice::Microphone, &pref_name).await?;
+            substitutions.extend(notice);
+            device.map(Arc::new)
         }
         None => {
             info!("ðŸŽ¤ No microphone preference set, using system default");
@@ -411,35 +518,9 @@ pub async fn start_recording_with_meeting_name<R: Runtime>(
     let system_device = match preferred_system_name {
         Some(pref_name) => {
             info!("ðŸ”Š Attempting to use preferred system audio: '{}'", pref_name);
-            match parse_audio_device(&pref_name) {
-                Ok(device) => {
-                    match get_device_and_config(&device).await {
-                        Ok(_) => {
-                            info!("âœ… Using preferred system audio: '{}'", device.name);
-                            Some(Arc::new(device))
-                        }
-                        Err(e) => {
-                            warn!("Preferred system audio '{}' is no longer available: {}", pref_name, e);
-                            default_output_device().ok().map(Arc::new)
-                        }
-                    }
-                }
-                Err(e) => {
-                    warn!("âš ï¸ Preferred system audio '{}' not available: {}", pref_name, e);
-                    warn!("   Falling back to system default...");
-                    match default_output_device() {
-                        Ok(device) => {
-                            info!("âœ… Using default system audio: '{}'", device.name);
-                            Some(Arc::new(device))
-                        }
-                        Err(default_err) => {
-                            warn!("âš ï¸ No system audio available (preferred and default both failed): {}", default_err);
-                            warn!("   Recording will continue with microphone only");
-                            None // System audio is optional
-                        }
-                    }
-                }
-            }
+            let (device, notice) = stored_or_default(StoredDevice::ComputerAudio, &pref_name).await?;
+            substitutions.extend(notice);
+            device.map(Arc::new)
         }
         None => {
             info!("ðŸ”Š No system audio preference set, using system default");
@@ -576,6 +657,8 @@ pub async fn start_recording_with_meeting_name<R: Runtime>(
     // Update tray menu to reflect recording state
     crate::tray::update_tray_menu(&app);
 
+    notify_substitutions(&app, &substitutions);
+
     info!("âœ… Recording started successfully with async-first approach");
     drop(engine_lifecycle_guard);
 
@@ -634,24 +717,11 @@ pub async fn start_recording_with_devices_and_meeting<R: Runtime>(
 
     // Resolve devices against the current enumeration. A syntactically valid
     // persisted name can refer to hardware that has since disconnected.
+    let mut substitutions: Vec<Substitution> = Vec::new();
     let mic_device = if let Some(ref name) = mic_device_name {
-        let preferred = parse_audio_device(name)
-            .map_err(|e| format!("Invalid microphone device '{}': {}", name, e))?;
-        match get_device_and_config(&preferred).await {
-            Ok(_) => Some(Arc::new(preferred)),
-            Err(error) => {
-                warn!(
-                    "Requested microphone '{}' is unavailable ({}); using the current default",
-                    name, error
-                );
-                Some(Arc::new(default_input_device().map_err(|e| {
-                    format!(
-                        "Requested microphone '{}' is unavailable and no default microphone exists: {}",
-                        name, e
-                    )
-                })?))
-            }
-        }
+        let (device, notice) = stored_or_default(StoredDevice::Microphone, name).await?;
+        substitutions.extend(notice);
+        device.map(Arc::new)
     } else {
         Some(Arc::new(default_input_device().map_err(|e| {
             format!("No default microphone device available: {}", e)
@@ -677,18 +747,9 @@ pub async fn start_recording_with_devices_and_meeting<R: Runtime>(
 
     #[cfg(not(target_os = "macos"))]
     let system_device = if let Some(ref name) = system_device_name {
-        let preferred = parse_audio_device(name)
-            .map_err(|e| format!("Invalid system device '{}': {}", name, e))?;
-        match get_device_and_config(&preferred).await {
-            Ok(_) => Some(Arc::new(preferred)),
-            Err(error) => {
-                warn!(
-                    "Requested system device '{}' is unavailable ({}); using the current default",
-                    name, error
-                );
-                default_output_device().ok().map(Arc::new)
-            }
-        }
+        let (device, notice) = stored_or_default(StoredDevice::ComputerAudio, name).await?;
+        substitutions.extend(notice);
+        device.map(Arc::new)
     } else {
         default_output_device().ok().map(Arc::new)
     };
@@ -835,6 +896,8 @@ pub async fn start_recording_with_devices_and_meeting<R: Runtime>(
 
     // Update tray menu to reflect recording state
     crate::tray::update_tray_menu(&app);
+
+    notify_substitutions(&app, &substitutions);
 
     info!("âœ… Recording started with custom devices using async-first approach");
     drop(engine_lifecycle_guard);
@@ -1242,6 +1305,91 @@ mod compact_mode_tests {
         assert!(!compact_mode_allowed(false, false));
         assert!(!compact_mode_allowed(true, true));
         assert!(!compact_mode_allowed(false, true));
+    }
+}
+
+#[cfg(test)]
+mod substitution_tests {
+    use super::{short_reason, substitution_warning, Problem, StoredDevice, Substitution};
+    use crate::audio::devices::{AmbiguousDevice, MissingDevice};
+
+    fn swap(kind: StoredDevice, wanted: &str, ambiguous: Option<usize>, used: Option<&str>) -> Substitution {
+        let problem = ambiguous.map_or(Problem::Missing, Problem::Ambiguous);
+        Substitution { kind, wanted: wanted.into(), problem, used: used.map(Into::into) }
+    }
+
+    #[test]
+    fn only_a_missing_device_is_called_not_connected() {
+        let missing: anyhow::Error = MissingDevice { name: "Jabra Evolve2".into() }.into();
+        assert_eq!(Problem::of(&missing.context("checking the microphone")), Problem::Missing);
+        let twins: anyhow::Error = AmbiguousDevice { name: "Yeti".into(), count: 2 }.into();
+        assert_eq!(Problem::of(&twins), Problem::Ambiguous(2));
+        let busy = anyhow::anyhow!("Failed to get default input config: The requested device is in use");
+        assert_eq!(Problem::of(&busy), Problem::Unusable("Failed to get default input config: The requested device is in use".into()));
+    }
+
+    #[test]
+    fn a_device_that_cannot_be_opened_gives_the_reason() {
+        let busy = Substitution {
+            kind: StoredDevice::Microphone,
+            wanted: "Jabra Evolve2".into(),
+            problem: Problem::Unusable("the device is in use by another application".into()),
+            used: Some("HD Audio Digital Microphone".into()),
+        };
+        let (title, message) = substitution_warning(&[busy]).unwrap();
+        assert_eq!(title, "Recording from another device");
+        assert_eq!(
+            message,
+            "Your microphone “Jabra Evolve2” couldn’t be opened (the device is in use by another application); recording from “HD Audio Digital Microphone”.",
+        );
+    }
+
+    #[test]
+    fn the_reason_is_one_short_line() {
+        let long = anyhow::anyhow!("{}\nsecond line", "x".repeat(200));
+        let reason = short_reason(&long);
+        assert_eq!(reason.chars().count(), 120);
+        assert!(reason.ends_with('…') && !reason.contains('\n'), "{reason}");
+        assert_eq!(short_reason(&anyhow::anyhow!("inner").context("outer")), "outer");
+    }
+
+    #[test]
+    fn nothing_replaced_shows_nothing() {
+        assert_eq!(substitution_warning(&[]), None);
+    }
+
+    #[test]
+    fn a_missing_microphone_names_both_devices() {
+        let warning = substitution_warning(&[swap(StoredDevice::Microphone, "Jabra Evolve2", None, Some("HD Audio Digital Microphone"))]);
+        assert_eq!(warning, Some((
+            "Recording from another device",
+            "Your microphone “Jabra Evolve2” isn’t connected; recording from “HD Audio Digital Microphone”.".to_string(),
+        )));
+    }
+
+    #[test]
+    fn a_name_two_twins_share_asks_for_a_choice() {
+        let (_, message) = substitution_warning(&[swap(StoredDevice::Microphone, "Yeti Stereo Microphone", Some(2), Some("Yeti Stereo Microphone [alsa_input.usb-B2]"))]).unwrap();
+        assert_eq!(
+            message,
+            "Your microphone “Yeti Stereo Microphone” now matches 2 connected devices; recording from “Yeti Stereo Microphone [alsa_input.usb-B2]”. Choose one in Settings › Recording.",
+        );
+    }
+
+    #[test]
+    fn computer_audio_without_a_default_says_only_the_microphone_records() {
+        let (title, message) = substitution_warning(&[
+            swap(StoredDevice::Microphone, "default", None, Some("HD Audio Digital Microphone")),
+            swap(StoredDevice::ComputerAudio, "Monitor of USB Dock", None, None),
+        ]).unwrap();
+        assert_eq!(title, "Computer audio is not being captured");
+        assert_eq!(
+            message,
+            "Your microphone “default” isn’t connected; recording from “HD Audio Digital Microphone”. Your computer audio “Monitor of USB Dock” isn’t connected, and there is no other to record; only the microphone is recording.",
+        );
+        let (title, message) = substitution_warning(&[swap(StoredDevice::ComputerAudio, "Monitor of USB Dock", None, Some("Monitor of HD Audio Speaker"))]).unwrap();
+        assert_eq!(title, "Recording from another device");
+        assert_eq!(message, "Your computer audio “Monitor of USB Dock” isn’t connected; recording computer audio from “Monitor of HD Audio Speaker”.");
     }
 }
 

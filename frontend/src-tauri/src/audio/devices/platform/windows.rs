@@ -217,6 +217,7 @@ pub fn get_windows_device(audio_device: &AudioDevice) -> Result<(cpal::Device, c
                             // info!("Using default output config: {:?}", default_config);
                             return Ok((device, default_config));
                         }
+                        return Err(anyhow!("No compatible output configuration found for device: {}", name));
                     }
                 }
             }
@@ -225,5 +226,6 @@ pub fn get_windows_device(audio_device: &AudioDevice) -> Result<(cpal::Device, c
         }
     }
 
-    Err(anyhow!("Device not found or no compatible configuration available: {}", audio_device.name))
+    // Every matched device has returned above, so none answers to the name.
+    Err(crate::audio::devices::MissingDevice { name: audio_device.name.clone() }.into())
 }

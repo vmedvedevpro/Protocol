@@ -50,6 +50,21 @@ is inherited from the project Protocol forked from; Protocol did not release it.
   "Detect automatically" short. A run that ends with the labels the
   meeting already had says so, and a run whose speakers do not all reach
   a line says how many are on the transcript.
+- **Linux microphones by name**
+  ([#216](https://github.com/vmedvedevpro/Protocol/issues/216)). The
+  microphone and computer audio lists show the devices PipeWire or
+  PulseAudio knows, by their names ("Digital Microphone", a USB or Bluetooth
+  headset, "Monitor of …" for what an output plays), instead of ALSA's raw
+  device names. Recording and the level check use the chosen one, and
+  computer audio can be recorded on Linux. Listing devices no longer
+  fills the log with ALSA errors. Without a sound server only ALSA's
+  default input is offered. A device chosen before this version is kept
+  where its old ALSA name names one device; otherwise a recording says
+  which device it uses instead.
+- **Processors without AVX2**
+  ([#216](https://github.com/vmedvedevpro/Protocol/issues/216)). On Windows
+  and Linux, a processor without AVX2 gets a message that it is not
+  supported and what it lacks, instead of the app closing without a word.
 
 ## Protocol 1.0.0-rc.1 — 2026-11-26
 

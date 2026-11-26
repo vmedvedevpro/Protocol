@@ -63,6 +63,8 @@ export function InputsMenu({trigger, onOpenSettings}: InputsMenuProps) {
     return (
         <Menu trigger={trigger} side="top" align="start">
             <MenuGroup label="Microphone">
+                {/* Why the list is empty, when it could not be read (#216). */}
+                {devices.isError && <MenuItem onSelect={() => undefined} disabled>{devices.error.message}</MenuItem>}
                 <MenuRadioGroup value={mic.device ?? DEFAULT} onValueChange={(value) => void choose('mic', value)}>
                     {/* The default cannot be switched to mid-recording: native needs a device's name. */}
                     <MenuRadioItem value={DEFAULT} disabled={live}>{systemDefault(mic.missing)}</MenuRadioItem>
