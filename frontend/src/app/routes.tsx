@@ -6,7 +6,7 @@ import {MinibarPage} from '@/features/recording/minibar/MinibarPage'
 import {RecordingPage} from '@/features/recording/pages/RecordingPage'
 import {SettingsPage} from '@/features/settings/pages/SettingsPage'
 import {SettingsSubpage} from '@/features/settings/pages/SettingsSubpage'
-import {RouteError} from './RouteError'
+import {MinibarError, RouteError} from './RouteError'
 import {Shell, type ShellRouteHandle} from './shell/Shell'
 
 const back: ShellRouteHandle = {back: true}
@@ -35,7 +35,7 @@ export const routes: RouteObject[] = [
         }],
     },
     // minibar.rs opens this route in its own window.
-    {path: '/minibar', element: <MinibarPage/>, errorElement: <RouteError/>},
+    {path: '/minibar', element: <MinibarPage/>, errorElement: <MinibarError/>},
     // Anything else, such as an old UI's path, goes home.
     {path: '*', element: <Navigate to="/" replace/>},
 ]

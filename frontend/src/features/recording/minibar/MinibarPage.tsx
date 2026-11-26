@@ -1,6 +1,6 @@
 import {useCallback, useEffect, useRef, useState} from 'react'
 import {useQuery, useQueryClient} from '@tanstack/react-query'
-import styled, {createGlobalStyle, useTheme} from 'styled-components'
+import styled, {useTheme} from 'styled-components'
 import type {AudioSource} from '@/api/audio'
 import {useSystemAudioWarning} from '@/components/ring/levelAdvice'
 import {px} from '@/components/ui/styles'
@@ -26,6 +26,7 @@ import {
     takeMinibarNotice,
 } from './api'
 import {type MinibarPhase, MinibarPill} from './MinibarPill'
+import {TransparentWindow} from './TransparentWindow'
 
 /**
  * How often the bar reads native's state: the timer, pause and mutes, its
@@ -37,16 +38,6 @@ const POLL_MS = 500
 
 /** A failed command is said in the status's place this long, as a toast stays. */
 const FAILURE_MS = 5_000
-
-// minibar.rs makes this window transparent so the pill's corners read as
-// round. `:root` outranks GlobalStyle's `html` and `body` whatever order the
-// two global styles are injected in.
-const TransparentWindow = createGlobalStyle`
-    :root,
-    :root body {
-        background: transparent;
-    }
-`
 
 // The window follows the pill's width once it settles: hide what is outside
 // it until then rather than scroll.

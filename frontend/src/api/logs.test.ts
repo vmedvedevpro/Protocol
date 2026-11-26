@@ -1,7 +1,7 @@
 import {waitFor} from '@testing-library/react'
 import {describe, expect, it} from 'vitest'
 import {mockState} from '@/mocks/state'
-import {installErrorLogging} from './logs'
+import {installErrorLogging, logWebViewError} from './logs'
 
 describe('installErrorLogging', () => {
     it('writes uncaught errors and unhandled rejections to the log until removed', async () => {
@@ -19,5 +19,19 @@ describe('installErrorLogging', () => {
         window.dispatchEvent(new ErrorEvent('error', {message: 'after removal'}))
         await new Promise((resolve) => setTimeout(resolve, 0))
         expect(mockState.logs.webViewErrors).toHaveLength(2)
+    })
+})
+
+describe('logWebViewError', () => {
+    it('drops a repeat within 5 s and the ResizeObserver loop note', async () => {
+        const error = new Error('the list failed')
+        logWebViewError('error', error, 1_000)
+        logWebViewError('error', error, 5_999)
+        logWebViewError('error', 'ResizeObserver loop completed with undelivered notifications.', 6_000)
+        logWebViewError('error', error, 6_000)
+        await waitFor(() => expect(mockState.logs.webViewErrors).toEqual([
+            {kind: 'error', message: 'the list failed'},
+            {kind: 'error', message: 'the list failed'},
+        ]))
     })
 })

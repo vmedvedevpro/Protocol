@@ -6,10 +6,8 @@ import {Button} from '@/components/ui/Button'
 import {Collapse} from '@/components/ui/Collapse'
 import {SettingsGroup, SettingsRow} from '@/components/ui/SettingsRow'
 import {toast} from '@/components/ui/toastStore'
+import {basename} from '@/lib/basename'
 import {Warning} from './styles'
-
-/** The file's own name, for "Saved as …"; native returns the whole path. */
-const fileName = (path: string) => path.split(/[\\/]/).pop() ?? path
 
 /**
  * Settings › Advanced › Bug reports: Save logs puts Protocol's log, the
@@ -25,7 +23,8 @@ export function LogsGroup() {
     const save = useMutation({
         mutationFn: async () => {
             const destination = await chooseLogsDestination()
-            return destination ? saveLogsZip(destination) : null
+            if (destination) await saveLogsZip(destination)
+            return destination
         },
         onSuccess: (path) => {
             if (path) setSaved(path)
@@ -46,20 +45,23 @@ export function LogsGroup() {
                 label="Logs"
                 description={problem
                     ? <Warning as="span">{problem}</Warning>
-                    : 'One ZIP to attach to a bug report. Recordings, transcripts and keys stay out of it.'}
+                    : 'One ZIP to attach to a bug report. The log names meetings, files and devices; it is written to leave out recordings, transcripts and keys.'}
                 control={<Button size="sm" pending={save.isPending} onClick={() => save.mutate()}>Save logs</Button>}
             />
             <Collapse open={saved !== null && !save.isPending}>
-                {saved !== null && (
-                    <SettingsRow
-                        label={`Saved as ${fileName(saved)}`}
-                        control={(
-                            <Button size="sm" pending={show.isPending} onClick={() => show.mutate(saved)}>
-                                Show in folder
-                            </Button>
-                        )}
-                    />
-                )}
+                {/* Present before the row, so a screen reader announces it. */}
+                <div role="status">
+                    {saved !== null && (
+                        <SettingsRow
+                            label={`Saved as ${basename(saved)}`}
+                            control={(
+                                <Button size="sm" pending={show.isPending} onClick={() => show.mutate(saved)}>
+                                    Show in folder
+                                </Button>
+                            )}
+                        />
+                    )}
+                </div>
             </Collapse>
         </SettingsGroup>
     )

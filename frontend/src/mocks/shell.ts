@@ -44,7 +44,7 @@ export const shellHandlers: Record<string, MockHandler> = {
     get_log_status: () => mockState.logs.status,
     save_logs_zip: ({destination}) => {
         mockState.logs.zips.push(String(destination))
-        return destination
+        return null
     },
     show_saved_logs: ({path}) => {
         mockState.logs.shown.push(String(path))

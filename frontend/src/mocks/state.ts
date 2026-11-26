@@ -55,7 +55,7 @@ function createMockState() {
         // wrote, the ZIPs shown in a file manager, and the WebView errors
         // written into it.
         logs: {
-            status: {folder: '/home/user/.local/share/vmedvedevpro/Protocol/logs', problem: null} as LogStatus,
+            status: {problem: null} as LogStatus,
             zips: [] as string[],
             shown: [] as string[],
             webViewErrors: [] as {kind: string, message: string}[],

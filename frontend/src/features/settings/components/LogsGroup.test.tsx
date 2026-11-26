@@ -15,10 +15,10 @@ describe('Bug reports', () => {
         mockState.saveDialogPath = '/home/user/Protocol-logs-2026-11-26.zip'
         openAdvanced()
         const logs = await group()
-        expect(within(logs).getByText(/Recordings, transcripts and keys stay out of it/)).toBeInTheDocument()
+        expect(within(logs).getByText(/leave out recordings, transcripts and keys/)).toBeInTheDocument()
 
         await userEvent.click(within(logs).getByRole('button', {name: 'Save logs'}))
-        expect(await within(logs).findByText('Saved as Protocol-logs-2026-11-26.zip')).toBeInTheDocument()
+        expect(await within(logs).findByRole('status')).toHaveTextContent('Saved as Protocol-logs-2026-11-26.zip')
         expect(mockState.logs.zips).toEqual(['/home/user/Protocol-logs-2026-11-26.zip'])
 
         await userEvent.click(within(logs).getByRole('button', {name: 'Show in folder'}))
@@ -37,13 +37,12 @@ describe('Bug reports', () => {
 
     it('says why the log is not written, in place of its description', async () => {
         mockState.logs.status = {
-            folder: '/home/user/.local/share/vmedvedevpro/Protocol/logs',
             problem: 'Protocol cannot write its log to /home/user/.local/share/vmedvedevpro/Protocol/logs: Permission denied',
         }
         openAdvanced()
         const logs = await group()
         expect(await within(logs).findByText(/Protocol cannot write its log to .*Permission denied/)).toBeInTheDocument()
-        expect(within(logs).queryByText(/Recordings, transcripts and keys/)).not.toBeInTheDocument()
+        expect(within(logs).queryByText(/leave out recordings/)).not.toBeInTheDocument()
         // The earlier files can still be saved.
         expect(within(logs).getByRole('button', {name: 'Save logs'})).toBeEnabled()
     })
