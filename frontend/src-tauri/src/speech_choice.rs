@@ -115,14 +115,14 @@ pub fn regular_copy(version: &Entry, is_installed: impl Fn(&str) -> bool) -> Opt
 }
 
 /// The name the person knows the Intel GPU version `version` by: the model
-/// it serves and its device ("Large V3 Turbo · Intel GPU").
+/// it serves and its device ("Large V3 Turbo (Intel GPU)").
 pub fn version_name(version: &Entry) -> String {
     let serves = version
         .companion_of
         .first()
         .and_then(|id| model_catalog::entry(Engine::Whisper, id))
         .map_or_else(|| version.name.clone(), |entry| entry.name);
-    format!("{serves} · Intel GPU")
+    format!("{serves} (Intel GPU)")
 }
 
 /// `model` as a load error names it: the Intel GPU version by
@@ -674,11 +674,11 @@ mod tests {
     #[test]
     fn without_a_copy_the_message_names_the_model_and_what_to_do() {
         let message = no_copy_message(&version());
-        assert!(message.starts_with("Whisper Large V3 Turbo · Intel GPU didn't start"), "{message}");
+        assert!(message.starts_with("Whisper Large V3 Turbo (Intel GPU) didn't start"), "{message}");
         assert!(message.contains("Download the standard version"));
         assert!(!message.contains("OpenVINO") && !message.contains(GPU), "{message}");
         // The passes' load errors name it the same way; other models keep their id.
-        assert_eq!(shown_name(GPU), "Large V3 Turbo · Intel GPU");
+        assert_eq!(shown_name(GPU), "Large V3 Turbo (Intel GPU)");
         assert_eq!(shown_name("small"), "small");
     }
 

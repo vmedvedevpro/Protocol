@@ -54,7 +54,7 @@ function Sections({query = '', onMatches}: {query?: string, onMatches?: (count: 
         <SettingsSearchScope query={query} scope="AI" onMatches={onMatches}>
             <SettingsGroup title="Summaries" note="Written when a recording is saved.">
                 <SettingsRow label="Summarize automatically" description="When a recording is saved" control={<Switch checked onCheckedChange={() => {}}/>}/>
-                <SettingsNavRow label="Summary model" value="Built-in · Qwen 3.5 4B" onClick={() => {}}/>
+                <SettingsNavRow label="Summary model" value="Built-in (Qwen 3.5 4B)" onClick={() => {}}/>
                 <SettingsNavRow label="Templates" description="The sections a summary is written in" onClick={() => {}}/>
             </SettingsGroup>
             <SettingsGroup title="Labs">
@@ -66,9 +66,9 @@ function Sections({query = '', onMatches}: {query?: string, onMatches?: (count: 
 
 describe('settings search', () => {
     it('matches every word of the query in a row’s label, description, badge or value', () => {
-        expect(matchesTerms(searchTerms('model qwen'), 'Summary model', 'Built-in · Qwen 3.5 4B')).toBe(true)
+        expect(matchesTerms(searchTerms('model qwen'), 'Summary model', 'Built-in (Qwen 3.5 4B)')).toBe(true)
         expect(matchesTerms(searchTerms('SAVED'), 'Summarize automatically', 'When a recording is saved')).toBe(true)
-        expect(matchesTerms(searchTerms('model ollama'), 'Summary model', 'Built-in · Qwen 3.5 4B')).toBe(false)
+        expect(matchesTerms(searchTerms('model ollama'), 'Summary model', 'Built-in (Qwen 3.5 4B)')).toBe(false)
     })
 
     it('shows every row and note while the query is blank', () => {
@@ -82,19 +82,19 @@ describe('settings search', () => {
     it('keeps the rows that match, under their section’s name, and hides groups without one', () => {
         renderUi(<Sections query="summary"/>)
 
-        const group = screen.getByRole('region', {name: 'AI · Summaries'})
+        const group = screen.getByRole('region', {name: 'Summaries (AI)'})
         expect(group).toBeVisible()
         expect(screen.getByRole('button', {name: /Summary model/})).toBeInTheDocument()
         expect(screen.getByRole('button', {name: /Templates/})).toBeInTheDocument()
         expect(screen.queryByRole('switch', {name: 'Summarize automatically'})).not.toBeInTheDocument()
         expect(screen.queryByText('Written when a recording is saved.')).not.toBeInTheDocument()
-        expect(screen.queryByRole('region', {name: 'AI · Labs'})).not.toBeInTheDocument()
+        expect(screen.queryByRole('region', {name: 'Labs (AI)'})).not.toBeInTheDocument()
     })
 
     it('brings rows back as the query changes', () => {
         const {rerender} = renderUi(<Sections query="labs"/>)
         expect(screen.getByRole('switch', {name: 'Voice profiles'})).toBeInTheDocument()
-        expect(screen.queryByRole('region', {name: 'AI · Summaries'})).not.toBeInTheDocument()
+        expect(screen.queryByRole('region', {name: 'Summaries (AI)'})).not.toBeInTheDocument()
 
         rerender(<Sections query="automatically"/>)
 

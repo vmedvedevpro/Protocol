@@ -172,7 +172,7 @@ function SearchResults({query}: {query: string}) {
                         <SettingsNavRow
                             key={id}
                             label={SETTINGS_PAGES[id].title}
-                            description={`${sectionLabel(SETTINGS_PAGES[id].section)} · ${count} matching`}
+                            description={`${sectionLabel(SETTINGS_PAGES[id].section)}, ${count} matching`}
                             onClick={() => void navigate(paths.settingsPage(id))}
                         />
                     ))}

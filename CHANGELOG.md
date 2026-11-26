@@ -110,6 +110,14 @@ is inherited from the project Protocol forked from; Protocol did not release it.
   ([#219](https://github.com/vmedvedevpro/Protocol/issues/219)). At the
   window's default width it shows "Search" whole instead of "Searc"; in a
   narrower window it moves to a line of its own under the tabs.
+- **No more "·" between words**
+  ([#219](https://github.com/vmedvedevpro/Protocol/issues/219)). Settings,
+  model rows, search results, the meeting and recording headers, the person
+  page and the import and recovery sheets set their details apart with
+  spacing, a comma or parentheses instead. The data folder's path in
+  Settings › Advanced gets a line of its own. New automatic meeting titles
+  read "Meeting, Mon, Sep 28, 2:30 PM"; older ones written with "·" still
+  count as automatic.
 
 ## Protocol 1.0.0-rc.1 — 2026-11-26
 

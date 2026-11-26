@@ -13,10 +13,10 @@ describe('Settings search', () => {
         open()
         await userEvent.type(await search(), 'summar')
 
-        const summaries = await screen.findByRole('region', {name: 'AI · Summaries'})
+        const summaries = await screen.findByRole('region', {name: 'Summaries (AI)'})
         expect(within(summaries).getByRole('switch', {name: 'Summarize automatically'})).toBeInTheDocument()
         expect(within(summaries).getByRole('button', {name: /Summary model/})).toBeInTheDocument()
-        expect(screen.queryByRole('region', {name: /General · You/})).not.toBeInTheDocument()
+        expect(screen.queryByRole('region', {name: /You \(General\)/})).not.toBeInTheDocument()
     })
 
     it('finds the rows of the pages and opens the page', async () => {

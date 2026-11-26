@@ -70,7 +70,7 @@ describe('markdownSnippetText', () => {
     })
 
     test('reads a table as its cells', () => {
-        assert.equal(markdownSnippetText('...Shah | Send terms | Today |\n|---|---|---|\n| You | Write it | Next week |'), '...Shah · Send terms · Today You · Write it · Next week')
+        assert.equal(markdownSnippetText('...Shah | Send terms | Today |\n|---|---|---|\n| You | Write it | Next week |'), '...Shah, Send terms, Today You, Write it, Next week')
     })
 
     test('leaves a mark the cut left alone, and plain words with underscores', () => {

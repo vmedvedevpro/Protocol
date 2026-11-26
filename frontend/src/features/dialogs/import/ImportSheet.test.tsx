@@ -36,7 +36,7 @@ describe('ImportSheet', () => {
     it('imports a chosen file with the default model, then opens the meeting', async () => {
         const {router} = renderDialogs({kind: 'import'})
         const dialog = await chooseFile()
-        expect(within(dialog).getByText('38 min · M4A')).toBeInTheDocument()
+        expect(within(dialog).getByText('38 min, M4A')).toBeInTheDocument()
         expect(within(dialog).getByRole('textbox', {name: 'Title'})).toHaveValue('client-call-nov-21')
 
         await userEvent.click(within(dialog).getByRole('button', {name: 'Import'}))
@@ -77,7 +77,7 @@ describe('ImportSheet', () => {
 
         await userEvent.click(within(dialog).getByRole('button', {name: 'Advanced options'}))
         expect(within(dialog).getByRole('combobox', {name: 'Language'})).toBeDisabled()
-        await pick(dialog, 'Model', 'Whisper · Large V3 Turbo Compressed')
+        await pick(dialog, 'Model', 'Whisper Large V3 Turbo Compressed')
         await pick(dialog, 'Language', 'Russian')
 
         await userEvent.click(within(dialog).getByRole('button', {name: 'Import'}))

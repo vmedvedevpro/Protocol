@@ -20,6 +20,7 @@ import styled from 'styled-components'
 import {foldersQuery, meetingsQuery} from '@/api/meetings'
 import {type Person, peopleQuery} from '@/api/people'
 import {formatClock} from '@/components/transcript/turns'
+import {SpacedParts} from '@/components/ui/SpacedParts'
 import {Kbd} from '@/components/ui/Kbd'
 import {Sheet} from '@/components/ui/Sheet'
 import {Spinner} from '@/components/ui/Spinner'
@@ -207,6 +208,11 @@ const Sub = styled.span`
     text-overflow: ellipsis;
 `
 
+const SubParts = styled(SpacedParts)`
+    ${({theme}) => theme.text.small};
+    color: ${({theme}) => theme.colors.muted};
+`
+
 const Note = styled.p`
     margin: ${({theme}) => theme.space[4]} ${({theme}) => theme.space[3]};
     ${({theme}) => theme.text.body};
@@ -253,7 +259,8 @@ interface Row {
     title: string
     /** Read after the title, such as "current" for the theme in use. */
     hidden?: string
-    sub?: string
+    /** The line under the title: one phrase, or parts set apart by spacing (SpacedParts). */
+    sub?: string | (string | false | null | undefined)[]
     trailing?: ReactNode
     onSelect: () => void
 }
@@ -356,7 +363,7 @@ export function SearchDialog({actions = []}: { actions?: readonly SearchCommand[
                 return {
                     ...base,
                     title: result.title,
-                    sub: [company, plural(result.meetingCount ?? 0, 'meeting')].filter(Boolean).join(' · '),
+                    sub: [company, plural(result.meetingCount ?? 0, 'meeting')].filter(Boolean).join(', '),
                     onSelect: () => go(paths.person(result.personId ?? result.id)),
                 }
             }
@@ -364,7 +371,7 @@ export function SearchDialog({actions = []}: { actions?: readonly SearchCommand[
                 return {...base, title: result.title, sub: result.snippet, onSelect: () => go(paths.folder(result.groupId ?? result.id))}
             case 'meeting': {
                 const folderId = meetingFolder.get(meetingId)
-                const sub = [when && headerWhen(when), folderId && folderName.get(folderId)].filter(Boolean).join(' · ')
+                const sub = [when && headerWhen(when), folderId && folderName.get(folderId)]
                 return {...base, title: result.title, sub, onSelect: () => go(paths.meeting(meetingId))}
             }
             case 'transcript': {
@@ -372,7 +379,7 @@ export function SearchDialog({actions = []}: { actions?: readonly SearchCommand[
                 return {
                     ...base,
                     title: quoted(result.snippet),
-                    sub: sub.filter(Boolean).join(' · '),
+                    sub,
                     onSelect: () => go(paths.meeting(meetingId, {tab: 'transcript', at: result.audioStartTime, line: result.transcriptId ?? result.id})),
                 }
             }
@@ -460,7 +467,9 @@ export function SearchDialog({actions = []}: { actions?: readonly SearchCommand[
                                     <Tile aria-hidden>{row.icon}</Tile>
                                     <Words>
                                         <Title>{row.title}{row.hidden && <VisuallyHidden>{row.hidden}</VisuallyHidden>}</Title>
-                                        {row.sub && <Sub>{row.sub}</Sub>}
+                                        {Array.isArray(row.sub)
+                                            ? row.sub.some(Boolean) && <SubParts parts={row.sub}/>
+                                            : row.sub && <Sub>{row.sub}</Sub>}
                                     </Words>
                                     {row.trailing}
                                 </Item>

@@ -85,7 +85,7 @@ describe('RecordingPage', () => {
 
     it('renames the recording and files it in a folder', async () => {
         await recording()
-        await userEvent.click(screen.getByRole('button', {name: /^Meeting · /}))
+        await userEvent.click(screen.getByRole('button', {name: /^Meeting, /}))
         const field = screen.getByRole('textbox', {name: 'Title'})
         await userEvent.clear(field)
         await userEvent.type(field, 'Release sync{Enter}')

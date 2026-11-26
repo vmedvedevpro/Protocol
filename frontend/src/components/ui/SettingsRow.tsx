@@ -61,7 +61,7 @@ const plain = (node: ReactNode) => (typeof node === 'string' ? node : undefined)
 interface SettingsSearchScopeProps {
     /** What the user typed; blank shows every row as usual. */
     query: string
-    /** Put before each group's title: "AI" turns "Summaries" into "AI · Summaries". */
+    /** Added to each group's title: "AI" turns "Summaries" into "Summaries (AI)". */
     scope?: string
     /** How many rows match, whenever that changes. */
     onMatches?: (count: number) => void
@@ -148,13 +148,13 @@ interface SettingsGroupProps {
 
 /**
  * A group's frame, and inside a search what it needs of it: the scope
- * before its title, hidden while none of its rows match, no note (it
+ * after its title, hidden while none of its rows match, no note (it
  * speaks of the rows around it).
  */
 function GroupFrame({title, note, card}: {title?: string, note?: string, card: (titleId?: string) => ReactNode}) {
     const titleId = useId()
     const search = useContext(SearchContext)
-    const heading = search?.scope ? [search.scope, title].filter(Boolean).join(' · ') : title
+    const heading = search?.scope ? (title ? `${title} (${search.scope})` : search.scope) : title
     const labelled = heading ? titleId : undefined
     return (
         <Section aria-labelledby={labelled} $searching={search !== null}>
@@ -204,9 +204,13 @@ const Label = styled.span`
     color: ${({theme}) => theme.colors.text};
 `
 
+// A description may give a second fact its own line ("\n"), such as a
+// folder's path under what the folder holds; a long path breaks anywhere.
 const Description = styled.span`
     ${({theme}) => theme.text.small};
     color: ${({theme}) => theme.colors.muted};
+    white-space: pre-line;
+    overflow-wrap: anywhere;
 `
 
 const Badge = styled.span`

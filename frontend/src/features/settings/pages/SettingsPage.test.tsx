@@ -23,7 +23,7 @@ describe('Settings, simple', () => {
         expect(within(group('Recording')).getByRole('combobox', {name: 'Microphone'})).toBeInTheDocument()
         expect(within(group('Recording')).getByRole('combobox', {name: 'Meeting language'})).toBeInTheDocument()
         expect(within(group('Summaries')).getByRole('switch', {name: 'Summarize automatically'})).toBeChecked()
-        expect(await within(group('Summaries')).findByRole('button', {name: /Summary model.*Built-in · Qwen 3.5 4B/}))
+        expect(await within(group('Summaries')).findByRole('button', {name: /Summary model.*Built-in \(Qwen 3.5 4B\)/}))
             .toBeInTheDocument()
         expect(screen.queryByRole('tablist')).not.toBeInTheDocument()
     })

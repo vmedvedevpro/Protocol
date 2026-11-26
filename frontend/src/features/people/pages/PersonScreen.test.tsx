@@ -16,7 +16,7 @@ describe('PersonScreen', () => {
         renderPerson('person-priya')
 
         expect(await screen.findByRole('heading', {level: 1, name: 'Priya Shah'})).toBeInTheDocument()
-        expect(screen.getByText('Product Manager · Meetily')).toBeInTheDocument()
+        expect(screen.getByText('Product Manager, Meetily')).toBeInTheDocument()
         const details = screen.getByRole('region', {name: 'Details'})
         expect(details).toHaveTextContent('priya@example.com')
         expect(details).toHaveTextContent('PhoneNot added')

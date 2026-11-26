@@ -144,7 +144,7 @@ describe('RecordingRuntime', () => {
 
         const sheet = await screen.findByRole('dialog', {name: 'An interrupted meeting'})
         const item = within(sheet).getByRole('listitem', {name: 'Design sync'})
-        expect(item).toHaveTextContent('2 lines · audio can be rebuilt')
+        expect(item).toHaveTextContent('2 lines, audio can be rebuilt')
         expect(await within(item).findByText(/onboarding copy/)).toBeInTheDocument()
 
         await userEvent.click(within(item).getByRole('button', {name: 'Recover'}))

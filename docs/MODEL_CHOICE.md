@@ -49,7 +49,7 @@ ggml models (`speech_choice::listed`, Windows only) with `companion_of` set,
 named after the model it serves ("Large V3 Turbo"), Available once the
 companion and its record are verified, else Missing. `WhisperAPI.getAvailableModels`
 leaves it out of All models; the import and retranscribe pickers and the
-Settings selects name it "Whisper · Large V3 Turbo · Intel GPU"
+Settings selects name it "Whisper Large V3 Turbo (Intel GPU)"
 (`gpuVersionLabel`), apart from the full Large V3 Turbo it is named after.
 
 `WhisperEngine::load_model` of its id (`load_gpu_version`):
@@ -63,7 +63,7 @@ Settings selects name it "Whisper · Large V3 Turbo · Intel GPU"
    copy from `companion_of` that is installed, the catalog's recommended one
    first, on whisper.cpp (`speech_choice::regular_copy`);
 3. without one, an error: `speech_choice::no_copy_message` ("Whisper Large V3
-   Turbo · Intel GPU didn't start, and no regular copy of the model is
+   Turbo (Intel GPU) didn't start, and no regular copy of the model is
    installed. Download the standard version in Settings › Transcription.").
    The technical reason goes to the log and Settings' tooltip only, and the
    passes' wrapper names the model the same way (`shown_name`).
@@ -77,7 +77,7 @@ this rule when the list says the Intel GPU version is missing
 decides; the Import and Enhance dialogs preselect the copy it would run, or,
 without one, keep it marked "(not installed)" so the pass reports what to
 download instead of running another model; Settings › After the meeting
-names it ("Whisper · Large V3 Turbo · Intel GPU is not on this computer, so
+names it ("Whisper Large V3 Turbo (Intel GPU) is not on this computer, so
 … is used instead", or that no copy is installed either), from the Whisper
 list it fetches with the installed models, and offers the missing entry only
 once that list is in (the select reads "Loading…" until then). An explicitly

@@ -370,11 +370,21 @@ theme; the motion from the Motion section.
   it inside a word (#121). A row that does not match renders nothing,
   so its control remounts when it shows again; a group with no row left
   (`[data-settings-row]`) hides by CSS `:has()`, titled with the scope
-  before its own title ("AI · Summaries") and without its note. The card's
+  after its own title ("Summaries (AI)") and without its note. The card's
   hairlines skip the empty wrapper a hidden row leaves (a `Collapse`).
   `onMatches` gives the count, for "Nothing matches". Filtering does not
   animate, as on Home.
 - `VisuallyHidden` holds text only assistive technology reads.
+- No text joins its parts with "·" (#219). Parts that read as one phrase
+  take a comma or parentheses ("38 min, M4A", "Download (640 MB)",
+  "Built-in (Qwen 3.5 4B)"); parts that do not (a meeting's date, length
+  and folder) are `SpacedParts`: set apart by spacing, the last one cut
+  with an ellipsis, with a comma for screen readers and copied text; a
+  second fact may take a line of its own in a row's description (`\n`,
+  the data folder's path). `src/test/noMiddleDot.test.ts` parses every
+  shipped source under `src/` and fails with file and line on a "·" in a
+  string, a template or JSX text; comments, tests, stories, `mocks/` and
+  test helpers are skipped.
 - Menu and select rows show only the design's faint sliding highlight, for
   the pointer and the keyboard alike: Radix focuses a row under the pointer,
   so a `:focus-visible` ring showed on hover as well. The notes editor's

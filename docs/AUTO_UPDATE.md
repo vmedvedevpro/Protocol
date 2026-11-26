@@ -14,9 +14,9 @@ procedures and their results, and the remaining limits.
 | State | Sidebar pill (above Settings) | Tray | Settings › About |
 | --- | --- | --- | --- |
 | Up to date | hidden | Check for Updates… | "Protocol is up to date. Last checked …" |
-| Release found | Update available · X.Y.Z | Update Available · X.Y.Z | "Protocol X.Y.Z is available." **Download** |
+| Release found | Update available · X.Y.Z | Update Available (X.Y.Z) | "Protocol X.Y.Z is available." **Download** |
 | Downloading | Downloading · N% | Downloading Update… (disabled) | progress bar |
-| Download requested during a recording | Update available · X.Y.Z | Update Available · X.Y.Z | "The download starts after the recording." |
+| Download requested during a recording | Update available · X.Y.Z | Update Available (X.Y.Z) | "The download starts after the recording." |
 | Downloaded and verified | Restart and update · X.Y.Z | Restart to Update to X.Y.Z | **Restart and update** |
 | Downloaded, Protocol busy | Restart and update · X.Y.Z | Update Ready — Protocol Is Busy (disabled) | button disabled, "Protocol can't restart while …" |
 | Download or install failed | Update failed · X.Y.Z | as before the failure | the error sentence and **Try again** |

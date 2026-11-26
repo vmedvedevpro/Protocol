@@ -255,7 +255,7 @@ export function PersonScreen({personId}: { personId: string }) {
     if (profile.isPending) return <Screen><Centered aria-busy="true"><Spinner delayed/></Centered></Screen>
 
     const person = profile.data
-    const subtitle = [person.role, person.company].filter(Boolean).join(' · ')
+    const subtitle = [person.role, person.company].filter(Boolean).join(', ')
 
     return (
         <Screen>

@@ -2,9 +2,9 @@
  * A recording's automatic title (PARITY.md, Automatic meeting titles). A
  * title the user has not chosen still tells meetings apart at a glance:
  *
- *   "Meeting · Mon, Sep 28 · 2:30 PM"        while recording
- *   "Meeting · Mon, Sep 28 · 2:30–3:15 PM"   once it ends
- *   "Weekly Standup — Sep 28"                filed in a folder
+ *   "Meeting, Mon, Sep 28, 2:30 PM"        while recording
+ *   "Meeting, Mon, Sep 28, 2:30–3:15 PM"   once it ends
+ *   "Weekly Standup — Sep 28"              filed in a folder
  *
  * The save says whether the user chose the title (`titleManual`, #218);
  * native keeps that record and never reads the title's text for it. A
@@ -12,7 +12,7 @@
  * summary writes; one the user typed, or a later rename, stays.
  */
 
-export const AUTOMATIC_PREFIX = 'Meeting · '
+export const AUTOMATIC_PREFIX = 'Meeting, '
 
 const dayLabel = (date: Date) => date.toLocaleDateString(undefined, {weekday: 'short', month: 'short', day: 'numeric'})
 const shortDay = (date: Date) => date.toLocaleDateString(undefined, {month: 'short', day: 'numeric'})
@@ -31,10 +31,10 @@ export function timeRange(start: Date, end: Date): string {
     return same && same === meridiem.exec(to)?.[1] ? `${from.replace(meridiem, '')}–${to}` : `${from}–${to}`
 }
 
-/** "Meeting · Mon, Sep 28 · 2:30 PM", or the folder's "Weekly Standup — Sep 28" (with the time if taken). */
+/** "Meeting, Mon, Sep 28, 2:30 PM", or the folder's "Weekly Standup — Sep 28" (with the time if taken). */
 export function automaticTitle(start: Date, folderName?: string | null, existingTitles: readonly string[] = []): string {
     const folder = folderName?.trim()
-    if (!folder) return `${AUTOMATIC_PREFIX}${dayLabel(start)} · ${timeLabel(start)}`
+    if (!folder) return `${AUTOMATIC_PREFIX}${dayLabel(start)}, ${timeLabel(start)}`
     const base = `${folder} — ${shortDay(start)}`
     return existingTitles.includes(base) ? `${base}, ${timeLabel(start)}` : base
 }
@@ -46,7 +46,7 @@ export function automaticTitle(start: Date, folderName?: string | null, existing
 export function finalTitle(title: string, start: Date, end: Date): string {
     if (title !== automaticTitle(start)) return title
     if (end.getTime() - start.getTime() < 60_000) return title
-    return `${AUTOMATIC_PREFIX}${dayLabel(start)} · ${timeRange(start, end)}`
+    return `${AUTOMATIC_PREFIX}${dayLabel(start)}, ${timeRange(start, end)}`
 }
 
 // A clock time in any locale's form ("2:30 PM", "14:30", "午後2:30", "2.30 a.m."),
@@ -54,6 +54,10 @@ export function finalTitle(title: string, start: Date, end: Date): string {
 const CLOCK = String.raw`(?:\p{L}+\.?\s?)?\d{1,2}[:.]\d{2}(?:\s?[\p{L}.]+)?`
 const SLOT = String.raw`${CLOCK}(?:\s?[–-]\s?${CLOCK})?`
 const escaped = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+// The middle dot that joined the parts before #219. It is matched in titles
+// stored by that version, never shown, so it is built here rather than
+// written as text the middle-dot check would flag.
+const OLD_SEPARATOR = String.fromCodePoint(0x00b7)
 
 /**
  * Whether the whole of `title` is the automatic title of a recording that
@@ -63,12 +67,13 @@ const escaped = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
  * so "Meeting, budget review, 10:30" stays the user's; a copy read in
  * another locale than it was made in keeps its title, the safe side.
  *
- *   "Meeting · Mon, Sep 28 · 2:30 PM"   this version's
- *   "Meeting, Mon, Sep 28, 2:30 PM"     #224's coming form
+ *   "Meeting, Mon, Sep 28, 2:30 PM"     this version's (#219)
+ *   "Meeting · Mon, Sep 28 · 2:30 PM"   before #219
  */
 export function isGeneratedTitle(title: string, start: Date): boolean {
     const day = escaped(dayLabel(start))
-    return [String.raw`^Meeting · ${day} · ${SLOT}$`, String.raw`^Meeting, ${day}, ${SLOT}$`].some((pattern) =>
+    const dot = ` ${OLD_SEPARATOR} `
+    return [String.raw`^Meeting, ${day}, ${SLOT}$`, String.raw`^Meeting${dot}${day}${dot}${SLOT}$`].some((pattern) =>
         new RegExp(pattern, 'u').test(title),
     )
 }

@@ -29,7 +29,7 @@ describe('RecordingBar', () => {
         renderBar(true)
         const bar = screen.getByRole('group', {name: 'Record'})
         const inputs = await within(bar).findByRole('button', {name: 'Inputs: Default microphone + all apps. Intel Smart Sound Microphone isn’t connected. Change'})
-        expect(inputs).toHaveTextContent('Default microphone + all apps · Intel Smart Sound Microphone isn’t connected')
+        expect(inputs).toHaveTextContent('Default microphone + all apps (Intel Smart Sound Microphone isn’t connected)')
 
         await userEvent.click(inputs)
         expect(await screen.findByRole('menuitemradio', {name: 'System default (Intel Smart Sound Microphone isn’t connected)'})).toBeChecked()

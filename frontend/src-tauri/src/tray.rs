@@ -139,7 +139,7 @@ fn add_update_items<'a, R: Runtime>(
     builder = match updater.tray_item() {
         TrayItem::None => builder,
         TrayItem::Available(version) => builder.item(
-            &MenuItemBuilder::with_id("update_open", format!("Update Available · {version}")).build(app)?,
+            &MenuItemBuilder::with_id("update_open", format!("Update Available ({version})")).build(app)?,
         ),
         TrayItem::Downloading => builder.item(
             &MenuItemBuilder::new("Downloading Update…").enabled(false).build(app)?,

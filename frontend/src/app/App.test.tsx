@@ -160,7 +160,7 @@ describe('App navigation', () => {
 
         await emitMockEvent(TRAY_START_RECORDING_EVENT, null)
 
-        await heading(/^Meeting · /)
+        await heading(/^Meeting, /)
         expect(within(screen.getByRole('contentinfo')).getByRole('group', {name: 'Recording'})).toBeInTheDocument()
         expect(mockState.live.recording).not.toBeNull()
     })
@@ -175,7 +175,7 @@ describe('App navigation', () => {
         await heading('Meetings')
         // The key, not the letter: Ctrl R on a Russian layout types к.
         await userEvent.keyboard('{Control>}[KeyR]{/Control}')
-        await heading(/^Meeting · /)
+        await heading(/^Meeting, /)
 
         // A take this short is discarded.
         await userEvent.keyboard('{Control>}[KeyR]{/Control}')

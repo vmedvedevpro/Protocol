@@ -31,7 +31,7 @@ describe('ProcessingStatus', () => {
         renderUi(<ProcessingStatus meetingId="m1"/>)
 
         expect(screen.getByRole('status')).toHaveTextContent('Improving the transcript')
-        expect(screen.getByText('· about 2 min')).toBeInTheDocument()
+        expect(screen.getByText('(about 2 min)')).toBeInTheDocument()
         // Saved, plus 40 % of the first of three steps: 1.4 of 4.
         expect(screen.getByRole('progressbar', {name: 'Processing the meeting'})).toHaveAttribute('aria-valuenow', '35')
 
@@ -100,7 +100,7 @@ describe('ProcessingLine', () => {
         postCallJobs.progress('m1', 25, Date.now() - 40_000)
         postCallJobs.progress('m1', 40)
         const {container, rerender} = renderUi(<ProcessingLine meetingId="m1"/>)
-        expect(container).toHaveTextContent('Improving the transcript· about 2 min')
+        expect(container).toHaveTextContent('Improving the transcript(about 2 min)')
 
         postCallJobs.end('m1')
         rerender(<ProcessingLine meetingId="m1"/>)

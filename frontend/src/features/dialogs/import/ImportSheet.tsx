@@ -469,7 +469,7 @@ function ImportForm({request, completeHeard}: { request: Extract<OpenedDialog, {
                     <WaveformIcon size={16} aria-hidden/>
                     <FileText>
                         <FileName>{file.path.split(/[\\/]/).pop() || file.filename}</FileName>
-                        <Hint>{fileLength(file.duration_seconds)} · {file.format}</Hint>
+                        <Hint>{fileLength(file.duration_seconds)}, {file.format}</Hint>
                     </FileText>
                     {!busy && (
                         <IconButton

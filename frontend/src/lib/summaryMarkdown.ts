@@ -125,7 +125,7 @@ export function summaryBlocks(data: SummaryData | null): unknown[] | null {
  * "## Summary The team **agreed**" would show its syntax. Marks at a line's
  * start (headings, list bullets and numbers, quotes), emphasis and code
  * marks, a link's target and a table's divider row go, table cells read
- * "a · b"; the lines join with single spaces. The
+ * "a, b"; the lines join with single spaces. The
  * snippet may start or end inside a mark, and a lone one is left as it is.
  */
 export function markdownSnippetText(markdown: string): string {
@@ -133,7 +133,7 @@ export function markdownSnippetText(markdown: string): string {
         .split('\n')
         // A table's divider row says nothing; its cells read as a list.
         .filter((line) => !/^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)*\|?\s*$/.test(line))
-        .map((line) => (line.includes('|') ? line.split('|').map((cell) => cell.trim()).filter(Boolean).join(' · ') : line))
+        .map((line) => (line.includes('|') ? line.split('|').map((cell) => cell.trim()).filter(Boolean).join(', ') : line))
         .map((line) => line
             .replace(/^\s*(#{1,6}\s+|>\s?|[-*+]\s+(\[[ xX]\]\s+)?|\d+[.)]\s+)/, '')
             .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')

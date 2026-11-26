@@ -105,7 +105,7 @@ export function IntelOfferBanner() {
                     transition={tween('base', 'enter')}
                 >
                     <Title>{shown.title}</Title>
-                    <Text>{formatModelSize(bytes) ? `${shown.description} · ${formatModelSize(bytes)}` : shown.description}</Text>
+                    <Text>{formatModelSize(bytes) ? `${shown.description} (${formatModelSize(bytes)})` : shown.description}</Text>
                     <Actions>
                         <Button size="sm" variant="ghost" onClick={() => dismissIntelOffer(shown.devices)}>Not now</Button>
                         <Button size="sm" variant="filled" onClick={switchNow}>Install</Button>

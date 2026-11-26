@@ -1,6 +1,7 @@
 import {useEffect, useState} from 'react'
 import styled from 'styled-components'
 import {errorMessage} from '@/api/core'
+import {SpacedParts} from '@/components/ui/SpacedParts'
 import {Button} from '@/components/ui/Button'
 import {Sheet} from '@/components/ui/Sheet'
 import {toast} from '@/components/ui/toastStore'
@@ -32,7 +33,7 @@ const Name = styled.h3`
     font-weight: ${({theme}) => theme.fontWeights.medium};
 `
 
-const Meta = styled.p`
+const Meta = styled(SpacedParts)`
     ${({theme}) => theme.text.small};
     color: ${({theme}) => theme.colors.muted};
 `
@@ -97,7 +98,7 @@ function RecoverableItem({meeting, onDone}: { meeting: RecoverableMeeting, onDon
     return (
         <Item aria-label={meeting.title}>
             <Name>{meeting.title || 'Untitled meeting'}</Name>
-            <Meta>{`${startedLabel(new Date(meeting.startTime))} · ${linesLabel(meeting.lines)}${meeting.audio ? ' · audio can be rebuilt' : ''}`}</Meta>
+            <Meta parts={[startedLabel(new Date(meeting.startTime)), linesLabel(meeting.lines), meeting.audio && 'audio can be rebuilt']}/>
             {meeting.preview && <Preview>{meeting.preview}</Preview>}
             <Actions>
                 {confirming ? (

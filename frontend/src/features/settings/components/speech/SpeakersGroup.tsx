@@ -161,9 +161,9 @@ export function SpeakersGroup() {
                             <Credits>
                                 {status.data?.model_dir && <>Folder: {status.data.model_dir}. </>}
                                 Models: <Credit href="https://huggingface.co/pyannote/segmentation-3.0">pyannote segmentation-3.0</Credit> by CNRS
-                                (<Credit href="https://huggingface.co/pyannote/segmentation-3.0/blob/main/LICENSE">MIT</Credit>) ·{' '}
+                                (<Credit href="https://huggingface.co/pyannote/segmentation-3.0/blob/main/LICENSE">MIT</Credit>);{' '}
                                 <Credit href="https://huggingface.co/Wespeaker/wespeaker-voxceleb-resnet34-LM">WeSpeaker ResNet34-LM</Credit> by the
-                                WeSpeaker project (<Credit href={CC_BY_4_0}>CC BY 4.0</Credit>) · VBx x-vector transform by BUT Speech@FIT, from{' '}
+                                WeSpeaker project (<Credit href={CC_BY_4_0}>CC BY 4.0</Credit>); VBx x-vector transform by BUT Speech@FIT, from{' '}
                                 <Credit href="https://huggingface.co/pyannote-community/speaker-diarization-community-1">pyannote community-1</Credit>
                                 {' '}(<Credit href={CC_BY_4_0}>CC BY 4.0</Credit>). NVIDIA Nemotron-3 Diarization (Sortformer v3) and the NeMo
                                 128 mel-spectrogram model are credited to NVIDIA Corporation; their license downloads with them.

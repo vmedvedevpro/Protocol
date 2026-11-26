@@ -5,7 +5,8 @@ const at = (hours: number, minutes: number) => new Date(2026, 8, 28, hours, minu
 
 describe('titles', () => {
     it('names a recording by its day and time, or after its folder', () => {
-        expect(automaticTitle(at(14, 30))).toMatch(new RegExp(`^${AUTOMATIC_PREFIX}.+ · .*2:30`))
+        expect(automaticTitle(at(14, 30))).toMatch(new RegExp(`^${AUTOMATIC_PREFIX}.+, .*2:30`))
+        expect(automaticTitle(at(14, 30))).not.toContain('\u00B7')
         expect(automaticTitle(at(14, 30), 'Weekly Standup')).toMatch(/^Weekly Standup — Sep 28$/)
         // A second one that day takes its time.
         const first = automaticTitle(at(9, 0), 'Weekly Standup')
@@ -15,28 +16,39 @@ describe('titles', () => {
     it('tells an automatic title from one the user typed, by the whole title and its day', () => {
         const start = at(14, 30)
         // The day the app writes for this start, in the test's locale ("Mon, Sep 28").
-        const day = automaticTitle(start).slice(AUTOMATIC_PREFIX.length).split(' · ')[0]
+        const day = start.toLocaleDateString(undefined, {weekday: 'short', month: 'short', day: 'numeric'})
+        const otherDay = new Date(2026, 8, 29, 14, 30).toLocaleDateString(undefined, {weekday: 'short', month: 'short', day: 'numeric'})
+        // Titles stored before #219 joined the parts with a middle dot.
+        const dot = ' \u00B7 '
         for (const title of [
             automaticTitle(start),
             finalTitle(automaticTitle(start), start, at(15, 15)),
-            `Meeting · ${day} · 11:30 AM–12:15 PM`,
             `Meeting, ${day}, 2:30 PM`,
             `Meeting, ${day}, 2:30–3:10 PM`,
+            `Meeting${dot}${day}${dot}2:30 PM`,
+            `Meeting${dot}${day}${dot}11:30 AM–12:15 PM`,
         ]) {
             expect(isGeneratedTitle(title, start), title).toBe(true)
         }
         for (const title of [
-            'Meeting · budget',
-            `Meeting · ${day} · 2:30 PM with Priya`,
-            'Meeting · budget review · 10:30',
+            `Meeting${dot}budget`,
+            `Meeting${dot}${day}${dot}2:30 PM with Priya`,
+            `Meeting${dot}budget review${dot}10:30`,
+            `Re: Meeting${dot}${day}${dot}2:30 PM`,
             'Meeting, budget review, 10:30',
             'Meeting, budget review',
             `Meeting, ${day}`,
+            `Meeting, ${day}, 2:30 PM with Priya`,
+            `Notes: Meeting, ${day}, 2:30 PM`,
+            // The two forms are not mixed.
+            `Meeting, ${day}${dot}2:30 PM`,
+            `Meeting${dot}${day}, 2:30 PM`,
             'Meeting v2.10',
             'Pricing call',
             'Weekly Standup — Sep 28',
-            // Another day's automatic title is not this recording's.
+            // Another day's automatic title, in either form, is not this recording's.
             automaticTitle(new Date(2026, 8, 29, 14, 30)),
+            `Meeting${dot}${otherDay}${dot}2:30 PM`,
         ]) {
             expect(isGeneratedTitle(title, start), title).toBe(false)
         }

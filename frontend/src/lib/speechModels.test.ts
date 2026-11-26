@@ -5,7 +5,7 @@ describe('withSavedModel', () => {
     const choices = speechModelChoices([], [{name: 'small', display_name: 'Small', status: 'Available'} as never])
 
     it('adds a saved model that is gone, marked as not downloaded', () => {
-        expect(withSavedModel(choices, 'whisper:medium').map(({label}) => label)).toEqual(['Whisper · Small', 'Whisper · medium (not downloaded)'])
+        expect(withSavedModel(choices, 'whisper:medium').map(({label}) => label)).toEqual(['Whisper Small', 'Whisper medium (not downloaded)'])
     })
 
     it('leaves the choices as they are when the saved one is there, or none is saved', () => {

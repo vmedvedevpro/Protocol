@@ -15,6 +15,7 @@ import {
 } from '@/api/people'
 import {useUserName} from '@/api/preferences'
 import {displaySpeaker, formatClock, isUserSpeaker, lineFromSegment, speakerParts} from '@/components/transcript/turns'
+import {SpacedParts} from '@/components/ui/SpacedParts'
 import {Button} from '@/components/ui/Button'
 import {SettingsRadioGroup, SettingsRadioRow} from '@/components/ui/SettingsRow'
 import {Sheet, SheetClose} from '@/components/ui/Sheet'
@@ -51,7 +52,6 @@ const Quote = styled.blockquote`
     ${({theme}) => theme.text.body};
 
     > span {
-        display: block;
         ${({theme}) => theme.text.small};
         color: ${({theme}) => theme.colors.muted};
     }
@@ -176,7 +176,7 @@ function SpeakerForm({request, onSaving}: { request: Extract<OpenedDialog, { kin
         <Form id={FORM_ID} onSubmit={(event) => void submit(event)}>
             {said.length > 0 && (
                 <Quote>
-                    <span>{shown(request.speaker)}{start === null ? '' : ` · ${formatClock(start)}`}</span>
+                    <SpacedParts parts={[shown(request.speaker), start !== null && formatClock(start)]}/>
                     <p>{said.map((line) => line.text).join(' ')}</p>
                 </Quote>
             )}

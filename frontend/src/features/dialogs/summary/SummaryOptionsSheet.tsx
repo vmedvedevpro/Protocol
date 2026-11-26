@@ -62,13 +62,13 @@ const FootLink = styled(Button)`
     margin-right: auto;
 `
 
-/** "Built-in · Qwen 3.5 4B", "Claude · claude-sonnet-5-5", or null with none chosen. */
+/** "Built-in (Qwen 3.5 4B)", "Claude (claude-sonnet-5-5)", or null with none chosen. */
 function modelLabel(config: SummaryModelConfig | null | undefined, builtIn: { name: string, display_name: string }[] | undefined) {
     if (!config?.provider || !config.model) return null
     const name = config.provider === 'builtin-ai'
         ? builtIn?.find((model) => model.name === config.model)?.display_name ?? config.model
         : config.model
-    return `${PROVIDERS[config.provider] ?? config.provider} · ${name}`
+    return `${PROVIDERS[config.provider] ?? config.provider} (${name})`
 }
 
 /**

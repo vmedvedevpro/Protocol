@@ -79,6 +79,11 @@ const Sub = styled.p`
     color: ${({theme}) => theme.colors.muted};
 `
 
+// The start and the folder are two things: spacing sets them apart, never "·".
+const When = styled.span`
+    margin-right: ${({theme}) => theme.space[1.5]};
+`
+
 const FolderButton = styled.button`
     display: inline-flex;
     align-items: center;
@@ -198,8 +203,7 @@ export function RecordingHeader() {
                 {/* Kept while the save runs, so the header does not jump at Stop. */}
                 {(live || phase === 'finishing') && startedAt && (
                     <Sub>
-                        <span>{startedLabel(new Date(startedAt))}</span>
-                        <span aria-hidden="true">·</span>
+                        <When>{startedLabel(new Date(startedAt))}</When>
                         <FolderIcon size={12} aria-hidden="true"/>
                         <FolderPicker disabled={!live}/>
                     </Sub>

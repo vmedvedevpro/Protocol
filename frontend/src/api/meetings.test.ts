@@ -73,7 +73,7 @@ describe('meetings', () => {
         await client.fetchQuery(meetingsQuery)
 
         const id = await saveTranscript({
-            title: 'Meeting · Tue, Nov 24 · 2:30 PM',
+            title: 'Meeting, Tue, Nov 24, 2:30 PM',
             titleIsManual: false,
             transcripts: [{id: 'x', text: 'Hello', timestamp: '14:30:00', audio_start_time: 0, audio_end_time: 2, speaker: 'You'}],
             folderPath: '/recordings/2026-11-24',

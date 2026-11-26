@@ -32,7 +32,7 @@ describe('EnhanceSheet', () => {
     it('starts from the after-meeting model and runs it again on the recording', async () => {
         mockState.speech.postCallConfig = {provider: 'whisper', model: POST_CALL_WHISPER_MODEL}
         const {dialog, start} = await open()
-        expect(within(dialog).getByRole('combobox', {name: 'Model'})).toHaveTextContent('Whisper · Large V3 Turbo Compressed')
+        expect(within(dialog).getByRole('combobox', {name: 'Model'})).toHaveTextContent('Whisper Large V3 Turbo Compressed')
         await pick(dialog, 'Language', 'Russian')
         await userEvent.type(within(dialog).getByRole('textbox', {name: 'Words to recognize'}), 'Acme{enter}Priya Shah')
         await userEvent.click(within(dialog).getByRole('radio', {name: /This and future meetings/}))

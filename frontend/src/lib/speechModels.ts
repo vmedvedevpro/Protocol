@@ -17,7 +17,7 @@ export interface SpeechModelChoice {
     value: string
     engine: SpeechEngine
     name: string
-    /** "Whisper · Large V3 Turbo", "Whisper · Large V3 Turbo · Intel GPU". */
+    /** "Whisper Large V3 Turbo", "Whisper Large V3 Turbo (Intel GPU)". */
     label: string
 }
 
@@ -38,13 +38,13 @@ export const isCorrupted = (status: SpeechModelStatus | undefined) => typeof sta
 const ENGINE_NAMES: Record<SpeechEngine, string> = {parakeet: 'Parakeet', whisper: 'Whisper'}
 
 /**
- * "Whisper · Large V3 Turbo": the engine, then the catalog's name without an
+ * "Whisper Large V3 Turbo": the engine, then the catalog's name without an
  * engine name it may repeat, or the id when it has none. The Intel GPU
  * version reads apart from the model it serves.
  */
 export function speechModelLabel(engine: SpeechEngine, model: {name: string, display_name?: string | null, companion_of?: string[]}): string {
     const own = (model.display_name ?? '').trim().replace(new RegExp(`^${ENGINE_NAMES[engine]}\\s+`, 'i'), '') || model.name
-    return `${ENGINE_NAMES[engine]} · ${own}${isGpuVersion(model) ? ' · Intel GPU' : ''}`
+    return `${ENGINE_NAMES[engine]} ${own}${isGpuVersion(model) ? ' (Intel GPU)' : ''}`
 }
 
 const choice = (engine: SpeechEngine, model: {name: string, display_name?: string | null, companion_of?: string[]}): SpeechModelChoice =>
@@ -70,7 +70,7 @@ export function withSavedModel(choices: readonly SpeechModelChoice[], saved: str
         value: saved,
         engine: parsed.provider,
         name: parsed.model,
-        label: `${ENGINE_NAMES[parsed.provider]} · ${parsed.model} (not downloaded)`,
+        label: `${ENGINE_NAMES[parsed.provider]} ${parsed.model} (not downloaded)`,
     }]
 }
 
