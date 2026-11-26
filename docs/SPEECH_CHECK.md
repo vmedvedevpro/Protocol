@@ -168,6 +168,11 @@ name as `<computer>`, in every free text of the report. Kinds, statuses and
 the outcome are not scrubbed, so a login named "whisper" renames no step. The group shows the whole
 report before Copy and Save.
 
+Save logs (docs/APP_LOG.md) adds the report as `speech-check.txt` while the
+group shows it (`speech_check::latest_report`); the report is held in memory,
+so it is gone once dismissed or after a restart, except for an interrupted
+check, whose note brings it back.
+
 ## The crash note
 
 `<data>/speech-check.json`, written whole (temp file and rename) before and

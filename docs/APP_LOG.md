@@ -178,6 +178,7 @@ ZIP uses too, and `zip_util::is_zip`, the one `.zip` check):
 | `logs/log-errors.txt` | the errors flexi_logger had writing the log in this run, if any |
 | `updater/updater.log`, `updater/updater.log.old` | the updater's journal, from `updater::journal_dir` |
 | `crash-report.json` | the pending crash report, if there is one |
+| `speech-check.txt` | the last Speech check's report while Settings › Advanced shows it, finished or interrupted (`speech_check::latest_report`, scrubbed by the check and again here); none once dismissed, or after a restart following a check that finished |
 | `unreadable.txt` | the files that could not be read and why, if any: one unreadable file does not fail the save |
 
 Every entry passes through `scrub::Identity`. The home folder becomes `~`:

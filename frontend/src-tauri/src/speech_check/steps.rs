@@ -214,6 +214,7 @@ pub async fn parakeet(model: &str, context: &Context<'_>) -> StepReport {
             }
             match engine.transcribe_live(&mut live, piece.start_timestamp_ms, piece.samples.clone(), piece.capped, None).await {
                 Ok(text) => {
+                    // log-audit: the text of the bundled public sample (FLEURS), never a meeting's.
                     log::debug!(
                         "[speech check] Parakeet {}: piece {:.2}-{:.2} s{}: {text:?}",
                         clip.id,

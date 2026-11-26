@@ -135,6 +135,15 @@ fn status() -> Status {
     lock_status().clone()
 }
 
+/// The last check's report text while the group shows it (finished or
+/// interrupted), for Save logs; already scrubbed (`Report::scrubbed`).
+pub fn latest_report() -> Option<String> {
+    match &*lock_status() {
+        Status::Finished { text, .. } | Status::Interrupted { text, .. } => Some(text.clone()),
+        Status::Idle | Status::Running { .. } => None,
+    }
+}
+
 /// Sets and emits `status` under one hold of the lock, so the events reach
 /// the WebView in the order of the changes.
 fn set_status(emit: &impl Emit, status: Status) {
@@ -344,6 +353,7 @@ fn start<R: Runtime>(app: AppHandle<R>, plan: Plan, resumed: Option<Note>) -> Re
             STEP_IN_FLIGHT.store(false, Ordering::SeqCst);
             note::remove();
             let reason = format!("The check stopped on an internal error: {}", panic_message(&*panic));
+            // log-audit: a panic of the check's own code, which runs only the bundled sample.
             log::error!("[speech check] {reason}");
             let note = Note::of(plan, Default::default());
             let steps = StepKind::ALL.iter().map(|kind| StepReport::new(*kind, StepStatus::Failed).with_reason(reason.clone())).collect();
@@ -371,6 +381,7 @@ async fn guarded(kind: StepKind, step: impl std::future::Future<Output = StepRep
         Ok(report) => report,
         Err(panic) => {
             let message = panic_message(&*panic);
+            // log-audit: a panic of a step on the bundled sample, never a meeting.
             log::error!("[speech check] {} panicked: {message}", kind.title());
             StepReport::new(kind, StepStatus::Failed).with_reason(format!("The step stopped on an internal error: {message}"))
         }
@@ -511,6 +522,7 @@ async fn give_back(held: Held, warnings: &mut Vec<String>) {
 async fn run(emit: &impl Emit, plan: Plan, resumed: Option<Note>, runner: &impl Runner) {
     let taken = take_engines().await;
     if let Err(reason) = &taken {
+        // log-audit: the refusal's own sentence ("A recording started", a busy reason).
         log::info!("[speech check] not started: {reason}");
     }
     // A check stopped before its first step does not read the GPUs either.
