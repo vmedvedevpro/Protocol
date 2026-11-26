@@ -77,29 +77,6 @@ fn version_of(record: &std::path::Path) -> Option<String> {
     crate::model_catalog::installed::read_record(record).map(|record| record.commit.chars().take(12).collect())
 }
 
-/// A path of this step nobody had run on this platform before (#233): the
-/// check was written and run on Linux with an Intel Arc B390 iGPU; Windows
-/// and macOS were reached only by compiling.
-fn untested_path(kind: StepKind, ran_on: Option<&str>) -> Option<String> {
-    if cfg!(windows) {
-        return Some(match kind {
-            StepKind::Parakeet => "the check on Windows (the Intel NPU and DirectML paths) was only compiled".into(),
-            StepKind::Whisper => "the check on Windows (OpenVINO and Vulkan) was only compiled".into(),
-            StepKind::Nemotron => "the check on Windows (DirectML) was only compiled".into(),
-            StepKind::Pyannote => "the check on Windows was only compiled".into(),
-        });
-    }
-    if cfg!(target_os = "macos") {
-        return Some(match kind {
-            StepKind::Whisper => "the check on macOS (Metal) was only compiled".into(),
-            _ => "the check on macOS was only compiled".into(),
-        });
-    }
-    let on_vulkan = ran_on.is_some_and(|device| device.starts_with("GPU (Vulkan)"));
-    let intel = ran_on.is_some_and(|device| device.contains("Intel"));
-    (kind == StepKind::Whisper && on_vulkan && !intel).then(|| "Vulkan on a GPU other than Intel's (only an Intel Arc B390 was tested)".into())
-}
-
 // --- Parakeet --------------------------------------------------------------
 
 /// Where Parakeet's encoder goes for `model`, read as `ParakeetModel::new`
@@ -273,7 +250,6 @@ pub async fn parakeet(model: &str, context: &Context<'_>) -> StepReport {
     if total_audio > 0.0 {
         step.keeps_up = Some(score::keeps_up(total_processing / total_audio));
     }
-    step.untested_path = untested_path(StepKind::Parakeet, step.ran_on.as_deref());
     engine.unload_model().await;
     finish(step)
 }
@@ -476,7 +452,6 @@ pub async fn whisper(model: &str, context: &Context<'_>) -> StepReport {
             passed: score::transcript_passes(&errors),
         });
     }
-    step.untested_path = untested_path(StepKind::Whisper, Some(&ran_on));
     engine.unload_model().await;
     finish(step)
 }
@@ -569,7 +544,6 @@ pub async fn pyannote(context: &Context<'_>) -> StepReport {
         return StepReport::new(StepKind::Pyannote, StepStatus::NotChecked).with_reason("The speaker models are not in this copy of Protocol");
     }
     step.ran_on = Some(processor.name);
-    step.untested_path = untested_path(StepKind::Pyannote, None);
     speakers(StepKind::Pyannote, "pyannote", context, step).await
 }
 
@@ -600,7 +574,6 @@ pub async fn nemotron(context: &Context<'_>) -> StepReport {
         }
         step.ran_on = Some(ran_on);
     }
-    step.untested_path = untested_path(StepKind::Nemotron, step.ran_on.as_deref());
     step
 }
 
@@ -644,14 +617,5 @@ mod tests {
     fn openvino_is_named_in_one_form_for_picked_and_ran_on() {
         assert_eq!(openvino_name("GPU"), "Intel GPU (OpenVINO GPU)");
         assert_eq!(openvino_name(" GPU.1 "), openvino_name("GPU.1"));
-    }
-
-    #[test]
-    fn linux_names_vulkan_on_another_vendor_as_untested() {
-        if cfg!(target_os = "linux") {
-            assert!(untested_path(StepKind::Whisper, Some("GPU (Vulkan): AMD Radeon RX 7600")).is_some());
-            assert!(untested_path(StepKind::Whisper, Some("GPU (Vulkan): Intel(R) Arc(TM) B390 GPU")).is_none());
-            assert!(untested_path(StepKind::Parakeet, Some("processor")).is_none());
-        }
     }
 }

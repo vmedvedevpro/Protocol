@@ -16,7 +16,7 @@ use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 
-use super::report::{Pair, StepKind, StepReport, StepStatus, System};
+use super::report::{StepKind, StepReport, StepStatus, System};
 
 /// The reason a step that closed the app gives.
 pub const CLOSED_REASON: &str = "Protocol closed while this step ran";
@@ -27,8 +27,6 @@ pub const CLOSED_REASON: &str = "Protocol closed while this step ran";
 pub struct Note {
     pub plan: super::Plan,
     pub system: System,
-    pub pair: Pair,
-    pub selected: Pair,
     /// The steps that ended, in order.
     pub done: Vec<StepReport>,
     /// The step running now.
@@ -45,17 +43,17 @@ pub struct Note {
 impl Note {
     /// A new run's note.
     pub fn of(plan: super::Plan, system: System) -> Self {
-        Note { pair: plan.pair(), selected: plan.selected(), plan, system, done: Vec::new(), running: None, closed_in: None, warnings: Vec::new() }
+        Note { plan, system, done: Vec::new(), running: None, closed_in: None, warnings: Vec::new() }
     }
 
     /// The steps still to run after the ones done, those that closed the app among them.
     pub fn remaining(&self) -> Vec<StepKind> {
-        self.plan.steps().into_iter().filter(|kind| !self.done.iter().any(|step| step.kind == *kind)).collect()
+        StepKind::ALL.into_iter().filter(|kind| !self.done.iter().any(|step| step.kind == *kind)).collect()
     }
 
     /// The steps done, in the plan's order.
     pub fn done_in_order(&self) -> Vec<StepReport> {
-        self.plan.steps().into_iter().filter_map(|kind| self.done.iter().find(|step| step.kind == kind).cloned()).collect()
+        StepKind::ALL.into_iter().filter_map(|kind| self.done.iter().find(|step| step.kind == kind).cloned()).collect()
     }
 }
 
@@ -158,8 +156,6 @@ pub(crate) mod tests {
         Note {
             plan: crate::speech_check::Plan::for_tests(),
             system: System::default(),
-            pair: Pair::default(),
-            selected: Pair::default(),
             done: Vec::new(),
             running: None,
             closed_in: None,

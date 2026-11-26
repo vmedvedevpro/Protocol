@@ -149,10 +149,9 @@ providers. Then the pair and the selected models (the report says when they
 differ; the check still runs the pair), the inputs of the pair's choice, and
 per step: the model and its catalog commit, picked device with the inputs,
 ran-on device, fallback with its exact error, load time, each clip's time,
-real-time factor, text, language, word errors or speaker score, pass or fail,
-and where a platform path was never run before (`untested_path`: the check on
-Windows and macOS was only compiled; on Linux, Vulkan on a GPU other than
-Intel's). Warnings: fallbacks, failures, a selection that differs. The
+real-time factor, text, language, word errors or speaker score, pass or fail.
+Which platform paths were never run before is development history, kept in
+Limits below, not in a tester's report. Warnings: fallbacks, failures, a selection that differs. The
 outcome is passed only when a step ran and passed; a check where every
 model was missing or declined says "nothing was checked".
 
@@ -248,8 +247,8 @@ in a meeting.
 ## Limits
 
 - Windows (DirectML, the Intel NPU, the registry's GPUs) and macOS (Metal)
-  were reached only by compiling, on the release dry run; the report says so
-  on those platforms. On Linux only an Intel Arc iGPU was run.
+  were reached only by compiling, on the release dry run. On Linux only an Intel Arc iGPU was run, so Vulkan on
+  another vendor's GPU is untested too.
 - The live step runs the live VAD's settings over the whole clip at once,
   not the live pipeline's frames, queue and per-source workers.
 - The NPU's preparation is not waited for: a check during `preparing` runs

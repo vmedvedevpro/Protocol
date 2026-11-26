@@ -64,10 +64,6 @@ pub struct Plan {
 }
 
 impl Plan {
-    pub fn steps(&self) -> Vec<StepKind> {
-        StepKind::ALL.to_vec()
-    }
-
     fn pair(&self) -> Pair {
         Pair {
             live: Some(format!("parakeet:{}", self.live_model)),
@@ -292,8 +288,8 @@ fn build_report(note: &Note, steps: Vec<StepReport>, outcome: Outcome) -> Report
         created: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
         outcome,
         system: note.system.clone(),
-        pair: note.pair.clone(),
-        selected: note.selected.clone(),
+        pair: note.plan.pair(),
+        selected: note.plan.selected(),
         steps,
         warnings,
     };
@@ -347,7 +343,7 @@ pub fn speech_check_dismiss<R: Runtime>(app: AppHandle<R>) {
 }
 
 fn start<R: Runtime>(app: AppHandle<R>, plan: Plan, resumed: Option<Note>) -> Result<(), String> {
-    let busy = begin(&app, &plan)?;
+    let busy = begin(&app)?;
     tauri::async_runtime::spawn(async move {
         let _busy = busy;
         let stopped = AssertUnwindSafe(run(&app, plan.clone(), resumed, &Engines)).catch_unwind().await;
@@ -417,7 +413,7 @@ impl Runner for Engines {
 /// speech work runs; otherwise the flags are reset before anything can set
 /// them, the busy hold is taken, and Running is emitted at once, so the group
 /// shows "Getting ready" with Cancel while the engines are put away.
-fn begin(emit: &impl Emit, plan: &Plan) -> Result<busy::BusyGuard, String> {
+fn begin(emit: &impl Emit) -> Result<busy::BusyGuard, String> {
     let mut current = lock_status();
     if matches!(*current, Status::Running { .. }) {
         return Err("The speech check is already running".into());
@@ -428,7 +424,7 @@ fn begin(emit: &impl Emit, plan: &Plan) -> Result<busy::BusyGuard, String> {
     CANCEL.store(false, Ordering::SeqCst);
     RECORDING_STARTED.store(false, Ordering::SeqCst);
     let busy = busy::hold(BusyReason::SpeechCheck);
-    *current = Status::Running { step: None, steps: plan.steps(), done: Vec::new(), cancelling: false };
+    *current = Status::Running { step: None, steps: StepKind::ALL.to_vec(), done: Vec::new(), cancelling: false };
     emit.changed(&current);
     Ok(busy)
 }
@@ -539,11 +535,8 @@ async fn run(emit: &impl Emit, plan: Plan, resumed: Option<Note>, runner: &impl 
         }
         None => Note::of(plan.clone(), system),
     };
-    if note.selected.live.is_some() || note.selected.post_meeting.is_some() {
-        let report_pair = Report { selected: note.selected.clone(), pair: note.pair.clone(), ..empty_report() };
-        if report_pair.selection_differs() && !note.warnings.iter().any(|warning| warning.starts_with("The selected models")) {
-            note.warnings.push("The selected models differ from the pair Protocol picks for this computer; the check ran the pair".into());
-        }
+    if note.plan.pair().differs_from(&note.plan.selected()) && !note.warnings.iter().any(|warning| warning.starts_with("The selected models")) {
+        note.warnings.push("The selected models differ from the pair Protocol picks for this computer; the check ran the pair".into());
     }
     note::write(&note);
     let to_run: Vec<StepKind> = note.remaining();
@@ -604,19 +597,6 @@ async fn run(emit: &impl Emit, plan: Plan, resumed: Option<Note>, runner: &impl 
     note::remove();
     let text = report.render();
     set_status(emit, Status::Finished { report, text });
-}
-
-fn empty_report() -> Report {
-    Report {
-        format: report::FORMAT,
-        created: String::new(),
-        outcome: Outcome::Passed,
-        system: Default::default(),
-        pair: Pair::default(),
-        selected: Pair::default(),
-        steps: Vec::new(),
-        warnings: Vec::new(),
-    }
 }
 
 #[cfg(test)]
@@ -720,7 +700,7 @@ mod tests {
     #[test]
     fn a_cancel_after_the_finish_leaves_the_status_alone() {
         let _statics = Statics::take();
-        let finished = Status::Finished { report: empty_report(), text: "done".into() };
+        let finished = Status::Finished { report: build_report(&note::tests::note(), Vec::new(), Outcome::Passed), text: "done".into() };
         *lock_status() = finished.clone();
         assert!(!mark_cancelling(&mut lock_status()));
         assert_eq!(status(), finished);
@@ -751,7 +731,7 @@ mod tests {
         CANCEL.store(true, Ordering::SeqCst);
         RECORDING_STARTED.store(true, Ordering::SeqCst);
         let events = Events::default();
-        let busy = begin(&events, &Plan::for_tests()).expect("nothing else runs");
+        let busy = begin(&events).expect("nothing else runs");
         assert!(!CANCEL.load(Ordering::SeqCst));
         assert!(!RECORDING_STARTED.load(Ordering::SeqCst));
         assert!(busy::current().contains(&BusyReason::SpeechCheck));
@@ -759,7 +739,7 @@ mod tests {
         // A recording that starts now finds the check running and cancels it.
         futures::executor::block_on(cancel_for_recording());
         assert!(RECORDING_STARTED.load(Ordering::SeqCst));
-        assert_eq!(begin(&events, &Plan::for_tests()).err().as_deref(), Some("The speech check is already running"));
+        assert_eq!(begin(&events).err().as_deref(), Some("The speech check is already running"));
         drop(busy);
     }
 
@@ -818,7 +798,7 @@ mod tests {
         note::use_path_for_tests(Some(folder.path().join("speech-check.json")));
         let events = Events::default();
         let plan = Plan::for_tests();
-        let _busy = begin(&events, &plan).unwrap();
+        let _busy = begin(&events).unwrap();
         run(&events, plan, None, runner).await;
         note::use_path_for_tests(None);
         (events.all(), folder)
@@ -889,7 +869,6 @@ mod tests {
         ];
         let mut note = note::tests::note();
         note.plan = plan.clone();
-        note.pair = plan.pair();
         note.system = hardware::system();
         let outcome = Report::outcome_of(&steps);
         let report = build_report(&note, steps, outcome);

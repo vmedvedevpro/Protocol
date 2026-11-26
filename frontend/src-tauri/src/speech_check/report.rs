@@ -136,10 +136,6 @@ pub struct StepReport {
     /// Parakeet: whether it keeps up with a meeting (`score::keeps_up`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub keeps_up: Option<bool>,
-    /// A path of this step that nobody had run on this platform before this
-    /// report (the developers reached it only by compiling it).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub untested_path: Option<String>,
 }
 
 impl StepReport {
@@ -156,7 +152,6 @@ impl StepReport {
             load_ms: None,
             clips: Vec::new(),
             keeps_up: None,
-            untested_path: None,
         }
     }
 
@@ -258,6 +253,14 @@ pub struct Pair {
     pub inputs: Vec<(String, String)>,
 }
 
+impl Pair {
+    /// Whether the models selected in Settings are not this pair; nothing
+    /// selected (a new install) is no difference.
+    pub fn differs_from(&self, selected: &Pair) -> bool {
+        (selected.live.is_some() && selected.live != self.live) || (selected.post_meeting.is_some() && selected.post_meeting != self.post_meeting)
+    }
+}
+
 impl Report {
     /// The outcome of the steps: any failure fails the check; a cancelled or
     /// interrupted step leaves the check cancelled or interrupted; a check
@@ -274,11 +277,6 @@ impl Report {
         } else {
             Outcome::NothingChecked
         }
-    }
-
-    pub fn selection_differs(&self) -> bool {
-        (self.selected.live.is_some() && self.selected.live != self.pair.live)
-            || (self.selected.post_meeting.is_some() && self.selected.post_meeting != self.pair.post_meeting)
     }
 
     /// The text part, then the JSON.
@@ -360,7 +358,7 @@ impl Report {
         for (name, value) in &self.pair.inputs {
             line(&mut out, format!("  {name}: {value}"));
         }
-        if self.selection_differs() {
+        if self.pair.differs_from(&self.selected) {
             line(
                 &mut out,
                 format!(
@@ -429,9 +427,6 @@ impl Report {
             }
             if let Some(keeps_up) = step.keeps_up {
                 line(&mut out, format!("  Keeps up with a meeting: {}", if keeps_up { "yes" } else { "no" }));
-            }
-            if let Some(untested) = &step.untested_path {
-                line(&mut out, format!("  Untested before this report: {untested}"));
             }
         }
         if !self.warnings.is_empty() {
@@ -550,7 +545,7 @@ impl Report {
             each(pair.inputs.iter_mut().flat_map(|(name, value)| [name, value]), f);
         }
         for step in &mut self.steps {
-            each([&mut step.reason, &mut step.ran_on, &mut step.untested_path].into_iter().flatten(), f);
+            each([&mut step.reason, &mut step.ran_on].into_iter().flatten(), f);
             if let Some(model) = &mut step.model {
                 each(std::iter::once(&mut model.id).chain(model.version.as_mut()), f);
             }
@@ -624,7 +619,6 @@ mod tests {
         s.onnx_providers.push(home.into());
         s.gpus.push(Gpu { name: home.into(), vendor: Some(home.into()), driver: Some(home.into()), driver_version: Some(home.into()) });
         let step = &mut report.steps[0];
-        step.untested_path = Some(home.into());
         step.model = Some(ModelId { id: home.into(), version: Some(home.into()) });
         step.picked = Some(Device { name: home.into(), why: home.into() });
         step.inputs.push((home.into(), home.into()));
@@ -709,6 +703,6 @@ mod tests {
         assert!(!same.render().contains("differs"));
         // Nothing selected (a new install) is no difference either.
         same.selected = Pair::default();
-        assert!(!same.selection_differs());
+        assert!(!same.pair.differs_from(&same.selected));
     }
 }

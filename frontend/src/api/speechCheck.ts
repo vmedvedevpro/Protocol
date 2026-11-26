@@ -54,7 +54,6 @@ export interface CheckStep {
     loadMs?: number
     clips: CheckClip[]
     keepsUp?: boolean
-    untestedPath?: string
 }
 
 export type CheckOutcome = 'passed' | 'failed' | 'cancelled' | 'interrupted' | 'nothingChecked'
