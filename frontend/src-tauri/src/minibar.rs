@@ -25,7 +25,8 @@ const MINIBAR_LABEL: &str = "minibar";
 // (`resize_minibar`), so no transparent part of it takes clicks meant for the
 // windows below. The theme's `sizes.minibar` repeats these values.
 // The closed pill (ring, timer, Stop): the window's first size, which it is
-// centred on. GTK never shrinks a non-resizable window below its first size.
+// centred on. On Linux GTK takes it, and each later width, as the window's
+// size request too (`linux_desktop/keep_above.rs`).
 const MINIBAR_CLOSED_WIDTH: f64 = 170.0;
 // The widest the page may ask for: the open pill with room for a longer status.
 const MINIBAR_WIDTH: f64 = 512.0;
@@ -34,6 +35,12 @@ const MINIBAR_WIDTH: f64 = 512.0;
 const MINIBAR_HEIGHT: f64 = 52.0;
 const MINIBAR_RADIUS: f64 = 26.0;
 const IPC_CLOSE_DELAY: Duration = Duration::from_millis(500);
+// Where the closed pill parks: top centre, this far below the screen's top.
+const MINIBAR_TOP: f64 = 12.0;
+#[cfg(target_os = "linux")]
+const MINIBAR_TITLE: &str = crate::linux_desktop::keep_above::MINIBAR_TITLE;
+#[cfg(not(target_os = "linux"))]
+const MINIBAR_TITLE: &str = "Recording";
 
 // Serialize window lifecycle changes so a queued minimize request cannot race a
 // recording stop and recreate the bar after native shutdown hid it.
@@ -132,7 +139,11 @@ fn close_minibar_locked<R: Runtime>(app: &AppHandle<R>) -> Result<bool, String> 
         // `destroy` bypasses webview close-request/event handling. Recording
         // shutdown must be able to remove a stale or unresponsive frontend.
         return match bar.destroy() {
-            Ok(()) => Ok(true),
+            Ok(()) => {
+                #[cfg(target_os = "linux")]
+                crate::linux_desktop::keep_above::minibar_closed();
+                Ok(true)
+            }
             Err(destroy_error) => {
                 // A failed destroy is recoverable on a later lifecycle call.
                 // Hide the stopped always-on-top controls in the meantime so
@@ -265,7 +276,8 @@ pub async fn enter_compact_mode<R: Runtime>(
     } else {
         let window =
             WebviewWindowBuilder::new(&app, MINIBAR_LABEL, WebviewUrl::App("minibar".into()))
-                .title("Recording")
+                // keep_above.rs tells the bar from the main window by it.
+                .title(MINIBAR_TITLE)
                 .inner_size(MINIBAR_CLOSED_WIDTH, MINIBAR_HEIGHT)
                 .resizable(false)
                 .decorations(false) // frameless: the bar draws its own chrome
@@ -284,10 +296,15 @@ pub async fn enter_compact_mode<R: Runtime>(
             let scale = monitor.scale_factor();
             let screen_w = size.width as f64 / scale;
             let x = (screen_w - MINIBAR_CLOSED_WIDTH) / 2.0;
-            let _ = window.set_position(tauri::LogicalPosition::new(x.max(0.0), 12.0));
+            let _ = window.set_position(tauri::LogicalPosition::new(x.max(0.0), MINIBAR_TOP));
         }
 
         fit_minibar_shape(&window, MINIBAR_CLOSED_WIDTH);
+        // Wayland ignores both the position and `always_on_top`; this keeps
+        // the bar on top and in place where the compositor allows it
+        // (docs/LINUX_DESKTOP.md). Before the bar is first shown.
+        #[cfg(target_os = "linux")]
+        crate::linux_desktop::keep_above::minibar_created(&window, MINIBAR_CLOSED_WIDTH, MINIBAR_HEIGHT, MINIBAR_TOP);
         window
     };
 
@@ -348,6 +365,16 @@ pub async fn resize_minibar<R: Runtime>(app: AppHandle<R>, width: f64) -> Result
     bar.set_size(tauri::LogicalSize::new(width, MINIBAR_HEIGHT))
         .map_err(|error| error.to_string())?;
     fit_minibar_shape(&bar, width);
+
+    // GTK needs the size as a size request too; a layer-shell bar stands
+    // where its margins put it, not at a window position.
+    #[cfg(target_os = "linux")]
+    {
+        crate::linux_desktop::keep_above::fit_minibar(&bar, MINIBAR_CLOSED_WIDTH, width, MINIBAR_HEIGHT);
+        if crate::linux_desktop::keep_above::minibar_is_layered() {
+            return Ok(());
+        }
+    }
 
     if let (Ok(Some(monitor)), Ok(position)) = (bar.current_monitor(), bar.outer_position()) {
         let left = monitor.position().x;

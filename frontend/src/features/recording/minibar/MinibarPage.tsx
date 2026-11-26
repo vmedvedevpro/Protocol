@@ -14,7 +14,17 @@ import {
     setMicrophoneMuted,
     setSystemAudioMuted,
 } from '../api/recording'
-import {exitCompactMode, resizeMinibar, startWindowDragging, stopRecordingFromMinibar} from './api'
+import {useNativeEvent} from '@/api/events'
+import {
+    exitCompactMode,
+    MINIBAR_NOTICE_EVENT,
+    MINIBAR_POINTER_ENTERED_EVENT,
+    MINIBAR_POINTER_LEFT_EVENT,
+    resizeMinibar,
+    startWindowDragging,
+    stopRecordingFromMinibar,
+    takeMinibarNotice,
+} from './api'
 import {type MinibarPhase, MinibarPill} from './MinibarPill'
 
 /**
@@ -147,6 +157,23 @@ export function MinibarPage() {
 
     // The window has these only while it is focused: Space pauses, as on
     // the recording screen; the stop shortcut stops, as in the main window.
+    // On Linux native code says where the pointer is (api.ts).
+    const [pointerOver, setPointerOver] = useState(false)
+    useNativeEvent(MINIBAR_POINTER_LEFT_EVENT, () => setPointerOver(false), {target: 'minibar'})
+    useNativeEvent(MINIBAR_POINTER_ENTERED_EVENT, () => setPointerOver(true), {target: 'minibar'})
+
+    // Native says once a run when the bar cannot stay on top (Linux): in the
+    // status's place, as a failed command is. Read again once listening, in
+    // case the word came before.
+    const showNotice = () => {
+        if (platform !== 'linux') return
+        takeMinibarNotice().then(
+            (notice) => notice && setFailure({text: notice}),
+            (error: unknown) => console.error('Minibar: the notice could not be read', error),
+        )
+    }
+    useNativeEvent(MINIBAR_NOTICE_EVENT, showNotice, {target: 'minibar', onListening: showNotice})
+
     useHotkey({code: 'Space'}, togglePause)
     useHotkey({code: 'KeyR', mod: true}, () => void stop())
 
@@ -166,6 +193,7 @@ export function MinibarPage() {
                     onStop={() => void stop()}
                     onBackToWindow={() => void run(exitCompactMode, 'Could not open')}
                     onWidthChange={fitWindow}
+                    pointerOver={platform === 'linux' ? pointerOver : undefined}
                     onDragStart={() => void startWindowDragging().catch((error: unknown) => console.error('Minibar: dragging failed', error))}
                 />
             )}

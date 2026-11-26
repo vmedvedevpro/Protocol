@@ -2,11 +2,12 @@ import {fireEvent, screen, waitFor, within} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import {beforeEach, describe, expect, it, vi} from 'vitest'
 import {handlers} from '@/mocks/handlers'
-import {installMockIpc} from '@/mocks/ipc'
+import {emitMockEvent, installMockIpc} from '@/mocks/ipc'
 import type {MockRecording} from '@/mocks/live'
 import {mockState} from '@/mocks/state'
 import {session} from '../store/session'
 import {renderRecording} from '../test/renderRecording'
+import {MINIBAR_POINTER_ENTERED_EVENT, MINIBAR_POINTER_LEFT_EVENT} from './api'
 import {MinibarPage} from './MinibarPage'
 import {ShrinkButton} from './ShrinkButton'
 
@@ -28,6 +29,15 @@ function recordFor(seconds: number): MockRecording {
     mockState.minibar.open = true
     return recording
 }
+
+// Tests run as Linux, where native code says where the pointer is (api.ts).
+// Sent again until the pill opens: the page may not listen yet.
+const pointerEnters = () =>
+    waitFor(async () => {
+        await emitMockEvent(MINIBAR_POINTER_ENTERED_EVENT, null)
+        expect(screen.getByRole('button', {name: 'Back to the full window'})).toBeInTheDocument()
+    })
+const pointerLeaves = () => emitMockEvent(MINIBAR_POINTER_LEFT_EVENT, null)
 
 async function renderMinibar() {
     const result = renderRecording(<MinibarPage/>, {path: '/minibar'})
@@ -52,13 +62,39 @@ describe('MinibarPage', () => {
         expect(within(pill).getByRole('button', {name: 'Stop and save'})).toBeInTheDocument()
         expect(within(pill).queryByRole('button', {name: 'Mute microphone'})).not.toBeInTheDocument()
 
-        await userEvent.hover(pill)
+        await pointerEnters()
         expect(within(pill).getByRole('button', {name: 'Mute microphone'})).toBeInTheDocument()
         expect(within(pill).getByRole('button', {name: 'Mute computer audio'})).toBeInTheDocument()
         expect(within(pill).getByRole('button', {name: 'Back to the full window'})).toBeInTheDocument()
 
-        await userEvent.unhover(pill)
+        await pointerLeaves()
         await waitFor(() => expect(within(pill).queryByRole('button', {name: 'Mute microphone'})).not.toBeInTheDocument())
+    })
+
+    it("follows native's word on the pointer, not the webview's", async () => {
+        // WebKitGTK reports no pointerleave once the pointer leaves the whole
+        // view, which is the pill, and sends a move inside after GTK's leave.
+        recordFor(60)
+        const {pill} = await renderMinibar()
+        fireEvent.pointerEnter(pill)
+        expect(within(pill).queryByRole('button', {name: 'Mute microphone'})).not.toBeInTheDocument()
+
+        await pointerEnters()
+        fireEvent.pointerLeave(pill)
+        expect(within(pill).getByRole('button', {name: 'Mute microphone'})).toBeInTheDocument()
+
+        await pointerLeaves()
+        fireEvent.pointerMove(pill)
+        await waitFor(() => expect(within(pill).queryByRole('button', {name: 'Mute microphone'})).not.toBeInTheDocument())
+    })
+
+    it('says once that it cannot stay on top', async () => {
+        recordFor(60)
+        const notice = vi.spyOn(handlers, 'linux_take_minibar_notice').mockReturnValueOnce("Can't stay on top")
+        const {pill} = await renderMinibar()
+
+        expect(await within(pill).findByRole('status')).toHaveTextContent("Can't stay on top")
+        expect(notice).toHaveBeenCalled()
     })
 
     it('opens for the keyboard and stays open while its focus is inside', async () => {
@@ -86,7 +122,7 @@ describe('MinibarPage', () => {
     it('mutes each source natively and shows Muted', async () => {
         const recording = recordFor(30)
         const {pill} = await renderMinibar()
-        await userEvent.hover(pill)
+        await pointerEnters()
 
         await userEvent.click(within(pill).getByRole('button', {name: 'Mute microphone'}))
 
@@ -104,7 +140,7 @@ describe('MinibarPage', () => {
         await handlers.set_microphone_muted({muted: true})
 
         await waitFor(() => expect(within(pill).getByRole('status')).toHaveTextContent('Paused'))
-        await userEvent.hover(pill)
+        await pointerEnters()
         expect(within(pill).getByRole('button', {name: 'Muted microphone'})).toBeInTheDocument()
     })
 
@@ -112,7 +148,7 @@ describe('MinibarPage', () => {
         recordFor(30)
         const stop = vi.spyOn(handlers, 'stop_recording_from_minibar')
         const {pill} = await renderMinibar()
-        await userEvent.hover(pill)
+        await pointerEnters()
 
         await userEvent.click(within(pill).getByRole('button', {name: 'Stop and save'}))
 
@@ -142,7 +178,7 @@ describe('MinibarPage', () => {
     it('goes back to the full window', async () => {
         recordFor(30)
         const {pill} = await renderMinibar()
-        await userEvent.hover(pill)
+        await pointerEnters()
 
         await userEvent.click(within(pill).getByRole('button', {name: 'Back to the full window'}))
 

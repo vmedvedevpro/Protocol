@@ -53,8 +53,9 @@ describe('App startup', () => {
         expect(banner.parentElement).toBe(main.parentElement)
         expect(footer.parentElement).toBe(main.parentElement)
         expect(within(footer).getByRole('group', {name: 'Record'})).toBeInTheDocument()
-        // The title strip drags the window; its buttons stay clickable.
-        expect(banner).toHaveAttribute('data-tauri-drag-region', 'deep')
+        // Tests run as Linux (jsdom's user agent), where the desktop's own
+        // title bar moves the window, not the app's row (TitleBar).
+        expect(banner).not.toHaveAttribute('data-tauri-drag-region')
         expect(within(banner).queryByRole('button', {name: 'Back to meetings'})).not.toBeInTheDocument()
     })
 
@@ -64,7 +65,7 @@ describe('App startup', () => {
         })
         renderApp()
 
-        expect(await screen.findByText('Unable to check setup status. Please retry.')).toBeInTheDocument()
+        expect(await screen.findByText('Unable to check setup status. Please retry.', LIVE)).toBeInTheDocument()
         status.mockRestore()
         await userEvent.click(screen.getByRole('button', {name: 'Retry'}))
 
@@ -182,6 +183,17 @@ describe('App navigation', () => {
         await waitFor(() => expect(mockState.live.saveAnswers).toEqual([{stopId: 1, outcome: 'discarded'}]))
     })
 
+    it("names the window after the screen, for the desktop's title bar on Linux", async () => {
+        const setTitle = vi.spyOn(handlers, 'plugin:window|set_title')
+        renderApp()
+        await heading('Meetings')
+        await waitFor(() => expect(setTitle).toHaveBeenLastCalledWith(expect.objectContaining({value: 'Protocol'})))
+
+        await userEvent.keyboard('{Control>}[Comma]{/Control}')
+        await heading('Settings')
+        await waitFor(() => expect(setTitle).toHaveBeenLastCalledWith(expect.objectContaining({value: 'Settings — Protocol'})))
+    })
+
     it('moves focus to the new screen after a navigation, and leaves it on the first screen', async () => {
         renderApp()
         await heading('Meetings')
@@ -210,40 +222,71 @@ describe('App navigation', () => {
         // setup.ts installed the mock as the main window; minibar.rs labels
         // the window that opens /minibar `minibar`.
         installMockIpc()
-        const setTheme = vi.spyOn(handlers, 'plugin:window|set_theme')
+        const setTheme = vi.spyOn(handlers, 'linux_set_window_theme')
 
         renderApp('/minibar')
 
         expect(await screen.findByRole('group', {name: 'Recording controls'})).toBeInTheDocument()
         expect(screen.queryByRole('banner')).not.toBeInTheDocument()
-        await waitFor(() => expect(setTheme).toHaveBeenCalledWith(expect.objectContaining({label: 'minibar'})))
+        // Its theme provider hands the mode to native code too.
+        await waitFor(() => expect(setTheme).toHaveBeenCalledWith(expect.objectContaining({theme: null})))
     })
 })
 
 describe('Keep on top', () => {
+    // Tests run as Linux, where native code keeps the window on top the way
+    // the session allows (src/api/window.ts).
     it('pins the window above the others and remembers it', async () => {
-        const onTop = vi.spyOn(handlers, 'plugin:window|set_always_on_top')
+        const onTop = vi.spyOn(handlers, 'linux_set_keep_on_top')
         renderApp()
         await heading('Meetings')
-        const pin = screen.getByRole('button', {name: 'Keep on top'})
+        const pin = await screen.findByRole('button', {name: 'Keep on top'})
         expect(pin).toHaveAttribute('aria-pressed', 'false')
 
         await userEvent.click(pin)
 
         expect(pin).toHaveAttribute('aria-pressed', 'true')
-        await waitFor(() => expect(onTop).toHaveBeenLastCalledWith(expect.objectContaining({value: true})))
+        await waitFor(() => expect(onTop).toHaveBeenLastCalledWith(expect.objectContaining({onTop: true})))
         expect(JSON.parse(localStorage.getItem(KEEP_ON_TOP_STORAGE_KEY)!).state).toEqual({onTop: true})
     })
 
     it('applies the saved pin when the window opens', async () => {
         localStorage.setItem(KEEP_ON_TOP_STORAGE_KEY, JSON.stringify({state: {onTop: true}, version: 0}))
         await useKeepOnTopStore.persist.rehydrate()
-        const onTop = vi.spyOn(handlers, 'plugin:window|set_always_on_top')
+        const onTop = vi.spyOn(handlers, 'linux_set_keep_on_top')
 
         renderApp()
 
         expect(await screen.findByRole('button', {name: 'Keep on top', pressed: true})).toBeInTheDocument()
-        await waitFor(() => expect(onTop).toHaveBeenCalledWith(expect.objectContaining({value: true})))
+        await waitFor(() => expect(onTop).toHaveBeenCalledWith(expect.objectContaining({onTop: true})))
+    })
+
+    it('says where the pin would be that the session cannot keep a window on top', async () => {
+        // GNOME or wlroots on Wayland (keep_above.rs).
+        vi.spyOn(handlers, 'linux_keep_on_top_available').mockReturnValue(false)
+        const onTop = vi.spyOn(handlers, 'linux_set_keep_on_top')
+        renderApp()
+        await heading('Meetings')
+
+        expect(await screen.findByText("Keep on top isn't available in this session")).toBeInTheDocument()
+        expect(screen.queryByRole('button', {name: 'Keep on top'})).not.toBeInTheDocument()
+        expect(onTop).not.toHaveBeenCalled()
+    })
+
+    it('sets the pin back and says why when native code cannot keep the window on top', async () => {
+        vi.spyOn(handlers, 'linux_set_keep_on_top').mockImplementation(({onTop}) => {
+            if (onTop) throw 'KWin refused the script (id -1); KWin scripting may be disabled'
+            return null
+        })
+        renderApp()
+        await heading('Meetings')
+
+        await userEvent.click(await screen.findByRole('button', {name: 'Keep on top'}))
+
+        expect(await screen.findByText("Couldn't keep the window on top")).toBeInTheDocument()
+        expect(screen.getByText('KWin refused the script (id -1); KWin scripting may be disabled')).toBeInTheDocument()
+        await waitFor(() => expect(screen.getByRole('button', {name: 'Keep on top'})).toHaveAttribute('aria-pressed', 'false'))
+        expect(JSON.parse(localStorage.getItem(KEEP_ON_TOP_STORAGE_KEY)!).state).toEqual({onTop: false})
     })
 })
 
@@ -300,7 +343,7 @@ describe('Crash report', () => {
         await screen.findByRole('dialog')
 
         // The modal sheet hides the window from assistive technology meanwhile.
-        const pin = screen.getByRole('button', {name: 'Keep on top', hidden: true})
+        const pin = await screen.findByRole('button', {name: 'Keep on top', hidden: true})
         await userEvent.click(pin)
 
         expect(pin).toHaveAttribute('aria-pressed', 'true')
@@ -320,8 +363,11 @@ describe('Crash report', () => {
 })
 
 describe('Theme', () => {
+    // Tests run as Linux (jsdom's user agent), where native code takes the
+    // mode instead of Tauri's setTheme (src/api/window.ts).
     it('saves the chosen theme and forces it on the native window', async () => {
-        const setTheme = vi.spyOn(handlers, 'plugin:window|set_theme')
+        const setTheme = vi.spyOn(handlers, 'linux_set_window_theme')
+        const tauriSetTheme = vi.spyOn(handlers, 'plugin:window|set_theme')
         renderApp('/settings')
         await heading('Settings')
 
@@ -329,16 +375,18 @@ describe('Theme', () => {
 
         expect(screen.getByRole('radio', {name: 'Dark'})).toBeChecked()
         expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe('dark')
-        await waitFor(() => expect(setTheme).toHaveBeenLastCalledWith(expect.objectContaining({value: 'dark'})))
+        await waitFor(() => expect(setTheme).toHaveBeenLastCalledWith(expect.objectContaining({theme: 'dark'})))
 
         await userEvent.click(option('Match system'))
 
-        // null hands the window back to the OS theme.
-        await waitFor(() => expect(setTheme).toHaveBeenLastCalledWith(expect.objectContaining({value: null})))
+        // null follows the desktop's colour scheme again; tao's setTheme(null)
+        // would force light on Linux.
+        await waitFor(() => expect(setTheme).toHaveBeenLastCalledWith(expect.objectContaining({theme: null})))
+        expect(tauriSetTheme).not.toHaveBeenCalled()
     })
 
     it('follows the OS again when the other window removes the saved theme', async () => {
-        const setTheme = vi.spyOn(handlers, 'plugin:window|set_theme')
+        const setTheme = vi.spyOn(handlers, 'linux_set_window_theme')
         renderApp('/settings')
         await heading('Settings')
         await userEvent.click(option('Dark'))
@@ -349,7 +397,7 @@ describe('Theme', () => {
         })
 
         expect(await screen.findByRole('radio', {name: 'Match system', checked: true})).toBeInTheDocument()
-        await waitFor(() => expect(setTheme).toHaveBeenLastCalledWith(expect.objectContaining({value: null})))
+        await waitFor(() => expect(setTheme).toHaveBeenLastCalledWith(expect.objectContaining({theme: null})))
     })
 
     it('crossfades a theme change made in the other window', async () => {

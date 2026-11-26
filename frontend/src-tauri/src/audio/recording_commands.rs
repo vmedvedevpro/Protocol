@@ -578,6 +578,8 @@ pub async fn start_recording_with_meeting_name<R: Runtime>(
     // Set recording flag and reset speech detection flag
     info!("ðŸ” Setting IS_RECORDING to true and resetting SPEECH_DETECTED_EMITTED");
     IS_RECORDING.store(true, Ordering::SeqCst);
+    #[cfg(target_os = "linux")]
+    crate::linux_desktop::keep_above::recording_changed(true);
 
     // Live speaker identification: label transcript segments with individual
     // voices as they arrive. Best-effort — if the models aren't installed we
@@ -817,6 +819,8 @@ pub async fn start_recording_with_devices_and_meeting<R: Runtime>(
     // Set recording flag and reset speech detection flag
     info!("ðŸ” Setting IS_RECORDING to true and resetting SPEECH_DETECTED_EMITTED");
     IS_RECORDING.store(true, Ordering::SeqCst);
+    #[cfg(target_os = "linux")]
+    crate::linux_desktop::keep_above::recording_changed(true);
 
     // Live speaker identification: label transcript segments with individual
     // voices as they arrive. Best-effort — if the models aren't installed we
@@ -1219,6 +1223,8 @@ async fn stop_recording_inner<R: Runtime>(
     // Set recording flag to false
     info!("ðŸ” Setting IS_RECORDING to false");
     IS_RECORDING.store(false, Ordering::SeqCst);
+    #[cfg(target_os = "linux")]
+    crate::linux_desktop::keep_above::recording_changed(false);
     crate::diarization::online::stop();
 
     // Step 4.5: Prepare metadata for frontend (NO database save)

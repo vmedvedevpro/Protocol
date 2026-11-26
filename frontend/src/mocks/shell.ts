@@ -11,6 +11,7 @@ import {mockState} from './state'
  */
 export const shellHandlers: Record<string, MockHandler> = {
     'plugin:window|set_always_on_top': () => null,
+    'plugin:window|set_title': () => null,
     'plugin:window|minimize': () => null,
     'plugin:window|close': () => null,
     'plugin:window|is_maximized': () => mockState.window.maximized,

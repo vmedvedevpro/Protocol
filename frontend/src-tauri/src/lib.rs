@@ -75,6 +75,8 @@ pub mod speech_choice;
 pub mod state;
 pub mod summary;
 pub mod tray;
+#[cfg(target_os = "linux")]
+mod linux_desktop;
 pub mod updater;
 pub mod utils;
 pub mod whisper_engine;
@@ -337,6 +339,11 @@ pub fn run() {
     #[cfg(windows)]
     windows_app_identity::bind_process();
 
+    let context = tauri::generate_context!();
+    // Before Tauri starts GTK, which names the windows after it.
+    #[cfg(target_os = "linux")]
+    linux_desktop::app_id::set(&context.package_info().name);
+
     let mut builder = tauri::Builder::default();
 
     #[cfg(any(target_os = "macos", windows, target_os = "linux"))]
@@ -364,6 +371,10 @@ pub fn run() {
             }
             #[cfg(unix)]
             quit::quit_on_termination_signals(_app.handle());
+            #[cfg(target_os = "linux")]
+            linux_desktop::theme::init();
+            #[cfg(target_os = "linux")]
+            linux_desktop::keep_above::init(_app.handle());
             #[cfg(any(windows, target_os = "linux"))]
             onnx_runtime::initialize(_app.handle());
             log::info!("Application setup complete");
@@ -492,7 +503,9 @@ pub fn run() {
         .on_window_event(|window, event| {
             // Minimizing the main window mid-recording shows the compact bar,
             // so the recording never becomes invisible. (Minimize arrives as a
-            // Resized event; is_minimized() distinguishes it.)
+            // Resized event; is_minimized() distinguishes it.) On Wayland
+            // GDK never learns of a minimize; on KDE Plasma KWin reports it
+            // instead (linux_desktop/keep_above.rs, docs/LINUX_DESKTOP.md).
             if let tauri::WindowEvent::Resized(_) = event {
                 if window.label() == "main"
                     && window.is_minimized().unwrap_or(false)
@@ -728,6 +741,16 @@ pub fn run() {
             audio::import::validate_audio_file_command,
             audio::import::start_import_audio_command,
             audio::import::cancel_import_command,
+            // The Linux windows' theme (docs/LINUX_DESKTOP.md)
+            #[cfg(target_os = "linux")]
+            linux_desktop::theme::linux_set_window_theme,
+            // Keep on top on Linux (docs/LINUX_DESKTOP.md)
+            #[cfg(target_os = "linux")]
+            linux_desktop::keep_above::linux_keep_on_top_available,
+            #[cfg(target_os = "linux")]
+            linux_desktop::keep_above::linux_set_keep_on_top,
+            #[cfg(target_os = "linux")]
+            linux_desktop::keep_above::linux_take_minibar_notice,
             // In-app updates
             updater::commands::updater_get_status,
             updater::commands::updater_check_now,
@@ -765,7 +788,7 @@ pub fn run() {
             #[cfg(windows)]
             model_catalog::openvino::openvino_runtime_download,
         ])
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("error while building tauri application")
         .run(|_app_handle, event| {
             match event {
@@ -786,6 +809,8 @@ pub fn run() {
                 }
                 tauri::RunEvent::Exit => {
                     log::info!("Application exiting, cleaning up resources...");
+                    #[cfg(target_os = "linux")]
+                    linux_desktop::keep_above::unload_kwin_script();
                     // An OpenVINO compile this exit cuts short is not a crash.
                     #[cfg(any(windows, target_os = "linux"))]
                     whisper_engine::openvino::set_closing(true);

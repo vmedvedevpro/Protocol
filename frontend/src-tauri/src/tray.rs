@@ -29,11 +29,15 @@ pub fn create_tray<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     // Pass can_record=true initially, will be updated by update_tray_menu immediately
     let menu = build_menu(app, RecordingState::Stopped, true)?;
     let (image, template) = icon::initial();
-    // Linux has no tray tooltip (tray-icon ignores it); the panel shows the
-    // indicator's title, which libayatana-appindicator takes from GLib's
-    // application name, and that defaults to the binary name `protocol`.
+    // tray-icon ignores the tooltip on Linux. libayatana-appindicator takes
+    // the item's Title from GLib's application name (by default the
+    // binary's), and the panel's hover name from a ToolTip it does not
+    // export, which tray_name.rs adds (docs/LINUX_DESKTOP.md).
     #[cfg(target_os = "linux")]
-    glib::set_application_name(&app.package_info().name);
+    {
+        glib::set_application_name(&app.package_info().name);
+        crate::linux_desktop::tray_name::install(&app.package_info().name);
+    }
 
     TrayIconBuilder::with_id(TRAY_ID)
         .menu(&menu)

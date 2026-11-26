@@ -1637,6 +1637,25 @@ CPU-only on Windows and Linux; on Windows the Vulkan/CPU choice happens at
 install and update time, not at launch (Linux decides at launch, see
 [Whisper on Vulkan in the Linux app](#whisper-on-vulkan-in-the-linux-app)).
 
+### The Linux desktop
+
+How the main window, the minibar and the tray sit on a Linux desktop (#215)
+is in [LINUX_DESKTOP.md](LINUX_DESKTOP.md): the desktop's own window frame
+(`tauri.linux.conf.json`, `TitleBar.tsx`); the windows' app id, which names
+the desktop file (`linux_desktop/app_id.rs`, `linux/main.desktop`, checked by
+`check-linux-desktop-entry.mjs` in the Linux release leg); Match system
+following the settings portal (`linux_desktop/theme.rs`); Keep on top and
+the minibar under Wayland, through a KWin script on KDE Plasma and the
+layer-shell overlay where the compositor has it (`linux_desktop/keep_above.rs`,
+`linux_desktop/layer_shell.rs`, gtk-layer-shell loaded at run time), and the
+minimize that opens the minibar during a recording, which only KWin can
+report on Wayland (`keep_above::recording_changed`); the tray
+icon's name on hover (`linux_desktop/tray_name.rs`). Read it before changing
+the Linux window configuration, the title strip, the theme, keep on top, the
+minibar or the tray. `scripts/release/test/tauri-linux-window.test.mjs`
+checks that the Linux window entry differs from the base one only in
+`decorations`.
+
 ### Fork identity and updates
 
 Protocol is a fork of Meetily – Actually Free with its own identity, so it can run
@@ -1650,6 +1669,7 @@ beside an installed upstream build without sharing state:
 | Uninstall entry | `HKCU\…\Uninstall\io.github.vmedvedevpro.protocol` | `windows/installer.nsi` (`UNINSTKEY`, a `; Protocol:` change to Tauri's stock template) |
 | Fallback data root | OS data dir `/vmedvedevpro/Protocol` | `paths.rs` (`FALLBACK_PUBLISHER`, `FALLBACK_APP_NAME`) |
 | Default recordings folder | `protocol-recordings` | `audio/recording_preferences.rs` |
+| Linux window app id, `WM_CLASS`, desktop file | `Protocol` (the product name), `Protocol.desktop` with `StartupWMClass=Protocol` | `linux_desktop/app_id.rs`, `linux/main.desktop` ([LINUX_DESKTOP.md](LINUX_DESKTOP.md)) |
 | Cargo package and executable | `protocol`, `protocol.exe`; installer variants `protocol-vulkan.exe`, `protocol-vulkan-probe.exe` | `src-tauri/Cargo.toml`, `build-universal-windows.ps1`, `windows/installer-hooks.nsh` |
 | Release assets | `protocol-windows-x64-setup.exe`, `protocol-macos-arm64.{dmg,app.tar.gz}`, `protocol-linux-x86_64.AppImage`, `protocol_<version>_amd64.deb` | `scripts/release/release-lib.mjs` |
 | App, installer and tray icons | the recording ring (#120); the tray's in one colour, with a dot while recording | `frontend/scripts/build-icons.mjs` draws `src-tauri/icons/`; `src-tauri/src/tray/icon.rs` switches the tray's ([ARCHITECTURE.md › Branding assets](../ARCHITECTURE.md#branding-assets)) |
@@ -1996,7 +2016,9 @@ and must stay in step with it.
 theme, not the OS one. So the windows start with no forced theme
 (`tauri.conf.json` and `tauri.windows.conf.json` set none), `AppThemeProvider`
 calls `setTheme(null)` for `system` and `setTheme('light' | 'dark')`
-otherwise (`setWindowTheme` in `src/api/window.ts`), and on Windows Tauri
+otherwise (`setWindowTheme` in `src/api/window.ts`; on Linux, where tao's
+`setTheme(null)` forces light, the native `linux_set_window_theme` instead,
+see [LINUX_DESKTOP.md › Dark mode](LINUX_DESKTOP.md#dark-mode-from-the-desktop-198)), and on Windows Tauri
 passes each OS switch (tao's `WM_SETTINGCHANGE` handling emits
 `ThemeChanged`) on to WebView2's preferred color scheme, where
 `useResolvedTheme`'s media query listener picks it up. wry sets that scheme on
@@ -2009,8 +2031,8 @@ resolution, and `src/styles/themeBoot.test.ts` that the boot script paints
 what the module would. The browser
 preview was checked with emulated `prefers-color-scheme`. The OS switch in the
 desktop app rests on tauri-runtime-wry 2.12.3 and tao 0.37.2 as read in their
-source, not on a run in the app; on Linux the media query follows what
-WebKitGTK reports and was not checked.
+source, not on a run in the app. Linux was checked in the app on KDE Plasma
+(LINUX_DESKTOP.md).
 
 Labs roadmap features 1, 3, 7, 8, and 12 are mapped in
 [LABS_MACWHISPER_FEATURES.md](LABS_MACWHISPER_FEATURES.md). Read it before

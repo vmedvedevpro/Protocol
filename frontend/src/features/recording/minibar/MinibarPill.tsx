@@ -181,16 +181,20 @@ function isKeyboardFocus(element: Element) {
 /**
  * Open while the pointer is over the pill or the keyboard's focus is in it.
  * A click focuses a button too, but does not hold the pill open after the
- * pointer leaves.
+ * pointer leaves. Where native code says where the pointer is
+ * (`pointerOver`, Linux) the webview's pointer events do not count.
  */
-function useOpenOnHover() {
+function useOpenOnHover(pointerOver: boolean | undefined) {
     const [hovered, setHovered] = useState(false)
     const [focused, setFocused] = useState(false)
+    const native = pointerOver !== undefined
     return {
-        open: hovered || focused,
+        open: (native ? pointerOver : hovered) || focused,
         handlers: {
-            onPointerEnter: () => setHovered(true),
-            onPointerLeave: () => setHovered(false),
+            ...(!native && {
+                onPointerEnter: () => setHovered(true),
+                onPointerLeave: () => setHovered(false),
+            }),
             onFocus: (event: FocusEvent<HTMLElement>) => setFocused(isKeyboardFocus(event.target)),
             onBlur: (event: FocusEvent<HTMLElement>) => {
                 // Null when the window itself loses focus.
@@ -221,6 +225,12 @@ export interface MinibarPillProps {
     onDragStart: () => void
     /** The pill's width in CSS pixels, rounded up, on mount and on every change. */
     onWidthChange?: (width: number) => void
+    /**
+     * Whether the pointer is over the window, as native code says (Linux,
+     * where the webview's own pointer events mislead: api.ts). Undefined
+     * elsewhere: the webview's pointerenter and pointerleave count.
+     */
+    pointerOver?: boolean
 }
 
 /**
@@ -244,10 +254,11 @@ export function MinibarPill({
     onBackToWindow,
     onDragStart,
     onWidthChange,
+    pointerOver,
 }: MinibarPillProps) {
     const theme = useTheme()
     const pill = useRef<HTMLDivElement>(null)
-    const hover = useOpenOnHover()
+    const hover = useOpenOnHover(pointerOver)
     const finishing = phase === 'finishing'
     const paused = phase === 'paused'
     const open = !finishing && (held || hover.open)

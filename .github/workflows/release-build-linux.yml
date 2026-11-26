@@ -217,6 +217,19 @@ jobs:
             echo "protocol links libvulkan.so.1 and would not start without a Vulkan loader"
             exit 1
           fi
+          # The minibar's layer-shell on Wayland (#199): the app opens
+          # gtk-layer-shell itself and starts without it, so the executable
+          # must not link it, and the deb recommends it.
+          recommends=$(dpkg-deb --field "$deb" Recommends)
+          if [[ ", $recommends," != *", libgtk-layer-shell0,"* ]]; then
+            echo "The deb does not recommend libgtk-layer-shell0: $recommends"
+            exit 1
+          fi
+          if readelf -d target/release/protocol | grep -q 'libgtk-layer-shell'; then
+            readelf -d target/release/protocol
+            echo "protocol links libgtk-layer-shell.so.0 and would not start without it"
+            exit 1
+          fi
           # A log line of ggml-vulkan's own (ggml_vk_instance_init): if a
           # whisper.cpp update rewords it, this check fails on a good build.
           if ! grep -qa 'ggml_vulkan: No devices found' target/release/protocol; then
@@ -237,6 +250,13 @@ jobs:
           fi
           # The AppImage keeps the pinned ffmpeg next to the executable.
           grep -q '/usr/bin/ffmpeg$' "$appimage_contents"
+          # The desktop file is named after the windows' app id and its
+          # StartupWMClass repeats it, so desktops show the app's icon for its
+          # window (#191); the app's own log below says which id it sets.
+          desktop_entry="$RUNNER_TEMP/desktop-entry"
+          dpkg-deb -x "$deb" "$desktop_entry/deb"
+          unsquashfs -no-progress -o "$offset" -d "$desktop_entry/appimage" "$appimage" usr/share/applications usr/share/icons >/dev/null
+          node scripts/release/check-linux-desktop-entry.mjs --root "$desktop_entry/deb" --root "$desktop_entry/appimage"
           # The player's GStreamer plugins, and AppRun pointing GStreamer at them.
           unsquashfs -no-progress -o "$offset" -d "$RUNNER_TEMP/appimage-hook" "$appimage" apprun-hooks >/dev/null
           node scripts/release/appimage-gstreamer.mjs check "$appimage_contents" \
@@ -286,6 +306,7 @@ jobs:
           wait "$pid" >/dev/null 2>&1 || true
           cat "$log"
           grep -q "Application setup complete" "$log"
+          node scripts/release/check-linux-desktop-entry.mjs --log "$log"
           # The version build/onnxruntime.rs pins for Linux.
           if ! grep -q "Initialized verified bundled ONNX Runtime 1.24.4" "$log"; then
             echo "Protocol did not load its bundled ONNX Runtime 1.24.4"

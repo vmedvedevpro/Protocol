@@ -114,6 +114,34 @@ is inherited from the project Protocol forked from; Protocol did not release it.
   ([#219](https://github.com/vmedvedevpro/Protocol/issues/219)). Details are
   set apart by spacing, a comma or parentheses instead. New automatic titles
   read "Meeting, Mon, Sep 28, 2:30 PM"; older ones still count as automatic.
+- **Linux: the desktop's own window frame**
+  ([#215](https://github.com/vmedvedevpro/Protocol/issues/215)). The main
+  window has the desktop's title bar, buttons, rounded corners and shadow,
+  like the other windows, and its title names the open screen.
+- **Linux: Protocol's icon for its window**
+  ([#215](https://github.com/vmedvedevpro/Protocol/issues/215)). The task
+  manager and the window switcher show Protocol's ring instead of a generic
+  icon on Wayland.
+- **Linux: Match system follows the desktop's dark mode**
+  ([#215](https://github.com/vmedvedevpro/Protocol/issues/215)). With a dark
+  colour scheme the app is dark, and it repaints when the desktop's scheme
+  changes.
+- **Linux: Keep on top and the floating bar under Wayland**
+  ([#215](https://github.com/vmedvedevpro/Protocol/issues/215)). On KDE
+  Plasma the pin keeps the window on top and the floating bar stays above
+  other windows at the top of the screen; a Keep Above set from KWin's window
+  menu is left alone. Minimizing the window during a recording opens the
+  floating bar there too. Where Wayland gives an app no way to stay on top
+  (GNOME), the title bar says so in the pin's place, and the floating bar
+  says once that it cannot stay on top; GNOME's window menu has Always on
+  Top. When the pin cannot be applied, it goes back off and a message says
+  why.
+- **Linux: the floating bar is only as big as the bar**
+  ([#215](https://github.com/vmedvedevpro/Protocol/issues/215)). It no
+  longer sits in an invisible square that caught clicks meant for the
+  windows below.
+- **Linux: the tray icon shows Protocol's name on hover**
+  ([#215](https://github.com/vmedvedevpro/Protocol/issues/215)).
 
 ## Protocol 1.0.0-rc.1 — 2026-11-26
 
