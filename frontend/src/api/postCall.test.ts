@@ -78,6 +78,12 @@ describe('the post-call controls', () => {
         unregister()
         postCallControls.cancel('m1')
         expect(runner.cancel).toHaveBeenCalledTimes(1)
+        // An import's pass with no runner to take it is not lost silently.
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+        postCallControls.afterImport('m2')
+        expect(runner.afterImport).toHaveBeenCalledTimes(1)
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining('m2'))
+        warn.mockRestore()
         // Without a runner nothing holds native work, so a delete need not wait.
         await expect(postCallControls.settled('m1')).resolves.toBeUndefined()
     })

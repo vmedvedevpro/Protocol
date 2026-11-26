@@ -198,7 +198,7 @@ describe('MeetingScreen', () => {
     })
 
     it('says so when a run ends with the labels the meeting already had', async () => {
-        mockState.postCall.diarization = {labeled: 12, changed: 0, speakersOnLines: null}
+        mockState.postCall.diarization = {labeled: 12, changed: 0, labelledBefore: 12, speakersOnLines: null}
         renderMeeting('meeting-acme-review', '?tab=transcript')
         const dialog = renderHook(() => useDialog())
         await userEvent.click(await screen.findByRole('button', {name: 'Identify speakers…'}))
@@ -207,8 +207,19 @@ describe('MeetingScreen', () => {
         expect(screen.getByText('Every line already had these labels, so none changed.')).toBeInTheDocument()
     })
 
+    it('does not say again on a first run that labelled no line', async () => {
+        mockState.postCall.diarization = {labeled: 0, changed: 0, labelledBefore: 0, speakersOnLines: null}
+        renderMeeting('meeting-acme-review', '?tab=transcript')
+        const dialog = renderHook(() => useDialog())
+        await userEvent.click(await screen.findByRole('button', {name: 'Identify speakers…'}))
+        act(() => identifyFromSheet(dialog.result.current.request, 2))
+        expect(await screen.findByText('Found 2 speakers')).toBeInTheDocument()
+        expect(screen.getByText('No transcript line got a label.')).toBeInTheDocument()
+        expect(screen.queryByText('Found 2 speakers again')).not.toBeInTheDocument()
+    })
+
     it('says so when a speaker it found labels no line', async () => {
-        mockState.postCall.diarization = {labeled: 12, changed: 3, speakersOnLines: 1}
+        mockState.postCall.diarization = {labeled: 12, changed: 3, labelledBefore: 12, speakersOnLines: 1}
         renderMeeting('meeting-acme-review', '?tab=transcript')
         const dialog = renderHook(() => useDialog())
         await userEvent.click(await screen.findByRole('button', {name: 'Identify speakers…'}))

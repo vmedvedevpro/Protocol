@@ -823,6 +823,9 @@ pub struct MeetingDiarizationResult {
     /// Lines whose label this run changed; 0 when it ended with the labels
     /// the meeting already had (#205).
     pub changed: usize,
+    /// Lines that carried a label before this run; with `changed` 0, a run
+    /// that repeated the last result, rather than one that labelled nothing.
+    pub labelled_before: usize,
     /// (transcript_id, speaker_label) pairs, e.g. ("transcript-â€¦", "Speaker 1").
     pub assignments: Vec<(String, String)>,
 }
@@ -1043,6 +1046,19 @@ fn extract_manual_speaker_names(label: &str) -> Vec<String> {
     names
 }
 
+/// Whether the mic track's turns are one voice, so that they may update the
+/// user's voiceprint: three turns at least, and one cluster under the
+/// default threshold with none folded in. The automatic clustering folds a
+/// one-turn cluster into the main voice (#217); here that turn would be
+/// another voice, laughter or noise on the mic, and its embedding would go
+/// into the voiceprint, so the guard reads the clusters before folding.
+fn mic_is_one_consistent_voice(embeddings: &[Vec<f32>]) -> bool {
+    embeddings.len() >= 3
+        && clustering::agglomerative_unfolded(embeddings, DEFAULT_THRESHOLD)
+            .iter()
+            .all(|&label| label == 0)
+}
+
 /// Decode any supported audio container to a temporary 16 kHz mono WAV using
 /// the bundled ffmpeg. Returns the original path unchanged if it's already WAV.
 fn ensure_wav(path: &Path) -> Result<(PathBuf, bool)> {
@@ -1188,14 +1204,7 @@ pub async fn diarize_meeting(
                     let engine = TrackEngine::Pyannote { models: &model_dir };
                     let result = diarize_track_wavs(engine, &mic_wav, &system_wav, num_speakers, threshold)?;
                     if let Some(embeddings) = mic_embeddings {
-                        let labels = clustering::agglomerative(
-                            &embeddings,
-                            None,
-                            DEFAULT_THRESHOLD,
-                        );
-                        let one_consistent_voice = embeddings.len() >= 3
-                            && labels.iter().copied().max().unwrap_or(0) == 0;
-                        if one_consistent_voice {
+                        if mic_is_one_consistent_voice(&embeddings) {
                             if let Err(error) = voiceprint::update_from_embeddings(
                                 &embeddings,
                                 &voiceprint_source,
@@ -1275,6 +1284,7 @@ pub async fn diarize_meeting(
         cluster_to_manual_name,
         changed,
         speakers_on_lines,
+        labelled_before,
         lines_per_label,
     } = plan_labels(
         &rows,
@@ -1382,6 +1392,7 @@ pub async fn diarize_meeting(
         labeled: assignments.len(),
         speakers_on_lines,
         changed,
+        labelled_before,
         assignments,
     })
 }
@@ -1558,8 +1569,11 @@ pub(crate) struct LabelPlan {
     pub cluster_to_manual_name: std::collections::HashMap<usize, String>,
     /// Rows whose label is not the one they had.
     pub changed: usize,
-    /// Clusters that label at least one row.
+    /// Clusters whose label is on at least one row, counted after the
+    /// source-track hint, which can push a cluster off a row.
     pub speakers_on_lines: usize,
+    /// Rows that carried a label before the rerun.
+    pub labelled_before: usize,
     /// Rows per label component ("Speaker 1", "Anna", "You").
     pub lines_per_label: std::collections::BTreeMap<String, usize>,
 }
@@ -1729,6 +1743,7 @@ pub(crate) fn plan_labels(
     let mut clusters_on_lines: BTreeSet<usize> = BTreeSet::new();
     for (row, clusters) in rows.iter().zip(row_clusters) {
         let existing = row.speaker.as_deref().map(str::trim).filter(|label| !label.is_empty());
+        plan.labelled_before += usize::from(existing.is_some());
         if !relabelled(row) {
             // Placed by hand: it keeps its label and is not written.
             let label = existing.unwrap_or_default();
@@ -1740,8 +1755,17 @@ pub(crate) fn plan_labels(
             continue;
         }
         let label: Option<String> = match clusters {
-            // A row without a duration overlaps no voice; its label is cleared.
-            None => None,
+            // A row without a usable duration overlaps no voice. A name the
+            // user gave stays, as on a row no voice overlaps; a generated
+            // label ("Speaker N", "You") says nothing the new clusters back,
+            // so it is cleared.
+            None => {
+                let name = existing.filter(|label| is_manual_speaker_label(label)).map(str::to_string);
+                if name.is_some() {
+                    plan.kept += 1;
+                }
+                name
+            }
             // Generated labels are not durable capture-source provenance.
             // Preserve source hints without excluding genuine simultaneous
             // speakers. Diarization updates labels only: text length cannot
@@ -1750,11 +1774,13 @@ pub(crate) fn plan_labels(
             Some(mut speakers) if !speakers.is_empty() => {
                 speakers.sort_unstable();
                 speakers.dedup();
-                clusters_on_lines.extend(speakers.iter().copied());
-                let mut labels: Vec<_> = speakers.into_iter().map(&speaker_label).collect();
+                let mut labels: Vec<_> = speakers.iter().copied().map(&speaker_label).collect();
                 apply_source_track_hint(row.speaker.as_deref(), used_source_tracks, num_speakers != Some(1), &mut labels);
                 labels.dedup();
                 labels.truncate(3);
+                // The hint can put "You" first and the cap then drops a
+                // cluster, so a cluster counts only when its label stayed.
+                clusters_on_lines.extend(speakers.into_iter().filter(|&spk| labels.contains(&speaker_label(spk))));
                 Some(labels.join(" + "))
             }
             Some(_) => {
@@ -2138,6 +2164,67 @@ mod tests {
         let chosen = plan_labels(&rows, &result, &Default::default(), &[], false, Some(2));
         assert_eq!(chosen.speakers_on_lines, 2);
         assert_eq!(labels(&chosen)[2], ("t2", "Speaker 1 + Speaker 2"));
+    }
+
+    /// With source tracks a mic line keeps "You" first, and the three-label
+    /// cap then drops a cluster; that cluster is not counted as on a line.
+    #[test]
+    fn a_cluster_the_source_hint_pushes_off_a_line_is_not_on_the_transcript() {
+        let result = DiarizationResult {
+            segments: vec![seg(0.0, 10.0, 1), seg(0.0, 10.0, 2), seg(0.0, 10.0, 3), seg(10.0, 20.0, 0)],
+            num_speakers: 4,
+            duration: 20.0,
+            user_speaker: Some(0),
+        };
+        let rows = vec![row("t0", 0.0, 10.0, "You", false), row("t1", 10.0, 20.0, "You", false)];
+        let plan = plan_labels(&rows, &result, &Default::default(), &[], true, None);
+        assert_eq!(labels(&plan), vec![("t0", "You + Speaker 1 + Speaker 2"), ("t1", "You")]);
+        assert_eq!((plan.speakers_on_lines, plan.labelled_before), (3, 2));
+    }
+
+    /// A line with no usable timing keeps a name the user gave; a generated
+    /// label on such a line is cleared.
+    #[test]
+    fn a_line_without_timing_keeps_a_given_name() {
+        let untimed = |id: &str, start: Option<f64>, end: Option<f64>, speaker: &str| LabelRow {
+            id: id.into(),
+            start,
+            end,
+            speaker: Some(speaker.into()),
+            hand_placed: false,
+        };
+        let rows = vec![
+            row("t0", 0.0, 10.0, "Speaker 1", false),
+            untimed("t1", Some(12.0), Some(12.0), "Boris"),
+            untimed("t2", None, None, "Speaker 2"),
+            untimed("t3", Some(25.0), None, "Anna + Speaker 1"),
+        ];
+        let plan = plan_labels(&rows, &two_voices(), &Default::default(), &[], false, None);
+        assert_eq!(labels(&plan), vec![("t0", "Speaker 1"), ("t1", "Boris"), ("t3", "Anna + Speaker 1")]);
+        let update = |id: &str| plan.updates.iter().find(|(row, _)| row == id).map(|(_, label)| label.as_deref());
+        assert_eq!(update("t1"), Some(Some("Boris")));
+        assert_eq!(update("t2"), Some(None));
+        assert_eq!((plan.kept, plan.changed), (2, 1));
+    }
+
+    /// The voiceprint guard reads the clusters before folding: one odd turn
+    /// on the mic, which the automatic clustering folds into the user's
+    /// voice, blocks enrolment.
+    #[test]
+    fn one_odd_turn_on_the_mic_blocks_voiceprint_enrolment() {
+        let unit = |v: [f32; 3]| {
+            let norm = v.iter().map(|x| x * x).sum::<f32>().sqrt();
+            v.iter().map(|x| x / norm).collect::<Vec<f32>>()
+        };
+        let user: Vec<Vec<f32>> = (0..5).map(|i| unit([1.0, 0.02 * i as f32, 0.01 * i as f32])).collect();
+        assert!(mic_is_one_consistent_voice(&user));
+
+        let mut with_outlier = user.clone();
+        with_outlier.insert(2, unit([0.1, 0.2, 0.97]));
+        assert!(clustering::agglomerative(&with_outlier, None, DEFAULT_THRESHOLD).iter().all(|&l| l == 0));
+        assert!(!mic_is_one_consistent_voice(&with_outlier));
+
+        assert!(!mic_is_one_consistent_voice(&user[..2]));
     }
 
     #[test]

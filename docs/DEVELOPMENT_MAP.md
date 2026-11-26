@@ -289,48 +289,27 @@ the providers), frontend `SummaryModelPage.test.tsx`.
 
 `diarization/mod.rs` owns persisted engine settings and offline command dispatch.
 Nemotron is Auto-detect only; manual counts belong to Pyannote.
-Pyannote clusters the embeddings of its turns (one local speaker of one
-non-overlapping 10 s window) with average-linkage AHC in
-`clustering::agglomerative` (#217). A cluster counts as a speaker only with
-`MIN_SPEAKER_TURNS` (2) turns, as pyannote's `min_cluster_size`: a voice heard
-in one window has no second sample to tell it from that window's noise. With a
-count chosen, the cut is the coarsest one of the merge tree with that many
-such clusters, and smaller clusters join the nearest one's centroid; when no
-cut has that many (too few turns), the cut with that many clusters of any
-size, so the count holds. Detect automatically cuts at the distance threshold
-and folds the small clusters the same way. On #207's meeting a single 1.6 s
-turn had been the second of two chosen speakers. `diarize_file_with_models`
-logs each cluster's turns and speech. Tests: the model-free
-`diarization::clustering::tests`, and the ignored
-`a_chosen_count_is_spent_on_the_two_voices` (`diarization/qualification.rs`):
-it downloads pyannote-audio's `sample.wav` and RTTM (MIT) and one FLEURS en
-sentence (CC BY 4.0, the kit's pinned archive, 172 MB into `.measure/cache`),
-builds sample, 1 s of silence, 2 s of the third voice alone in its window,
-sample, and checks that 2 chosen speakers are the sample's two and both lead
-rows; on 1.0.0's clustering it fails with 45.8 s and 1.8 s. The automatic
-threshold (0.60, which merges the sample's two voices at 0.551) is not
-recalibrated here. Rerunning speaker
-identification must preserve transcript text, row identity, and timestamps.
-A rerun labels every line from the new clusters (`plan_labels`, #217): a name
-the user gave belongs to a voice, so each name goes to the cluster whose speech
-overlaps its lines most (one name per cluster, `cluster_to_manual_name`), and
-the lines of a cluster no name matched get a generated label even if they
-carried a name before; until #217 a named line was never relabelled, so once
-a meeting's only label was renamed no run could split it. A line the user
-moved on its own (Who said this, "These lines") carries `speaker_manual`
-(migration `20261126010000`, set by `reassign_transcript_speaker_component`,
-cleared when its name is removed) and keeps its label. Lines moved before
-that migration carry no mark: the data cannot tell them from a renamed
-speaker, so a rerun relabels them. With a chosen count, a cluster that leads
-no line joins the line it covers the largest part of, so every chosen
-speaker with speech over a line shows. The result reports
-`speakers_on_lines` (clusters that label a line) and `changed` (lines whose
-label changed), and the log the lines per label. Tests:
-`a_rerun_splits_a_renamed_single_label_between_two_voices`,
-`a_line_moved_by_hand_keeps_its_label`,
-`a_rerun_with_the_same_result_changes_no_line` and
-`a_chosen_speaker_that_leads_no_line_joins_the_line_it_covers_most`
-(`diarization/mod.rs`).
+Pyannote clusters its turns (one local speaker of one non-overlapping 10 s
+window) in `clustering::agglomerative` (#217). A cluster is a speaker only with
+`MIN_SPEAKER_TURNS` (2) turns; smaller ones join the nearest speaker, so one
+odd turn neither spends a chosen count nor shows on its own. The mic
+voiceprint guard (`mic_is_one_consistent_voice`) reads the clusters before
+that folding, `agglomerative_unfolded`, so an odd turn blocks enrolment. The
+0.60 automatic threshold is not recalibrated.
+Rerunning speaker identification must preserve transcript text, row identity,
+and timestamps. `plan_labels` relabels every line from the new clusters: each
+name the user gave goes to the cluster that overlaps its lines most, the
+other clusters' lines get `Speaker N`. A line no voice overlaps keeps its
+label; one with no usable timing keeps a given name only. A line moved on its own in Who said this
+carries `speaker_manual` and keeps its label; `reassign_transcript_speaker_component`
+sets it and clears it when the name is removed, a whole-speaker rename leaves
+it. Lines moved before migration `20261126010000` carry no mark and are
+relabelled. With a chosen count, a cluster that leads no line joins the line
+it covers most. The result's `changed`, `labelled_before` and
+`speakers_on_lines` drive the dialog's toast. Tests: `diarization::clustering`
+and the `plan_labels` cases in `diarization/mod.rs`, the `speaker_manual` case
+in `person.rs`, and the ignored, Linux-only
+`qualification::a_chosen_count_is_spent_on_the_two_voices` on public fixtures.
 `row_speakers` labels a row with the speaker who overlaps it most, then those who
 overlap it for a fifth of that and talk at the same time; of speakers who overlap
 it equally the lower index comes first (#75; it was hash order), so one timeline

@@ -726,13 +726,22 @@ fn der_counts_misses_false_alarms_and_confusion_with_the_best_mapping() {
 // ---------------------------------------------------------------------------
 // A chosen count and an odd turn (#207, #217)
 // ---------------------------------------------------------------------------
+//
+// Linux only: the FLEURS clip comes out of a .tar.gz, and `flate2` is a
+// dependency on Linux alone (OpenVINO's archive, #178). #104 removed the
+// test-only copies of `flate2` and `tar` from [dev-dependencies], and the
+// test is ignored and model-dependent anyway, so it is not worth adding them
+// back for the other platforms.
 
+#[cfg(target_os = "linux")]
 /// pyannote-audio's tutorial sample: 30 s, two speakers, with its RTTM (MIT).
 const PYANNOTE_COMMIT: &str = "b5794f46d16f85de1551a7080658b6de7d62046f";
+#[cfg(target_os = "linux")]
 const PYANNOTE_SAMPLE: [(&str, u64, &str); 2] = [
     ("sample.wav", 960_104, "c319b4abca767b124e41432d364fd7df006cb26bb79d09326c487d606a134e6e"),
     ("sample.rttm", 596, "d78fe62c69d8e6dcbb42c26adfce83faccb374c5a1e6d987fe37f85f1c173c87"),
 ];
+#[cfg(target_os = "linux")]
 /// FLEURS en_us dev audio (Google, CC BY 4.0), pinned as the measuring kit
 /// pins it (`scripts/measure/kit/fixture.py`), whose cache it shares.
 const FLEURS_EN_DEV: (&str, u64, &str) = (
@@ -740,9 +749,11 @@ const FLEURS_EN_DEV: (&str, u64, &str) = (
     171_250_900,
     "2658fda72f199e12676ecac9415094667a4e14e149b146e568ea00b2a2f0954c",
 );
+#[cfg(target_os = "linux")]
 /// The third voice: a woman reading, of FLEURS en_us dev.
 const THIRD_VOICE: &str = "dev/2606692427476446963.wav";
 
+#[cfg(target_os = "linux")]
 /// `.measure/cache/<name>`, downloaded first when missing; panics unless the
 /// size and SHA-256 match.
 fn cached(name: &str, url: &str, size: u64, sha256: &str) -> PathBuf {
@@ -775,6 +786,7 @@ fn cached(name: &str, url: &str, size: u64, sha256: &str) -> PathBuf {
     path
 }
 
+#[cfg(target_os = "linux")]
 fn write_wav16(path: &Path, samples: &[f32]) {
     let data: Vec<u8> = samples
         .iter()
@@ -797,6 +809,7 @@ fn write_wav16(path: &Path, samples: &[f32]) {
     std::fs::write(path, out).unwrap();
 }
 
+#[cfg(target_os = "linux")]
 /// 2 s of the third voice's speech, scaled to `peak`: from 0.1 s before the
 /// first 10 ms with an RMS of at least a fiftieth of the peak, as the kit
 /// cuts FLEURS clips to their speech.
@@ -824,6 +837,7 @@ fn third_voice_clip(dir: &Path, peak: f32) -> Vec<f32> {
     samples[start..start + 32_000].to_vec()
 }
 
+#[cfg(target_os = "linux")]
 /// #207 without the owner's audio: the sample, 1 s of silence, 2 s of a
 /// third voice alone in its own 10 s window, then the sample again (70 s).
 /// On 1.0.0 both Detect automatically and 2 speakers gave two clusters of 10

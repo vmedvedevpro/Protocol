@@ -1778,6 +1778,38 @@ mod tests {
             .unwrap()
     }
 
+    async fn hand_placed(pool: &sqlx::SqlitePool, transcript_id: &str) -> bool {
+        sqlx::query_scalar("SELECT speaker_manual FROM transcripts WHERE id = ?")
+            .bind(transcript_id)
+            .fetch_one(pool)
+            .await
+            .unwrap()
+    }
+
+    /// `speaker_manual` (#217): Just this line marks the line, a blank name
+    /// there clears the mark, and renaming a speaker as a whole leaves the
+    /// marks as they are.
+    #[tokio::test]
+    async fn just_this_line_marks_the_line_and_a_whole_rename_keeps_the_mark() {
+        let pool = contacts_pool().await;
+
+        PeopleRepository::reassign_transcript_speaker(&pool, "m1", "t2", "Anna").await.unwrap();
+        assert_eq!(speaker_of(&pool, "t2").await, "Anna");
+        assert!(hand_placed(&pool, "t2").await);
+
+        PeopleRepository::rename_meeting_speaker(&pool, "m1", "Anna", "Anna Ivanova").await.unwrap();
+        PeopleRepository::rename_meeting_speaker(&pool, "m1", "Tom", "Tommy").await.unwrap();
+        assert_eq!(speaker_of(&pool, "t2").await, "Anna Ivanova");
+        assert!(hand_placed(&pool, "t2").await);
+        assert_eq!(speaker_of(&pool, "t1").await, "Tommy");
+        assert!(!hand_placed(&pool, "t1").await);
+
+        let cleared = PeopleRepository::reassign_transcript_speaker(&pool, "m1", "t2", "  ").await.unwrap();
+        assert!(cleared.removed_name);
+        assert_eq!(speaker_of(&pool, "t2").await, cleared.speaker);
+        assert!(!hand_placed(&pool, "t2").await);
+    }
+
     #[tokio::test]
     async fn renaming_a_contact_relabels_every_meeting_and_owner() {
         let pool = contacts_pool().await;

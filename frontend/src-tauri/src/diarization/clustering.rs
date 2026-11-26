@@ -77,6 +77,22 @@ pub fn agglomerative(
     labels
 }
 
+/// The clusters under `threshold` as they are, with no cluster folded into
+/// another: labels as [`agglomerative`] returns them.
+///
+/// For checks that ask whether every turn agrees, not how many speakers to
+/// report. The mic voiceprint guard uses it: there a one-turn cluster is
+/// another voice, laughter or noise on the mic, and it must block enrolment
+/// rather than join the user's voice and go into the voiceprint.
+pub fn agglomerative_unfolded(embeddings: &[Vec<f32>], threshold: f32) -> Vec<usize> {
+    let n = embeddings.len();
+    if n < 2 {
+        return vec![0; n];
+    }
+    let merges = merge_sequence(embeddings, Some(threshold));
+    contiguous(&partition(n, &merges))
+}
+
 /// One merge of the tree: cluster `absorbed` joined cluster `kept`, each
 /// named by an embedding index.
 #[derive(Debug, Clone, Copy)]
@@ -419,5 +435,16 @@ mod tests {
         let embeddings = vec![vec![1.0, 0.0, 0.0], vec![0.0, 1.0, 0.0], vec![0.0, 0.0, 1.0]];
         let labels = agglomerative(&embeddings, None, 0.60);
         assert_eq!(labels, vec![0, 1, 2]);
+    }
+
+    /// The unfolded variant keeps the odd turn apart where the folding one
+    /// joins it to the voices.
+    #[test]
+    fn the_unfolded_clusters_keep_a_one_turn_cluster() {
+        let embeddings = voices_and_an_outlier(5);
+        assert!(agglomerative(&embeddings, None, 0.60).iter().all(|&l| l == 0));
+        let labels = agglomerative_unfolded(&embeddings, 0.60);
+        assert_eq!(labels.iter().copied().max().unwrap() + 1, 2);
+        assert!(labels.iter().enumerate().all(|(i, &l)| (l != labels[0]) == (i == 5)));
     }
 }
