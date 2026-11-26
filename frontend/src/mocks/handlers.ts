@@ -22,6 +22,7 @@ import {searchHandlers} from './search'
 import {settingsHandlers} from './settings'
 import {shellHandlers} from './shell'
 import {speechHandlers} from './speech'
+import {speechCheckHandlers} from './speechCheck'
 import {summaryProvidersHandlers} from './summaryProviders'
 import {templatesHandlers} from './templates'
 import {updaterHandlers} from './updater'
@@ -111,6 +112,9 @@ export const handlers: Record<string, MockHandler> = {
 
     // The native Labs switches (src/mocks/labs.ts)
     ...labsHandlers(mockState),
+
+    // src-tauri/src/speech_check/
+    ...speechCheckHandlers(mockState),
 
     // Summary templates and the stored default: summary/template_commands.rs, template_settings.rs
     ...templatesHandlers(mockState),

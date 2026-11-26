@@ -28,6 +28,7 @@ const BUSY_SENTENCES: Record<BusyReason, string> = {
     modelDownload: 'a model is downloading',
     modelCompile: 'a speech model is being prepared for the GPU',
     onboarding: "setup isn't finished",
+    speechCheck: 'the speech check is running',
     speechEngine: 'the speech engine is busy',
 }
 
