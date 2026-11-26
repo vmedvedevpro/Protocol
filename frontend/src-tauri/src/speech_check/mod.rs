@@ -28,10 +28,13 @@ pub mod sample;
 pub mod score;
 mod steps;
 
+use std::panic::AssertUnwindSafe;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, MutexGuard};
 use std::time::Duration;
 
+use futures_util::future::BoxFuture;
+use futures_util::FutureExt;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Runtime};
 
@@ -341,9 +344,67 @@ fn start<R: Runtime>(app: AppHandle<R>, plan: Plan, resumed: Option<Note>) -> Re
     let busy = begin(&app, &plan)?;
     tauri::async_runtime::spawn(async move {
         let _busy = busy;
-        run(&app, plan, resumed).await;
+        let stopped = AssertUnwindSafe(run(&app, plan.clone(), resumed, &Engines)).catch_unwind().await;
+        // Each step is caught on its own (`guarded`); this is the check's own code.
+        // The app's engines are not loaded back then: they load on next use.
+        if let Err(panic) = stopped {
+            STEP_IN_FLIGHT.store(false, Ordering::SeqCst);
+            note::remove();
+            let reason = format!("The check stopped on an internal error: {}", panic_message(&*panic));
+            log::error!("[speech check] {reason}");
+            let note = Note::of(plan, Default::default());
+            let steps = StepKind::ALL.iter().map(|kind| StepReport::new(*kind, StepStatus::Failed).with_reason(reason.clone())).collect();
+            let report = build_report(&note, steps, Outcome::Failed);
+            let text = report.render();
+            set_status(&app, Status::Finished { report, text });
+        }
     });
     Ok(())
+}
+
+/// The text of a panic's payload.
+fn panic_message(panic: &(dyn std::any::Any + Send)) -> String {
+    panic
+        .downcast_ref::<&str>()
+        .map(|text| text.to_string())
+        .or_else(|| panic.downcast_ref::<String>().cloned())
+        .unwrap_or_else(|| "no message".into())
+}
+
+/// A step that panics fails on its own: the run goes on, gives the engines
+/// back, removes the note and finishes, instead of staying Running.
+async fn guarded(kind: StepKind, step: impl std::future::Future<Output = StepReport>) -> StepReport {
+    match AssertUnwindSafe(step).catch_unwind().await {
+        Ok(report) => report,
+        Err(panic) => {
+            let message = panic_message(&*panic);
+            log::error!("[speech check] {} panicked: {message}", kind.title());
+            StepReport::new(kind, StepStatus::Failed).with_reason(format!("The step stopped on an internal error: {message}"))
+        }
+    }
+}
+
+/// What a run runs: the engines in the app, stand-ins in tests.
+trait Runner: Sync {
+    fn system(&self) -> BoxFuture<'_, report::System>;
+    fn step<'a>(&'a self, kind: StepKind, plan: &'a Plan, context: &'a steps::Context<'a>) -> BoxFuture<'a, StepReport>;
+}
+
+struct Engines;
+
+impl Runner for Engines {
+    fn system(&self) -> BoxFuture<'_, report::System> {
+        Box::pin(async { tokio::task::spawn_blocking(hardware::system).await.unwrap_or_default() })
+    }
+
+    fn step<'a>(&'a self, kind: StepKind, plan: &'a Plan, context: &'a steps::Context<'a>) -> BoxFuture<'a, StepReport> {
+        match kind {
+            StepKind::Parakeet => Box::pin(steps::parakeet(&plan.live_model, context)),
+            StepKind::Whisper => Box::pin(steps::whisper(&plan.post_meeting_model, context)),
+            StepKind::Pyannote => Box::pin(steps::pyannote(context)),
+            StepKind::Nemotron => Box::pin(steps::nemotron(context)),
+        }
+    }
 }
 
 /// The start under one hold of the status: refused while a check or other
@@ -455,14 +516,14 @@ async fn give_back(held: Held, warnings: &mut Vec<String>) {
     let _ = whisper_reloaded;
 }
 
-async fn run(emit: &impl Emit, plan: Plan, resumed: Option<Note>) {
+async fn run(emit: &impl Emit, plan: Plan, resumed: Option<Note>, runner: &impl Runner) {
     let taken = take_engines().await;
     if let Err(reason) = &taken {
         log::info!("[speech check] not started: {reason}");
     }
     // A check stopped before its first step does not read the GPUs either.
     let system = match &taken {
-        Ok(_) => tokio::task::spawn_blocking(hardware::system).await.unwrap_or_default(),
+        Ok(_) => runner.system().await,
         Err(_) => Default::default(),
     };
     let mut note = match resumed {
@@ -470,16 +531,7 @@ async fn run(emit: &impl Emit, plan: Plan, resumed: Option<Note>) {
             note.system = system;
             note
         }
-        None => Note {
-            pair: plan.pair(),
-            selected: plan.selected(),
-            plan: plan.clone(),
-            system,
-            done: Vec::new(),
-            running: None,
-            closed_in: None,
-            warnings: Vec::new(),
-        },
+        None => Note::of(plan.clone(), system),
     };
     if note.selected.live.is_some() || note.selected.post_meeting.is_some() {
         let report_pair = Report { selected: note.selected.clone(), pair: note.pair.clone(), ..empty_report() };
@@ -512,12 +564,7 @@ async fn run(emit: &impl Emit, plan: Plan, resumed: Option<Note>) {
                     note.running = Some(kind);
                     note::write(&note);
                     log::info!("[speech check] checking {}", kind.title());
-                    let report = match kind {
-                        StepKind::Parakeet => steps::parakeet(&plan.live_model, &context).await,
-                        StepKind::Whisper => steps::whisper(&plan.post_meeting_model, &context).await,
-                        StepKind::Pyannote => steps::pyannote(&context).await,
-                        StepKind::Nemotron => steps::nemotron(&context).await,
-                    };
+                    let report = guarded(kind, runner.step(kind, &plan, &context)).await;
                     note.running = None;
                     log::info!("[speech check] {}: {:?}", kind.title(), report.status);
                     report
@@ -725,6 +772,53 @@ mod tests {
         });
         assert!(step_ended_within(Duration::from_secs(5)).await);
         ends.await.unwrap();
+    }
+
+    /// Steps that pass, except one that panics.
+    struct PanicsIn(StepKind);
+
+    impl Runner for PanicsIn {
+        fn system(&self) -> BoxFuture<'_, report::System> {
+            Box::pin(async { report::System::default() })
+        }
+
+        fn step<'a>(&'a self, kind: StepKind, _plan: &'a Plan, _context: &'a steps::Context<'a>) -> BoxFuture<'a, StepReport> {
+            Box::pin(async move {
+                if kind == self.0 {
+                    panic!("index out of bounds");
+                }
+                StepReport::new(kind, StepStatus::Passed)
+            })
+        }
+    }
+
+    /// A run on the bundled sample with `runner`, its note in a folder of its own.
+    async fn run_on_the_sample(runner: &impl Runner) -> (Vec<Status>, tempfile::TempDir) {
+        let resources = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("resources");
+        sample::set_bundled_dir(resources.join("speech-check"));
+        let folder = tempfile::tempdir().unwrap();
+        note::use_path_for_tests(Some(folder.path().join("speech-check.json")));
+        let events = Events::default();
+        let plan = Plan::for_tests();
+        let _busy = begin(&events, &plan).unwrap();
+        run(&events, plan, None, runner).await;
+        note::use_path_for_tests(None);
+        (events.all(), folder)
+    }
+
+    #[tokio::test]
+    async fn a_step_that_panics_fails_and_the_check_still_finishes() {
+        let _file = note::tests::FILE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _statics = Statics::take();
+        let (events, folder) = run_on_the_sample(&PanicsIn(StepKind::Whisper)).await;
+        let Some(Status::Finished { report, .. }) = events.last() else { panic!("{events:?}") };
+        let statuses: Vec<StepStatus> = report.steps.iter().map(|step| step.status).collect();
+        assert_eq!(statuses, vec![StepStatus::Passed, StepStatus::Failed, StepStatus::Passed, StepStatus::Passed]);
+        assert_eq!(report.steps[1].reason.as_deref(), Some("The step stopped on an internal error: index out of bounds"));
+        assert_eq!(report.outcome, Outcome::Failed);
+        assert!(!folder.path().join("speech-check.json").exists(), "the note goes, so the next start claims no crash");
+        assert!(!STEP_IN_FLIGHT.load(Ordering::SeqCst));
+        assert_eq!(status(), events.last().unwrap().clone());
     }
 
     #[test]

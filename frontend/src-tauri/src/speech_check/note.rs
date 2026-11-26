@@ -38,6 +38,11 @@ pub struct Note {
 }
 
 impl Note {
+    /// A new run's note.
+    pub fn of(plan: super::Plan, system: System) -> Self {
+        Note { pair: plan.pair(), selected: plan.selected(), plan, system, done: Vec::new(), running: None, closed_in: None, warnings: Vec::new() }
+    }
+
     /// The steps still to run after the ones done and the one that closed the app.
     pub fn remaining(&self) -> Vec<StepKind> {
         self.plan
