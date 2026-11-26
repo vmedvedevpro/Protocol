@@ -14,13 +14,12 @@ pub const FILE_NAME: &str = "mcp-server.json";
 /// The server's tools with one-line summaries, for places that list them
 /// without running the server (the Claude Desktop extension's manifest).
 /// protocol-mcp's tests check the names against what it serves.
-pub const TOOLS: [(&str, &str); 8] = [
+pub const TOOLS: [(&str, &str); 7] = [
     ("list_meetings", "List meetings by date, person, group or title."),
-    ("get_meeting", "One meeting: people, notes, action items and summary."),
+    ("get_meeting", "One meeting: people, notes and summary."),
     ("get_transcript", "A meeting's transcript, page by page."),
-    ("search", "Search titles, transcripts, summaries, action items, people and groups."),
+    ("search", "Search titles, transcripts, summaries, people and groups."),
     ("get_summary", "A meeting's AI summary as Markdown."),
-    ("get_action_items", "Action items of one meeting, or open ones across meetings."),
     ("list_people", "Contacts: the names given to speakers."),
     ("list_groups", "Groups that meetings are filed in."),
 ];

@@ -33,6 +33,6 @@ export async function beginSession() {
     const title = state.title || (await getRecordingMeetingName().catch(() => null)) || ''
     if (!state.title) session.set({title})
     // The crash copy exists before the first line, so even a crash then is offered.
-    await beginRecovery({meetingId: recoveryId, title, startTime: startedAt}).catch(() => undefined)
+    await beginRecovery({meetingId: recoveryId, title, titleManual: session.get().titleManual, startTime: startedAt}).catch(() => undefined)
     await noteRecoveryFolder(recoveryId)
 }

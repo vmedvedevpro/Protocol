@@ -164,13 +164,9 @@ impl SummaryProcessesRepository {
         if result.rows_affected() == 0 {
             return Ok(false);
         }
-        // A new summary can carry new action items. Clearing the marker lets the
-        // app read them into the meeting's action item list, even if the
-        // meeting page is not open when the summary finishes.
-        sqlx::query("UPDATE meetings SET action_items_source = NULL WHERE id = ?")
-            .bind(meeting_id)
-            .execute(pool)
-            .await?;
+        // `meetings.action_items_source` is left alone: since #218 it only
+        // records that the restore step (`action_item.rs`) is done with this
+        // meeting, and a new summary keeps its action section in its text.
         log_info!(
             "Summary completed and backup cleared for meeting_id: {}",
             meeting_id

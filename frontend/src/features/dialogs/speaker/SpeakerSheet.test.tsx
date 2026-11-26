@@ -59,7 +59,7 @@ describe('SpeakerSheet', () => {
         await userEvent.type(within(dialog).getByRole('searchbox', {name: 'Search contacts or type a name'}), 'pri')
         await userEvent.click(await within(dialog).findByRole('radio', {name: /Priya Shah/}))
         expect(await within(dialog).findByRole('status')).toHaveTextContent(
-            'Dana Wu isn’t in any other meeting, so the contact is merged into Priya Shah. Its notes are added to Priya Shah’s, its details fill in only what Priya Shah has none of, and its action items and voice move there.',
+            'Dana Wu isn’t in any other meeting, so the contact is merged into Priya Shah. Its notes are added to Priya Shah’s, its details fill in only what Priya Shah has none of, and its voice moves there.',
         )
         await userEvent.click(within(dialog).getByRole('button', {name: 'Save'}))
         expect(await screen.findByText(/The contact Dana Wu was removed\./)).toBeInTheDocument()
@@ -79,7 +79,7 @@ describe('SpeakerSheet', () => {
         const again = await open('Dana Wu')
         await userEvent.click(within(again).getByRole('radio', {name: 'Speaker 2'}))
         expect(await within(again).findByRole('status')).toHaveTextContent(
-            'Dana Wu isn’t in any other meeting, so the contact is deleted, with its private notes. Its action items stay, without the contact.',
+            'Dana Wu isn’t in any other meeting, so the contact is deleted, with its private notes.',
         )
         await userEvent.click(within(again).getByRole('button', {name: 'Save'}))
         await screen.findByText(/The contact Dana Wu was removed\./)

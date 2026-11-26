@@ -45,7 +45,7 @@ export function DeleteMeetingSheet({meetingId, open, onOpenChange}: {
                 </>
             )}
         >
-            <Text>The transcript, summary, notes and action items are removed. Audio files stay in your recordings folder.</Text>
+            <Text>The transcript, summary and notes are removed. Audio files stay in your recordings folder.</Text>
         </Sheet>
     )
 }

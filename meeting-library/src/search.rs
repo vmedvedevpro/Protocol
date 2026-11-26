@@ -1,11 +1,12 @@
 //! The library search behind Ctrl+K (`api_global_search`) and the MCP server's
 //! `search` tool: one ranked list of people, meetings, transcript lines,
-//! summaries, groups and action items whose text contains the query.
+//! summaries and groups whose text contains the query. A summary's action
+//! section is part of its text (#218), so it is found as a summary.
 //!
 //! Moved here from the app's `person.rs` (#8) so both callers run the same
 //! queries. With an empty [`SearchFilter`] the queries and the ranking are the
 //! ones Ctrl+K has always used; `global_search_tests.rs` in the app pins them.
-//! Titles, transcript lines and action items are lowered with
+//! Titles and transcript lines are lowered with
 //! `unicode_lower` ([`crate::sql`]), so the connection must have it
 //! registered; before #8 they used SQLite's ASCII-only `lower()`, and a
 //! capitalised Cyrillic word matched only as written.
@@ -56,17 +57,15 @@ pub enum Kind {
     Transcript,
     Summary,
     Group,
-    Action,
 }
 
 impl Kind {
-    pub const ALL: [Kind; 6] = [
+    pub const ALL: [Kind; 5] = [
         Kind::Person,
         Kind::Meeting,
         Kind::Transcript,
         Kind::Summary,
         Kind::Group,
-        Kind::Action,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -76,7 +75,6 @@ impl Kind {
             Kind::Transcript => "transcript",
             Kind::Summary => "summary",
             Kind::Group => "group",
-            Kind::Action => "action",
         }
     }
 
@@ -185,8 +183,8 @@ enum Window {
     /// Ctrl+K as it always was: each kind's first `n` rows in that kind's own
     /// order, which is not the merged order, so only one page is meaningful.
     Head(i64),
-    /// Each kind's best `n` rows in the merged order: transcripts and action
-    /// items sorted by the merge key in SQL, and every person, meeting and
+    /// Each kind's best `n` rows in the merged order: transcripts sorted by
+    /// the merge key in SQL, and every person, meeting and
     /// group match (their rank is computed in Rust; one row per contact,
     /// meeting or group). The first `n` merged rows are then exact, so pages
     /// slice one ranking.
@@ -478,55 +476,6 @@ async fn ranked(
                     meeting_count: Some(meeting_count),
                     group_id: Some(id),
                     color,
-                },
-            });
-        }
-    }
-
-    if filter.includes(Kind::Action) {
-        let mut args = SqliteArguments::default();
-        let _ = args.add(like_query.clone());
-        let _ = args.add(like_query.clone());
-        let scope = filter.meeting_clauses(&mut args);
-        let _ = args.add(fetch);
-        let order = match window {
-            Window::Head(_) => "a.done, m.created_at DESC",
-            Window::Best(_) => "m.created_at DESC, a.id",
-        };
-        let actions = sqlx::query_as_with::<
-            _,
-            (String, String, String, String, String, Option<String>, Option<f64>),
-            _,
-        >(
-            &format!(
-                "SELECT a.id, a.meeting_id, m.title, m.created_at, a.text, a.owner_label, a.audio_time \
-                 FROM action_items a JOIN meetings m ON m.id = a.meeting_id \
-                 WHERE (unicode_lower(a.text) LIKE ? ESCAPE '\\' OR unicode_lower(COALESCE(a.owner_label, '')) LIKE ? ESCAPE '\\'){scope} \
-                 ORDER BY {order} LIMIT ?"
-            ),
-            args,
-        )
-        .fetch_all(&mut *conn)
-        .await?;
-
-        for (id, meeting_id, title, created_at, text, owner, audio_time) in actions {
-            ranked.push(RankedResult {
-                score: 18,
-                sort_time: created_at.clone(),
-                result: GlobalSearchResult {
-                    kind: "action".to_string(),
-                    id,
-                    meeting_id: Some(meeting_id),
-                    person_id: None,
-                    transcript_id: None,
-                    title,
-                    snippet: text,
-                    timestamp: Some(created_at),
-                    speaker: owner,
-                    audio_start_time: audio_time,
-                    meeting_count: None,
-                    group_id: None,
-                    color: None,
                 },
             });
         }

@@ -360,8 +360,53 @@ without a sound server, Bluetooth headsets.
 
 ## 3. Post-call processing and model selection
 
-Summary-generated title ownership, placeholder rejection and completion refresh
-are documented in [SUMMARY_GENERATED_TITLES.md](SUMMARY_GENERATED_TITLES.md).
+**Meeting titles from the summary** (#218). The summary request already asks
+for a title: the template's `# <Add Title here>` H1, which
+`to_section_instructions` asks to fill with 3 to 8 words in the report's
+language (the translation pass carries it into the summary's language).
+`summary/service.rs` takes it from the final Markdown
+(`processor.rs::extract_meeting_name_from_markdown`, through
+`clean_generated_title`: links keep their text, backticks and emphasis
+marks go, whitespace and newlines collapse, quotes come off when one pair
+wraps the whole title (`"A" and "B"` keeps them), a trailing `.` or `:`
+comes off, and a title over 80 characters is cut at its last space within
+the limit, or at the limit when that space would keep less than half of it
+(CJK text with an early space); an empty result or a placeholder heading
+leaves the title as it was).
+Every pass's reply goes through `clean_llm_markdown_output` first, which also
+takes off an unclosed opening fence and the `<document>` tags the translation
+and normalisation prompts wrap their input in: Gemma 3 1B echoed both, so its
+Russian summaries showed as one code block and had no leading H1 to name the
+meeting from. Before it emits `completed`, the service renames the meeting
+through
+`meeting_title::rename_meeting` with `TitleSource::Summary`, the path
+`api_save_meeting_title` takes with `TitleSource::User`:
+`MeetingsRepository::set_title` (database and legacy chunk names, one
+transaction) and the folder's `metadata.json` `meeting_name` when the file
+exists; the folder itself keeps its name, as a manual rename always left it.
+Whose title it is lives in `meetings.title_is_manual`, an explicit record:
+`api_save_transcript` takes `title_is_manual` from the recording (the
+session's `titleManual`, also kept in the crash copy for recovery; a copy
+made before the record has none, and its title counts as the user's unless
+the whole title is the automatic one for its start, `Meeting · <day> ·
+<time>` or #224's `Meeting, <day>, <time>` with `<day>` exactly what
+`dayLabel` writes for the copy's `startTime`, `titles.ts::isGeneratedTitle`),
+`start_import_audio_command` takes it from the import
+sheet (`titleIsManual`: the user changed the file name the sheet proposed;
+absent means the user's), and a rename sets it for good. The title's text is never
+read for it (the old `is_default_meeting_title` is gone), so the automatic
+format can change (#219). A summary's title applies only while the record
+says the app made the title (an SQL predicate, so a rename racing the run
+wins) and leaves the record as it was, so a summary written again names the
+meeting again until the user renames it. `rename_meeting` answers
+`Rename::Renamed`, `UsersTitleKept` or `NoMeeting`, so the log tells a
+user's title from a meeting that is gone. The shell's `useSummaryTitleSync`
+reads the list, the meeting, folders and search again on `completed`.
+Tests: `meeting_title::tests`, `meeting::tests`, `transcript::tests`,
+`processor::generated_title_tests` (native); `summaryTitleSync.test.tsx`,
+`save.test.tsx`, `ImportSheet.test.tsx`, `titles.test.ts` and
+`RecordingRuntime.test.tsx` (an older crash copy) (frontend).
+Older notes on the upstream behaviour: [SUMMARY_GENERATED_TITLES.md](SUMMARY_GENERATED_TITLES.md).
 
 A summary run's template is `api_process_transcript`'s `template_id`. Without
 one native takes the stored default (`summary/template_settings.rs`, #117): the
@@ -373,7 +418,11 @@ deleted custom default falls back by itself. The UI's
 `startSummary` (`frontend/src/api/meetings.ts`) leaves the template out unless
 a run picks one, so the automatic summary after a recording uses the default.
 The module also reads one template whole (`api_get_template`) for its sections
-and the editor; the frontend domain is `frontend/src/api/templates.ts`. Tests:
+and the editor; the frontend domain is `frontend/src/api/templates.ts`. Every
+list of templates (Settings, Summary options, the template sheet) reads
+`listTemplatesWithOrigin`, sorted by name, then id, whatever the default
+(#218): choosing a default moves nothing and reads only the default again;
+Settings marks it with its radio, Summary options with "(default)". Tests:
 native `summary::template_settings::tests`, frontend `src/api/templates.test.ts`.
 
 A cloud provider's models (Settings › Summary model and first launch) come
@@ -390,6 +439,81 @@ so a list fetched with one key is never shown for another. `openrouter/` lists
 the public catalog without a key. Tests: `cargo test -p protocol --lib --
 cloud_models anthropic:: groq:: openai::` (a local HTTP server stands in for
 the providers), frontend `SummaryModelPage.test.tsx`.
+
+**Summaries and action items** (#218). A summary keeps its action section
+as the model wrote it; nothing splits it into rows any more, and the app has
+no commands for the `action_items` table (the meeting, person screen, search,
+live assistant and MCP server read the summary text instead). Up to
+1.0.0-rc.1 the UI moved the section into `action_items` rows and saved the
+summary without it (`original_markdown` kept the full text,
+`meetings.action_items_source` the text it read). At startup, after the
+migrations, `DatabaseManager::new` runs
+`database/repositories/action_item.rs::restore_action_sections` for the
+meetings still to restore: read by the old UI (`action_items_source` set) and
+not yet marked `restored-to-summary`, or never read but holding rows of the
+user's (added, edited or checked off by hand); a launch reads no other
+meeting. For each it puts the section back (from `original_markdown`,
+before the heading that followed it, else at the end), adds the user's rows
+the summary does not hold, or renders every row as an "Action Items" task
+list when the summary was edited after the move and has no original, and
+marks the meeting in the same transaction.
+- **Whole items.** A row is in the summary when its text is a whole item of
+  an action section: a list or text line (also as the old UI read it,
+  without owner and due date, sub-points joined by "; ") or a table row's
+  task cell (the column the old UI took it from; an owner or due cell never
+  matches). Never a substring: a hand-added "Budget" is not in "Review the
+  budget", and an edited row is added next to its original line. A rare
+  duplicate beats a lost item.
+- **Owner and due edits.** A row found in the summary whose owner or due
+  date the item does not show (the user changed it) rewrites the item: a
+  line becomes the row's task item, keeping its indent, list mark and done
+  mark (sub-points stay on their lines); a table row gets the owner or due
+  cell, or, with no such column, the row is added below as a task item
+  (`update_for`).
+- **Deleted items.** The old UI made a row of every item of a section it
+  read and deleted the row when the user deleted the item. So when every
+  model row (`source = 'ai'`) names an item of the sections coming back from
+  `original_markdown`, an item no row names was deleted and stays out, with
+  its sub-points; a section with none left stays out (`without_deleted`).
+  A model row whose text the user changed could be any item's: then every
+  item comes back, and the CHANGELOG says so.
+- **Done marks.** A done row found as a list item checks that item off
+  (`- [x]`); added rows are task items (`- [ ]`, `- [x]`), which the editor
+  shows as checkboxes. A table row has no place for the mark: it is not kept.
+- **Nothing left behind.** A meeting with rows of the user's but no summary,
+  or a summary not stored as Markdown (a legacy map of sections), is logged
+  and stays unmarked. When `summary/service.rs` saves a summary it calls
+  `restore_after_summary`, which puts those rows into the new summary (the
+  model's own section stays as written) before `completed` is emitted.
+- **Backup.** Before a stored summary changes, its `result` is written to a
+  new file in `summary-backups/` in the data directory
+  (`<meeting>-<time>.json`, never overwritten; put `result` back into
+  `summary_processes.result` to recover). A backup that cannot be written
+  leaves the meeting unchanged and unmarked.
+- **Editor blocks.** A changed summary loses `summary_json`, which the editor
+  shows before the Markdown and which would hide the items. That is safe: the
+  editor saves blocks and Markdown together from one document, search,
+  export and agents read the Markdown already, and the editor builds its
+  blocks again from it (tables and checked items included,
+  `NotesEditor.test.tsx`). What only blocks hold (text colour, alignment)
+  the Markdown never had; the backup keeps it.
+- **Search.** Nothing to rebuild: library search, the MCP server and the
+  live assistant read `summary_processes.result` on every query (there is no
+  index or text cache), the step runs before the WebView loads, and after a
+  summary the shell's `useSummaryTitleSync` refetches search.
+
+A data step rather than a migration: the summary is JSON holding Markdown and
+the section is found with the old UI's heading and line rules (ported to
+Rust), which SQL cannot express; a failed meeting is logged and retried at
+the next launch, and the table itself stays as released migrations left it
+(contact merges and deletions still keep its owner links). A new summary no
+longer clears the marker. Tests: `cargo test -p protocol --lib action_item`
+(headings, line reading, placement, user rows, whole-item matching, done
+marks, an edited item, an edited summary, rows waiting for a summary, a
+legacy summary, the backup, the startup step run twice),
+`global_search_tests` (action text found as a summary), `protocol-mcp`
+tests (no `get_action_items`, `get_meeting` shows the section inside the
+summary).
 
 `diarization/mod.rs` owns persisted engine settings and offline command dispatch.
 Nemotron is Auto-detect only; manual counts belong to Pyannote.

@@ -1,7 +1,6 @@
 import {act, screen, waitFor, within} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import {describe, expect, it, vi} from 'vitest'
-import {createActionItem} from '@/api/actionItems'
 import {renderRoute} from '@/features/meetings/testing'
 import {handlers, type MockArgs} from '@/mocks/handlers'
 import {mockState} from '@/mocks/state'
@@ -81,23 +80,10 @@ describe('PersonScreen', () => {
         expect(screen.queryByText('Couldn’t save the notes')).not.toBeInTheDocument()
     })
 
-    it('checks off an open action item, and Undo brings it back', async () => {
-        await createActionItem('meeting-acme-review', {text: 'Send the support terms', ownerLabel: 'Priya Shah', audioTime: 30})
+    it('lists no action items of its own: they are in the meetings’ summaries', async () => {
         renderPerson('person-priya')
-        const items = await screen.findByRole('region', {name: 'Open action items'})
-        const link = await within(items).findByRole('link', {name: /Send the support terms/})
-        expect(link).toHaveAttribute('href', '/meetings/meeting-acme-review?tab=summary&at=30')
-
-        await userEvent.click(within(items).getByRole('checkbox', {name: 'Mark “Send the support terms” as done'}))
-        await waitFor(() => expect(within(items).queryByRole('link', {name: /Send the support terms/})).not.toBeInTheDocument())
-        expect(await within(items).findByText('Nothing open for Priya.')).toBeInTheDocument()
-
-        await userEvent.click(await screen.findByRole('button', {name: 'Undo'}))
-        const back = await within(items).findByRole('link', {name: /Send the support terms/})
-        // It comes back under a veil; the row's text itself never fades.
-        const row = back.parentElement as HTMLElement
-        expect(row.style.opacity).toBe('')
-        expect(row.querySelector('span[aria-hidden="true"]')).not.toBeNull()
+        expect(await screen.findByRole('region', {name: 'Meetings together'})).toBeInTheDocument()
+        expect(screen.queryByRole('region', {name: 'Open action items'})).not.toBeInTheDocument()
     })
 
     it('learns a voice while Labs › Voice profiles is on', async () => {

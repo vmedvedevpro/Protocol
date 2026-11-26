@@ -1306,17 +1306,12 @@ another meeting starts from fresh state).
   (one restored at launch is the banner's alone) and an update that just
   installed, once per version (`protocol-updater-seen-v1`, the old keys),
   and not while a recording runs. Details opens Settings › Updates.
-- **Action items.** A finished summary's action section moves into rows
-  (`lib/actionItemSync.ts`): the meeting screen calls
-  `syncFinishedSummary` when it sees a completed summary, not edited by
-  the user, that still has one, whether the run ended there or while the
-  user was elsewhere. It reads the summary from native again, so a second
-  call finds no section and changes nothing; calls for one meeting share
-  one promise. Home runs the backfill of older summaries once per session;
-  one whose list call failed runs again on the next visit. The rows sit
-  between Decisions and Open questions: the summary splits before its Open
-  questions section into two editors (`variant="summary"`, every heading
-  a section label like Action items) saved as one summary.
+- **Action items** are part of the summary text, as the model wrote them
+  (#218): the Summary tab is one editor (`variant="summary"`, every heading
+  a section label). There are no item rows, owners, due dates or done marks
+  in the UI; summaries an older version had split are put back together
+  natively at startup (`database/repositories/action_item.rs`, see
+  DEVELOPMENT_MAP.md › Summaries and action items).
 - **The meeting screen.** The header (title; when, how long, folder) and
   its menu: Rename (also F2), Move to folder, Copy transcript, Copy summary,
   Open recording folder, Identify speakers again…, Delete.
@@ -1393,12 +1388,9 @@ another meeting starts from fresh state).
 - `src/api/people.ts` is the people domain (`person.rs`, `voice_profiles.rs`):
   contacts, a contact's profile (meetings together, speaking time), their
   private notes, merge and delete, and the Labs voices; the Labs switch for
-  voices is a native lab in `src/api/labs.ts` (`voiceProfiles`). The action
-  items a contact owns are `actionItemsQuery({personId})`, which a check-off
-  refreshes; the profile's own copy is left out. A rename, merge or delete
-  relabels transcript lines and moves or unlinks action items natively, so
-  those mutations invalidate the meetings' and the items' queries with the
-  people; a merge or delete drops the gone contact's profile. Naming a voice
+  voices is a native lab in `src/api/labs.ts` (`voiceProfiles`). A rename,
+  merge or delete relabels transcript lines natively, so those mutations
+  invalidate the meetings' queries with the people; a merge or delete drops the gone contact's profile. Naming a voice
   (`renameSpeakerMutation`) and learning one can make or link a contact, so
   they read the people again; deleting or moving a meeting does not tell
   people, so the contacts and a profile are read again on every mount
@@ -1425,11 +1417,10 @@ another meeting starts from fresh state).
   starts it from the label at once. The function is called as rows render,
   so it must be stable. #118 adds "Open <contact>", #119 "Who said this…".
 - Mock: `src/mocks/people.ts` derives who spoke where from the transcripts,
-  as `person_speakers` follows the labels. It wraps two of the meetings
+  as `person_speakers` follows the labels. It wraps one of the meetings
   mock's handlers with what native does in the same write:
   `rename_meeting_speaker` makes a contact of a new name (and removes an
-  emptied one when asked), and
-  `api_list_action_items` answers with owners linked to their contacts.
+  emptied one when asked).
 - Search (#118) is `features/search`: `SearchDialog` registers ⌘K / Ctrl K
   and opens from anywhere through `src/lib/searchLauncher.ts`
   (`openSearch(query)`, which Home's field uses). cmdk gives the list its
@@ -1452,20 +1443,18 @@ another meeting starts from fresh state).
   it has no header or close button.
 - A result opens where it lives: a person at `paths.person(id)`, a folder
   at Home's `?folder=`, a transcript line on the meeting's transcript at
-  that line, and an action item on its summary (`paths.meeting(id, {tab,
-  at, line})`). The meeting screen reads `?at=` (seconds) and `?line=` (a
+  that line, and a summary hit (an action item's text among them) on the
+  summary (`paths.meeting(id, {tab, at, line})`). The meeting screen reads `?at=` (seconds) and `?line=` (a
   transcript id) as each navigation brings them, then drops them from the
   URL, so a hit inside the meeting already open (the same one again too)
   goes there and a tab switch does not: the player waits at `at` once the recording has
   loaded, and `TranscriptList` scrolls the turn holding `line` into view
   (`revealLineId`), with audio or without. Playback is not followed until
-  the user plays. An action item has no line of its own on the summary:
-  without audio its `?at=` does nothing, and the summary opens at its top.
+  the user plays.
   Mock: `src/mocks/search.ts`, native's ranking and snippets.
 - The person screen (`/person/:personId`, `features/people`) shows the
   details, the Labs voice (while Voice profiles is on, or to forget one
-  learned before), the open action items (`actionItemsQuery({personId,
-  openOnly})`, checked off with Undo), the meetings together (the old
+  learned before), the meetings together (the old
   library's `?person=` filter) and private notes. Edit, Merge and Delete
   are in its menu; a merge opens the contact kept, a delete goes home. A
   voice's label in a meeting's transcript opens its contact through the

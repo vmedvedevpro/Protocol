@@ -517,7 +517,6 @@ pub async fn get_meeting(conn: &mut SqliteConnection, args: GetMeetingArgs) -> R
             .fetch_optional(&mut *conn)
             .await?;
     let summary_row = summary_row(conn, &head.id).await?;
-    let actions = meeting_actions(conn, &head.id).await?;
 
     let mut out = Output::new();
     out.line(format!("# {}", one_line(&head.title)));
@@ -567,25 +566,6 @@ pub async fn get_meeting(conn: &mut SqliteConnection, args: GetMeetingArgs) -> R
         out.line("");
         out.line("## Your notes");
         out.line(text::clip(&notes, 1_500));
-    }
-
-    if !actions.is_empty() {
-        out.line("");
-        out.line("## Action items");
-        let mut written = 0;
-        for action in &actions {
-            if !out.fit(action.render(false), 2_500) {
-                break;
-            }
-            written += 1;
-        }
-        if written < actions.len() {
-            out.line(format!(
-                "{} more: get_action_items with meeting_id={} and offset={written}.",
-                actions.len() - written,
-                head.id
-            ));
-        }
     }
 
     out.line("");
@@ -749,214 +729,6 @@ pub async fn get_summary(conn: &mut SqliteConnection, args: GetSummaryArgs) -> R
 }
 
 // ---------------------------------------------------------------------------
-// get_action_items
-// ---------------------------------------------------------------------------
-
-#[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct GetActionItemsArgs {
-    /// One meeting's items, in their order. Without it, items across meetings, newest meeting first.
-    pub meeting_id: Option<String>,
-    /// Only items this contact owns: a person id from list_people, or a name.
-    pub person: Option<String>,
-    /// Only items from meetings filed in this group: a group id or name.
-    pub group: Option<String>,
-    /// Only items from meetings that started on or after this date (`YYYY-MM-DD` or RFC 3339).
-    pub from: Option<String>,
-    /// Only items from meetings that started on or before this date (`YYYY-MM-DD` or RFC 3339).
-    pub to: Option<String>,
-    /// "open" (not checked off), "done", or "all". Default "all" for one meeting, "open" otherwise.
-    pub status: Option<String>,
-    /// How many items to return. Default 50, at most 200.
-    #[schemars(range(min = 1, max = 200))]
-    pub limit: Option<u32>,
-    /// How many items to skip; the result names the offset of the next page.
-    pub offset: Option<u32>,
-}
-
-struct ActionItem {
-    id: String,
-    meeting_id: String,
-    meeting_title: String,
-    meeting_created_at: String,
-    text: String,
-    owner_label: Option<String>,
-    person: Option<(String, String)>,
-    due: Option<String>,
-    done: bool,
-}
-
-impl ActionItem {
-    fn render(&self, with_meeting: bool) -> String {
-        let mut parts = vec![format!(
-            "- [{}] {}",
-            if self.done { 'x' } else { ' ' },
-            one_line(&self.text)
-        )];
-        match (&self.person, &self.owner_label) {
-            (Some((id, name)), _) => parts.push(format!("owner {name} ({id})")),
-            (None, Some(label)) if !label.trim().is_empty() => parts.push(format!("owner {}", one_line(label))),
-            _ => {}
-        }
-        if let Some(due) = self.due.as_deref().filter(|due| !due.trim().is_empty()) {
-            parts.push(format!("due {}", one_line(due)));
-        }
-        if with_meeting {
-            parts.push(format!(
-                "meeting {} ({}, {})",
-                quoted(&self.meeting_title),
-                self.meeting_id,
-                local_time(&self.meeting_created_at)
-            ));
-        }
-        parts.push(format!("id {}", self.id));
-        parts.join(" · ")
-    }
-}
-
-type ActionRow = (
-    String,
-    String,
-    String,
-    String,
-    String,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-    bool,
-);
-
-const ACTION_SELECT: &str = "SELECT a.id, a.meeting_id, m.title, m.created_at, a.text, a.owner_label, \
-     p.id, p.display_name, a.due_text, a.done \
-     FROM action_items a JOIN meetings m ON m.id = a.meeting_id \
-     LEFT JOIN people p ON p.id = a.person_id";
-
-fn action_from_row(row: ActionRow) -> ActionItem {
-    let (id, meeting_id, meeting_title, meeting_created_at, text, owner_label, person_id, person_name, due, done) = row;
-    ActionItem {
-        id,
-        meeting_id,
-        meeting_title,
-        meeting_created_at,
-        text,
-        owner_label,
-        // A dangling person id (no FK enforcement in old databases) is no link.
-        person: person_id.zip(person_name),
-        due,
-        done,
-    }
-}
-
-async fn meeting_actions(conn: &mut SqliteConnection, meeting_id: &str) -> Result<Vec<ActionItem>, Problem> {
-    let rows: Vec<ActionRow> = sqlx::query_as(&format!(
-        "{ACTION_SELECT} WHERE a.meeting_id = ? ORDER BY a.position, a.created_at"
-    ))
-    .bind(meeting_id)
-    .fetch_all(&mut *conn)
-    .await?;
-    Ok(rows.into_iter().map(action_from_row).collect())
-}
-
-pub async fn get_action_items(conn: &mut SqliteConnection, args: GetActionItemsArgs) -> Result<String, Problem> {
-    let page = limit(args.limit, 50, 200);
-    let offset = args.offset.unwrap_or(0) as usize;
-    let meeting = match clean(args.meeting_id) {
-        Some(id) => Some(meeting_head(conn, &id).await?),
-        None => None,
-    };
-    let status = clean(args.status).unwrap_or_else(|| {
-        if meeting.is_some() { "all" } else { "open" }.to_string()
-    });
-    let status_clause = match status.to_ascii_lowercase().as_str() {
-        "open" => " AND a.done = 0",
-        "done" => " AND a.done = 1",
-        "all" => "",
-        other => {
-            return Err(Problem::BadArgument(format!(
-                "`status` must be \"open\", \"done\" or \"all\"; got {other:?}."
-            )))
-        }
-    };
-
-    // The person filter names the owner of an item, not a meeting participant.
-    let person = clean(args.person);
-    let scope = scope(conn, args.from, args.to, None, args.group).await?;
-    if let Some(nothing) = scope.nothing {
-        return Ok(nothing);
-    }
-    let mut notes = scope.notes;
-    let mut binds = SqliteArguments::default();
-    let mut condition = format!(" WHERE 1 = 1{status_clause}");
-    if let Some(meeting) = &meeting {
-        condition.push_str(" AND a.meeting_id = ?");
-        let _ = binds.add(meeting.id.clone());
-    }
-    if let Some(person) = person {
-        let people = named(conn, "people", "display_name", &person).await?;
-        if people.is_empty() {
-            return Ok(format!(
-                "No contact matches {person:?}; list_people shows contacts. Items whose owner is \
-                 not a contact keep the owner's name as written: search finds them."
-            ));
-        }
-        notes.push(format!(
-            "Owner {person:?} matched: {}.",
-            people
-                .iter()
-                .map(|(id, name)| format!("{name} ({id})"))
-                .collect::<Vec<_>>()
-                .join(", ")
-        ));
-        let ids: Vec<String> = people.into_iter().map(|(id, _)| id).collect();
-        condition.push_str(&format!(" AND a.person_id IN ({})", search::placeholders(&ids, &mut binds)));
-    }
-    condition.push_str(&scope.filter.meeting_clauses(&mut binds));
-    let order = if meeting.is_some() {
-        "a.position, a.created_at"
-    } else {
-        "a.done, julianday(m.created_at) DESC, a.position"
-    };
-
-    let total: i64 = sqlx::query_scalar_with(
-        &format!(
-            "SELECT COUNT(*) FROM action_items a JOIN meetings m ON m.id = a.meeting_id{condition}"
-        ),
-        binds.clone(),
-    )
-    .fetch_one(&mut *conn)
-    .await?;
-    let mut page_args = binds;
-    let _ = page_args.add(page as i64);
-    let _ = page_args.add(offset as i64);
-    let rows: Vec<ActionRow> = sqlx::query_as_with(
-        &format!("{ACTION_SELECT}{condition} ORDER BY {order} LIMIT ? OFFSET ?"),
-        page_args,
-    )
-    .fetch_all(&mut *conn)
-    .await?;
-    let items: Vec<ActionItem> = rows.into_iter().map(action_from_row).collect();
-
-    let mut out = Output::new();
-    let total = total as usize;
-    let what = match status.to_ascii_lowercase().as_str() {
-        "open" => "Open action items",
-        "done" => "Done action items",
-        _ => "Action items",
-    };
-    let header = match &meeting {
-        Some(meeting) => format!("{what} of {} (id {})", quoted(&meeting.title), meeting.id),
-        None => format!("{what} across meetings, newest meeting first"),
-    };
-    let rows: Vec<String> = items.iter().map(|item| item.render(meeting.is_none())).collect();
-    let shown = out.list(|shown| format!("{header}: {}.", range(offset, shown, total)), &notes, &rows, FOOTER);
-    if offset + shown < total {
-        out.line(more_line("get_action_items", offset + shown, ""));
-    }
-    Ok(out.finish())
-}
-
-// ---------------------------------------------------------------------------
 // search
 // ---------------------------------------------------------------------------
 
@@ -968,7 +740,7 @@ const SEARCH_WINDOW: usize = 200;
 pub struct SearchArgs {
     /// Words to find, as one phrase: the text must contain it, in any letter case. Words are matched as written, not by form: for a Russian word, search its stem.
     pub query: String,
-    /// Kinds to return: any of "meeting" (title), "transcript" (a spoken line), "summary", "action" (action item), "person", "group". Default all.
+    /// Kinds to return: any of "meeting" (title), "transcript" (a spoken line), "summary" (also its action items, which are part of it), "person", "group". Default all.
     pub kinds: Option<Vec<String>>,
     /// Only meetings that started on or after this date (`YYYY-MM-DD` or RFC 3339). Date, person and group filters leave out person and group results.
     pub from: Option<String>,
@@ -1010,7 +782,7 @@ pub async fn search(conn: &mut SqliteConnection, args: SearchArgs) -> Result<Str
                 Some(kind) => parsed.push(kind),
                 None => {
                     return Err(Problem::BadArgument(format!(
-                        "Unknown kind {kind:?}; use meeting, transcript, summary, action, person or group."
+                        "Unknown kind {kind:?}; use meeting, transcript, summary, person or group."
                     )))
                 }
             }
@@ -1116,15 +888,6 @@ fn render_hit(hit: &search::GlobalSearchResult, lines: &std::collections::HashMa
         }
         "summary" => format!("- summary · {} · {}", meeting(hit), quoted(&hit.snippet)),
         "meeting" => format!("- meeting {} · id {} · {when}", quoted(&hit.title), hit.id),
-        "action" => {
-            let owner = hit
-                .speaker
-                .as_deref()
-                .filter(|owner| !owner.trim().is_empty())
-                .map(|owner| format!(" · owner {owner}"))
-                .unwrap_or_default();
-            format!("- action item {}{owner} · {} · id {}", quoted(&hit.snippet), meeting(hit), hit.id)
-        }
         // Ctrl+K shows a person's notes as the snippet; agents never get them (#8, v1).
         // No meeting count: Ctrl+K's also counts a deleted meeting's leftover
         // speaker links; list_people counts only meetings that exist.

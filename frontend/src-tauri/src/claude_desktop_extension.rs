@@ -43,7 +43,7 @@ pub fn manifest(version: &str, command: &str, args: &[String]) -> serde_json::Va
         "name": "protocol",
         "display_name": "Protocol",
         "version": version,
-        "description": "Read-only access to the meetings you recorded in Protocol: transcripts, summaries, notes, action items, people and groups.",
+        "description": "Read-only access to the meetings you recorded in Protocol: transcripts, summaries, notes, people and groups.",
         "long_description": "Claude can list, search and read the meetings on this computer while Protocol > Settings > AI agents is on. It cannot change anything or play audio. Whatever Claude reads is sent to Anthropic under your account.",
         "author": { "name": "vmedvedevpro", "url": "https://github.com/vmedvedevpro" },
         "repository": { "type": "git", "url": REPOSITORY },
@@ -234,7 +234,7 @@ mod tests {
         assert_eq!(server["entry_point"], command);
         assert_eq!(server["mcp_config"]["command"], command);
         assert_eq!(server["mcp_config"]["args"], serde_json::json!(args));
-        assert_eq!(manifest["tools"].as_array().unwrap().len(), 8);
+        assert_eq!(manifest["tools"].as_array().unwrap().len(), 7);
 
         let bundle = dir.path().join(BUNDLE_FILE);
         write_bundle(&bundle, &manifest).unwrap();

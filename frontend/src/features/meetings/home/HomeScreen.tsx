@@ -1,10 +1,9 @@
-import {useCallback, useEffect, useMemo, useState} from 'react'
+import {useCallback, useMemo, useState} from 'react'
 import {ArrowElbowDownLeftIcon, DownloadSimpleIcon, GearIcon, MagnifyingGlassIcon} from '@phosphor-icons/react'
-import {useQuery, useQueryClient} from '@tanstack/react-query'
+import {useQuery} from '@tanstack/react-query'
 import * as m from 'motion/react-m'
 import {useNavigate, useSearchParams} from 'react-router-dom'
 import styled from 'styled-components'
-import {actionItemKeys} from '@/api/actionItems'
 import {type Folder, foldersQuery, type MeetingListItem, meetingsQuery} from '@/api/meetings'
 import {updaterStatusQuery} from '@/api/updater'
 import {Screen} from '@/components/screen/Screen'
@@ -21,7 +20,6 @@ import {formatShortcut} from '@/lib/platform'
 import {openSearch} from '@/lib/searchLauncher'
 import {tween} from '@/styles/motion'
 import {RenameMeetingSheet} from '../components/RenameMeetingSheet'
-import {backfillActionItems} from '../lib/actionItemSync'
 import {FolderBar} from './FolderBar'
 import {DeleteFolderSheet, FolderNameSheet} from '../components/FolderSheets'
 import {MeetingList} from './MeetingList'
@@ -86,7 +84,7 @@ const NoMatch = styled(Muted)`
 `
 
 // Under the filtered list while the field has a query: the same words in
-// transcripts, summaries, action items and people, through search (#118).
+// transcripts, summaries and people, through search (#118).
 const Everywhere = styled(m.button)`
     position: relative;
     display: flex;
@@ -129,7 +127,7 @@ const matches = (text: string | undefined, query: string) => !!text && text.toLo
 /**
  * Home: the meetings list. Search filters it by title and folder as the
  * user types; Enter, or the row under the list, takes the words to search
- * (⌘K), which looks in transcripts, summaries, action items and people
+ * (⌘K), which looks in transcripts, summaries and people
  * too. The folder chips filter it
  * by folder, kept in the URL (`?folder=`), so Back from a meeting returns
  * to the same folder. Banners say when an update waits for a restart,
@@ -140,7 +138,6 @@ const matches = (text: string | undefined, query: string) => !!text && text.toLo
  */
 export function HomeScreen() {
     const navigate = useNavigate()
-    const client = useQueryClient()
     const [params, setParams] = useSearchParams()
     const meetings = useQuery(meetingsQuery)
     const folders = useQuery(foldersQuery)
@@ -153,13 +150,6 @@ export function HomeScreen() {
     const [naming, setNaming] = useState<{ open: boolean, folder: Folder | null }>({open: false, folder: null})
     const [deleting, setDeleting] = useState<{ open: boolean, folder: Folder | null }>({open: false, folder: null})
     const [renaming, setRenaming] = useState<{ open: boolean, meeting: MeetingListItem | null }>({open: false, meeting: null})
-
-    // Summaries written by versions before action items were rows, read once per session.
-    useEffect(() => {
-        void backfillActionItems().then((changed) => {
-            if (changed > 0) void client.invalidateQueries({queryKey: actionItemKeys.all})
-        })
-    }, [client])
 
     const folderList = useMemo(() => folders.data ?? [], [folders.data])
     const requested = params.get('folder')

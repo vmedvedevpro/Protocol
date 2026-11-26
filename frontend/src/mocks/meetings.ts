@@ -1,5 +1,4 @@
 import {emit} from '@tauri-apps/api/event'
-import type {ActionItem, ActionItemDraft} from '@/api/actionItems'
 import {
     type Folder,
     type MeetingListItem,
@@ -13,8 +12,7 @@ import {
 import type {MockHandler} from './handlers'
 
 /**
- * The sample library: meetings, folders, transcripts, summaries and action
- * items, ported from the old browser preview
+ * The sample library: meetings, folders, transcripts and summaries, ported from the old browser preview
  * (`162e8be:frontend/src/dev/preview/fixtures.ts` and its handlers in
  * `index.ts`). Dates are relative to the moment the mock loads, so the list
  * always looks current.
@@ -49,6 +47,8 @@ export interface MockMeeting {
     created_at: string
     group_id: string | null
     folder_path: string | null
+    /** `title_is_manual` (#218): false for a title the app made, which a summary replaces. */
+    titleIsManual?: boolean
 }
 
 /** A `summary_processes` row: the run's status and the stored summary. */
@@ -80,7 +80,7 @@ function sampleMeetings(): MockMeeting[] {
         {id: 'meeting-design-crit', title: 'Onboarding flow critique', created_at: at(2, 11, 0), group_id: 'group-design', folder_path: '/preview/design-crit'},
         standup(0, 2),
         standup(1, 1),
-        {id: 'meeting-untitled', title: `Meeting · ${long(at(9, 16, 40))}`, created_at: at(9, 16, 40), group_id: null, folder_path: '/preview/untitled'},
+        {id: 'meeting-untitled', title: `Meeting · ${long(at(9, 16, 40))}`, created_at: at(9, 16, 40), group_id: null, folder_path: '/preview/untitled', titleIsManual: false},
         {id: 'meeting-acme-kickoff', title: 'Acme pilot kickoff', created_at: at(11, 10, 0), group_id: 'group-acme', folder_path: '/preview/acme-kickoff'},
         standup(2, 3),
         {id: 'meeting-1on1', title: '1:1 with Priya', created_at: at(16, 14, 0), group_id: null, folder_path: '/preview/1on1'},
@@ -276,9 +276,6 @@ export function createMockMeetings() {
         folders: sampleFolders(),
         transcripts: Object.fromEntries(meetings.map((meeting) => [meeting.id, sampleTranscript(meeting.id)])) as Record<string, TranscriptSegment[]>,
         summaries: sampleSummaries(meetings),
-        actionItems: [] as ActionItem[],
-        /** Meetings whose summary was read for action items, by the fingerprint of that summary. */
-        actionSources: {} as Record<string, string>,
         /** `metadata.json` values: the chosen and the detected summary language. */
         summaryLanguages: {} as Record<string, string | null>,
         detectedLanguages: {} as Record<string, string | null>,
@@ -323,34 +320,10 @@ function meetingOf(db: MockMeetings, meetingId: unknown): MockMeeting {
     return meeting
 }
 
-function actionView(db: MockMeetings, item: ActionItem): ActionItem {
-    const meeting = db.meetings.find((entry) => entry.id === item.meetingId)
-    const view = {...item, meetingTitle: meeting?.title ?? 'Meeting', meetingCreatedAt: meeting?.created_at ?? item.createdAt}
-    if (meeting?.group_id) view.groupId = meeting.group_id
-    else delete view.groupId
-    return view
-}
-
-function newActionItem(meetingId: string, draft: ActionItemDraft, source: 'ai' | 'user', position: number): ActionItem {
-    const stamp = now()
-    const item: ActionItem = {
-        id: newId('action'),
-        meetingId,
-        meetingTitle: '',
-        meetingCreatedAt: stamp,
-        text: draft.text,
-        done: false,
-        source,
-        edited: source === 'user',
-        position,
-        createdAt: stamp,
-        updatedAt: stamp,
-    }
-    if (draft.ownerLabel) item.ownerLabel = draft.ownerLabel
-    if (draft.dueText) item.dueText = draft.dueText
-    if (typeof draft.audioTime === 'number') item.audioTime = draft.audioTime
-    if (draft.transcriptId) item.transcriptId = draft.transcriptId
-    return item
+/** The title the mock model gives a meeting: the first words said in it. */
+function summaryTitle(db: MockMeetings, meetingId: string): string {
+    const words = (db.transcripts[meetingId]?.[0]?.text ?? '').replace(/[.,!?]/g, '').split(/\s+/).filter(Boolean)
+    return words.length ? `About ${words.slice(0, 4).join(' ')}` : 'A short conversation'
 }
 
 /** A summary the mock writes for a run: the meeting's lines, owned by who said them. */
@@ -374,7 +347,7 @@ function writtenSummary(db: MockMeetings, meetingId: string, customPrompt: strin
 }
 
 /**
- * The handlers of the meetings domain: api.rs, group.rs, action_item.rs,
+ * The handlers of the meetings domain: api.rs, group.rs,
  * summary/commands.rs and the speaker labels of diarization/mod.rs (its
  * `diarize_meeting` is in ./postCall.ts, with the pass after a call). They
  * read `state.meetings` each time, so `resetMockState()` swaps the whole
@@ -412,6 +385,10 @@ export function meetingsHandlers(state: { meetings: MockMeetings }): Record<stri
             if (run?.status !== 'summarizing') return
             const data = {markdown: writtenSummary(db, meetingId, customPrompt)}
             Object.assign(run, {status: 'completed', data, userEdited: false, end: now()})
+            // Native names a meeting whose title is not the user's from the
+            // summary's H1, before it says the run is done (#218).
+            const meeting = db.meetings.find((entry) => entry.id === meetingId)
+            if (meeting && meeting.titleIsManual === false) meeting.title = summaryTitle(db, meetingId)
             emitProgress('completed', 'Summary ready', data)
         }, db.summaryRunMs)
         return processId
@@ -443,7 +420,7 @@ export function meetingsHandlers(state: { meetings: MockMeetings }): Record<stri
             const page = count < 0 ? lines.slice(from) : lines.slice(from, from + count)
             return {transcripts: page, total_count: lines.length, has_more: from + page.length < lines.length}
         },
-        api_save_transcript: ({meetingTitle, transcripts, folderPath, recordingStartedAt}) => {
+        api_save_transcript: ({meetingTitle, titleIsManual, transcripts, folderPath, recordingStartedAt}) => {
             const id = newId('meeting')
             const lines = (required(transcripts, 'transcripts', 'api_save_transcript') as TranscriptSegment[]).map((line) => ({...line}))
             state.meetings.meetings.push({
@@ -452,6 +429,8 @@ export function meetingsHandlers(state: { meetings: MockMeetings }): Record<stri
                 created_at: typeof recordingStartedAt === 'string' ? new Date(recordingStartedAt).toISOString() : now(),
                 group_id: null,
                 folder_path: typeof folderPath === 'string' ? folderPath : null,
+                // Native: a caller that does not say keeps its title.
+                titleIsManual: titleIsManual !== false,
             })
             state.meetings.transcripts[id] = lines
             return {status: 'success', message: 'Transcript saved successfully', meeting_id: id}
@@ -460,13 +439,13 @@ export function meetingsHandlers(state: { meetings: MockMeetings }): Record<stri
             const meeting = state.meetings.meetings.find((entry) => entry.id === meetingId)
             if (!meeting) throw `No meeting found with id ${String(meetingId)}`
             meeting.title = String(required(title, 'title', 'api_save_meeting_title'))
+            meeting.titleIsManual = true
             return {message: 'Meeting title saved successfully'}
         },
         api_delete_meeting: ({meetingId}) => {
             const db = state.meetings
             if (!db.meetings.some((entry) => entry.id === meetingId)) throw `Meeting not found or could not be deleted: ${String(meetingId)}`
             db.meetings = db.meetings.filter((entry) => entry.id !== meetingId)
-            db.actionItems = db.actionItems.filter((item) => item.meetingId !== meetingId)
             delete db.transcripts[String(meetingId)]
             delete db.summaries[String(meetingId)]
             return {status: 'success', message: 'Meeting deleted successfully'}
@@ -604,67 +583,6 @@ export function meetingsHandlers(state: { meetings: MockMeetings }): Record<stri
             const texts = (transcriptTexts as string[] | undefined) ?? []
             return texts.some((text) => text.trim()) ? {language: 'en', reason: 'detected'} : {language: null, reason: 'empty'}
         },
-
-        // ---- database/repositories/action_item.rs
-        api_list_action_items: ({meetingId, personId, groupId, openOnly, limit}) => {
-            const db = state.meetings
-            let items = db.actionItems.map((item) => actionView(db, item))
-            if (meetingId) items = items.filter((item) => item.meetingId === meetingId)
-            if (personId) items = items.filter((item) => item.personId === personId)
-            if (groupId) items = items.filter((item) => item.groupId === groupId)
-            if (openOnly) items = items.filter((item) => !item.done)
-            items.sort((a, b) => (a.meetingId === b.meetingId ? a.position - b.position : b.meetingCreatedAt.localeCompare(a.meetingCreatedAt)))
-            return typeof limit === 'number' ? items.slice(0, limit) : items
-        },
-        api_create_action_item: ({meetingId, text, ownerLabel, dueText, audioTime, transcriptId}) => {
-            const db = state.meetings
-            const meeting = meetingOf(db, meetingId)
-            const item = newActionItem(meeting.id, {
-                text: String(required(text, 'text', 'api_create_action_item')),
-                ownerLabel: ownerLabel as string | null,
-                dueText: dueText as string | null,
-                audioTime: audioTime as number | null,
-                transcriptId: transcriptId as string | null,
-            }, 'user', db.actionItems.filter((entry) => entry.meetingId === meeting.id).length)
-            db.actionItems.push(item)
-            return actionView(db, item)
-        },
-        api_update_action_item: ({id, text, ownerLabel, personId, dueText, done}) => {
-            const db = state.meetings
-            const item = db.actionItems.find((entry) => entry.id === id)
-            if (!item) throw 'Action item not found'
-            const changed = item.text !== text || (item.ownerLabel ?? null) !== (ownerLabel ?? null) || (item.dueText ?? null) !== (dueText ?? null)
-            item.text = String(text)
-            item.done = !!done
-            item.edited = item.edited || changed || !!done
-            item.updatedAt = now()
-            for (const [key, value] of [['ownerLabel', ownerLabel], ['personId', personId], ['dueText', dueText]] as const) {
-                if (typeof value === 'string' && value) item[key] = value
-                else delete item[key]
-            }
-            if (done) item.doneAt = item.doneAt ?? now()
-            else delete item.doneAt
-            return actionView(db, item)
-        },
-        api_delete_action_item: ({id}) => {
-            state.meetings.actionItems = state.meetings.actionItems.filter((item) => item.id !== id)
-            return null
-        },
-        api_sync_ai_action_items: ({meetingId, items, sourceFingerprint}) => {
-            const db = state.meetings
-            const meeting = meetingOf(db, meetingId)
-            // Items the user changed or added stay; the summary's are replaced.
-            db.actionItems = db.actionItems.filter((item) => item.meetingId !== meeting.id || item.source !== 'ai' || item.edited)
-            ;((items as ActionItemDraft[] | undefined) ?? []).forEach((draft, index) => {
-                db.actionItems.push(newActionItem(meeting.id, draft, 'ai', index))
-            })
-            db.actionSources[meeting.id] = String(sourceFingerprint ?? '')
-            return db.actionItems.filter((item) => item.meetingId === meeting.id).map((item) => actionView(db, item))
-        },
-        api_list_unsynced_action_meetings: () =>
-            Object.entries(state.meetings.summaries)
-                .filter(([meetingId, run]) => run.data && state.meetings.actionSources[meetingId] === undefined)
-                .map(([meetingId]) => meetingId),
 
         // ---- diarization/mod.rs: the speaker commands
         diarization_models_available: () => state.meetings.diarizationAvailable,

@@ -71,6 +71,12 @@ export const checkAudioFile = (path: string) => command<AudioFileInfo>('validate
 export interface ImportRequest {
     sourcePath: string
     title: string
+    /**
+     * Whether the user chose the title rather than taking the file's name the
+     * sheet offered. Only a title the app made is renamed after the summary
+     * (#218); native never guesses it from the text.
+     */
+    titleIsManual: boolean
     /** A language code, or null to detect it; Parakeet always detects. */
     language: string | null
     model: string | null

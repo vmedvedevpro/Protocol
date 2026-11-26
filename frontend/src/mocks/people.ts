@@ -93,19 +93,6 @@ function ensureContact(db: MockDb, label: string): MockPerson | undefined {
     return person
 }
 
-/**
- * Native links an action item to the contact its owner names when it
- * writes the item; the meetings mock does not know people, so this runs
- * before the items are read.
- */
-function linkOwners(db: MockDb) {
-    for (const item of db.meetings.actionItems) {
-        if (item.personId || !item.ownerLabel) continue
-        const owner = personNamed(db, item.ownerLabel)
-        if (owner) item.personId = owner.id
-    }
-}
-
 /** The label a person carries in a meeting, if they spoke in it. */
 function labelIn(db: MockDb, person: MockPerson, meetingId: string): string | undefined {
     const name = normalizePersonName(person.displayName)
@@ -206,9 +193,8 @@ function storeVoice(db: MockDb, person: MockPerson, meetingIds: string[], replac
 /**
  * The handlers of database/repositories/person.rs (but `api_global_search`)
  * and of diarization/voice_profiles.rs (its Labs switch is in ./labs.ts).
- * Two of the meetings mock's are wrapped with what native does in the same
- * write: `rename_meeting_speaker` links the new name to a contact, and
- * `api_list_action_items` answers with owners linked to theirs.
+ * One of the meetings mock's is wrapped with what native does in the same
+ * write: `rename_meeting_speaker` links the new name to a contact.
  */
 export function peopleHandlers(state: MockDb): Record<string, MockHandler> {
     const meetings = meetingsHandlers(state)
@@ -225,12 +211,7 @@ export function peopleHandlers(state: MockDb): Record<string, MockHandler> {
             else if (emptied) handlers.api_delete_person({personId: source.id})
             return {...renamed, removedContact: !!emptied}
         },
-        api_list_action_items: (args) => {
-            linkOwners(state)
-            return meetings.api_list_action_items(args)
-        },
         api_list_people: () => {
-            linkOwners(state)
             return state.people.rows
                 .map((person) => listItem(state, person))
                 .sort((a, b) => (b.lastSeenAt ?? '').localeCompare(a.lastSeenAt ?? ''))
@@ -264,7 +245,6 @@ export function peopleHandlers(state: MockDb): Record<string, MockHandler> {
             return listItem(state, person)
         },
         api_update_person: (args) => {
-            linkOwners(state)
             const person = personOf(state, args.personId)
             const fields = details(args)
             checkName(state, fields.displayName, person.id, `Another contact is already named "${fields.displayName}". Merge them instead.`)
@@ -273,7 +253,6 @@ export function peopleHandlers(state: MockDb): Record<string, MockHandler> {
                     const label = labelIn(state, person, meeting.id)
                     if (label) relabel(state, meeting.id, label, fields.displayName)
                 }
-                for (const item of state.meetings.actionItems) if (item.personId === person.id) item.ownerLabel = fields.displayName
             }
             const updated: MockPerson = {id: person.id, ...fields}
             if (person.notes) updated.notes = person.notes
@@ -281,16 +260,12 @@ export function peopleHandlers(state: MockDb): Record<string, MockHandler> {
             return listItem(state, updated)
         },
         api_merge_people: ({sourceId, targetId}) => {
-            linkOwners(state)
             if (sourceId === targetId) throw 'Choose two different contacts to merge'
             const source = personOf(state, sourceId)
             const target = personOf(state, targetId)
             for (const meeting of state.meetings.meetings) {
                 const label = labelIn(state, source, meeting.id)
                 if (label) relabel(state, meeting.id, label, labelIn(state, target, meeting.id) ?? target.displayName)
-            }
-            for (const item of state.meetings.actionItems) {
-                if (item.personId === source.id) Object.assign(item, {personId: target.id, ownerLabel: target.displayName})
             }
             const notes = [target.notes, source.notes].filter(Boolean).join('\n\n')
             for (const key of ['email', 'company', 'role', 'phone'] as const) target[key] = target[key] ?? source[key]
@@ -309,13 +284,11 @@ export function peopleHandlers(state: MockDb): Record<string, MockHandler> {
             return listItem(state, target)
         },
         api_delete_person: ({personId}) => {
-            linkOwners(state)
             const person = personOf(state, personId)
             for (const meeting of state.meetings.meetings) {
                 const label = labelIn(state, person, meeting.id)
                 if (label) relabel(state, meeting.id, label, '')
             }
-            for (const item of state.meetings.actionItems) if (item.personId === person.id) delete item.personId
             state.people.rows = state.people.rows.filter((entry) => entry.id !== person.id)
             state.people.voices = state.people.voices.filter((voice) => voice.personId !== person.id)
             return null

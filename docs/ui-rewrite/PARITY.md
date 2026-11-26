@@ -181,9 +181,9 @@ such a command only on its platform
 
 | Item | Kind | Old file | Owner | Notes |
 | --- | --- | --- | --- | --- |
-| `api_create_action_item` | command | `lib/workspace-api.ts` | #113 | Add an item. |
+| `api_create_action_item` | command | `lib/workspace-api.ts` | dropped | Dropped with the separate action items (owner decision, #218): the summary keeps its action section as text. |
 | `api_create_group` | command | `lib/workspace-api.ts` | #113 | New folder; also the search command (#118). |
-| `api_delete_action_item` | command | `lib/workspace-api.ts` | #113 | Delete an item. |
+| `api_delete_action_item` | command | `lib/workspace-api.ts` | dropped | Dropped with the separate action items (owner decision, #218): the summary keeps its action section as text. |
 | `api_delete_group` | command | `lib/workspace-api.ts` | #113 | Delete a folder; meetings stay. |
 | `api_delete_meeting` | command | `lib/meeting-actions.ts` | #113 | Delete; audio files stay in the recordings folder. |
 | `api_get_group` | command | `lib/workspace-api.ts` | #113 | Folder detail (the Groups page used it; the list filter needs only the list). |
@@ -194,14 +194,14 @@ such a command only on its platform
 | `api_get_meeting_notes` | command | `lib/workspace-api.ts` | #111 | Notes as Markdown + BlockNote JSON. |
 | `api_get_meeting_transcripts` | command | `hooks/meeting-details/useCopyOperations.ts`, `hooks/meeting-details/useSummaryGeneration.ts`, `hooks/usePaginatedTranscripts.ts` +2 | #113 | Paged transcript; also copy, export (#119) and action-item backfill. |
 | `api_get_meetings` | command | `components/Sidebar/SidebarProvider.tsx`, `services/storageService.ts` | #113 | Meetings list with summary preview, speaker names and dates. |
-| `api_list_action_items` | command | `lib/workspace-api.ts` | #113 | Action items of a meeting; also person (#118) and search (#118). |
+| `api_list_action_items` | command | `lib/workspace-api.ts` | dropped | Dropped with the separate action items (owner decision, #218): the summary keeps its action section as text. |
 | `api_list_groups` | command | `lib/workspace-api.ts` | #113 | Folders (groups) for the list filter and pickers. |
 | `api_list_unsynced_action_meetings` | command | `lib/workspace-api.ts` | #113 | Backfill of older summaries, once per session (`af-action-backfill-done`). |
 | `api_save_meeting_notes` | command | `lib/workspace-api.ts` | #111 | Autosaved notes; the live notes are saved here on Stop (#112). |
 | `api_save_meeting_title` | command | `lib/meeting-actions.ts` | #113 | Rename. |
 | `api_set_meeting_group` | command | `hooks/useRecordingStop.ts`, `lib/workspace-api.ts` | #113 | Move to folder; also files a new recording into its pending group (#112). |
-| `api_sync_ai_action_items` | command | `lib/workspace-api.ts` | #113 | Copies items out of a new summary into the table. |
-| `api_update_action_item` | command | `lib/workspace-api.ts` | #113 | Check off, edit, owner, due date. |
+| `api_sync_ai_action_items` | command | `lib/workspace-api.ts` | dropped | Dropped with the separate action items (owner decision, #218): the summary keeps its action section as text. |
+| `api_update_action_item` | command | `lib/workspace-api.ts` | dropped | Dropped with the separate action items (owner decision, #218): the summary keeps its action section as text. |
 | `api_update_group` | command | `lib/workspace-api.ts` | #113 | Rename/recolor a folder. |
 | `get_waveform_peaks` | command | `hooks/useWaveform.ts` | #113 | Waveform in the player (Labs › Waveform scrubbing). |
 | `open_meeting_folder` | command | `hooks/meeting-details/useMeetingOperations.ts` | #113 | Open recording folder. |
@@ -221,7 +221,7 @@ such a command only on its platform
 | `api_process_transcript` | command | `hooks/meeting-details/useSummaryGeneration.ts` | #113 | Generate/regenerate; also the automatic summary after Stop (#112). Without a template native fell back to `daily_standup`; since #117 it uses the stored default (owner decision 2026-11-24), `standard_meeting` while none is stored, and `startSummary` names a template only for a run that picks one. |
 | `api_save_custom_template` | command | `hooks/meeting-details/useTemplates.ts` | #119 | Template editor. |
 | `api_save_meeting_detected_summary_language` | command | `lib/summary-language-preferences.ts` | #113 | Caches the detected language for Auto; returns `local_fallback` like `api_save_meeting_summary_language`. |
-| `api_save_meeting_summary` | command | `components/meeting/MeetingDocument.tsx`, `lib/action-item-sync.ts` | #113 | Edited summary; action-item sync writes it too. |
+| `api_save_meeting_summary` | command | `components/meeting/MeetingDocument.tsx` | #113 | Edited summary. |
 | `api_save_meeting_summary_language` | command | `lib/summary-language-preferences.ts` | #119 | Returns `local_fallback` when the meeting has no metadata file; the UI then keeps it in localStorage. |
 | `builtin_ai_get_model_info` | command | `hooks/meeting-details/useSummaryGeneration.ts`, `lib/builtin-ai.ts` | #113 | Readiness check before generating with the built-in model. |
 | `builtin_ai_is_model_ready` | command | `contexts/OnboardingContext.tsx`, `hooks/meeting-details/useSummaryGeneration.ts`, `lib/builtin-ai.ts` | #113 | Same; onboarding uses it too (#115). |
@@ -232,7 +232,7 @@ such a command only on its platform
 | --- | --- | --- | --- | --- |
 | `api_create_person` | command | `lib/workspace-api.ts` | #118 | New contact (search command); also "New contact" in Who said this (#119). |
 | `api_delete_person` | command | `lib/workspace-api.ts` | #118 | Delete a contact. |
-| `api_get_person_profile` | command | `app/meetings/page.tsx`, `app/person/page.tsx` | #118 | Person screen: details, meetings together, open action items. |
+| `api_get_person_profile` | command | `app/meetings/page.tsx`, `app/person/page.tsx` | #118 | Person screen: details, meetings together; its open action items are dropped (#218). |
 | `api_list_people` | command | `lib/workspace-api.ts` | #118 | Contacts for search, the speaker dialog (#119) and filters. |
 | `api_merge_people` | command | `lib/workspace-api.ts` | #118 | Merge with another contact. |
 | `api_update_person` | command | `lib/workspace-api.ts` | #118 | Edit details. |
@@ -398,7 +398,7 @@ such a command only on its platform
 
 | Item | Kind | Old file | Owner | Notes |
 | --- | --- | --- | --- | --- |
-| `api_global_search` | command | `components/GlobalSearchDialog.tsx` | #118 | People, folders, meetings, action items, said in a meeting, in a summary. |
+| `api_global_search` | command | `components/GlobalSearchDialog.tsx` | #118 | People, folders, meetings, said in a meeting, in a summary (action item hits dropped in #218: they are summary text). |
 
 ### Dropped commands
 
@@ -506,7 +506,7 @@ Listed so their effects are not lost.
 | `af-stop-recording` | DOM event | `lib/recording-launch.ts`, `components/RecordingControls.tsx` | #112 | Stop requests from anywhere. |
 | `af-pending-group` | DOM event | `lib/groups.ts`, `hooks/usePendingGroup.ts` | #112 | A picker on the folder in the recording header (owner decision 2026-11-24). |
 | `af-live-session` | DOM event | `lib/live-session.ts` | #112 | Live title changed; writing notes does not fire it. |
-| `af-workspace-change` | DOM event | `lib/workspace-api.ts` | #113 | Cross-view refresh after meeting, folder, person or action-item edits. |
+| `af-workspace-change` | DOM event | `lib/workspace-api.ts` | #113 | Cross-view refresh after meeting, folder or person edits. |
 | `open-global-search` | DOM event | `components/Sidebar/index.tsx`, `components/GlobalSearchDialog.tsx` | #118 | |
 | `af-open-group-editor` | DOM event | `components/groups/GroupEditor.tsx` | #113 | New folder from anywhere. |
 | `confidenceIndicatorChanged` | DOM event | `contexts/ConfigContext.tsx` | dropped | Dispatched by the dead Show confidence setting; nothing listens. |
@@ -620,7 +620,7 @@ removal #126).
 | Delete group | dialog | `components/groups/GroupDetailView.tsx` | #113 | Delete folder. |
 | Remove model? (Parakeet, Whisper, Intel GPU version) | dialog | `components/settings/ModelRow.tsx`, `components/settings/ForThisComputer.tsx` | #117 | |
 | Remove NVIDIA Nemotron? | dialog | `components/DiarizationSettings.tsx` | #117 | |
-| Search and commands | dialog | `components/GlobalSearchDialog.tsx` | #118 | Groups: People, Groups, Meetings, Action items, Said in a meeting, In a summary; commands: record, pause, stop, import, new contact, new group, go to, theme. |
+| Search and commands | dialog | `components/GlobalSearchDialog.tsx` | #118 | Groups: People, Groups, Meetings, Said in a meeting, In a summary (Action items dropped, #218); commands: record, pause, stop, import, new contact, new group, go to, theme. |
 | Update pill and panel | banner | `components/updater/UpdateIndicator.tsx`, `UpdatePanel.tsx`, `ReleaseNotes.tsx` | #113 | Home banner "Update ready". |
 | Update available / ready / failed | toast | `components/updater/UpdateToasts.tsx` | #113 | Seen keys in localStorage `protocol-updater-seen-v1`. |
 | Download progress panel | toast | `components/shared/DownloadProgressToast.tsx` | #117 | Replaced by one status line in the bottom bar while any download runs (Parakeet, built-in summary model, Whisper, Nemotron); a click opens Settings › Speech models (owner decision 2026-11-24). The line sits in #110's bar. |
@@ -688,7 +688,7 @@ a session.
 | `autoStartRecording`, `af-stop-requested` | sessionStorage | `lib/recording-launch.ts`, `hooks/useRecordingStart.ts`, `components/RecordingControls.tsx`, native `tray.rs` | #112 | Not needed after the update. Start/stop handoff across navigation. Native `tray.rs` no longer writes `autoStartRecording` (#110 emits `request-recording-toggle` instead), so nothing needs to read it. |
 | `recovery_dialog_shown` | sessionStorage | `app/page.tsx` | #112 | Not needed after the update. Recovery offered once per session. |
 | `post-call-processing:<meetingId>`, `post-call-summary-started:<meetingId>` | sessionStorage | `components/MeetingDetails/PostCallProcessingWorker.tsx`, `contexts/PostCallJobsContext.tsx`, `app/meeting-details/page-content.tsx` | #112 | Not needed after the update. Post-call pass and auto-summary run once per meeting. |
-| `af-action-backfill-done` | sessionStorage | `lib/action-item-sync.ts` | #113 | Not needed after the update. Action-item backfill once per session. |
+| `af-action-backfill-done` | sessionStorage | `lib/action-item-sync.ts` | dropped | Not needed after the update. Dropped with the separate action items (#218). |
 | `macos_system_audio_verified` | sessionStorage | `hooks/usePermissionCheck.ts`, `components/onboarding/steps/AudioTestStep.tsx` | #113 | Not needed after the update. macOS has no system-audio permission query; the audio test result stands in. |
 | `meetily-settings-tab`, `meetily-settings-transcription-section`, `meetily-settings-transcription-provider` | sessionStorage | `app/settings/page.tsx`, `components/TranscriptSettings.tsx`, `RetranscribeDialog.tsx` | #110 | Not needed after the update. Route parameters replace them. |
 | `meetily_chunk_reload` | sessionStorage | `app/layout.tsx` | dropped | Not needed after the update. Next.js chunk reload. |
@@ -743,7 +743,7 @@ other files sit in the install-local data root unless the row says otherwise.
 | Speaker edits keep rows, text, timestamps and provenance | invariant | `components/people/SpeakerIdentityDialog.tsx`, `lib/live-speaker-edits.ts` | #119 | `reassign_transcript_speaker` with `from` changes one voice of an overlap row; `rename_meeting_speaker` renames for the meeting; rerunning diarization changes labels only (#113). Live edits are stored before the UI changes and replayed by sequence id (#112). |
 | No silent engine substitution | invariant | `app/layout.tsx`, `components/DiarizationSettings.tsx` | #112 | Show `live-diarization-error`; keep source labels; never switch to another speaker engine. |
 | Recording start order | invariant | `hooks/useRecordingStart.ts`, `lib/recording-launch.ts` | #112 | First launch done → `check_transcription_runtime` → load the live model (Parakeet or Whisper), reporting integrity failures and running downloads → automatic title (folder name and date, or day and time slot; see Automatic meeting titles) and pending folder → `start_recording_with_devices_and_meeting` → start timestamps. The recording state comes from `recording-started`, not from the call. The old UI also required the recording notice to be acknowledged (except for the tray Start); that gate is dropped (owner decision 2026-11-24). |
-| Automatic meeting titles | invariant | `lib/meeting-titles.ts`, `lib/live-session.ts`, native `database/repositories/transcript.rs` | #112 | An automatic title starts with `Meeting · ` ("Meeting · Mon, Sep 28 · 2:30 PM"). Native `is_default_meeting_title` saves only such titles (and the old `New Meeting` and `Meeting <timestamp>` forms) as automatic (`title_is_manual = 0`), and only those get the name the summary generates. A folder title ("Weekly Standup — Sep 28"), a typed title or a rename stays manual. |
+| Automatic meeting titles | invariant | `lib/meeting-titles.ts`, `lib/live-session.ts`, native `database/repositories/transcript.rs` | #112, #218 | An automatic title starts with `Meeting · ` ("Meeting · Mon, Sep 28 · 2:30 PM"). Since #218 the save passes `titleIsManual` (the session's `titleManual`) and native records it in `title_is_manual` without reading the text; a title the app made, the folder's ("Weekly Standup — Sep 28") included, gets the title the summary writes, while a typed title or a rename stays the user's. |
 | Stop and save order (#32) | invariant | `contexts/RecordingPostProcessingProvider.tsx`, `hooks/useRecordingStop.ts`, `lib/recording-save.ts` | #112 | Every Stop (window, tray, minibar, quit) ends in native finalization, then `recording-stop-complete` with a `stop_id` to the main window; the listener lives there on every route. The WebView then: discards a take under 10 s (`discard_recording_folder`, answer `discarded`); polls `get_transcription_status` every 500 ms for up to 60 s until `!is_processing && chunks_in_queue === 0`, or the queue is empty and nothing happened for 8 s (a poll error ends the wait undone); waits 4 s for late lines unless the 60 s limit ran out (a poll error still waits), then on every path flushes the buffer and waits 500 ms; saves only after a completed wait: `api_save_transcript`, the pending folder, live notes, the pinned or detected summary language, the IndexedDB record marked saved; answers `recording_save_finished(stopId, 'saved')` before refreshing, and opens the meeting with `source=recording` only when that answer says the app is not quitting. A 60 s timeout or a poll error saves nothing: the status returns to idle, the answer is `notSaved` and the transcript stays in IndexedDB for recovery; keeping that branch is a #112 decision. Errors answer `failed`; native waits 120 s for an answer. |
 | Post-call pass order | invariant | `components/MeetingDetails/PostCallProcessingWorker.tsx`, `contexts/PostCallJobsContext.tsx` | #112 | Retranscription → reload → diarization → reload → summary. Listeners register before the start call and filter by meeting id; jobs live above navigation; meetings without audio continue with the live transcript. |
 | Meeting language lives in native memory only | invariant | `contexts/ConfigContext.tsx` | #114 | Push the saved `primaryLanguage` with `set_language_preference` at startup and on every change; locked during a recording. |

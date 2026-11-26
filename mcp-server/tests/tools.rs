@@ -129,9 +129,10 @@ async fn a_meeting_reads_in_full_without_private_contact_fields() {
         "{text}"
     );
     assert!(text.contains("## Your notes\nRemember the travel freeze"), "{text}");
-    assert!(text.contains("- [ ] Send the budget to finance · owner Alice (p1) · due Friday · id a1"), "{text}");
-    assert!(text.contains("- [x] Book the room · owner You · id a2"), "{text}");
-    assert!(text.contains("## AI summary\nThe user edited it.\n## Decisions\n- Budget cut approved"), "{text}");
+    // The action items are the summary's own section; the rows older versions
+    // kept beside it are not read (#218).
+    assert!(text.contains("## AI summary\nThe user edited it.\n## Decisions\n- Budget cut approved\n\n## Action Items\n- Alice: Send the budget to finance"), "{text}");
+    assert!(!text.contains("Book the room") && !text.contains("id a1"), "{text}");
     assert!(text.ends_with("4 lines; read them with get_transcript (meeting_id=m1)."), "{text}");
     for hidden in ["cache text", "private note", "555", "alice@example.com", "Ghost"] {
         assert!(!text.contains(hidden), "{hidden} leaked:\n{text}");
@@ -247,37 +248,6 @@ async fn summaries_read_as_markdown_with_their_status() {
 }
 
 #[tokio::test]
-async fn action_items_across_meetings_and_for_one() {
-    let fixture = Fixture::new().await;
-    let mut session = fixture.session().await;
-
-    let open = tools::get_action_items(&mut session.conn, GetActionItemsArgs::default()).await.unwrap();
-    assert!(open.starts_with("Open action items across meetings, newest meeting first: 1–2 of 2."), "{open}");
-    let a3 = open.find("Close the budget ticket").unwrap();
-    let a1 = open.find("Send the budget to finance").unwrap();
-    assert!(a3 < a1, "{open}");
-    assert!(open.contains("meeting \"Budget review\" (m1, "), "{open}");
-    assert!(!open.contains("Book the room") && !open.contains("Ghost"), "{open}");
-
-    let bob = tools::get_action_items(&mut session.conn, GetActionItemsArgs { person: Some("Bob".into()), status: Some("all".into()), ..Default::default() })
-        .await
-        .unwrap();
-    assert!(bob.contains("Owner \"Bob\" matched: Bob (p2).") && bob.contains("1–1 of 1") && bob.contains("Close the budget ticket"), "{bob}");
-
-    let one = tools::get_action_items(&mut session.conn, GetActionItemsArgs { meeting_id: Some("m1".into()), ..Default::default() })
-        .await
-        .unwrap();
-    assert!(one.starts_with("Action items of \"Budget review\" (id m1): 1–2 of 2."), "{one}");
-    assert!(one.find("Send the budget").unwrap() < one.find("Book the room").unwrap(), "{one}");
-    assert!(!one.contains("meeting \""), "one meeting's items do not repeat it: {one}");
-
-    let bad = tools::get_action_items(&mut session.conn, GetActionItemsArgs { status: Some("later".into()), ..Default::default() })
-        .await
-        .unwrap_err();
-    assert!(matches!(bad, Problem::BadArgument(_)));
-}
-
-#[tokio::test]
 async fn search_ranks_like_ctrl_k_and_points_into_the_transcript() {
     let fixture = Fixture::new().await;
     let mut session = fixture.session().await;
@@ -300,14 +270,20 @@ async fn search_ranks_like_ctrl_k_and_points_into_the_transcript() {
     assert!(scoped.contains("Планёрка по бюджету") && !scoped.contains("Budget review"), "{scoped}");
     assert!(!scoped.contains("- group ") && !scoped.contains("- person "), "{scoped}");
 
-    let actions = tools::search(
+    // An action item is found in the summary that lists it; there is no
+    // separate kind for the old rows (#218).
+    let action = tools::search(&mut session.conn, SearchArgs { query: "send the budget".into(), ..Default::default() })
+        .await
+        .unwrap();
+    assert_eq!(action.lines().filter(|line| line.starts_with("- ")).count(), 1, "{action}");
+    assert!(action.contains("- summary · meeting \"Budget review\" (m1, "), "{action}");
+    let old_kind = tools::search(
         &mut session.conn,
         SearchArgs { query: "budget".into(), kinds: Some(vec!["action".into()]), ..Default::default() },
     )
     .await
-    .unwrap();
-    assert_eq!(actions.lines().filter(|line| line.starts_with("- ")).count(), 2, "{actions}");
-    assert!(actions.contains("- action item \"Send the budget to finance\" · owner Alice"), "{actions}");
+    .unwrap_err();
+    assert!(matches!(old_kind, Problem::BadArgument(_)), "{old_kind:?}");
 
     let person = tools::search(&mut session.conn, SearchArgs { query: "alice".into(), ..Default::default() }).await.unwrap();
     assert!(person.contains("- person Alice · id p1\n") || person.ends_with("- person Alice · id p1"), "{person}");
@@ -352,8 +328,8 @@ async fn capitalised_cyrillic_is_found_in_any_case() {
 }
 
 /// One meeting with more hits than a page, as a common Russian word in a long
-/// meeting gives: 30 lines, 12 action items (open and done mixed) and the
-/// title. Following "More" page by page returns the same hits, in the same
+/// meeting gives: 30 lines and the title, beside 12 old action item rows that
+/// search no longer reads (#218). Following "More" page by page returns the same hits, in the same
 /// order, as one page holding them all; each kind used to rank only its first
 /// rows, so later pages repeated earlier hits and never reached the rest.
 #[tokio::test]
@@ -396,8 +372,8 @@ async fn search_pages_slice_one_ranking() {
         .await
         .unwrap();
     let whole = hits(&whole);
-    // 2 titles, 32 lines, 12 action items, 1 summary.
-    assert_eq!(whole.len(), 47, "{whole:#?}");
+    // 2 titles, 32 lines, 1 summary; the action item rows are not hits.
+    assert_eq!(whole.len(), 35, "{whole:#?}");
 
     let mut paged = Vec::new();
     let mut pages = 0;
@@ -418,7 +394,7 @@ async fn search_pages_slice_one_ranking() {
             None => break,
         }
     }
-    assert_eq!(pages, 5);
+    assert_eq!(pages, 4);
     assert_eq!(paged, whole);
     for i in 0..30 {
         let line = format!("offset {i} · Speaker {}: \"Бюджет, пункт {i}\"", i % 3 + 1);

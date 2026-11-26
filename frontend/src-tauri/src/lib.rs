@@ -59,6 +59,7 @@ pub mod openrouter;
 pub mod live_assistant;
 pub mod meeting_detection;
 mod meeting_folder;
+pub mod meeting_title;
 // Ignored test commands that measure transcription (#75); test builds only.
 #[cfg(test)]
 mod measure;
@@ -615,12 +616,6 @@ pub fn run() {
             database::repositories::group::api_set_meeting_group,
             database::repositories::group::api_set_meetings_group,
             database::repositories::group::api_get_meeting_group,
-            database::repositories::action_item::api_list_action_items,
-            database::repositories::action_item::api_create_action_item,
-            database::repositories::action_item::api_update_action_item,
-            database::repositories::action_item::api_delete_action_item,
-            database::repositories::action_item::api_sync_ai_action_items,
-            database::repositories::action_item::api_list_unsynced_action_meetings,
             database::repositories::meeting_notes::api_get_meeting_notes,
             database::repositories::meeting_notes::api_save_meeting_notes,
             api::api_get_meeting_audio,

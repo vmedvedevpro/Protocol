@@ -211,33 +211,43 @@ impl MeetingsRepository {
         transaction.commit().await
     }
 
-    pub async fn update_meeting_title(
+    /// The one way a meeting's title changes (#218): a rename by the user, or
+    /// the title a summary wrote. A user's title marks the meeting's title as
+    /// theirs (`title_is_manual = 1`) for good; a summary's applies only while
+    /// it is not, and leaves the record as it was, so a later summary may name
+    /// the meeting again. The SQL predicate, rather than an earlier read,
+    /// arbitrates a rename that races a summary. The legacy chunk display
+    /// name follows in the same commit; recording folders, transcript text
+    /// and timing are not renamed. `metadata.json` is the caller's
+    /// (`meeting_title::rename_meeting`). Answers whether the title changed.
+    pub async fn set_title(
         pool: &SqlitePool,
         meeting_id: &str,
         new_title: &str,
+        source: TitleSource,
     ) -> Result<bool, SqlxError> {
         if meeting_id.trim().is_empty() {
-            return Err(SqlxError::Protocol(
-                "meeting_id cannot be empty".to_string(),
-            ));
+            return Err(SqlxError::Protocol("meeting_id cannot be empty".to_string()));
         }
-
-        let mut conn = pool.acquire().await?;
-        let mut transaction = conn.begin().await?;
-
-        let now = Utc::now().naive_utc();
-
-        let rows_affected = sqlx::query(
+        let new_title = new_title.trim();
+        if new_title.is_empty() {
+            return Ok(false);
+        }
+        let by_user = source == TitleSource::User;
+        let mut transaction = pool.begin().await?;
+        let updated = sqlx::query(
             "UPDATE meetings
-             SET title = ?, title_is_manual = 1, updated_at = ?
-             WHERE id = ?",
+             SET title = ?, title_is_manual = CASE WHEN ? THEN 1 ELSE title_is_manual END, updated_at = ?
+             WHERE id = ? AND (? OR title_is_manual = 0)",
         )
-                .bind(new_title)
-                .bind(now)
-                .bind(meeting_id)
-                .execute(&mut *transaction)
-                .await?;
-        if rows_affected.rows_affected() == 0 {
+        .bind(new_title)
+        .bind(by_user)
+        .bind(Utc::now())
+        .bind(meeting_id)
+        .bind(by_user)
+        .execute(&mut *transaction)
+        .await?;
+        if updated.rows_affected() == 0 {
             transaction.rollback().await?;
             return Ok(false);
         }
@@ -246,42 +256,18 @@ impl MeetingsRepository {
             .bind(meeting_id)
             .execute(&mut *transaction)
             .await?;
-
         transaction.commit().await?;
         Ok(true)
     }
 }
 
-impl MeetingsRepository {
-    /// Generated titles never acquire ownership of a manual title. The SQL
-    /// predicate, rather than an earlier read, arbitrates concurrent renames.
-    pub async fn update_generated_meeting_title(
-        pool: &SqlitePool,
-        meeting_id: &str,
-        new_title: &str,
-    ) -> Result<bool, SqlxError> {
-        if new_title.trim().is_empty() { return Ok(false); }
-        let mut transaction = pool.begin().await?;
-        let updated = sqlx::query(
-            "UPDATE meetings SET title = ?, updated_at = ? WHERE id = ? AND title_is_manual = 0",
-        )
-        .bind(new_title.trim())
-        .bind(Utc::now())
-        .bind(meeting_id)
-        .execute(&mut *transaction)
-        .await?;
-        if updated.rows_affected() == 0 {
-            transaction.rollback().await?;
-            return Ok(false);
-        }
-        // Keep the legacy chunk display name synchronized in the same commit.
-        // Recording folder paths, transcript text and timing are not renamed.
-        sqlx::query("UPDATE transcript_chunks SET meeting_name = ? WHERE meeting_id = ?")
-            .bind(new_title.trim()).bind(meeting_id)
-            .execute(&mut *transaction).await?;
-        transaction.commit().await?;
-        Ok(true)
-    }
+/// Who gives a meeting its title.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TitleSource {
+    /// A rename in the app: the title is the user's from then on.
+    User,
+    /// The summary model's title for a meeting whose title is not the user's.
+    Summary,
 }
 
 #[cfg(test)]
@@ -358,13 +344,13 @@ mod tests {
     async fn generated_title_updates_automatic_names_but_manual_renames_win() {
         let pool = test_pool().await;
         insert_meeting(&pool, false).await;
-        assert!(MeetingsRepository::update_generated_meeting_title(&pool, "meeting-1", "Budget Review").await.unwrap());
+        assert!(MeetingsRepository::set_title(&pool, "meeting-1", "Budget Review", TitleSource::Summary).await.unwrap());
         let row: (String, bool, String) = sqlx::query_as(
             "SELECT m.title, m.title_is_manual, c.meeting_name FROM meetings m JOIN transcript_chunks c ON c.meeting_id=m.id WHERE m.id='meeting-1'",
         ).fetch_one(&pool).await.unwrap();
         assert_eq!(row, ("Budget Review".into(), false, "Budget Review".into()));
-        assert!(MeetingsRepository::update_meeting_title(&pool, "meeting-1", "My title").await.unwrap());
-        assert!(!MeetingsRepository::update_generated_meeting_title(&pool, "meeting-1", "Later summary").await.unwrap());
+        assert!(MeetingsRepository::set_title(&pool, "meeting-1", "My title", TitleSource::User).await.unwrap());
+        assert!(!MeetingsRepository::set_title(&pool, "meeting-1", "Later summary", TitleSource::Summary).await.unwrap());
         let row: (String, String) = sqlx::query_as(
             "SELECT m.title, c.meeting_name FROM meetings m JOIN transcript_chunks c ON c.meeting_id=m.id WHERE m.id='meeting-1'",
         ).fetch_one(&pool).await.unwrap();
@@ -375,7 +361,7 @@ mod tests {
     async fn generated_title_preserves_existing_manual_names() {
         let pool = test_pool().await;
         insert_meeting(&pool, true).await;
-        assert!(!MeetingsRepository::update_generated_meeting_title(&pool, "meeting-1", "Generated").await.unwrap());
+        assert!(!MeetingsRepository::set_title(&pool, "meeting-1", "Generated", TitleSource::Summary).await.unwrap());
         let title: String = sqlx::query_scalar("SELECT title FROM meetings WHERE id='meeting-1'").fetch_one(&pool).await.unwrap();
         assert_eq!(title, "Original");
     }
@@ -462,7 +448,7 @@ mod tests {
         let pool = test_pool().await;
         insert_meeting(&pool, false).await;
 
-        assert!(MeetingsRepository::update_meeting_title(&pool, "meeting-1", "Manual")
+        assert!(MeetingsRepository::set_title(&pool, "meeting-1", "Manual", TitleSource::User)
             .await
             .unwrap());
 
@@ -521,9 +507,6 @@ mod tests {
                 ("typed".to_string(), "<Add Title here>".to_string()),
             ]
         );
-        assert!(crate::database::repositories::transcript::is_default_meeting_title(
-            &titles[2].1
-        ));
 
         let chunks: Vec<(String, String)> = sqlx::query_as(
             "SELECT meeting_id, meeting_name FROM transcript_chunks ORDER BY meeting_id",

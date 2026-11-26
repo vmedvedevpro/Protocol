@@ -354,9 +354,11 @@ function ImportForm({request, completeHeard}: { request: Extract<OpenedDialog, {
         const folder = folderId === NO_FOLDER ? null : folders.data?.find((item) => item.id === folderId) ?? null
         useImportState.setState({phase: {step: 'importing', progress: null}, folder: folder && {id: folder.id, name: folder.name}})
         try {
+            const chosen = title.trim()
             await startImport({
                 sourcePath: file.path,
-                title: title.trim() || file.filename,
+                title: chosen || file.filename,
+                titleIsManual: chosen !== '' && chosen !== file.filename,
                 language: parakeet || language === DETECT_LANGUAGE ? null : language,
                 model: engine?.model ?? null,
                 provider: engine?.provider ?? null,

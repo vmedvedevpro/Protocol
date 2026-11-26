@@ -18,7 +18,7 @@ use tokio::sync::Mutex;
 use crate::location::{self, Inputs, Located};
 use crate::store::{Library, Problem};
 use crate::tools::{
-    self, GetActionItemsArgs, GetMeetingArgs, GetSummaryArgs, GetTranscriptArgs, ListGroupsArgs,
+    self, GetMeetingArgs, GetSummaryArgs, GetTranscriptArgs, ListGroupsArgs,
     ListMeetingsArgs, ListPeopleArgs, SearchArgs,
 };
 
@@ -28,7 +28,7 @@ const UPDATED_NOTE: &str = "\n\nNote: Protocol was updated after this MCP server
     keep up with Protocol.";
 
 const INSTRUCTIONS: &str = "Read-only access to the user's meetings recorded in Protocol: \
-transcripts, AI summaries, action items, contacts (named speakers) and groups. Start with \
+transcripts, AI summaries (with the action items they list), contacts (named speakers) and groups. Start with \
 list_meetings or search, then read one meeting with get_meeting, get_transcript or get_summary; \
 a transcript search result names its line and the offset to pass to get_transcript. Ids come from \
 earlier results. Lists are paged: a result that has more says which offset to ask for next. \
@@ -167,7 +167,7 @@ impl ProtocolServer {
         .await)
     }
 
-    /// One meeting in full: date, group, contacts and speaker labels, the user's notes, action items and the AI summary; with include_transcript, the start of the transcript too.
+    /// One meeting in full: date, group, contacts and speaker labels, the user's notes and the AI summary (with its action items); with include_transcript, the start of the transcript too.
     #[tool(annotations(title = "Get meeting", read_only_hint = true, idempotent_hint = true, open_world_hint = false))]
     async fn get_meeting(&self, Parameters(args): Parameters<GetMeetingArgs>) -> Result<CallToolResult, ErrorData> {
         Ok(self.run(move |mut conn| {
@@ -187,7 +187,7 @@ impl ProtocolServer {
         .await)
     }
 
-    /// Finds text across meeting titles, transcripts, summaries, action items, contacts and groups, best matches first, the way Protocol's Ctrl+K search does. Narrow it by kind, date, contact or group.
+    /// Finds text across meeting titles, transcripts, summaries (action items included), contacts and groups, best matches first, the way Protocol's Ctrl+K search does. Narrow it by kind, date, contact or group.
     #[tool(annotations(title = "Search meetings", read_only_hint = true, idempotent_hint = true, open_world_hint = false))]
     async fn search(&self, Parameters(args): Parameters<SearchArgs>) -> Result<CallToolResult, ErrorData> {
         Ok(self.run(move |mut conn| {
@@ -203,16 +203,6 @@ impl ProtocolServer {
         Ok(self.run(move |mut conn| {
             let args = args.clone();
             async move { tools::get_summary(&mut conn, args).await }
-        })
-        .await)
-    }
-
-    /// Action items from one meeting, or open items across meetings, with owner, due date and the meeting they came from.
-    #[tool(annotations(title = "Get action items", read_only_hint = true, idempotent_hint = true, open_world_hint = false))]
-    async fn get_action_items(&self, Parameters(args): Parameters<GetActionItemsArgs>) -> Result<CallToolResult, ErrorData> {
-        Ok(self.run(move |mut conn| {
-            let args = args.clone();
-            async move { tools::get_action_items(&mut conn, args).await }
         })
         .await)
     }

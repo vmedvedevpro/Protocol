@@ -7,31 +7,136 @@ use std::path::PathBuf;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
 
+/// The longest generated title, in characters; a longer one is cut at a word.
+const MAX_TITLE_CHARS: usize = 80;
+
+static TITLE_LINK: Lazy<Regex> = Lazy::new(|| Regex::new(r"!?\[([^\]]*)\]\([^)]*\)").unwrap());
+static TITLE_SPACES: Lazy<Regex> = Lazy::new(|| Regex::new(r"\s+").unwrap());
+/// `_` marks emphasis only at a word's edge; inside a word it is the word's.
+static TITLE_UNDERSCORE_OPEN: Lazy<Regex> = Lazy::new(|| Regex::new(r"(^|\s)_+").unwrap());
+static TITLE_UNDERSCORE_CLOSE: Lazy<Regex> = Lazy::new(|| Regex::new(r"_+(\s|$)").unwrap());
+
 /// Only the template's leading H1 is a title candidate. A heading in the body,
 /// or an unfilled template instruction, must never rename a meeting.
 pub(crate) fn extract_meeting_name_from_markdown(markdown: &str) -> Option<String> {
     let first = markdown.lines().find(|line| !line.trim().is_empty())?.trim();
-    let title = first.strip_prefix("# ")?.trim().trim_matches('*').trim();
-    let normalized = title.trim_matches(|c| matches!(c, '<' | '>' | '[' | ']' | '`')).trim().to_lowercase();
-    if title.is_empty() || title.chars().count() > 200 || matches!(normalized.as_str(),
+    clean_generated_title(first.strip_prefix("# ")?)
+}
+
+/// A model's title as a meeting title (#218): no Markdown (links keep their
+/// text; backticks, emphasis and strike marks go), one line with single
+/// spaces, no wrapping quotes, no trailing `.` or `:`, at most
+/// `MAX_TITLE_CHARS`, cut at a word. `None` when nothing usable is left, or
+/// for a template placeholder: the meeting then keeps its title.
+pub(crate) fn clean_generated_title(raw: &str) -> Option<String> {
+    let text = TITLE_LINK.replace_all(raw, "$1");
+    let text = text.replace(['`', '*', '~'], "");
+    let text = TITLE_UNDERSCORE_OPEN.replace_all(&text, "$1");
+    let text = TITLE_UNDERSCORE_CLOSE.replace_all(&text, "$1");
+    let mut title = TITLE_SPACES.replace_all(&text, " ").trim().to_string();
+    loop {
+        let before = title.clone();
+        title = title.trim_end_matches(['.', ':', '：', '。']).trim().to_string();
+        title = unquoted(&title).trim().to_string();
+        if title == before {
+            break;
+        }
+    }
+    if title.chars().count() > MAX_TITLE_CHARS {
+        let cut: String = title.chars().take(MAX_TITLE_CHARS + 1).collect();
+        let limit = cut.char_indices().nth(MAX_TITLE_CHARS).map_or(cut.len(), |(at, _)| at);
+        // The last space within the limit, when it keeps at least half of the
+        // limit. A title with no space late enough (one long word, CJK text
+        // with a space early on) is cut at the limit rather than to a stub.
+        let at = cut
+            .rfind(' ')
+            .filter(|&at| cut[..at].chars().count() >= MAX_TITLE_CHARS / 2)
+            .unwrap_or(limit);
+        title = cut[..at].trim_end_matches([' ', ',', ';', ':', '.', '-', '–', '—']).to_string();
+    }
+    let normalized = title.trim_matches(|c| matches!(c, '<' | '>' | '[' | ']')).trim().to_lowercase();
+    if normalized.is_empty() || matches!(normalized.as_str(),
         "add title here" | "ai-generated title" | "meeting title" | "title" |
         "summary" | "meeting summary" | "overview" | "notes" | "transcript") {
         return None;
     }
-    Some(title.to_string())
+    Some(title)
+}
+
+/// `text` without one pair of quotes around all of it: the quote that opens
+/// it must be the one that closes it, so `"A" and "B"` keeps its quotes.
+fn unquoted(text: &str) -> &str {
+    const PAIRS: [(char, char); 7] = [('"', '"'), ('\'', '\''), ('«', '»'), ('“', '”'), ('„', '“'), ('‘', '’'), ('「', '」')];
+    for (open, close) in PAIRS {
+        let Some(inner) = text.strip_prefix(open).and_then(|rest| rest.strip_suffix(close)) else {
+            continue;
+        };
+        // Nested pairs of distinct quotes may open and close inside; the
+        // outer pair must stay open until the end.
+        let mut depth = 1usize;
+        let wraps = inner.chars().all(|char| {
+            if char == close {
+                depth -= 1;
+            } else if char == open {
+                depth += 1;
+            }
+            depth > 0
+        });
+        if wraps {
+            return inner;
+        }
+    }
+    text
 }
 
 #[cfg(test)]
 mod generated_title_tests {
-    use super::extract_meeting_name_from_markdown;
+    use super::{clean_generated_title, extract_meeting_name_from_markdown};
 
     #[test]
     fn generated_title_accepts_only_a_useful_leading_heading() {
         assert_eq!(extract_meeting_name_from_markdown("\n# **GPU Budget Review**\n\n## Decisions"), Some("GPU Budget Review".into()));
         assert_eq!(extract_meeting_name_from_markdown("# Revisión del presupuesto\n"), Some("Revisión del presupuesto".into()));
-        for text in ["", "## Decisions", "Body\n# A later heading", "# <Add Title here>", "# [AI-Generated Title]", "# **Meeting Title**", "# Summary", "# "] {
+        for text in ["", "## Decisions", "Body\n# A later heading", "# <Add Title here>", "# [AI-Generated Title]", "# **Meeting Title**", "# Summary", "# ", "# \"\"", "# `...`"] {
             assert_eq!(extract_meeting_name_from_markdown(text), None, "{text}");
         }
+    }
+
+    #[test]
+    fn a_generated_title_loses_its_markdown_quotes_and_end_punctuation() {
+        for (raw, title) in [
+            ("\"Q4 Budget Review.\"", "Q4 Budget Review"),
+            ("«Планёрка команды»:", "Планёрка команды"),
+            ("“Launch plan”.", "Launch plan"),
+            ("Sync on `api_v2` and the [roadmap](https://example.com)", "Sync on api_v2 and the roadmap"),
+            ("_Weekly_ __sync__ with ~~old~~ *new* team", "Weekly sync with old new team"),
+            ("  Hiring \t  plan\n review ", "Hiring plan review"),
+            ("What next?", "What next?"),
+            ("snake_case_name stays", "snake_case_name stays"),
+            // Quotes come off only when one pair wraps the whole title.
+            ("\"Alpha\" and \"Beta\"", "\"Alpha\" and \"Beta\""),
+            ("«Альфа» и «Бета»", "«Альфа» и «Бета»"),
+            ("„Plan“ und „Budget“", "„Plan“ und „Budget“"),
+            ("“The ‘Falcon’ sync”", "The ‘Falcon’ sync"),
+            ("«Обзор «Сокола»»", "Обзор «Сокола»"),
+        ] {
+            assert_eq!(clean_generated_title(raw).as_deref(), Some(title), "{raw}");
+        }
+    }
+
+    #[test]
+    fn a_long_generated_title_is_cut_at_a_word() {
+        let long = "Quarterly planning for the platform team covering hiring, budget, the roadmap and every open risk";
+        let title = clean_generated_title(long).unwrap();
+        assert_eq!(title, "Quarterly planning for the platform team covering hiring, budget, the roadmap");
+        assert!(title.chars().count() <= 80);
+        // Few spaces, the last one early: cut at the limit, not to a stub.
+        let mixed = format!("Q4 {}", "予算会議と採用計画".repeat(12));
+        let title = clean_generated_title(&mixed).unwrap();
+        assert_eq!(title.chars().count(), 80);
+        assert!(title.starts_with("Q4 予算会議"), "{title}");
+        let word = "Ж".repeat(100);
+        assert_eq!(clean_generated_title(&word).unwrap().chars().count(), 80);
     }
 }
 
@@ -281,7 +386,19 @@ pub fn chunk_text(text: &str, chunk_size_tokens: usize, overlap_tokens: usize) -
     chunks
 }
 
-/// Cleans markdown output from LLM by removing thinking tags and code fences
+/// Cleans markdown output from LLM by removing thinking tags and the wrappers
+/// a model puts around the document.
+///
+/// Two wrappers come off, in any order and nesting, only at the very start
+/// and end of the reply:
+/// - a code fence (```` ``` ````, ```` ```markdown ````, any info string). Small
+///   models open one and often never close it, which left the whole summary
+///   showing as one code block, so the opening line goes even without a
+///   closing one;
+/// - the `<document>…</document>` tags the translation and normalisation
+///   prompts put around their input, which small models echo back (#218: Gemma
+///   3 1B did; the summary then showed the tags and had no leading H1 to name
+///   the meeting from). Either tag goes when it stands on its own line.
 ///
 /// # Arguments
 /// * `markdown` - Raw markdown output from LLM
@@ -292,22 +409,39 @@ pub fn clean_llm_markdown_output(markdown: &str) -> String {
     // Remove <think>...</think> or <thinking>...</thinking> blocks using cached regex
     let without_thinking = THINKING_TAG_REGEX.replace_all(markdown, "");
 
-    let trimmed = without_thinking.trim();
-
-    // List of possible language identifiers for code blocks
-    const PREFIXES: &[&str] = &["```markdown\n", "```\n"];
-    const SUFFIX: &str = "```";
-
-    for prefix in PREFIXES {
-        if trimmed.starts_with(prefix) && trimmed.ends_with(SUFFIX) {
-            // Extract content between the fences
-            let content = &trimmed[prefix.len()..trimmed.len() - SUFFIX.len()];
-            return content.trim().to_string();
-        }
+    fn without_first_line(text: &str) -> &str {
+        text.split_once('\n').map_or("", |(_, rest)| rest).trim()
+    }
+    fn without_last_line(text: &str) -> &str {
+        text.rsplit_once('\n').map_or("", |(rest, _)| rest).trim()
     }
 
-    // If no fences found, return the trimmed string
-    trimmed.to_string()
+    let mut text = without_thinking.trim();
+    loop {
+        let before = text;
+        let first = text.lines().next().unwrap_or("").trim();
+        let last = text.lines().last().unwrap_or("").trim();
+        // A fence line the summary's own code blocks do not pair: an even
+        // count with fences at both ends is a wrapper; an odd count has one
+        // fence too many, at whichever end has it.
+        let fences = text.lines().filter(|line| line.trim_start().starts_with("```")).count();
+        let fenced_first = first.starts_with("```");
+        let fenced_last = last == "```";
+        if first == "<document>" {
+            text = without_first_line(text);
+        } else if last == "</document>" {
+            text = without_last_line(text);
+        } else if fenced_first && fenced_last && fences % 2 == 0 && text.lines().count() > 1 {
+            text = without_last_line(without_first_line(text));
+        } else if fenced_first && fences % 2 == 1 {
+            text = without_first_line(text);
+        } else if fenced_last && fences % 2 == 1 {
+            text = without_last_line(text);
+        }
+        if text == before {
+            return text.to_string();
+        }
+    }
 }
 
 fn require_meaningful_summary(markdown: &str, stage: &str) -> Result<String, String> {
@@ -810,6 +944,30 @@ mod tests {
             .unwrap(),
             "# Meeting title\n\n- A decision was made."
         );
+    }
+
+    /// What Gemma 3 1B returned for a translation pass (#218): an unclosed
+    /// fence around the prompt's echoed `<document>` tags. The meeting is
+    /// named from the H1 under them.
+    #[test]
+    fn cleaning_unwraps_an_unclosed_fence_and_echoed_document_tags() {
+        let reply = "```markdown\n<document>\n# Отчет о переносе хранилища\n\n**Краткое изложение**\n\nТекст.\n</document>";
+        let cleaned = clean_llm_markdown_output(reply);
+        assert_eq!(cleaned, "# Отчет о переносе хранилища\n\n**Краткое изложение**\n\nТекст.");
+        assert_eq!(extract_meeting_name_from_markdown(&cleaned).as_deref(), Some("Отчет о переносе хранилища"));
+
+        for (reply, clean) in [
+            ("<document>\n```\n# Title\n\nBody.\n```\n</document>", "# Title\n\nBody."),
+            ("```md\n# Title\n\nBody.", "# Title\n\nBody."),
+            ("# Title\n\nBody.\n```", "# Title\n\nBody."),
+            // A code block inside the summary stays.
+            ("# Title\n\n```\nkubectl apply\n```\n\nBody.", "# Title\n\n```\nkubectl apply\n```\n\nBody."),
+            ("# Title\n\n```\nkubectl apply\n```", "# Title\n\n```\nkubectl apply\n```"),
+            ("```markdown\n# Title\n\n```\nkubectl apply\n```", "# Title\n\n```\nkubectl apply\n```"),
+            ("<think>plan</think>\n# Title\n\nBody.", "# Title\n\nBody."),
+        ] {
+            assert_eq!(clean_llm_markdown_output(reply), clean, "{reply}");
+        }
     }
 
     #[test]

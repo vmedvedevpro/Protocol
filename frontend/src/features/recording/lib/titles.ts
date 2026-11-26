@@ -6,9 +6,10 @@
  *   "Meeting · Mon, Sep 28 · 2:30–3:15 PM"   once it ends
  *   "Weekly Standup — Sep 28"                filed in a folder
  *
- * Native saves a title starting with `AUTOMATIC_PREFIX` as automatic
- * (`is_default_meeting_title`), and only such a title gets the name the
- * summary writes. A folder's title, a typed one or a rename stays manual.
+ * The save says whether the user chose the title (`titleManual`, #218);
+ * native keeps that record and never reads the title's text for it. A
+ * title the app made (these, the folder's included) gets the title the
+ * summary writes; one the user typed, or a later rename, stays.
  */
 
 export const AUTOMATIC_PREFIX = 'Meeting · '
@@ -46,6 +47,30 @@ export function finalTitle(title: string, start: Date, end: Date): string {
     if (title !== automaticTitle(start)) return title
     if (end.getTime() - start.getTime() < 60_000) return title
     return `${AUTOMATIC_PREFIX}${dayLabel(start)} · ${timeRange(start, end)}`
+}
+
+// A clock time in any locale's form ("2:30 PM", "14:30", "午後2:30", "2.30 a.m."),
+// alone or as a range.
+const CLOCK = String.raw`(?:\p{L}+\.?\s?)?\d{1,2}[:.]\d{2}(?:\s?[\p{L}.]+)?`
+const SLOT = String.raw`${CLOCK}(?:\s?[–-]\s?${CLOCK})?`
+const escaped = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+/**
+ * Whether the whole of `title` is the automatic title of a recording that
+ * started at `start`. For a crash copy made before the save recorded
+ * `titleManual` (#218): its title counts as the user's unless it is one of
+ * these. The day must be the one the app writes for `start` (`dayLabel`),
+ * so "Meeting, budget review, 10:30" stays the user's; a copy read in
+ * another locale than it was made in keeps its title, the safe side.
+ *
+ *   "Meeting · Mon, Sep 28 · 2:30 PM"   this version's
+ *   "Meeting, Mon, Sep 28, 2:30 PM"     #224's coming form
+ */
+export function isGeneratedTitle(title: string, start: Date): boolean {
+    const day = escaped(dayLabel(start))
+    return [String.raw`^Meeting · ${day} · ${SLOT}$`, String.raw`^Meeting, ${day}, ${SLOT}$`].some((pattern) =>
+        new RegExp(pattern, 'u').test(title),
+    )
 }
 
 /** "Today, 9:30 AM", or "Mon, Sep 28, 9:30 AM" on another day: when a recording started. */

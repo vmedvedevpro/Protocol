@@ -7,7 +7,6 @@
  * gets the YAML frontmatter and, with Obsidian links, the speakers as
  * wikilinks; the other formats keep plain names.
  */
-import type {ActionItem} from '@/api/actionItems'
 import type {TranscriptSegment} from '@/api/meetings'
 import {meetingDocument, summaryMarkdown, transcriptMarkdown} from '@/components/transcript/meetingText'
 import {displaySpeaker, isUnnamedSpeaker, isUserSpeaker, speakerParts} from '@/components/transcript/turns'
@@ -31,9 +30,8 @@ export interface ExportSource {
     title: string
     createdAt: Date | null
     lines: readonly TranscriptSegment[]
-    /** The stored summary (`api_get_summary`'s `data`) and its action items. */
+    /** The stored summary (`api_get_summary`'s `data`), its action items included. */
     summary: unknown
-    actionItems: readonly ActionItem[]
     /** The user's name, for the microphone's lines. */
     userName?: string
 }
@@ -79,9 +77,9 @@ function frontmatter(source: ExportSource, linkStyle: LinkStyle): string {
     return lines.join('\n')
 }
 
-/** The summary with its action items, or null when the meeting has none to export. */
-export const exportableSummary = (source: Pick<ExportSource, 'summary' | 'actionItems'>) =>
-    summaryMarkdown(source.summary, source.actionItems) || null
+/** The summary, or null when the meeting has none to export. */
+export const exportableSummary = (source: Pick<ExportSource, 'summary'>) =>
+    summaryMarkdown(source.summary) || null
 
 /**
  * The document for `content` in `format`. Throws when the part asked for is

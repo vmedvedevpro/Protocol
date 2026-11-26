@@ -8,6 +8,7 @@ use super::processor::language_name_from_code;
 
 const SUMMARY_LANGUAGE_FIELD: &str = "summary_language";
 const DETECTED_SUMMARY_LANGUAGE_FIELD: &str = "detected_summary_language";
+const MEETING_NAME_FIELD: &str = "meeting_name";
 const METADATA_FILE: &str = "metadata.json";
 const METADATA_TEMP_FILE_PREFIX: &str = ".metadata.json.";
 static METADATA_WRITE_LOCK: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
@@ -61,6 +62,37 @@ fn write_language_field_to_metadata(
     field: &str,
     summary_language: Option<&str>,
 ) -> Result<()> {
+    let normalised = summary_language.map(normalise_supported_summary_language).transpose()?;
+    update_metadata(folder, true, |object| match normalised {
+        Some(code) => {
+            object.insert(field.to_string(), Value::String(code));
+        }
+        None => {
+            object.remove(field);
+        }
+    })
+    .map(|_| ())
+}
+
+/// Writes a renamed meeting's title into its folder's `metadata.json`
+/// (`meeting_name`, as the recording saver wrote it), so the folder names the
+/// meeting as the app does (#218). A folder without the file is left alone:
+/// it may not be one the app made. Answers whether the file was written.
+pub(crate) fn write_meeting_name_to_metadata(folder: &Path, name: &str) -> Result<bool> {
+    update_metadata(folder, false, |object| {
+        object.insert(MEETING_NAME_FIELD.to_string(), Value::String(name.to_string()));
+    })
+}
+
+/// Reads `metadata.json`, changes its object with `change` and writes it back
+/// through a temporary file and a rename, under one lock for every writer in
+/// this process. Without the file, `create` starts from an empty object;
+/// otherwise nothing is written and the answer is false.
+fn update_metadata(
+    folder: &Path,
+    create: bool,
+    change: impl FnOnce(&mut serde_json::Map<String, Value>),
+) -> Result<bool> {
     let _guard = METADATA_WRITE_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     let metadata_path = metadata_path(folder);
     let temp_path = metadata_temp_path(folder);
@@ -69,24 +101,16 @@ fn write_language_field_to_metadata(
         let raw = std::fs::read_to_string(&metadata_path)
             .with_context(|| format!("Failed to read {}", metadata_path.display()))?;
         parse_metadata_json(&raw)?
-    } else {
+    } else if create {
         Value::Object(serde_json::Map::new())
+    } else {
+        return Ok(false);
     };
 
-    if !value.is_object() {
+    let Some(object) = value.as_object_mut() else {
         bail!("Failed to parse metadata.json: root value must be a JSON object");
-    }
-
-    let object = value.as_object_mut().expect("metadata value checked as object");
-    match summary_language {
-        Some(code) => {
-            let normalised = normalise_supported_summary_language(code)?;
-            object.insert(field.to_string(), Value::String(normalised));
-        }
-        None => {
-            object.remove(field);
-        }
-    }
+    };
+    change(object);
 
     let json_string = serde_json::to_string_pretty(&value)
         .context("Failed to serialize metadata.json")?;
@@ -100,7 +124,7 @@ fn write_language_field_to_metadata(
         )
     })?;
 
-    Ok(())
+    Ok(true)
 }
 
 fn metadata_path(folder: &Path) -> PathBuf {

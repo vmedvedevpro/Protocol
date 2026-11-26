@@ -11,7 +11,6 @@ use sqlx::{Sqlite, SqlitePool, Transaction};
 use std::collections::HashMap;
 use uuid::Uuid;
 
-use super::action_item::{ActionItemFilter, ActionItemView, ActionItemsRepository};
 use crate::state::AppState;
 pub use meeting_library::search::GlobalSearchResult;
 #[cfg(test)]
@@ -104,8 +103,6 @@ pub struct PersonProfile {
     pub last_seen_at: Option<String>,
     pub meetings: Vec<PersonMeeting>,
     pub groups: Vec<PersonGroupRef>,
-    /// Items this person owns, each linked back to its meeting.
-    pub action_items: Vec<ActionItemView>,
 }
 
 #[derive(Debug)]
@@ -226,15 +223,6 @@ impl PeopleRepository {
             .sum();
 
         let groups = person_groups(pool, person_id).await?;
-        let action_items = ActionItemsRepository::list(
-            pool,
-            &ActionItemFilter {
-                person_id: Some(person_id.to_string()),
-                ..Default::default()
-            },
-        )
-        .await?;
-
         Ok(PersonProfile {
             id: person.0,
             display_name: person.1,
@@ -250,7 +238,6 @@ impl PeopleRepository {
             last_seen_at: meetings.first().map(|meeting| meeting.created_at.clone()),
             meetings,
             groups,
-            action_items,
         })
     }
 

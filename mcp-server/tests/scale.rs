@@ -210,10 +210,6 @@ async fn the_heaviest_calls_on_a_large_library() {
         tools::search(&mut conn, SearchArgs { query: "бюджет".into(), group: Some("g4".into()), ..Default::default() }).await
     })
     .await;
-    measure(&library, "get_action_items, open, all meetings", |mut conn| async move {
-        tools::get_action_items(&mut conn, GetActionItemsArgs { limit: Some(200), ..Default::default() }).await
-    })
-    .await;
     measure(&library, "list_people, 200 per page", |mut conn| async move {
         tools::list_people(&mut conn, ListPeopleArgs { limit: Some(200), ..Default::default() }).await
     })

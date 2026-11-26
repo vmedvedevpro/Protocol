@@ -21,6 +21,7 @@ import {GlobalSearch} from './GlobalSearch'
 import {useKeepOnTopStore, useKeepOnTopSync} from './keepOnTop'
 import {useStartupPhase} from './startup'
 import {StartupScreen} from './StartupScreen'
+import {useSummaryTitleSync} from './summaryTitleSync'
 import {TitleBar} from './TitleBar'
 
 /** What a shell route tells the title bar (`handle` in the route table). */
@@ -77,6 +78,7 @@ export function Shell() {
     // native activates Whisper after its download.
     useModelDownloadSync()
     useSpeechConfigSync()
+    useSummaryTitleSync()
 
     // The tray's Settings and update items, heard from the start: the route
     // shows once startup settles. The router keeps the page alive; a reload

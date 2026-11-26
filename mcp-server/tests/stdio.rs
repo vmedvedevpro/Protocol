@@ -65,7 +65,7 @@ async fn a_client_session_over_stdio() {
 
     send(json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/list" }));
     let listed = receive(2);
-    assert_eq!(listed["result"]["tools"].as_array().unwrap().len(), 8, "{listed}");
+    assert_eq!(listed["result"]["tools"].as_array().unwrap().len(), 7, "{listed}");
 
     send(json!({
         "jsonrpc": "2.0", "id": 3, "method": "tools/call",

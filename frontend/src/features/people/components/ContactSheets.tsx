@@ -168,7 +168,7 @@ export function MergeContactSheet({open, onOpenChange, contact, onMerged}: {
             )}
         >
             <Text>
-                {name}’s meetings, action items, notes and voice move to the contact you pick, and {name} is removed.
+                {name}’s meetings, notes and voice move to the contact you pick, and {name} is removed.
             </Text>
             <Select
                 label="Merge into"
@@ -217,8 +217,7 @@ export function DeleteContactSheet({open, onOpenChange, contact, onDeleted}: {
             )}
         >
             <Text>
-                Their lines in meetings go back to “Speaker” labels, their action items keep the owner’s name without the
-                link, and their voice is forgotten. Meetings stay.
+                Their lines in meetings go back to “Speaker” labels and their voice is forgotten. Meetings stay.
             </Text>
         </Sheet>
     )

@@ -45,6 +45,7 @@ describe('ImportSheet', () => {
         expect(mockState.dialogs.imports).toEqual([{
             sourcePath: '/home/user/Recordings/client-call-nov-21.m4a',
             title: 'client-call-nov-21',
+            titleIsManual: false,
             language: null,
             model: PARAKEET_MODEL,
             provider: 'parakeet',
@@ -81,7 +82,7 @@ describe('ImportSheet', () => {
 
         await userEvent.click(within(dialog).getByRole('button', {name: 'Import'}))
         await screen.findByText('Recording imported')
-        expect(mockState.dialogs.imports[0]).toMatchObject({title: 'Client call', language: 'ru', provider: 'whisper', model: POST_CALL_WHISPER_MODEL})
+        expect(mockState.dialogs.imports[0]).toMatchObject({title: 'Client call', titleIsManual: true, language: 'ru', provider: 'whisper', model: POST_CALL_WHISPER_MODEL})
         const meeting = mockState.meetings.meetings.find((entry) => entry.id === 'meeting-import-1')
         await waitFor(() => expect(meeting?.group_id).toBe('group-acme'))
         expect(mockState.meetings.summaryLanguages['meeting-import-1']).toBe('de')

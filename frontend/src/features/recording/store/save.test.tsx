@@ -12,6 +12,7 @@ import {renderRecording, toastTitles} from '../test/renderRecording'
 import {registerLinks} from './links'
 import {setLiveNotes} from './liveNotes'
 import {SAVE_TIMING, stopRecording} from './save'
+import {renameRecording} from './runtime'
 import {session} from './session'
 import {startRecording} from './start'
 
@@ -53,6 +54,8 @@ describe('Stop and save', () => {
         await waitFor(() => expect(mockState.live.saveAnswers).toEqual([{stopId: 1, outcome: 'saved'}]))
         const meeting = mockState.meetings.meetings.at(-1)!
         expect(meeting.title).toMatch(/^Meeting · /)
+        // The app made the title: the save says so, and native keeps the record (#218).
+        expect(meeting.titleIsManual).toBe(false)
         expect(meeting.folder_path).toMatch(/Meeting_/)
         expect(mockState.meetings.transcripts[meeting.id].map((line) => line.speaker)).toEqual(['You', 'Speaker 2', 'Speaker 3'])
         expect(mockState.meetingNotes[meeting.id]?.markdown).toBe('Ship the export dialog')
@@ -65,6 +68,16 @@ describe('Stop and save', () => {
         await waitFor(() => expect(postCallJobs.get(meeting.id)).toBeNull())
         const commands = invoke.mock.calls.map(([command]) => command)
         expect(commands.indexOf('start_retranscription_command')).toBeLessThan(commands.indexOf('diarize_meeting'))
+    })
+
+    it('saves a title the user typed as theirs', async () => {
+        await record()
+        renameRecording('  Pricing call ')
+
+        await stopRecording()
+
+        await waitFor(() => expect(mockState.live.saveAnswers).toEqual([{stopId: 1, outcome: 'saved'}]))
+        expect(mockState.meetings.meetings.at(-1)).toMatchObject({title: 'Pricing call', titleIsManual: true})
     })
 
     it('discards a take under 10 seconds', async () => {

@@ -74,13 +74,14 @@ describe('meetings', () => {
 
         const id = await saveTranscript({
             title: 'Meeting · Tue, Nov 24 · 2:30 PM',
+            titleIsManual: false,
             transcripts: [{id: 'x', text: 'Hello', timestamp: '14:30:00', audio_start_time: 0, audio_end_time: 2, speaker: 'You'}],
             folderPath: '/recordings/2026-11-24',
             recordingStartedAt: '2026-11-24T14:30:00Z',
         })
 
         expect((await getAllTranscripts(id))[0].speaker).toBe('You')
-        expect(mockState.meetings.meetings.find((meeting) => meeting.id === id)?.created_at).toBe('2026-11-24T14:30:00.000Z')
+        expect(mockState.meetings.meetings.find((meeting) => meeting.id === id)).toMatchObject({created_at: '2026-11-24T14:30:00.000Z', titleIsManual: false})
     })
 
     it('renames a meeting and marks its list, header and folders stale', async () => {

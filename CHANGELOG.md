@@ -65,6 +65,38 @@ is inherited from the project Protocol forked from; Protocol did not release it.
   ([#216](https://github.com/vmedvedevpro/Protocol/issues/216)). On Windows
   and Linux, a processor without AVX2 gets a message that it is not
   supported and what it lacks, instead of the app closing without a word.
+- **Action items stay in the summary**
+  ([#218](https://github.com/vmedvedevpro/Protocol/issues/218)). The summary
+  lists them as the model wrote them; the separate list with owners, due
+  dates and checkboxes is gone, from the meeting, the person screen and
+  search. Summaries whose action items were moved out get them back the
+  first time this version starts, with any items you added by hand; items
+  you added to a meeting that has no summary yet go into its first summary.
+  A checked-off item stays checked when the summary lists it as a list item;
+  in a table the check mark is not kept. An owner or due date you changed
+  goes into the item (or its table row). An item you deleted stays deleted,
+  unless you also reworded one of the AI's items in that meeting: then the
+  app cannot tell which one you deleted, and every item comes back, with
+  the reworded one added. Each summary this changes is saved
+  first as it was, in `summary-backups` in Protocol's data folder. AI
+  agents read the items in the summary; the MCP server's `get_action_items`
+  tool is gone.
+- **Meetings are named from their summary**
+  ([#218](https://github.com/vmedvedevpro/Protocol/issues/218)). While a
+  meeting has the title Protocol gave it (the date and time, the folder's
+  name or an imported file's name), its summary gives it a short title in
+  the summary's language, without Markdown marks or quotes and at most 80
+  characters long. A title you typed or a rename is never replaced, also
+  when you write the summary again.
+- **Summaries from small built-in models show as text**
+  ([#218](https://github.com/vmedvedevpro/Protocol/issues/218)). A summary
+  the model wrapped in a code block it never closed, or in the tags of its
+  own instructions, showed as one block of code; those wrappers now come
+  off.
+- **Templates stay in place**
+  ([#218](https://github.com/vmedvedevpro/Protocol/issues/218)). Choosing a
+  default template no longer moves it to the top: templates are listed by
+  name everywhere, and the default is marked.
 
 ## Protocol 1.0.0-rc.1 — 2026-11-26
 

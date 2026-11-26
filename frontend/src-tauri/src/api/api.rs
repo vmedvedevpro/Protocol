@@ -9,7 +9,7 @@ use crate::{
     database::{
         models::MeetingModel,
         repositories::{
-            meeting::MeetingsRepository, setting::SettingsRepository,
+            meeting::{MeetingsRepository, TitleSource}, setting::SettingsRepository,
             transcript::TranscriptsRepository, vocabulary::VocabularyRepository,
         },
     },
@@ -933,12 +933,16 @@ pub async fn api_save_meeting_title<R: Runtime>(
         auth_token.is_some()
     );
     let pool = state.db_manager.pool();
-    match MeetingsRepository::update_meeting_title(pool, &meeting_id, &title).await {
-        Ok(true) => {
+    if title.trim().is_empty() {
+        return Err("Enter a title for the meeting".to_string());
+    }
+    match crate::meeting_title::rename_meeting(pool, &meeting_id, &title, TitleSource::User).await {
+        Ok(crate::meeting_title::Rename::Renamed) => {
             log_info!("Successfully saved meeting title");
             Ok(serde_json::json!({"message": "Meeting title saved successfully"}))
         }
-        Ok(false) => {
+        // A user's rename always applies to a meeting that exists.
+        Ok(crate::meeting_title::Rename::NoMeeting | crate::meeting_title::Rename::UsersTitleKept) => {
             log_error!("No meeting found with id {}", meeting_id);
             Err(format!("No meeting found with id {}", meeting_id))
         }
@@ -957,6 +961,10 @@ pub async fn api_save_transcript<R: Runtime>(
     transcripts: Vec<serde_json::Value>,
     folder_path: Option<String>,
     recording_started_at: Option<String>,
+    // Whether the user chose `meeting_title` (#218). A caller that does not
+    // say keeps its title: only a title known to be automatic is renamed
+    // after the summary.
+    title_is_manual: Option<bool>,
     auth_token: Option<String>,
 ) -> Result<serde_json::Value, String> {
     log_info!(
@@ -1020,6 +1028,7 @@ pub async fn api_save_transcript<R: Runtime>(
     match TranscriptsRepository::save_transcript(
         pool,
         &meeting_title,
+        title_is_manual.unwrap_or(true),
         &transcripts_to_save,
         folder_path,
         recording_started_at,

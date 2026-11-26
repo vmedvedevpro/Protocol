@@ -26,6 +26,8 @@ const DB_VERSION = 1
 export interface RecoveryMeeting {
     meetingId: string
     title: string
+    /** Whether the user chose `title` when the copy began (#218); absent in older copies. */
+    titleManual?: boolean
     startTime: number
     lastUpdated: number
     transcriptCount: number
@@ -97,7 +99,7 @@ const committed = (tx: IDBTransaction) =>
     })
 
 /** A recording started: its record exists before any line, so a crash before the first line is offered too. */
-export async function beginRecovery(meeting: Pick<RecoveryMeeting, 'meetingId' | 'title' | 'startTime'>) {
+export async function beginRecovery(meeting: Pick<RecoveryMeeting, 'meetingId' | 'title' | 'titleManual' | 'startTime'>) {
     const db = await open()
     const tx = db.transaction('meetings', 'readwrite')
     tx.objectStore('meetings').put({...meeting, lastUpdated: Date.now(), transcriptCount: 0, savedToSQLite: false})

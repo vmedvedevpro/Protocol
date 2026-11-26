@@ -1,13 +1,14 @@
 /**
  * The library search behind ⌘K (`api_global_search`, person.rs, its queries
  * in meeting-library's search.rs, shared with the MCP server): one ranked
- * list of people, folders, meetings, transcript lines, summaries and action
- * items whose text contains the query.
+ * list of people, folders, meetings, transcript lines and summaries whose
+ * text contains the query. A summary's action items are part of its text
+ * (#218), so they are found as the summary.
  */
 import {keepPreviousData, queryOptions} from '@tanstack/react-query'
 import {command} from '@/api/core'
 
-export type SearchResultKind = 'person' | 'group' | 'meeting' | 'transcript' | 'summary' | 'action'
+export type SearchResultKind = 'person' | 'group' | 'meeting' | 'transcript' | 'summary'
 
 /** Mirrors `GlobalSearchResult` in meeting-library's search.rs. */
 export interface SearchResult {
@@ -20,13 +21,13 @@ export interface SearchResult {
     title: string
     /**
      * A person's notes (or "N mapped meetings"), a folder's meeting count,
-     * the line or summary around the match (with "..." where it was cut), an
-     * action item's text, a meeting's title.
+     * the line or summary around the match (with "..." where it was cut), a
+     * meeting's title.
      */
     snippet: string
-    /** The meeting's start for meetings, summaries and action items; the line's clock time for a line. */
+    /** The meeting's start for meetings and summaries; the line's clock time for a line. */
     timestamp?: string
-    /** Who said the line, or the action item's owner as written. */
+    /** Who said the line. */
     speaker?: string
     /** Where in the recording, in seconds. */
     audioStartTime?: number

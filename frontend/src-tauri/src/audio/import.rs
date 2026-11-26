@@ -252,6 +252,7 @@ pub async fn start_import<R: Runtime>(
     app: AppHandle<R>,
     source_path: String,
     title: String,
+    title_is_manual: bool,
     language: Option<String>,
     model: Option<String>,
     provider: Option<String>,
@@ -270,6 +271,7 @@ pub async fn start_import<R: Runtime>(
         app.clone(),
         source_path,
         title,
+        title_is_manual,
         language,
         model,
         provider,
@@ -318,12 +320,12 @@ async fn run_import<R: Runtime>(
     app: AppHandle<R>,
     source_path: String,
     title: String,
+    title_is_manual: bool,
     language: Option<String>,
     model: Option<String>,
     provider: Option<String>,
 ) -> Result<ImportResult> {
     let source = PathBuf::from(&source_path);
-    let title_is_manual = is_import_title_manual(&title, &source);
 
     // Validate source file
     if !source.exists() {
@@ -772,14 +774,6 @@ fn unavailable_recordings_folder(recordings_folder: &Path, error: anyhow::Error)
     }
 }
 
-fn is_import_title_manual(title: &str, source: &Path) -> bool {
-    source
-        .file_name()
-        .and_then(|name| name.to_str())
-        .map(|filename| title.trim() != filename)
-        .unwrap_or(true)
-}
-
 /// Get or initialize the Whisper engine
 async fn get_or_init_whisper<R: Runtime>(
     app: &AppHandle<R>,
@@ -999,6 +993,10 @@ pub async fn start_import_audio_command<R: Runtime>(
     app: AppHandle<R>,
     source_path: String,
     title: String,
+    // Whether the user chose `title` rather than taking the file's name the
+    // sheet offered (#218): only an app-made title is renamed after the
+    // summary. A caller that does not say keeps its title.
+    title_is_manual: Option<bool>,
     language: Option<String>,
     model: Option<String>,
     provider: Option<String>,
@@ -1010,7 +1008,7 @@ pub async fn start_import_audio_command<R: Runtime>(
 
     // Spawn import in background
     tauri::async_runtime::spawn(async move {
-        let result = start_import(app, source_path, title, language, model, provider).await;
+        let result = start_import(app, source_path, title, title_is_manual.unwrap_or(true), language, model, provider).await;
 
         if let Err(e) = result {
             error!("Import failed: {}", e);
@@ -1048,13 +1046,6 @@ mod tests {
         assert!(AUDIO_EXTENSIONS.contains(&"wav"));
         assert!(AUDIO_EXTENSIONS.contains(&"mp3"));
         assert!(!AUDIO_EXTENSIONS.contains(&"txt"));
-    }
-
-    #[test]
-    fn imported_filename_is_automatic_until_edited() {
-        let source = Path::new("recording.mp4");
-        assert!(!is_import_title_manual("recording.mp4", source));
-        assert!(is_import_title_manual("Customer Interview", source));
     }
 
     #[test]
