@@ -5,6 +5,7 @@ import {describe, expect, it} from 'vitest'
 import {listBuiltInModels} from '@/api/models'
 import {mockState} from '@/mocks/state'
 import {PROVIDER_MODEL_MAP_KEY} from '@/api/summaryProviders'
+import {TYPING_SETTLE_MS} from '@/components/summaryModel/draft'
 import {SettingsPage} from '../../pages/SettingsPage'
 import {indexedLabels} from '../../pages/settingsPages'
 import {renderedRowLabels, renderSettings} from '../../testing'
@@ -13,6 +14,9 @@ import {shortModelName, SUMMARY_PROVIDERS} from '@/api/summaryProviders'
 const open = () => renderSettings(createElement(SettingsPage), '/settings/summary-model')
 const group = (name: string) => screen.getByRole('region', {name})
 const save = () => screen.getByRole('button', {name: 'Save'})
+// A key's list is asked once typing has rested; on a busy machine the
+// listing that follows can take longer than the default second.
+const LISTED = {timeout: TYPING_SETTLE_MS + 2_000}
 
 describe('Summary model page', () => {
     it('starts at the saved provider and its model', async () => {
@@ -31,6 +35,8 @@ describe('Summary model page', () => {
         expect(save()).toBeDisabled()
 
         await userEvent.type(screen.getByLabelText('API key'), 'sk-ant-test')
+        // The list is asked once typing the key has rested.
+        await waitFor(() => expect(screen.getByRole('combobox', {name: 'Model'})).toBeEnabled(), LISTED)
         await userEvent.click(screen.getByRole('combobox', {name: 'Model'}))
         await userEvent.click(await screen.findByRole('option', {name: 'Claude Sonnet 4.5'}))
         expect(screen.getByText('Meetings you summarize are sent to Claude.')).toBeInTheDocument()
@@ -46,7 +52,110 @@ describe('Summary model page', () => {
         localStorage.setItem(PROVIDER_MODEL_MAP_KEY, JSON.stringify({groq: 'gemma2-9b-it'}))
         open()
         await userEvent.click(await screen.findByRole('radio', {name: /Groq/}))
-        expect(await screen.findByRole('combobox', {name: 'Model'})).toHaveTextContent('gemma2-9b-it')
+        await userEvent.type(screen.getByLabelText('API key'), 'gsk-test')
+        await waitFor(() => expect(screen.getByRole('combobox', {name: 'Model'})).toHaveTextContent('gemma2-9b-it'), LISTED)
+    })
+
+    describe('a cloud provider’s model select', () => {
+        const model = () => screen.getByRole('combobox', {name: 'Model'})
+
+        it('stays empty and asks for a key until one is pasted', async () => {
+            localStorage.setItem(PROVIDER_MODEL_MAP_KEY, JSON.stringify({claude: 'claude-sonnet-4-5-20250929'}))
+            open()
+            await userEvent.click(await screen.findByRole('radio', {name: /Claude/}))
+            expect(model()).toBeDisabled()
+            expect(model()).toHaveTextContent('Paste a key first')
+        })
+
+        it('lists only what the provider answers for the key', async () => {
+            open()
+            await userEvent.click(await screen.findByRole('radio', {name: /OpenAI/}))
+            await userEvent.type(screen.getByLabelText('API key'), 'sk-test')
+            await waitFor(() => expect(model()).toBeEnabled(), LISTED)
+            expect(model()).toHaveTextContent('Choose a model')
+            await userEvent.click(model())
+            expect((await screen.findAllByRole('option')).map((option) => option.textContent)).toEqual(['gpt-4o', 'gpt-4o-mini', 'o3-mini'])
+        })
+
+        it('says when the key is rejected, and lists nothing', async () => {
+            open()
+            await userEvent.click(await screen.findByRole('radio', {name: /Claude/}))
+            await userEvent.type(screen.getByLabelText('API key'), 'invalid-key')
+            expect(await screen.findByText('Claude didn’t accept this key (status 401). Check that it’s pasted in full and still active.', undefined, LISTED)).toBeInTheDocument()
+            expect(model()).toBeDisabled()
+            expect(save()).toBeDisabled()
+            // The key is fixed in the field; asking again with it would only fail again.
+            expect(screen.queryByRole('button', {name: 'Try again'})).not.toBeInTheDocument()
+        })
+
+        it('says when the provider can’t be reached, and tries again with the same key', async () => {
+            mockState.summaryProviders.cloudModelsFailure = {kind: 'unreachable', reason: 'no connection'}
+            open()
+            await userEvent.click(await screen.findByRole('radio', {name: /OpenAI/}))
+            await userEvent.type(screen.getByLabelText('API key'), 'sk-test')
+            expect(await screen.findByText('Couldn’t reach OpenAI: no connection.', undefined, LISTED)).toBeInTheDocument()
+
+            mockState.summaryProviders.cloudModelsFailure = null
+            await userEvent.click(screen.getByRole('button', {name: 'Try again'}))
+            await waitFor(() => expect(model()).toBeEnabled(), LISTED)
+            expect(screen.queryByText(/Couldn’t reach OpenAI/)).not.toBeInTheDocument()
+            expect(screen.queryByRole('button', {name: 'Try again'})).not.toBeInTheDocument()
+        })
+
+        it('says when a pasted key has characters no key has, with nothing to try again', async () => {
+            open()
+            await userEvent.click(await screen.findByRole('radio', {name: /Claude/}))
+            await userEvent.type(screen.getByLabelText('API key'), 'sk-ant-ключ')
+            expect(await screen.findByText('This key has characters a key can’t have, such as a line break or a space. Paste it again.', undefined, LISTED)).toBeInTheDocument()
+            expect(screen.queryByRole('button', {name: 'Try again'})).not.toBeInTheDocument()
+        })
+
+        it('names another status by its code', async () => {
+            mockState.summaryProviders.cloudModelsFailure = {kind: 'status', status: 529, reason: null}
+            open()
+            await userEvent.click(await screen.findByRole('radio', {name: /Groq/}))
+            await userEvent.type(screen.getByLabelText('API key'), 'gsk-test')
+            expect(await screen.findByText('Groq answered with status 529.', undefined, LISTED)).toBeInTheDocument()
+            expect(screen.getByRole('button', {name: 'Try again'})).toBeInTheDocument()
+        })
+
+        it('never shows one key’s list for another', async () => {
+            open()
+            await userEvent.click(await screen.findByRole('radio', {name: /Claude/}))
+            const key = screen.getByLabelText('API key')
+            await userEvent.type(key, 'sk-ant-good')
+            await waitFor(() => expect(model()).toBeEnabled(), LISTED)
+
+            await userEvent.clear(key)
+            await userEvent.type(key, 'invalid-key')
+            expect(await screen.findByText(/Claude didn’t accept this key/, undefined, LISTED)).toBeInTheDocument()
+            expect(model()).toBeDisabled()
+
+            await userEvent.clear(key)
+            expect(await screen.findByText('Paste a key first', undefined, LISTED)).toBeInTheDocument()
+            expect(model()).toBeDisabled()
+        })
+
+        it('keeps a saved model the list no longer has', async () => {
+            mockState.preferences.summaryModel = {
+                provider: 'groq', model: 'mixtral-8x7b-32768', whisperModel: 'large-v3', apiKey: null, ollamaEndpoint: null, summaryMaxTokens: null,
+            }
+            mockState.preferences.apiKeys.groq = 'gsk-saved'
+            open()
+            await waitFor(() => expect(model()).toBeEnabled(), LISTED)
+            expect(model()).toHaveTextContent('mixtral-8x7b-32768')
+            await userEvent.click(model())
+            expect(await screen.findByRole('option', {name: 'mixtral-8x7b-32768'})).toBeInTheDocument()
+            expect(screen.getByRole('option', {name: 'llama-3.3-70b-versatile'})).toBeInTheDocument()
+        })
+
+        it('lists OpenRouter’s public catalog without a key', async () => {
+            open()
+            await userEvent.click(await screen.findByRole('radio', {name: /OpenRouter/}))
+            await waitFor(() => expect(model()).toBeEnabled(), LISTED)
+            await userEvent.click(model())
+            expect(await screen.findByRole('option', {name: 'Google: Gemini 2.5 Flash'})).toBeInTheDocument()
+        })
     })
 
     it('checks Claude’s maximum summary length against the model', async () => {

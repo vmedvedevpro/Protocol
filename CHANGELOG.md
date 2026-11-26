@@ -7,6 +7,27 @@ is inherited from the project Protocol forked from; Protocol did not release it.
 
 ## Protocol — unreleased
 
+- **Cloud models come only from the provider**
+  ([#220](https://github.com/vmedvedevpro/Protocol/issues/220)). Claude,
+  OpenAI and Groq list the chat models their API offers for your key, from
+  every page of the list. A key the provider rejects, a provider that can't be
+  reached, or another error now shows under the model select, with Try again
+  when asking again can help, instead of a built-in list of models that might
+  not work.
+- **First launch asks the meeting language**
+  ([#220](https://github.com/vmedvedevpro/Protocol/issues/220)). It starts at
+  your system's language when the transcript after the meeting supports it,
+  otherwise at Detect automatically, and you can change it before Done.
+- **Faster live text says what it trades**
+  ([#220](https://github.com/vmedvedevpro/Protocol/issues/220)): words appear
+  sooner, live text can split sentences, and the transcript after the meeting
+  is unaffected.
+- **Contacts in Ctrl K**
+  ([#220](https://github.com/vmedvedevpro/Protocol/issues/220)). With nothing
+  typed, search lists a few people after the recent meetings, newest meeting
+  first. "Show all people" or the People command lists everyone, and typing
+  filters them by name, role, company or email.
+
 ## Protocol 1.0.0-rc.1 — 2026-11-26
 
 A release candidate of Protocol 1.0, for trying it before the release: install

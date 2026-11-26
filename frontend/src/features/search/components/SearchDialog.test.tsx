@@ -5,6 +5,7 @@ import {createMemoryRouter, RouterProvider} from 'react-router-dom'
 import {describe, expect, it, vi} from 'vitest'
 import {createActionItem} from '@/api/actionItems'
 import {openSearch, useSearchLauncher} from '@/lib/searchLauncher'
+import {mockState} from '@/mocks/state'
 import {createTestQueryClient} from '@/test/queryClient'
 import {renderUi} from '@/test/renderUi'
 import {useThemeModeStore} from '@/styles/themeMode'
@@ -28,7 +29,7 @@ describe('SearchDialog', () => {
         const dialog = await screen.findByRole('dialog', {name: 'Search and commands'})
 
         expect(within(dialog).getByRole('combobox', {name: 'Search meetings, people and commands'})).toHaveFocus()
-        await waitFor(() => expect(groupNames()).toEqual(['Actions', 'Recent meetings', 'Go to', 'Theme']))
+        await waitFor(() => expect(groupNames()).toEqual(['Actions', 'Recent meetings', 'People', 'Go to', 'Theme']))
         expect(screen.getByRole('option', {name: /Acme pilot security review/})).toBeInTheDocument()
         await userEvent.keyboard('{Escape}')
         await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
@@ -109,7 +110,7 @@ describe('SearchDialog', () => {
     it('moves the lit row in the same frame as the key, with no colour fade', async () => {
         renderSearch()
         act(() => openSearch())
-        await waitFor(() => expect(groupNames()).toEqual(['Recent meetings', 'Go to', 'Theme']))
+        await waitFor(() => expect(groupNames()).toEqual(['Recent meetings', 'People', 'Go to', 'Theme']))
         const rows = screen.getAllByRole('option')
 
         await userEvent.keyboard('{ArrowDown}')
@@ -117,5 +118,80 @@ describe('SearchDialog', () => {
         // A palette driven by the keyboard changes in place: a fade would leave two rows half lit.
         await waitFor(() => expect(rows[1]).toHaveAttribute('aria-selected', 'true'))
         for (const row of rows.slice(0, 2)) expect(getComputedStyle(row).transitionProperty).not.toMatch(/background/)
+    })
+
+    describe('people', () => {
+        const options = (group: string) => within(screen.getByRole('group', {name: group})).getAllByRole('option')
+        const names = (group: string) => options(group).map((option) => option.querySelector('span > span')?.textContent)
+
+        it('lists a few contacts after the recent meetings, by their latest meeting, and the rest on Show all people', async () => {
+            const router = renderSearch()
+            act(() => openSearch())
+            await waitFor(() => expect(groupNames()).toEqual(['Recent meetings', 'People', 'Go to', 'Theme']))
+            const shown = names('People')
+            expect(shown).toHaveLength(5)
+            expect(shown.at(-1)).toBe('Show all people')
+            // The keyboard walks the groups in their order: the last recent meeting, then the first contact.
+            const all = screen.getAllByRole('option')
+            expect(all.indexOf(options('People')[0])).toBe(options('Recent meetings').length)
+
+            await userEvent.click(screen.getByRole('option', {name: /^Show all people/}))
+            await waitFor(() => expect(groupNames()).toEqual(['People']))
+            expect(names('People')).toHaveLength(mockState.people.rows.length)
+            expect(screen.getByRole('combobox')).toHaveAttribute('placeholder', 'Filter people by name, role, company or email')
+            // Clicked with the pointer, the row hands the focus back to the field the filter is typed in.
+            expect(screen.getByRole('combobox')).toHaveFocus()
+
+            await userEvent.click(screen.getByRole('option', {name: /^Tom Becker/}))
+            await waitFor(() => expect(router.state.location.pathname).toBe('/person/person-tom'))
+        })
+
+        it('shows a contact’s role and company, else their meetings', async () => {
+            mockState.people.rows.push({id: 'person-new', displayName: 'Dana Wu'})
+            renderSearch()
+            act(() => openSearch())
+            await userEvent.click(await screen.findByRole('option', {name: /^Show all people/}))
+            expect(await screen.findByRole('option', {name: /^Tom Becker\s*IT Director, Acme Corp$/})).toBeInTheDocument()
+            expect(screen.getByRole('option', {name: /^Dana Wu\s*0 meetings$/})).toBeInTheDocument()
+        })
+
+        it('filters the full list by name, role, company and email, and Backspace goes back', async () => {
+            renderSearch()
+            act(() => openSearch('contacts'))
+            await userEvent.click(await screen.findByRole('option', {name: 'People'}))
+            await waitFor(() => expect(groupNames()).toEqual(['People']))
+            const field = screen.getByRole('combobox')
+            expect(field).toHaveValue('')
+
+            await userEvent.type(field, 'acme')
+            expect(names('People').sort()).toEqual(['Sam Rivera', 'Tom Becker'])
+            await userEvent.clear(field)
+            await userEvent.type(field, 'design lead')
+            expect(names('People')).toEqual(['Elena García'])
+            await userEvent.clear(field)
+            await userEvent.type(field, 'priya@')
+            expect(names('People')).toEqual(['Priya Shah'])
+            await userEvent.clear(field)
+            await userEvent.type(field, 'nobody')
+            expect(screen.getByText('No one matches “nobody”.')).toBeInTheDocument()
+
+            await userEvent.clear(field)
+            await userEvent.keyboard('{Backspace}')
+            await waitFor(() => expect(groupNames()).toEqual(['Recent meetings', 'People', 'Go to', 'Theme']))
+        })
+
+        it('finds the command by typing people', async () => {
+            renderSearch()
+            act(() => openSearch('people'))
+            expect(await screen.findByRole('option', {name: 'People'})).toBeInTheDocument()
+        })
+
+        it('leaves the group out without contacts', async () => {
+            mockState.people.rows = []
+            renderSearch()
+            act(() => openSearch())
+            await waitFor(() => expect(groupNames()).toEqual(['Recent meetings', 'Go to', 'Theme']))
+            expect(screen.queryByRole('option', {name: /Show all people/})).not.toBeInTheDocument()
+        })
     })
 })

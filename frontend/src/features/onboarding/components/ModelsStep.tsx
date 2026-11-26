@@ -4,6 +4,7 @@ import type {Platform} from '@/lib/platform'
 import type {DownloadRow} from '../hooks/useFirstLaunchDownloads'
 import type {SummaryChoiceState} from '../hooks/useSummaryChoice'
 import {DownloadList} from './DownloadList'
+import {MeetingLanguageChoice} from './MeetingLanguageChoice'
 import {MicCheck} from './MicCheck'
 import {SummaryChoice} from './SummaryChoice'
 
@@ -31,16 +32,19 @@ const Lead = styled.p`
 interface ModelsStepProps {
     rows: DownloadRow[]
     summary: SummaryChoiceState
+    /** The meeting language until Done saves it. */
+    language: string
+    onLanguage: (language: string) => void
     platform: Platform
     /** Coming from the name: Continue leaves with the name step, so focus goes to this heading. */
     focusOnMount: boolean
 }
 
 /**
- * Step 2: the speech downloads, running since first launch opened, how
- * summaries are written, and the microphone check.
+ * Step 2: the speech downloads, running since first launch opened, the
+ * meeting language, how summaries are written, and the microphone check.
  */
-export function ModelsStep({rows, summary, platform, focusOnMount}: ModelsStepProps) {
+export function ModelsStep({rows, summary, language, onLanguage, platform, focusOnMount}: ModelsStepProps) {
     const title = useRef<HTMLHeadingElement>(null)
 
     useEffect(() => {
@@ -52,6 +56,7 @@ export function ModelsStep({rows, summary, platform, focusOnMount}: ModelsStepPr
             <Title ref={title} tabIndex={-1}>Get ready for the first meeting</Title>
             <Lead>Protocol needs two speech models. They download once.</Lead>
             <DownloadList rows={rows}/>
+            <MeetingLanguageChoice value={language} onChange={onLanguage}/>
             <SummaryChoice choice={summary}/>
             <MicCheck platform={platform}/>
         </Body>

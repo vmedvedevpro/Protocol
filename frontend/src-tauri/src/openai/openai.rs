@@ -1,10 +1,11 @@
+use crate::cloud_models::{self, ModelListError};
 use serde::{Deserialize, Serialize};
-use std::sync::RwLock;
-use std::time::{Duration, Instant};
 use tauri::command;
 
+const API_BASE: &str = "https://api.openai.com";
+
 /// OpenAI model information returned to frontend
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct OpenAIModel {
     pub id: String,
 }
@@ -13,71 +14,25 @@ pub struct OpenAIModel {
 #[derive(Debug, Deserialize)]
 struct OpenAIApiModel {
     id: String,
-    #[allow(dead_code)]
-    object: String,
-    #[allow(dead_code)]
-    owned_by: String,
 }
 
-/// API response wrapper from OpenAI
+/// `GET /v1/models` answers the whole list at once: it takes no paging
+/// parameters.
 #[derive(Debug, Deserialize)]
 struct OpenAIApiResponse {
     data: Vec<OpenAIApiModel>,
 }
 
-/// Cache entry for models
-struct CacheEntry {
-    models: Vec<OpenAIModel>,
-    fetched_at: Instant,
-}
-
-/// Global cache for OpenAI models (5 minute TTL)
-static MODELS_CACHE: RwLock<Option<CacheEntry>> = RwLock::new(None);
-
-/// Cache TTL in seconds
-const CACHE_TTL_SECS: u64 = 300;
-
-/// Fallback models when API fetch fails (matches frontend hardcoded values)
-const FALLBACK_MODELS: &[&str] = &[
-    "gpt-5",
-    "gpt-5-mini",
-    "gpt-4o",
-    "gpt-4.1",
-    "gpt-4-turbo",
-    "gpt-3.5-turbo",
-    "gpt-4o-2024-11-20",
-    "gpt-4o-2024-08-06",
-    "gpt-4o-mini-2024-07-18",
-    "gpt-4.1-2025-04-14",
-    "gpt-4.1-nano-2025-04-14",
-    "gpt-4.1-mini-2025-04-14",
-    "o4-mini-2025-04-16",
-    "o3-2025-04-16",
-    "o3-mini-2025-01-31",
-    "o1-2024-12-17",
-    "o1-mini-2024-09-12",
-    "gpt-4-turbo-2024-04-09",
-    "gpt-4-0125-Preview",
-    "gpt-4-vision-preview",
-    "gpt-4-1106-Preview",
-    "gpt-3.5-turbo-0125",
-    "gpt-3.5-turbo-1106",
-];
-
-/// Get fallback models as OpenAIModel vec
-fn get_fallback_models() -> Vec<OpenAIModel> {
-    FALLBACK_MODELS
-        .iter()
-        .map(|id| OpenAIModel { id: id.to_string() })
-        .collect()
-}
-
 /// Check if model is a chat-capable model (filter out embedding, tts, etc.)
 fn is_chat_model(model_id: &str) -> bool {
     let id = model_id.to_lowercase();
-    // Include gpt-*, o1-*, o3-*, o4-* models
+    // Include gpt-*, o1, o1-*, o3, o3-*, o4-* models: the reasoning models'
+    // plain ids (`o1`, `o3`) carry no dash, and with no built-in list a model
+    // the filter drops cannot be chosen at all.
     // Exclude embedding, tts, whisper, dall-e, babbage, davinci (non-chat models)
-    (id.starts_with("gpt-")
+    (id == "o1"
+        || id == "o3"
+        || id.starts_with("gpt-")
         || id.starts_with("o1-")
         || id.starts_with("o3-")
         || id.starts_with("o4-")
@@ -93,102 +48,67 @@ fn is_chat_model(model_id: &str) -> bool {
         && !id.contains("audio")
 }
 
-/// Fetch OpenAI models from API
-///
-/// # Arguments
-/// * `api_key` - OpenAI API key
-///
-/// # Returns
-/// Vector of available models, or fallback models on error
-#[command]
-pub async fn get_openai_models(api_key: Option<String>) -> Result<Vec<OpenAIModel>, String> {
-    // Return fallback if no API key provided
-    let api_key = match api_key {
-        Some(key) if !key.trim().is_empty() => key.trim().to_string(),
-        _ => {
-            log::info!("No OpenAI API key provided, returning fallback models");
-            return Ok(get_fallback_models());
-        }
-    };
-
-    // Check cache first
-    {
-        let cache = MODELS_CACHE.read().map_err(|e| e.to_string())?;
-        if let Some(entry) = cache.as_ref() {
-            if entry.fetched_at.elapsed() < Duration::from_secs(CACHE_TTL_SECS) {
-                log::info!("Returning cached OpenAI models ({} models)", entry.models.len());
-                return Ok(entry.models.clone());
-            }
-        }
-    }
-
-    // Fetch from API
-    log::info!("Fetching OpenAI models from API...");
-    let client = reqwest::Client::new();
-
-    let response = match client
-        .get("https://api.openai.com/v1/models")
-        .header("Authorization", format!("Bearer {}", api_key))
-        .timeout(Duration::from_secs(5))
-        .send()
-        .await
-    {
-        Ok(resp) => resp,
-        Err(e) => {
-            log::warn!("Failed to fetch OpenAI models: {}. Using fallback.", e);
-            return Ok(get_fallback_models());
-        }
-    };
-
-    if !response.status().is_success() {
-        let status = response.status();
-        log::warn!(
-            "OpenAI API returned status {}. Using fallback models.",
-            status
-        );
-        return Ok(get_fallback_models());
-    }
-
-    let api_response: OpenAIApiResponse = match response.json().await {
-        Ok(data) => data,
-        Err(e) => {
-            log::warn!("Failed to parse OpenAI response: {}. Using fallback.", e);
-            return Ok(get_fallback_models());
-        }
-    };
-
-    // Filter to only chat models and map to our struct
-    let models: Vec<OpenAIModel> = api_response
+async fn list_models(base: &str, api_key: &str) -> Result<Vec<OpenAIModel>, ModelListError> {
+    let request = cloud_models::client()?
+        .get(format!("{base}/v1/models"))
+        .header("Authorization", format!("Bearer {api_key}"));
+    let response: OpenAIApiResponse = cloud_models::fetch_json(request).await?;
+    Ok(response
         .data
         .into_iter()
         .filter(|m| is_chat_model(&m.id))
         .map(|m| OpenAIModel { id: m.id })
-        .collect();
-
-    // If no models returned (e.g., restricted API key), use fallback
-    if models.is_empty() {
-        log::warn!("No chat models returned from OpenAI API. Using fallback.");
-        return Ok(get_fallback_models());
-    }
-
-    log::info!("Fetched {} OpenAI models from API", models.len());
-
-    // Update cache
-    {
-        let mut cache = MODELS_CACHE.write().map_err(|e| e.to_string())?;
-        *cache = Some(CacheEntry {
-            models: models.clone(),
-            fetched_at: Instant::now(),
-        });
-    }
-
-    Ok(models)
+        .collect())
 }
 
-/// Clear the models cache (useful when API key changes)
-pub fn clear_cache() {
-    if let Ok(mut cache) = MODELS_CACHE.write() {
-        *cache = None;
-        log::info!("OpenAI models cache cleared");
+/// The models OpenAI lists for `api_key`. No key, a rejected key or no
+/// answer is an error (`cloud_models`), never a built-in list; a key whose
+/// project allows no chat model gets an empty list, which the UI says.
+#[command]
+pub async fn get_openai_models(api_key: Option<String>) -> Result<Vec<OpenAIModel>, ModelListError> {
+    let api_key = cloud_models::require_key(api_key)?;
+    let result = list_models(API_BASE, &api_key).await;
+    cloud_models::log_outcome("OpenAI", &result);
+    result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cloud_models::test_server::{json, serve};
+
+    #[tokio::test]
+    async fn lists_chat_models_only() {
+        let server = serve(vec![json(
+            200,
+            r#"{"object":"list","data":[{"id":"gpt-4o","object":"model","owned_by":"system"},{"id":"text-embedding-3-small","object":"model","owned_by":"system"}]}"#,
+        )])
+        .await;
+        assert_eq!(list_models(&server.base, "sk").await.unwrap(), vec![OpenAIModel { id: "gpt-4o".into() }]);
+    }
+
+    #[test]
+    fn keeps_the_reasoning_models_plain_ids() {
+        for id in ["o1", "o3", "o1-pro", "o3-mini", "o4-mini", "gpt-4o", "chatgpt-4o-latest"] {
+            assert!(is_chat_model(id), "{id}");
+        }
+        for id in ["o1x", "text-embedding-3-small", "gpt-4o-mini-tts", "gpt-4o-realtime-preview", "whisper-1"] {
+            assert!(!is_chat_model(id), "{id}");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_rejected_key_is_an_error_not_a_list() {
+        let server = serve(vec![json(401, r#"{"error":{"code":"invalid_api_key"}}"#)]).await;
+        assert_eq!(list_models(&server.base, "sk").await, Err(ModelListError::KeyRejected { status: 401 }));
+    }
+
+    #[tokio::test]
+    async fn a_server_error_keeps_its_status() {
+        let server = serve(vec![json(503, "{}")]).await;
+        assert_eq!(
+            list_models(&server.base, "sk").await,
+            Err(ModelListError::Status { status: 503, reason: Some("Service Unavailable".into()) })
+        );
     }
 }

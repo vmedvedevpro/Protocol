@@ -6,7 +6,8 @@ import {describe, expect, it, vi} from 'vitest'
 import {useModelDownloadSync} from '@/api/modelDownloadSync'
 import {downloadKey, PARAKEET_MODEL, POST_CALL_WHISPER_MODEL} from '@/api/models'
 import {onboardingStatusQuery} from '@/api/onboarding'
-import {USER_NAME_KEY} from '@/api/preferences'
+import {MEETING_LANGUAGE_KEY, USER_NAME_KEY, usePreferencesSync} from '@/api/preferences'
+import {TYPING_SETTLE_MS} from '@/components/summaryModel/draft'
 import {handlers} from '@/mocks/handlers'
 import {GPU_VERSION_ID} from '@/mocks/intel'
 import {createMockModels} from '@/mocks/models'
@@ -19,8 +20,10 @@ import {FirstLaunch} from './FirstLaunch'
 // Three fake downloads of two ticks each, 250 ms apart, with room to spare.
 const DOWNLOADS_MS = 4000
 
-// What the shell mounts in front of first launch: the download events.
+// What the app and the shell mount in front of first launch: the
+// preferences native is sent, and the download events.
 function DownloadSync() {
+    usePreferencesSync()
     useModelDownloadSync()
     return null
 }
@@ -132,6 +135,8 @@ describe('First launch', () => {
         await userEvent.type(await screen.findByLabelText('API key'), 'sk-ant-first')
         expect(done()).toBeDisabled()
         expect(screen.getByText('Paste a key and pick a model')).toBeInTheDocument()
+        // The list is asked once typing the key has rested.
+        await waitFor(() => expect(screen.getByRole('combobox', {name: 'Model'})).toBeEnabled(), {timeout: TYPING_SETTLE_MS + 2_000})
         await userEvent.click(screen.getByRole('combobox', {name: 'Model'}))
         await userEvent.click(await screen.findByRole('option', {name: 'Claude Sonnet 4.5'}))
         await waitFor(() => expect(screen.queryByRole('listbox')).not.toBeInTheDocument())
@@ -145,6 +150,48 @@ describe('First launch', () => {
         const keys = client.getQueryCache().getAll().map(({queryKey}) => JSON.stringify(queryKey))
         expect(keys.some((key) => key.includes('sk-ant-first'))).toBe(false)
     }, 10_000)
+
+    describe('the meeting language', () => {
+        const language = () => screen.getByRole('combobox', {name: 'Meeting language'})
+
+        async function secondStep(locale: string) {
+            vi.spyOn(navigator, 'language', 'get').mockReturnValue(locale)
+            newInstall()
+            onSecondStep()
+            const result = await renderFirstLaunch()
+            await heading('Get ready for the first meeting')
+            return result
+        }
+
+        it('comes preselected with the system’s language when Whisper lists it', async () => {
+            await secondStep('ru-RU')
+            expect(language()).toHaveTextContent('Russian')
+        })
+
+        it('is English on an English system', async () => {
+            await secondStep('en-US')
+            expect(language()).toHaveTextContent('English')
+        })
+
+        it('detects a language Whisper doesn’t list', async () => {
+            await secondStep('fil-PH')
+            expect(language()).toHaveTextContent('Detect automatically')
+        })
+
+        it('is saved on Done and sent to native as Settings does', async () => {
+            const {client} = await secondStep('ru-RU')
+            await userEvent.click(language())
+            await userEvent.click(await screen.findByRole('option', {name: 'German'}))
+            await waitFor(() => expect(screen.queryByRole('listbox')).not.toBeInTheDocument())
+            // Nothing is stored before Done.
+            expect(localStorage.getItem(MEETING_LANGUAGE_KEY)).toBeNull()
+
+            await userEvent.click(done())
+            await statusReadAgain(client)
+            expect(localStorage.getItem(MEETING_LANGUAGE_KEY)).toBe('de')
+            await waitFor(() => expect(mockState.preferences.languagePreference).toBe('de'))
+        })
+    })
 
     it('downloads Whisper’s Intel GPU version on an Intel GPU, which native makes the after-meeting model', async () => {
         newInstall()

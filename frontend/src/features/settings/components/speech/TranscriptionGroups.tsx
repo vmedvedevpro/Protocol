@@ -110,6 +110,7 @@ function TranscriptionGroup() {
             <MeetingLanguageRow/>
             <SettingsRow
                 label="Faster live text"
+                description="Words appear sooner: speech is sent after shorter pauses and in shorter pieces. Live text can split sentences and miss words at the cuts; the transcript written from the recording after the meeting is unaffected."
                 control={(
                     <Switch
                         checked={preferences?.real_time_transcription ?? false}

@@ -1,4 +1,4 @@
-import {type ReactNode, useEffect, useMemo, useState} from 'react'
+import {type ReactNode, useEffect, useMemo, useRef, useState} from 'react'
 import {
     CheckCircleIcon,
     CheckIcon,
@@ -11,6 +11,7 @@ import {
     NotePencilIcon,
     SunIcon,
     UserIcon,
+    UsersIcon,
     WaveformIcon,
 } from '@phosphor-icons/react'
 import {useQuery} from '@tanstack/react-query'
@@ -18,7 +19,7 @@ import {Command} from 'cmdk'
 import {useNavigate} from 'react-router-dom'
 import styled from 'styled-components'
 import {foldersQuery, meetingsQuery} from '@/api/meetings'
-import {peopleQuery} from '@/api/people'
+import {type Person, peopleQuery} from '@/api/people'
 import {formatClock} from '@/components/transcript/turns'
 import {Kbd} from '@/components/ui/Kbd'
 import {Sheet} from '@/components/ui/Sheet'
@@ -64,6 +65,12 @@ function useDebounced<T>(value: T, ms: number): T {
 }
 
 const RECENT_MEETINGS = 5
+
+/**
+ * Contacts the empty dialog lists after the recent meetings: fewer than
+ * them, so the commands below stay in reach; "Show all people" lists the rest.
+ */
+const PEOPLE_PREVIEW = 4
 
 const GROUP_TITLES: Record<SearchResultKind, string> = {
     meeting: 'Meetings',
@@ -232,6 +239,17 @@ const quoted = (snippet: string) => `“${snippet.replace(/^\.\.\./, '…').repl
 
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? '' : 's'}`
 
+const lastSeen = (person: Person) => (person.lastSeenAt ? Date.parse(person.lastSeenAt) || 0 : 0)
+
+/** Contacts by their latest meeting, newest first, then by name; those never named in one last. */
+const byLatestMeeting = (a: Person, b: Person) => lastSeen(b) - lastSeen(a) || a.displayName.localeCompare(b.displayName)
+
+/** What a contact row says under the name: their role and company, else their meetings. */
+const personSub = (person: Person) => [person.role, person.company].filter(Boolean).join(', ') || plural(person.meetingCount, 'meeting')
+
+const personMatches = (person: Person, query: string) =>
+    matchesWords([person.displayName, person.role, person.company, person.email].filter(Boolean).join(' '), query)
+
 interface Row {
     value: string
     icon: ReactNode
@@ -251,9 +269,12 @@ interface RowGroup {
 /**
  * Search and commands (⌘K / Ctrl K): one field for the library, searched
  * natively (`api_global_search`), and for what the app can do. With no
- * query it lists the commands, the recent meetings, Settings and the
- * themes. The groups of results follow native's ranking: a group is listed
- * where its best result ranks. cmdk gives the list its keyboard (arrows,
+ * query it lists the commands, the recent meetings, a few contacts, Settings
+ * and the themes. Contacts have no page of their own (#220, was #209):
+ * "Show all people" or Go to › People lists them all in the dialog, the
+ * field then filtering them by name, role, company and email, and
+ * Backspace in the empty field going back. The groups of results follow
+ * native's ranking: a group is listed where its best result ranks. cmdk gives the list its keyboard (arrows,
  * Enter, wrapping); the matching is native's for results and by words for
  * commands. The shell mounts it once with the commands only it can build
  * (`actions`: recording, new folder, new contact).
@@ -262,11 +283,23 @@ export function SearchDialog({actions = []}: { actions?: readonly SearchCommand[
     const navigate = useNavigate()
     const open = useSearchLauncher((state) => state.open)
     const query = useSearchLauncher((state) => state.query)
+    // Listing every contact instead of searching; a new opening starts searching again.
+    const [allPeople, setAllPeople] = useState(false)
+    if (!open && allPeople) setAllPeople(false)
+    const input = useRef<HTMLInputElement>(null)
+    const listPeople = () => {
+        useSearchLauncher.setState({query: ''})
+        setAllPeople(true)
+    }
+    // A row clicked with the pointer took the focus; the filter is typed in the field.
+    useEffect(() => {
+        if (allPeople) input.current?.focus()
+    }, [allPeople])
     const trimmed = query.trim()
     // Below two characters the library is not searched, and old results are not shown.
     const searching = trimmed.length >= MIN_QUERY_LENGTH
     const debounced = useDebounced(trimmed, SEARCH_DEBOUNCE_MS)
-    const results = useQuery({...searchQuery(debounced), enabled: open && debounced.length >= MIN_QUERY_LENGTH})
+    const results = useQuery({...searchQuery(debounced), enabled: open && !allPeople && debounced.length >= MIN_QUERY_LENGTH})
     const meetings = useQuery({...meetingsQuery, enabled: open})
     const folders = useQuery({...foldersQuery, enabled: open})
     const people = useQuery({...peopleQuery, enabled: open})
@@ -287,6 +320,7 @@ export function SearchDialog({actions = []}: { actions?: readonly SearchCommand[
 
     const commands: SearchCommand[] = [
         ...actions,
+        {id: 'people', group: 'Go to', label: 'People', keywords: 'contacts persons', icon: <UsersIcon/>, keepOpen: true, run: listPeople},
         {id: 'settings', group: 'Go to', label: 'Settings', keywords: 'preferences options models', icon: <GearIcon/>, shortcut: formatShortcut(','), run: () => go(paths.settings())},
         ...THEME_MODES.map((mode): SearchCommand => ({
             id: `theme-${mode.value}`,
@@ -358,10 +392,20 @@ export function SearchDialog({actions = []}: { actions?: readonly SearchCommand[
         }
     }
 
+    const contacts = useMemo(() => [...(people.data ?? [])].sort(byLatestMeeting), [people.data])
+    const contactRow = (person: Person): Row => ({
+        value: `contact:${person.id}`,
+        icon: <UserIcon/>,
+        title: person.displayName,
+        sub: personSub(person),
+        onSelect: () => go(paths.person(person.id)),
+    })
+
     const groups: RowGroup[] = []
     const add = (title: string, rows: Row[]) => rows.length > 0 && groups.push({title, rows})
-    add('Actions', byGroup('Actions'))
-    if (!trimmed) {
+    if (allPeople) add('People', contacts.filter((person) => !trimmed || personMatches(person, trimmed)).map(contactRow))
+    if (!allPeople) add('Actions', byGroup('Actions'))
+    if (!allPeople && !trimmed) {
         add('Recent meetings', (meetings.data ?? []).slice(0, RECENT_MEETINGS).map((meeting) => {
             const when = parseDate(meeting.created_at)
             return {
@@ -372,23 +416,30 @@ export function SearchDialog({actions = []}: { actions?: readonly SearchCommand[
                 onSelect: () => go(paths.meeting(meeting.id)),
             }
         }))
+        const more = contacts.length > PEOPLE_PREVIEW
+        add('People', [
+            ...contacts.slice(0, PEOPLE_PREVIEW).map(contactRow),
+            ...(more ? [{value: 'contacts:all', icon: <UsersIcon/>, title: 'Show all people', sub: plural(contacts.length, 'contact'), onSelect: listPeople}] : []),
+        ])
     }
     // Results only for the query they answer: the last ones stay while the
     // next load, but not once the field is too short to search.
-    const found = searching ? results.data ?? [] : []
+    const found = searching && !allPeople ? results.data ?? [] : []
     for (const kind of [...new Set(found.map((result) => result.kind))]) {
         add(GROUP_TITLES[kind], found.filter((result) => result.kind === kind).map(resultRow))
     }
-    add('Go to', byGroup('Go to'))
-    add('Theme', byGroup('Theme'))
+    if (!allPeople) add('Go to', byGroup('Go to'))
+    if (!allPeople) add('Theme', byGroup('Theme'))
 
     const values = groups.flatMap((group) => group.rows.map((row) => row.value))
     const [selected, setSelected] = useState('')
     // A list without the row the user was on starts on its first, as the design lights it.
     const current = values.includes(selected) ? selected : values[0] ?? ''
 
-    const waiting = searching && (trimmed !== debounced || results.isFetching)
-    const nothing = groups.length === 0 && !waiting && !results.isError
+    const waiting = !allPeople && searching && (trimmed !== debounced || results.isFetching)
+    const nothing = groups.length === 0 && !waiting && !(results.isError && !allPeople)
+    let nothingText = searching ? `Nothing found for “${trimmed}”.` : 'Type another letter to search your meetings.'
+    if (allPeople) nothingText = trimmed ? `No one matches “${trimmed}”.` : people.isPending ? '' : 'No contacts yet. Name a voice in a meeting to add one.'
 
     return (
         <Sheet open={open} onOpenChange={(next) => !next && closeSearch()} title="Search and commands" bare instant>
@@ -396,22 +447,22 @@ export function SearchDialog({actions = []}: { actions?: readonly SearchCommand[
                 <Field>
                     <MagnifyingGlassIcon aria-hidden/>
                     <Input
+                        ref={input}
                         autoFocus
-                        placeholder="Search meetings, people, or type a command"
+                        placeholder={allPeople ? 'Filter people by name, role, company or email' : 'Search meetings, people, or type a command'}
                         value={query}
                         onValueChange={(value) => useSearchLauncher.setState({query: value})}
+                        onKeyDown={(event) => {
+                            if (allPeople && event.key === 'Backspace' && query === '') setAllPeople(false)
+                        }}
                     />
                     {waiting ? <Spinner delayed/> : <Kbd aria-hidden>esc</Kbd>}
                 </Field>
                 <List>
-                    {results.isError && searching && (
+                    {results.isError && searching && !allPeople && (
                         <Note role="alert">Search is unavailable: {results.error.message}</Note>
                     )}
-                    {nothing && (
-                        <Note>
-                            {searching ? `Nothing found for “${trimmed}”.` : 'Type another letter to search your meetings.'}
-                        </Note>
-                    )}
+                    {nothing && nothingText && <Note>{nothingText}</Note>}
                     {groups.map((group) => (
                         <Group key={group.title} heading={group.title}>
                             {group.rows.map((row) => (
@@ -430,6 +481,7 @@ export function SearchDialog({actions = []}: { actions?: readonly SearchCommand[
                 <Hints aria-hidden>
                     <span>↑↓ to move</span>
                     <span>↵ to open</span>
+                    {allPeople && <span>⌫ to go back</span>}
                     <span>esc to close</span>
                 </Hints>
             </Root>

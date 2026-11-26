@@ -37,7 +37,13 @@ export interface RecordingPreferences {
     /** Extra gain on the microphone, `MIN_GAIN` to `MAX_GAIN`; native clamps it. */
     mic_gain: number
     system_gain: number
-    /** Faster live text: shorter pieces and pauses (AI, #117). */
+    /**
+     * Faster live text (AI, #117; described in #220): live transcription cuts
+     * speech at a 350 ms pause and at 3.5 s at most instead of 800 ms and
+     * 6 s (`audio/pipeline.rs`), so words come sooner with less context per
+     * piece. Only the live pipeline reads it; the post-meeting pass cuts the
+     * recording on its own.
+     */
     real_time_transcription: boolean
     /** macOS only, and never shown: native leaves the field out elsewhere. */
     system_audio_backend?: string | null

@@ -7,7 +7,7 @@
  * openrouter/, ollama/ and api/api.rs); the types mirror theirs.
  */
 import {queryOptions} from '@tanstack/react-query'
-import {command} from '@/api/core'
+import {command, CommandError} from '@/api/core'
 import type {NativeEvent} from '@/api/events'
 import type {SummaryProvider} from '@/api/preferences'
 import claudeLimits from '@/lib/claude-output-limits.json'
@@ -45,40 +45,133 @@ export interface ProviderModel {
 }
 
 /**
- * A cloud provider's models. Claude, OpenAI and Groq list them with the key
- * and answer their built-in list without one (anthropic.rs and the others
- * keep it); OpenRouter lists its public catalog.
+ * Why native could not list a provider's models (`ModelListError` in
+ * cloud_models.rs): it lists only what the provider answers for the key,
+ * with no built-in list to fall back on.
+ */
+export type ModelListFailure =
+    | {kind: 'missingKey'}
+    | {kind: 'invalidKey'}
+    | {kind: 'keyRejected', status: number}
+    | {kind: 'unreachable', reason: string}
+    | {kind: 'status', status: number, reason: string | null}
+    | {kind: 'invalidResponse', reason: string}
+    | {kind: 'clientUnavailable', reason: string}
+
+const FAILURE_KINDS = new Set<string>(['missingKey', 'invalidKey', 'keyRejected', 'unreachable', 'status', 'invalidResponse', 'clientUnavailable'])
+
+const isModelListFailure = (detail: unknown): detail is ModelListFailure =>
+    typeof detail === 'object' && detail !== null && FAILURE_KINDS.has(String((detail as {kind?: unknown}).kind))
+
+/** What the model row says for a failed listing, by its cause. */
+export function modelListFailureText(provider: CloudProvider, failure: ModelListFailure): string {
+    const {label} = SUMMARY_PROVIDERS[provider]
+    switch (failure.kind) {
+        case 'missingKey':
+            return 'Paste a key to see the models.'
+        case 'invalidKey':
+            return 'This key has characters a key can’t have, such as a line break or a space. Paste it again.'
+        case 'keyRejected':
+            return `${label} didn’t accept this key (status ${failure.status}). Check that it’s pasted in full and still active.`
+        case 'unreachable':
+            return `Couldn’t reach ${label}: ${failure.reason}.`
+        case 'status':
+            return `${label} answered with status ${failure.status}${failure.reason ? ` ${failure.reason}` : ''}.`
+        case 'invalidResponse':
+            return `Couldn’t read ${label}’s list of models: ${failure.reason}.`
+        case 'clientUnavailable':
+            return `Couldn’t prepare the request to ${label}: ${failure.reason}.`
+    }
+}
+
+/**
+ * Whether asking again with the same key can help: the provider was not
+ * reached or answered badly, OpenRouter's plain failures included. A
+ * missing, malformed or rejected key needs the user to change the key, and
+ * a client that cannot be built here would fail the same way again.
+ */
+export const isRetryableModelListError = (error: unknown) =>
+    !(error instanceof ModelListError) || ['unreachable', 'status', 'invalidResponse'].includes(error.failure.kind)
+
+/** A listing that failed, worded by its cause; `failure` keeps the cause. */
+export class ModelListError extends Error {
+    readonly failure: ModelListFailure
+
+    constructor(provider: CloudProvider, failure: ModelListFailure) {
+        super(modelListFailureText(provider, failure))
+        this.name = 'ModelListError'
+        this.failure = failure
+    }
+}
+
+async function listed<T>(provider: CloudProvider, name: string, apiKey: string | null): Promise<T> {
+    try {
+        return await command<T>(name, {apiKey})
+    } catch (error) {
+        if (error instanceof CommandError && isModelListFailure(error.detail)) throw new ModelListError(provider, error.detail)
+        throw error
+    }
+}
+
+/**
+ * A cloud provider's models: Claude, OpenAI and Groq list them for the key
+ * (every page of them), and a rejected key or no answer rejects with a
+ * `ModelListError`; OpenRouter lists its public catalog, which needs none.
  */
 export async function getProviderModels(provider: CloudProvider, apiKey: string | null): Promise<ProviderModel[]> {
     switch (provider) {
         case 'claude': {
-            const models = await command<{id: string, display_name?: string | null}[]>('get_anthropic_models', {apiKey})
+            const models = await listed<{id: string, display_name?: string | null}[]>(provider, 'get_anthropic_models', apiKey)
             return models.map(({id, display_name}) => ({id, label: display_name || id}))
         }
         case 'openai':
-            return (await command<{id: string}[]>('get_openai_models', {apiKey})).map(({id}) => ({id, label: id}))
+            return (await listed<{id: string}[]>(provider, 'get_openai_models', apiKey)).map(({id}) => ({id, label: id}))
         case 'groq':
-            return (await command<{id: string}[]>('get_groq_models', {apiKey})).map(({id}) => ({id, label: id}))
+            return (await listed<{id: string}[]>(provider, 'get_groq_models', apiKey)).map(({id}) => ({id, label: id}))
         case 'openrouter':
             return (await command<{id: string, name: string}[]>('get_openrouter_models')).map(({id, name}) => ({id, label: name || id}))
     }
 }
 
+/** OpenRouter's catalog is public; the other providers list models only for a key. */
+export const listsWithoutKey = (provider: CloudProvider) => provider === 'openrouter'
+
+/**
+ * A short fingerprint of a key for the models query's key (cyrb53, 53 bits):
+ * each key gets its own cache entry, so a list fetched with one key is never
+ * shown for another, and the key itself stays out of the query cache.
+ */
+export function keyFingerprint(key: string): string {
+    let h1 = 0xdeadbeef
+    let h2 = 0x41c6ce57
+    for (let i = 0; i < key.length; i++) {
+        const code = key.charCodeAt(i)
+        h1 = Math.imul(h1 ^ code, 2654435761)
+        h2 = Math.imul(h2 ^ code, 1597334677)
+    }
+    h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909)
+    h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909)
+    return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36)
+}
+
 export const summaryProviderKeys = {
     all: ['summaryProviders'] as const,
-    models: (provider: CloudProvider) => [...summaryProviderKeys.all, 'models', provider] as const,
+    models: (provider: CloudProvider, apiKey: string | null) =>
+        [...summaryProviderKeys.all, 'models', provider, listsWithoutKey(provider) || !apiKey ? '' : keyFingerprint(apiKey)] as const,
     ollama: (endpoint: string | null) => [...summaryProviderKeys.all, 'ollama', endpoint ?? ''] as const,
 }
 
 /**
- * A provider's models, asked with `apiKey`. Keyed by the provider alone, so
- * no key is part of a query hash: the page refetches when the key it asks
- * with changes. Kept a few minutes, since a list changes rarely.
+ * A provider's models, asked with `apiKey`; nothing is asked without a key
+ * unless the provider lists without one. Keyed by the key's fingerprint, so
+ * a new key starts empty and pending rather than showing another key's
+ * list. Kept a few minutes, since a list changes rarely.
  */
 export const providerModelsQuery = (provider: CloudProvider, apiKey: string | null) =>
     queryOptions({
-        queryKey: summaryProviderKeys.models(provider),
+        queryKey: summaryProviderKeys.models(provider, apiKey),
         queryFn: () => getProviderModels(provider, apiKey),
+        enabled: listsWithoutKey(provider) || Boolean(apiKey),
         staleTime: 5 * 60_000,
         retry: false,
     })
