@@ -10,8 +10,6 @@ use std::sync::{Mutex, OnceLock};
 use sysinfo::System;
 use tempfile::NamedTempFile;
 use uuid::Uuid;
-use zip::write::SimpleFileOptions;
-use zip::{CompressionMethod, ZipWriter};
 
 const REPORT_SCHEMA_VERSION: u8 = 1;
 const README: &str = "Protocol crash report\n\
@@ -128,7 +126,6 @@ pub fn install_panic_hook() {
             let _ = write_json_atomic(&panic_path(&data_root), &record);
         }
         append_legacy_crash_log(&data_root, &occurred_at, info, &backtrace);
-        log::error!("Protocol encountered a panic; a local crash record was written");
         crate::app_log::record_panic(info);
         previous(info);
     }));
@@ -425,44 +422,12 @@ fn append_legacy_crash_log(
 }
 
 fn write_report_zip(destination: &Path, report: &CrashReport) -> io::Result<()> {
-    if !destination
-        .extension()
-        .and_then(|value| value.to_str())
-        .is_some_and(|value| value.eq_ignore_ascii_case("zip"))
-    {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "Crash report destination must use the .zip extension",
-        ));
-    }
-    if let Some(parent) = destination.parent() {
-        if !parent.is_dir() {
-            return Err(io::Error::new(
-                io::ErrorKind::NotFound,
-                "Crash report destination directory does not exist",
-            ));
-        }
-    }
-    let parent = destination.parent().unwrap_or_else(|| Path::new("."));
-    let mut temporary = NamedTempFile::new_in(parent)?;
-    {
-        let mut zip = ZipWriter::new(temporary.as_file_mut());
-        let options = SimpleFileOptions::default()
-            .compression_method(CompressionMethod::Deflated)
-            .unix_permissions(0o600);
-        let report_json = serde_json::to_vec_pretty(report).map_err(io::Error::other)?;
-
-        zip.start_file("report.json", options)?;
-        zip.write_all(&report_json)?;
-        zip.start_file("README.txt", options)?;
-        zip.write_all(README.as_bytes())?;
-        zip.finish()?;
-    }
-    temporary.as_file().sync_all()?;
-    temporary
-        .persist(destination)
-        .map(|_| ())
-        .map_err(|error| error.error)
+    let report_json = serde_json::to_vec_pretty(report).map_err(io::Error::other)?;
+    crate::app_log::bundle::write_zip(destination, |zip| {
+        zip.add("report.json", &report_json)?;
+        zip.add("README.txt", README.as_bytes())
+    })
+    .map(drop)
 }
 
 fn write_json_atomic<T: Serialize>(path: &Path, value: &T) -> io::Result<()> {

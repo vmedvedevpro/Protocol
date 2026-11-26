@@ -1127,30 +1127,7 @@ pub async fn open_meeting_folder<R: Runtime>(
                     return Err(format!("Recording folder not found: {}", folder_path));
                 }
 
-                // Open folder based on OS
-                #[cfg(target_os = "macos")]
-                {
-                    std::process::Command::new("open")
-                        .arg(&folder_path)
-                        .spawn()
-                        .map_err(|e| format!("Failed to open folder: {}", e))?;
-                }
-
-                #[cfg(target_os = "windows")]
-                {
-                    std::process::Command::new("explorer")
-                        .arg(&folder_path)
-                        .spawn()
-                        .map_err(|e| format!("Failed to open folder: {}", e))?;
-                }
-
-                #[cfg(target_os = "linux")]
-                {
-                    std::process::Command::new("xdg-open")
-                        .arg(&folder_path)
-                        .spawn()
-                        .map_err(|e| format!("Failed to open folder: {}", e))?;
-                }
+                crate::paths::reveal(path, false).map_err(|e| format!("Failed to open folder: {}", e))?;
 
                 log_info!("Successfully opened folder: {}", folder_path);
                 Ok(())
@@ -1200,14 +1177,7 @@ pub async fn open_external_url(url: String) -> Result<(), String> {
 
     #[cfg(not(target_os = "windows"))]
     {
-        use std::process::Command;
-        let result = if cfg!(target_os = "macos") {
-            Command::new("open").arg(&url).spawn()
-        } else {
-            Command::new("xdg-open").arg(&url).spawn()
-        };
-        result
-            .map(|_| ())
+        crate::paths::reveal(std::path::Path::new(&url), false)
             .map_err(|error| format!("Failed to open URL: {error}"))
     }
 }
