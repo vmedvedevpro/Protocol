@@ -115,7 +115,8 @@ fn gpus() -> Vec<Gpu> {
 
 /// Windows: the display adapters in the display class, as
 /// `openvino::device::display_adapters` reads them, with each driver's
-/// version. Adapters no longer present stay listed there.
+/// version. The class keeps a key for every adapter ever installed, so only
+/// the keys a present device names as its driver are read.
 #[cfg(windows)]
 fn gpus() -> Vec<Gpu> {
     use winreg::enums::{HKEY_LOCAL_MACHINE, KEY_READ, KEY_WOW64_64KEY};
@@ -124,9 +125,13 @@ fn gpus() -> Vec<Gpu> {
     let Ok(class) = RegKey::predef(HKEY_LOCAL_MACHINE).open_subkey_with_flags(DISPLAY_CLASS, KEY_READ | KEY_WOW64_64KEY) else {
         return Vec::new();
     };
+    // Without SetupAPI's list every key is read, as before: a removed adapter
+    // listed is better than none.
+    let present = present_display_keys();
     class
         .enum_keys()
         .flatten()
+        .filter(|key| present.as_ref().is_none_or(|present| present.contains(&key.to_ascii_lowercase())))
         .filter_map(|key| class.open_subkey_with_flags(key, KEY_READ | KEY_WOW64_64KEY).ok())
         .filter_map(|adapter| {
             let name: String = adapter.get_value("DriverDesc").ok()?;
@@ -136,6 +141,47 @@ fn gpus() -> Vec<Gpu> {
             Some(Gpu { name, vendor: vendor.and_then(vendor_name).map(str::to_string), driver: None, driver_version })
         })
         .collect()
+}
+
+/// The display class's subkeys (`0000`, `0001`…) of the present display
+/// devices: SetupAPI's `SPDRP_DRIVER` is `{4d36e968-…}\0001` for each, as
+/// `npu/detect.rs` lists the present neural processors.
+#[cfg(windows)]
+fn present_display_keys() -> Option<Vec<String>> {
+    use windows_sys::Win32::Devices::DeviceAndDriverInstallation::{
+        SetupDiDestroyDeviceInfoList, SetupDiEnumDeviceInfo, SetupDiGetClassDevsW, SetupDiGetDeviceRegistryPropertyW, DIGCF_PRESENT,
+        GUID_DEVCLASS_DISPLAY, SPDRP_DRIVER, SP_DEVINFO_DATA,
+    };
+    let mut keys = Vec::new();
+    // SAFETY: the device list is destroyed before returning; the property call
+    // gets a buffer of the size it is told, in bytes.
+    unsafe {
+        let list = SetupDiGetClassDevsW(&GUID_DEVCLASS_DISPLAY, std::ptr::null(), std::ptr::null_mut(), DIGCF_PRESENT);
+        if list == -1 {
+            log::warn!("[speech check] cannot list the display adapters: {}", std::io::Error::last_os_error());
+            return None;
+        }
+        let mut index = 0;
+        loop {
+            let mut device: SP_DEVINFO_DATA = std::mem::zeroed();
+            device.cbSize = std::mem::size_of::<SP_DEVINFO_DATA>() as u32;
+            if SetupDiEnumDeviceInfo(list, index, &mut device) == 0 {
+                break;
+            }
+            index += 1;
+            let mut driver = [0u16; 256];
+            let mut needed = 0u32;
+            let bytes = (driver.len() * 2) as u32;
+            if SetupDiGetDeviceRegistryPropertyW(list, &device, SPDRP_DRIVER, std::ptr::null_mut(), driver.as_mut_ptr().cast(), bytes, &mut needed) != 0 {
+                let length = driver.iter().position(|&unit| unit == 0).unwrap_or(driver.len());
+                if let Some(key) = String::from_utf16_lossy(&driver[..length]).rsplit('\\').next() {
+                    keys.push(key.to_ascii_lowercase());
+                }
+            }
+        }
+        SetupDiDestroyDeviceInfoList(list);
+    }
+    Some(keys)
 }
 
 /// macOS: the chip runs Metal; no list is read.
