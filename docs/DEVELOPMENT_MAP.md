@@ -1558,12 +1558,18 @@ Data flow:
    `plugins.updater.pubkey` (`verify-updater-signature.mjs`), writes `latest.json`
    (`make-latest-json.mjs --platforms windows,linux`), `SHA256SUMS.txt` and the
    notes (`render-notes.mjs`, whose macOS row says the download follows), then
-   attests the installers and creates the draft; `check-release-assets.mjs`
-   compares the uploaded assets with the local files. Dry runs run the same
-   script in `preview` with a throwaway key.
+   attests the installers and creates the draft through the Releases API, which
+   returns its id; `keep-release-tag.sh` sets a draft whose `tag_name` became an
+   `untagged-…` placeholder back to the tag (#231), before and after the upload,
+   and `check-release-assets.mjs --tag` compares the tag and the uploaded assets
+   with the local files. The job summary's publish line has `--latest` only for a
+   stable release. Dry runs run the same script in `preview` with a throwaway
+   key.
 5. `join-macos` (environment `release`, tag runs only) follows `build-macos` and
-   `draft`, draft or published: `join-macos.sh` signs and verifies the macOS
-   bundle with `sign-payloads.sh`, `merge-macos.mjs` merges the darwin keys into
+   `draft`, draft or published, and reads the release by the id `draft` passes
+   on, checking its tag with `keep-release-tag.sh`: `join-macos.sh` signs and
+   verifies the macOS bundle with `sign-payloads.sh`, `merge-macos.mjs` merges
+   the darwin keys into
    the release's `latest.json` and the macOS lines into its `SHA256SUMS.txt` and
    renders the body again unless it was edited by hand; the job attests and
    uploads the macOS files (feed last) and checks the release, publicly once it

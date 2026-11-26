@@ -148,17 +148,32 @@ prereleases are invisible to them.
    production key, verifies the signatures against the key in
    `tauri.conf.json`, writes `latest.json`, `SHA256SUMS.txt` and the notes for
    those two platforms, attests the installers, and creates the **draft**
-   release. Its job summary links the draft. The macOS leg runs on whenever a
+   release. It creates the draft through the Releases API rather than
+   `gh release create`, so it has the draft's id from the response, and
+   checks the draft's `tag_name` before and after the upload
+   (`scripts/release/keep-release-tag.sh`): the v1.0.0-rc.2 draft ended up
+   with an `untagged-…` placeholder instead of its tag (#231), and a draft in
+   that state is not found by its tag, cannot be published with the line
+   below, and published from the web page would create a tag of the
+   placeholder's name. A draft with another tag is set back to the run's tag
+   and read again, and the job fails if it still differs;
+   `check-release-assets.mjs` checks the tag with the assets. Its job summary
+   links the draft. The macOS leg runs on whenever a
    `macos-15` runner takes it, and `join-macos` then adds macOS to the same
    release ([macOS joins later](#macos-joins-later)).
 
 4. **Review and publish.** Read the notes, download
    `protocol-windows-x64-setup.exe` from the draft, install it and record a
-   short meeting. Then publish with **Set as the latest release** checked, or:
+   short meeting. Then publish a stable release with **Set as the latest
+   release** checked, or:
 
    ```powershell
-   gh release edit v0.3.0 --draft=false --latest
+   gh release edit v1.0.0 --draft=false --latest
    ```
+
+   An RC is published with **Set as a pre-release** left checked, or with
+   `gh release edit v1.0.0-rc.3 --draft=false`: a prerelease cannot be the
+   latest release, so the job summary prints the line without `--latest`.
 
    There is no need to wait for macOS. Every installed earlier Windows and
    Linux version is offered the update from this moment, macOS installs from
@@ -181,9 +196,13 @@ up to a day, so nothing waits for the macOS leg (#164). `join-macos` starts
 after `build-macos` and `draft`, whether the owner has published the release
 by then or not, and:
 
-1. reads the release of the run's tag (and only that release: every call
-   goes to that tag or its id) with its `latest.json`, `SHA256SUMS.txt` and
-   body;
+1. reads the release `draft` created, by the id `draft` passes on (and only
+   that release: every call goes to that id or the run's tag) with its
+   `latest.json`, `SHA256SUMS.txt` and body. Reading by id finds the release
+   also when its `tag_name` became an `untagged-…` placeholder (#231);
+   `keep-release-tag.sh` then sets a draft's tag back before the uploads look
+   the release up by its tag, and fails on a published release with another
+   tag, which the owner fixes by hand;
 2. checks the macOS leg's files, signs `protocol-macos-arm64.app.tar.gz`
    with the production key and verifies the signature against the key in
    `tauri.conf.json`, as `draft` does (`scripts/release/join-macos.sh`);
@@ -196,8 +215,8 @@ by then or not, and:
    add the macOS row and checksums by hand;
 4. attests the DMG and the bundle, uploads the DMG, the bundle and its `.sig`,
    then `SHA256SUMS.txt`, then `latest.json` (`--clobber`; the feed last, so it
-   never points at a missing file), and checks the release's assets by name
-   and digest. The Releases API cannot replace an asset in place: `--clobber`
+   never points at a missing file), checks the tag again and the release's
+   assets by name and digest. The Releases API cannot replace an asset in place: `--clobber`
    deletes it and uploads the new one, so on a published release
    `latest.json` and `SHA256SUMS.txt` are missing for a moment on every run,
    and installed apps that check just then see no update until their next
