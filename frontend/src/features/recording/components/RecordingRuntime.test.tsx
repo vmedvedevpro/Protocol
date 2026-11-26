@@ -13,6 +13,7 @@ import {
 import {beginRecovery, listRecoverable, setRecoveryFolder, storeRecoveryLine} from '../api/recovery'
 import type {TranscriptUpdate} from '../api/transcript'
 import {registerLinks} from '../store/links'
+import {recoverMeeting} from '../store/recover'
 import {session} from '../store/session'
 import {startRecording} from '../store/start'
 import {renderRecording, toastTitles} from '../test/renderRecording'
@@ -149,11 +150,27 @@ describe('RecordingRuntime', () => {
 
         await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
         const saved = mockState.meetings.meetings.at(-1)!
-        expect(saved).toMatchObject({title: 'Design sync', folder_path: '/recordings/design-sync'})
+        // A copy from before the save recorded `titleManual`: a typed title is the user's.
+        expect(saved).toMatchObject({title: 'Design sync', titleIsManual: true, folder_path: '/recordings/design-sync'})
         expect(mockState.meetings.transcripts[saved.id].map((each) => each.text)).toHaveLength(2)
         expect(mockState.live.checkpoints).toEqual({})
         expect(toastTitles()).toContain('Meeting recovered')
         expect(await listRecoverable(Date.now() + 60_000)).toEqual([expect.objectContaining({meetingId: 'meeting-2'})])
+    })
+
+    it('takes an automatic title in an older copy as not the user’s', async () => {
+        await beginRecovery({meetingId: 'meeting-1', title: 'Meeting · Wed, Nov 25 · 2:34 PM', startTime: Date.now() - 600_000})
+        await storeRecoveryLine('meeting-1', line(1, 'Hello.'))
+        await beginRecovery({meetingId: 'meeting-2', title: 'Meeting, Wed, Nov 25, 2:34 PM', startTime: Date.now() - 600_000})
+        await storeRecoveryLine('meeting-2', line(1, 'Hello.'))
+
+        await recoverMeeting('meeting-1')
+        await recoverMeeting('meeting-2')
+
+        expect(mockState.meetings.meetings.slice(-2)).toEqual([
+            expect.objectContaining({title: 'Meeting · Wed, Nov 25 · 2:34 PM', titleIsManual: false}),
+            expect.objectContaining({title: 'Meeting, Wed, Nov 25, 2:34 PM', titleIsManual: false}),
+        ])
     })
 
     it('tells the updater while a recovery rebuilds the audio and saves', async () => {

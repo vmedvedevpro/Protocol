@@ -49,6 +49,26 @@ export function finalTitle(title: string, start: Date, end: Date): string {
     return `${AUTOMATIC_PREFIX}${dayLabel(start)} · ${timeRange(start, end)}`
 }
 
+// A clock time in any locale's form ("2:30 PM", "14:30", "午後2:30", "2.30 a.m."),
+// alone or as a range.
+const CLOCK = String.raw`(?:\p{L}+\.?\s?)?\d{1,2}[:.]\d{2}(?:\s?[\p{L}.]+)?`
+const SLOT = String.raw`${CLOCK}(?:\s?[–-]\s?${CLOCK})?`
+const GENERATED_TITLES = [
+    // This version's: "Meeting · Mon, Sep 28 · 2:30 PM".
+    new RegExp(String.raw`^Meeting · [^·]+ · ${SLOT}$`, 'u'),
+    // #224's coming one: "Meeting, Mon, Sep 28, 2:30 PM".
+    new RegExp(String.raw`^Meeting, .+, ${SLOT}$`, 'u'),
+]
+
+/**
+ * Whether the whole of `title` is a recording's automatic title. For a crash
+ * copy made before the save recorded `titleManual` (#218): its title counts
+ * as the user's unless it is one of these; "Meeting, budget" is the user's.
+ */
+export function isGeneratedTitle(title: string): boolean {
+    return GENERATED_TITLES.some((pattern) => pattern.test(title))
+}
+
 /** "Today, 9:30 AM", or "Mon, Sep 28, 9:30 AM" on another day: when a recording started. */
 export function startedLabel(start: Date, now = new Date()): string {
     const day = start.toDateString() === now.toDateString() ? 'Today' : dayLabel(start)

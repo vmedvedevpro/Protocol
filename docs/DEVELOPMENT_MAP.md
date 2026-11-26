@@ -383,8 +383,10 @@ transaction) and the folder's `metadata.json` `meeting_name` when the file
 exists; the folder itself keeps its name, as a manual rename always left it.
 Whose title it is lives in `meetings.title_is_manual`, an explicit record:
 `api_save_transcript` takes `title_is_manual` from the recording (the
-session's `titleManual`, also kept in the crash copy for recovery; absent
-means the user's), `start_import_audio_command` takes it from the import
+session's `titleManual`, also kept in the crash copy for recovery; a copy
+made before the record has none, and its title counts as the user's unless
+the whole title is an automatic one, `titles.ts::isGeneratedTitle`),
+`start_import_audio_command` takes it from the import
 sheet (`titleIsManual`: the user changed the file name the sheet proposed;
 absent means the user's), and a rename sets it for good. The title's text is never
 read for it (the old `is_default_meeting_title` is gone), so the automatic
@@ -397,7 +399,8 @@ user's title from a meeting that is gone. The shell's `useSummaryTitleSync`
 reads the list, the meeting, folders and search again on `completed`.
 Tests: `meeting_title::tests`, `meeting::tests`, `transcript::tests`,
 `processor::generated_title_tests` (native); `summaryTitleSync.test.tsx`,
-`save.test.tsx` and `ImportSheet.test.tsx` (frontend).
+`save.test.tsx`, `ImportSheet.test.tsx`, `titles.test.ts` and
+`RecordingRuntime.test.tsx` (an older crash copy) (frontend).
 Older notes on the upstream behaviour: [SUMMARY_GENERATED_TITLES.md](SUMMARY_GENERATED_TITLES.md).
 
 A summary run's template is `api_process_transcript`'s `template_id`. Without

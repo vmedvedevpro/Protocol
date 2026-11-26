@@ -221,7 +221,7 @@ such a command only on its platform
 | `api_process_transcript` | command | `hooks/meeting-details/useSummaryGeneration.ts` | #113 | Generate/regenerate; also the automatic summary after Stop (#112). Without a template native fell back to `daily_standup`; since #117 it uses the stored default (owner decision 2026-11-24), `standard_meeting` while none is stored, and `startSummary` names a template only for a run that picks one. |
 | `api_save_custom_template` | command | `hooks/meeting-details/useTemplates.ts` | #119 | Template editor. |
 | `api_save_meeting_detected_summary_language` | command | `lib/summary-language-preferences.ts` | #113 | Caches the detected language for Auto; returns `local_fallback` like `api_save_meeting_summary_language`. |
-| `api_save_meeting_summary` | command | `components/meeting/MeetingDocument.tsx`, `lib/action-item-sync.ts` | #113 | Edited summary; action-item sync writes it too. |
+| `api_save_meeting_summary` | command | `components/meeting/MeetingDocument.tsx` | #113 | Edited summary. |
 | `api_save_meeting_summary_language` | command | `lib/summary-language-preferences.ts` | #119 | Returns `local_fallback` when the meeting has no metadata file; the UI then keeps it in localStorage. |
 | `builtin_ai_get_model_info` | command | `hooks/meeting-details/useSummaryGeneration.ts`, `lib/builtin-ai.ts` | #113 | Readiness check before generating with the built-in model. |
 | `builtin_ai_is_model_ready` | command | `contexts/OnboardingContext.tsx`, `hooks/meeting-details/useSummaryGeneration.ts`, `lib/builtin-ai.ts` | #113 | Same; onboarding uses it too (#115). |
@@ -506,7 +506,7 @@ Listed so their effects are not lost.
 | `af-stop-recording` | DOM event | `lib/recording-launch.ts`, `components/RecordingControls.tsx` | #112 | Stop requests from anywhere. |
 | `af-pending-group` | DOM event | `lib/groups.ts`, `hooks/usePendingGroup.ts` | #112 | A picker on the folder in the recording header (owner decision 2026-11-24). |
 | `af-live-session` | DOM event | `lib/live-session.ts` | #112 | Live title changed; writing notes does not fire it. |
-| `af-workspace-change` | DOM event | `lib/workspace-api.ts` | #113 | Cross-view refresh after meeting, folder, person or action-item edits. |
+| `af-workspace-change` | DOM event | `lib/workspace-api.ts` | #113 | Cross-view refresh after meeting, folder or person edits. |
 | `open-global-search` | DOM event | `components/Sidebar/index.tsx`, `components/GlobalSearchDialog.tsx` | #118 | |
 | `af-open-group-editor` | DOM event | `components/groups/GroupEditor.tsx` | #113 | New folder from anywhere. |
 | `confidenceIndicatorChanged` | DOM event | `contexts/ConfigContext.tsx` | dropped | Dispatched by the dead Show confidence setting; nothing listens. |
@@ -688,7 +688,7 @@ a session.
 | `autoStartRecording`, `af-stop-requested` | sessionStorage | `lib/recording-launch.ts`, `hooks/useRecordingStart.ts`, `components/RecordingControls.tsx`, native `tray.rs` | #112 | Not needed after the update. Start/stop handoff across navigation. Native `tray.rs` no longer writes `autoStartRecording` (#110 emits `request-recording-toggle` instead), so nothing needs to read it. |
 | `recovery_dialog_shown` | sessionStorage | `app/page.tsx` | #112 | Not needed after the update. Recovery offered once per session. |
 | `post-call-processing:<meetingId>`, `post-call-summary-started:<meetingId>` | sessionStorage | `components/MeetingDetails/PostCallProcessingWorker.tsx`, `contexts/PostCallJobsContext.tsx`, `app/meeting-details/page-content.tsx` | #112 | Not needed after the update. Post-call pass and auto-summary run once per meeting. |
-| `af-action-backfill-done` | sessionStorage | `lib/action-item-sync.ts` | #113 | Not needed after the update. Action-item backfill once per session. |
+| `af-action-backfill-done` | sessionStorage | `lib/action-item-sync.ts` | dropped | Not needed after the update. Dropped with the separate action items (#218). |
 | `macos_system_audio_verified` | sessionStorage | `hooks/usePermissionCheck.ts`, `components/onboarding/steps/AudioTestStep.tsx` | #113 | Not needed after the update. macOS has no system-audio permission query; the audio test result stands in. |
 | `meetily-settings-tab`, `meetily-settings-transcription-section`, `meetily-settings-transcription-provider` | sessionStorage | `app/settings/page.tsx`, `components/TranscriptSettings.tsx`, `RetranscribeDialog.tsx` | #110 | Not needed after the update. Route parameters replace them. |
 | `meetily_chunk_reload` | sessionStorage | `app/layout.tsx` | dropped | Not needed after the update. Next.js chunk reload. |

@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest'
-import {AUTOMATIC_PREFIX, automaticTitle, finalTitle, startedLabel, timeRange} from './titles'
+import {AUTOMATIC_PREFIX, automaticTitle, finalTitle, isGeneratedTitle, startedLabel, timeRange} from './titles'
 
 const at = (hours: number, minutes: number) => new Date(2026, 8, 28, hours, minutes)
 
@@ -10,6 +10,30 @@ describe('titles', () => {
         // A second one that day takes its time.
         const first = automaticTitle(at(9, 0), 'Weekly Standup')
         expect(automaticTitle(at(14, 30), 'Weekly Standup', [first])).toMatch(/^Weekly Standup — Sep 28, 2:30/)
+    })
+
+    it('tells an automatic title from one the user typed, by the whole title', () => {
+        const start = at(14, 30)
+        for (const title of [
+            automaticTitle(start),
+            finalTitle(automaticTitle(start), start, at(15, 15)),
+            'Meeting · Wed, Nov 25 · 11:30 AM–12:15 PM',
+            'Meeting · 25 нояб., ср · 14:30',
+            'Meeting, Wed, Nov 25, 2:34 PM',
+            'Meeting, Wed, Nov 25, 2:34–3:10 PM',
+        ]) {
+            expect(isGeneratedTitle(title), title).toBe(true)
+        }
+        for (const title of [
+            'Meeting · budget',
+            'Meeting · Wed, Nov 25 · 2:34 PM with Priya',
+            'Meeting, budget review',
+            'Meeting, Wed, Nov 25',
+            'Pricing call',
+            'Weekly Standup — Sep 28',
+        ]) {
+            expect(isGeneratedTitle(title), title).toBe(false)
+        }
     })
 
     it('gives an untouched automatic title its end, and leaves any other title alone', () => {
