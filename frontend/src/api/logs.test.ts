@@ -34,4 +34,13 @@ describe('logWebViewError', () => {
             {kind: 'error', message: 'the list failed'},
         ]))
     })
+
+    it('forgets the errors it remembers past 100, so changing texts do not pile up', async () => {
+        logWebViewError('error', 'the first error', 10_000)
+        for (let index = 0; index < 100; index++) logWebViewError('error', `error ${index}`, 10_000)
+        // Forgotten with the others, so its repeat within 5 s is logged.
+        logWebViewError('error', 'the first error', 10_001)
+        await waitFor(() => expect(mockState.logs.webViewErrors).toHaveLength(102))
+        expect(mockState.logs.webViewErrors.at(-1)).toEqual({kind: 'error', message: 'the first error'})
+    })
 })

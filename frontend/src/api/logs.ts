@@ -42,6 +42,12 @@ export type WebViewErrorKind = 'error' | 'unhandled rejection' | 'screen error'
  * visible without filling the log, and native caps the rest a minute.
  */
 const REPEAT_MS = 5_000
+/**
+ * Errors remembered for the repeat filter, at most. An error whose text
+ * changes every time (an id, a time) would add a key each time; clearing
+ * the map past this costs at most one extra line per error.
+ */
+const REMEMBERED_MAX = 100
 const lastLogged = new Map<string, number>()
 
 /**
@@ -61,6 +67,7 @@ export function logWebViewError(kind: WebViewErrorKind, error: unknown, now = Da
     if (RESIZE_OBSERVER_LOOP.test(message)) return
     const key = `${kind}\n${message}\n${stack ?? ''}`
     if (now - (lastLogged.get(key) ?? -Infinity) < REPEAT_MS) return
+    if (lastLogged.size >= REMEMBERED_MAX) lastLogged.clear()
     lastLogged.set(key, now)
     command<null>('log_webview_error', {kind, message, stack}).catch((failure: unknown) => {
         console.error('Could not write the error to the log', failure)

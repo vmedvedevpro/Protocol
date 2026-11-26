@@ -50,12 +50,26 @@ pub fn logs_dir() -> PathBuf {
     crate::paths::install_data_root().join("logs")
 }
 
+/// Tauri's bundle identifier (`tauri.conf.json`), which names the app's
+/// cache folder; a test keeps the two the same.
+const BUNDLE_IDENTIFIER: &str = "io.github.vmedvedevpro.protocol";
+
 /// flexi_logger's own errors in the middle of a run (a failed write or
-/// rotation), which Settings shows. In the temporary folder, since the log
-/// folder is the one failing, often on a full disk that the temporary folder
-/// is not on; one per process, so a second launch does not read the first's.
+/// rotation), which Settings shows. Outside the log folder, which is the one
+/// failing, and one per process, so a second launch does not read the first's.
 pub fn errors_file() -> PathBuf {
-    std::env::temp_dir().join(format!("protocol-log-errors-{}.txt", std::process::id()))
+    errors_dir().join(format!("protocol-log-errors-{}.txt", std::process::id()))
+}
+
+/// The app's own cache folder, as Tauri's `app_cache_dir` names it (`init`
+/// runs before Tauri, so it cannot ask), and not the shared temporary folder,
+/// where another user could plant a link at the predictable name. The data
+/// root's `cache` when the OS has no cache folder, as the updater's falls back.
+fn errors_dir() -> PathBuf {
+    dirs::cache_dir()
+        .map(|cache| cache.join(BUNDLE_IDENTIFIER))
+        .unwrap_or_else(|| crate::paths::install_data_root().join("cache"))
+        .join("log-errors")
 }
 
 /// Starts the app's logger: the log folder and stderr, at the info level.
@@ -67,6 +81,13 @@ pub fn init() {
 
 /// [`init`] with the log in `dir`; tests give it a folder of their own.
 pub fn init_in(dir: &Path) {
+    // A file left by an earlier process with the same id (Windows reuses
+    // them soon) would report its errors as this run's.
+    let errors = errors_file();
+    let _ = fs::remove_file(&errors);
+    if let Some(parent) = errors.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
     // The probe's own error: flexi_logger's wrapper drops the OS's reason.
     let started = probe(dir)
         .map_err(|error| error.to_string())
@@ -174,18 +195,34 @@ pub fn flush_and_wait(dir: &Path, timeout: Duration) {
     if HANDLE.get().is_none() || START_ERROR.get().is_some() {
         return;
     }
-    let marker = format!("Saving the logs (save {})", SAVES.fetch_add(1, Ordering::Relaxed) + 1);
+    let marker = save_marker(SAVES.fetch_add(1, Ordering::Relaxed) + 1);
     log::info!("{marker}");
     flush();
+    wait_for_line(dir, &marker, timeout);
+}
+
+/// The line a save waits for. Launches append to the same newest file and
+/// each counts its saves from 1, so the process id tells this one's line
+/// from an earlier launch's; the closing parenthesis keeps save 1 from
+/// matching save 10.
+fn save_marker(save: u64) -> String {
+    format!("Saving the logs (process {}, save {save})", std::process::id())
+}
+
+/// Whether `line` reached `dir`'s newest log file within `timeout`.
+fn wait_for_line(dir: &Path, line: &str, timeout: Duration) -> bool {
     let deadline = Instant::now() + timeout;
-    while Instant::now() < deadline {
+    loop {
         let written = bundle::log_files(dir)
             .ok()
             .and_then(|files| files.last().cloned())
             .and_then(|newest| fs::read(newest).ok())
-            .is_some_and(|bytes| bytes.windows(marker.len()).any(|window| window == marker.as_bytes()));
+            .is_some_and(|bytes| bytes.windows(line.len()).any(|window| window == line.as_bytes()));
         if written {
-            return;
+            return true;
+        }
+        if Instant::now() >= deadline {
+            return false;
         }
         std::thread::sleep(Duration::from_millis(20));
     }
@@ -243,12 +280,15 @@ pub struct LogStatus {
 
 #[tauri::command]
 pub fn get_log_status() -> LogStatus {
-    let problem = START_ERROR.get().cloned().or_else(|| {
-        let errors = fs::read_to_string(errors_file()).ok()?;
-        let last = errors.lines().rev().find(|line| line.starts_with("[flexi_logger]"))?.trim();
-        Some(format!("Protocol could not write part of its log: {last}"))
-    });
-    LogStatus { problem }
+    LogStatus { problem: START_ERROR.get().cloned().or_else(|| write_problem(&errors_file())) }
+}
+
+/// The last error flexi_logger wrote into `errors_file`, for Settings; `None`
+/// when there is none or the file is missing.
+fn write_problem(errors_file: &Path) -> Option<String> {
+    let errors = fs::read_to_string(errors_file).ok()?;
+    let last = errors.lines().rev().find(|line| line.starts_with("[flexi_logger]"))?.trim();
+    Some(format!("Protocol could not write part of its log: {last}"))
 }
 
 /// WebView errors logged in a minute, at most. A screen that throws on every
@@ -256,30 +296,39 @@ pub fn get_log_status() -> LogStatus {
 /// kept files; one failing screen logs a few, well under this.
 const WEBVIEW_ERRORS_PER_MINUTE: u32 = 30;
 
+/// What [`Limiter::admit`] decides for one error.
+#[derive(Debug, PartialEq)]
+enum Admission {
+    Log,
+    /// The first error past the limit: dropped, with one line saying so, so
+    /// a burst that then stops is still seen.
+    Silence,
+    Drop,
+}
+
 /// Counts the WebView's errors in the current minute.
 struct Limiter {
-    since: Instant,
-    logged: u32,
-    dropped: u32,
+    /// When the minute started; `None` before the first error.
+    since: Option<Instant>,
+    seen: u32,
 }
 
 impl Limiter {
-    /// Whether an error at `now` is logged, and how many were dropped in the
-    /// minute that just ended, to say so once.
-    fn admit(&mut self, now: Instant) -> (bool, u32) {
-        let mut dropped = 0;
-        if now.duration_since(self.since) >= Duration::from_secs(60) {
-            dropped = std::mem::take(&mut self.dropped);
-            self.since = now;
-            self.logged = 0;
+    const fn new() -> Self {
+        Self { since: None, seen: 0 }
+    }
+
+    fn admit(&mut self, now: Instant) -> Admission {
+        if self.since.is_none_or(|since| now.duration_since(since) >= Duration::from_secs(60)) {
+            self.since = Some(now);
+            self.seen = 0;
         }
-        let admitted = self.logged < WEBVIEW_ERRORS_PER_MINUTE;
-        if admitted {
-            self.logged += 1;
-        } else {
-            self.dropped += 1;
+        self.seen = self.seen.saturating_add(1);
+        match self.seen {
+            seen if seen <= WEBVIEW_ERRORS_PER_MINUTE => Admission::Log,
+            seen if seen == WEBVIEW_ERRORS_PER_MINUTE + 1 => Admission::Silence,
+            _ => Admission::Drop,
         }
-        (admitted, dropped)
     }
 }
 
@@ -288,17 +337,18 @@ impl Limiter {
 /// is usually a dump of data rather than a message.
 #[tauri::command]
 pub fn log_webview_error(kind: String, message: String, stack: Option<String>) {
-    static LIMITER: Mutex<Option<Limiter>> = Mutex::new(None);
-    let (admitted, dropped) = {
-        let mut limiter = LIMITER.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        let now = Instant::now();
-        limiter.get_or_insert(Limiter { since: now, logged: 0, dropped: 0 }).admit(now)
-    };
-    if dropped > 0 {
-        log::warn!(target: "webview", "{dropped} more errors in the last minute were not logged");
-    }
-    if !admitted {
-        return;
+    static LIMITER: Mutex<Limiter> = Mutex::new(Limiter::new());
+    let admission = LIMITER.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).admit(Instant::now());
+    match admission {
+        Admission::Log => {}
+        Admission::Silence => {
+            log::warn!(
+                target: "webview",
+                "More than {WEBVIEW_ERRORS_PER_MINUTE} errors this minute; further WebView errors are not logged until the minute ends"
+            );
+            return;
+        }
+        Admission::Drop => return,
     }
     let mut line = format!("{}: {}", shorten(&kind, 40), shorten(&message, 1000));
     if let Some(stack) = stack.filter(|value| !value.trim().is_empty()) {
@@ -410,14 +460,56 @@ mod tests {
         }
     }
 
+    /// The first error past the limit says so at once, so a burst that
+    /// stops is still seen; the minute after starts over.
     #[test]
-    fn webview_errors_past_the_limit_are_counted_and_reported_once() {
+    fn webview_errors_past_the_limit_are_announced_once_and_dropped() {
         let start = Instant::now();
-        let mut limiter = Limiter { since: start, logged: 0, dropped: 0 };
-        let admitted = (0..40).filter(|_| limiter.admit(start).0).count();
-        assert_eq!(admitted, WEBVIEW_ERRORS_PER_MINUTE as usize);
-        assert_eq!(limiter.admit(start + Duration::from_secs(61)), (true, 10));
-        assert_eq!(limiter.admit(start + Duration::from_secs(62)), (true, 0));
+        let mut limiter = Limiter::new();
+        let admissions: Vec<Admission> = (0..40).map(|_| limiter.admit(start)).collect();
+        let limit = WEBVIEW_ERRORS_PER_MINUTE as usize;
+        assert!(admissions[..limit].iter().all(|admission| *admission == Admission::Log));
+        assert_eq!(admissions[limit], Admission::Silence);
+        assert!(admissions[limit + 1..].iter().all(|admission| *admission == Admission::Drop));
+        assert_eq!(limiter.admit(start + Duration::from_secs(59)), Admission::Drop);
+        assert_eq!(limiter.admit(start + Duration::from_secs(60)), Admission::Log);
+    }
+
+    /// A launch's marker already in the file does not end the wait: the
+    /// newest file holds every launch's lines, each counting from save 1.
+    #[test]
+    fn a_save_waits_for_its_own_marker_and_not_an_earlier_launchs() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("protocol_r2026-11-26_09-00-00.log");
+        let marker = save_marker(1);
+        let earlier = marker.replace(&format!("process {}", std::process::id()), "process 1");
+        assert_ne!(earlier, marker);
+        fs::write(&file, format!("{earlier}\n{}\n", save_marker(10))).unwrap();
+        assert!(!wait_for_line(dir.path(), &marker, Duration::from_millis(50)));
+        fs::write(&file, format!("{earlier}\n{marker}\n")).unwrap();
+        assert!(wait_for_line(dir.path(), &marker, Duration::ZERO));
+    }
+
+    #[test]
+    fn the_error_file_reports_its_last_flexi_logger_line() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("errors.txt");
+        assert_eq!(write_problem(&file), None);
+        fs::write(&file, "[flexi_logger] first failure\n  caused by: a detail\n[flexi_logger] disk full \n").unwrap();
+        assert_eq!(write_problem(&file).as_deref(), Some("Protocol could not write part of its log: [flexi_logger] disk full"));
+        fs::write(&file, "not from flexi_logger\n").unwrap();
+        assert_eq!(write_problem(&file), None);
+    }
+
+    /// The error file is in the app's own cache folder, which Tauri names
+    /// after the bundle identifier.
+    #[test]
+    fn the_error_file_is_in_the_apps_cache_folder() {
+        let config: serde_json::Value = serde_json::from_str(include_str!("../../tauri.conf.json")).unwrap();
+        assert_eq!(config["identifier"], BUNDLE_IDENTIFIER);
+        let file = errors_file();
+        assert!(file.starts_with(dirs::cache_dir().unwrap().join(BUNDLE_IDENTIFIER)), "{}", file.display());
+        assert!(file.ends_with(format!("protocol-log-errors-{}.txt", std::process::id())));
     }
 
     #[test]
