@@ -50,6 +50,19 @@ const SUFFIX: &str = "log";
 const ERRORS_FILE: &str = "log-errors.txt";
 
 static HANDLE: OnceLock<LoggerHandle> = OnceLock::new();
+
+/// Info, as before the log went to disk, except for libraries whose info
+/// lines are bookkeeping: ONNX Runtime writes about a thousand arena and
+/// session lines for one import, and zbus dumps D-Bus handshakes as byte
+/// lists. Their warnings and errors still come through.
+fn level() -> LogSpecification {
+    LogSpecification::builder()
+        .default(log::LevelFilter::Info)
+        .module("ort::logging", log::LevelFilter::Warn)
+        .module("zbus", log::LevelFilter::Warn)
+        .module("tracing::span", log::LevelFilter::Warn)
+        .build()
+}
 /// Why the log could not be started on disk, when it could not.
 static START_ERROR: OnceLock<String> = OnceLock::new();
 
@@ -61,7 +74,12 @@ pub fn logs_dir() -> PathBuf {
 /// When the folder cannot be written the app logs to stderr only and
 /// [`get_log_status`] reports why.
 pub fn init() {
-    let dir = logs_dir();
+    init_in(&logs_dir());
+}
+
+/// [`init`] with the log in `dir`; tests give it a folder of their own.
+pub fn init_in(dir: &Path) {
+    let dir = dir.to_path_buf();
     // Errors left by an earlier launch would read as this one's.
     let _ = fs::remove_file(dir.join(ERRORS_FILE));
     match fs::create_dir_all(&dir)
@@ -73,7 +91,7 @@ pub fn init() {
         }
         Err(error) => {
             let reason = format!("Protocol cannot write its log to {}: {error}", dir.display());
-            let fallback = Logger::with(LogSpecification::info())
+            let fallback = Logger::with(level())
                 .log_to_stderr()
                 .format(format_line)
                 .panic_if_error_channel_is_broken(false)
@@ -121,7 +139,7 @@ fn rotation() -> (Criterion, Naming, Cleanup) {
 
 fn file_logger(dir: &Path) -> Logger {
     let (criterion, naming, cleanup) = rotation();
-    Logger::with(LogSpecification::info())
+    Logger::with(level())
         .log_to_file(file_spec(dir))
         .rotate(criterion, naming, cleanup)
         // A launch continues the newest file. Without this each launch would

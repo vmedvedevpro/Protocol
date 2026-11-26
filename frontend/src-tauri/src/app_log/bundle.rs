@@ -188,9 +188,13 @@ pub fn show_saved_logs(path: String) -> Result<(), String> {
     let result = std::process::Command::new("xdg-open")
         .arg(path.parent().unwrap_or_else(|| Path::new(".")))
         .spawn();
-    result
-        .map(|_| ())
-        .map_err(|error| format!("Could not open the file manager: {error}"))
+    let mut child = result.map_err(|error| format!("Could not open the file manager: {error}"))?;
+    // Reaped on a thread of its own, so the launcher does not stay behind
+    // as a zombie while the app runs.
+    std::thread::spawn(move || {
+        let _ = child.wait();
+    });
+    Ok(())
 }
 
 #[cfg(test)]
