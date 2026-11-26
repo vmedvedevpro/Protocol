@@ -216,8 +216,8 @@ by then or not, and:
 4. attests the DMG and the bundle, uploads the DMG, the bundle and its `.sig`,
    then `SHA256SUMS.txt`, then `latest.json` (`--clobber`; the feed last, so it
    never points at a missing file), checks the tag again and the release's
-   assets by name and digest. The Releases API cannot replace an asset in place: `--clobber`
-   deletes it and uploads the new one, so on a published release
+   assets by name and digest. The Releases API cannot replace an asset in
+   place: `--clobber` deletes it and uploads the new one, so on a published release
    `latest.json` and `SHA256SUMS.txt` are missing for a moment on every run,
    and installed apps that check just then see no update until their next
    check. The `.sig`, the checksums and the feed are made again on every run

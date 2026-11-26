@@ -439,9 +439,11 @@ jobs:
           id=$(gh api -X POST "repos/$GITHUB_REPOSITORY/releases" -f tag_name="$TAG" -f name="Protocol $VERSION" \
             -F body=@"$RUNNER_TEMP/notes.md" -F draft=true -F prerelease="$prerelease" --jq .id)
           echo "id=$id" >> "$GITHUB_OUTPUT"
-          bash scripts/release/keep-release-tag.sh "$id" "$TAG" "$RUNNER_TEMP/release.json"
-          # --clobber makes a retry replace what a failed attempt uploaded.
+          # --clobber makes a retry replace what a failed attempt uploaded;
+          # each attempt sets the tag back first, so a placeholder that
+          # appears between attempts cannot hide the draft from the upload.
           for attempt in 1 2 3; do
+            bash scripts/release/keep-release-tag.sh "$id" "$TAG" "$RUNNER_TEMP/release.json"
             if gh release upload "$TAG" "$RUNNER_TEMP"/dist/* --clobber; then break; fi
             echo "::warning::Upload attempt $attempt failed"
             if [[ $attempt == 3 ]]; then exit 1; fi

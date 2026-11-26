@@ -1569,8 +1569,8 @@ Data flow:
    `draft`, draft or published, and reads the release by the id `draft` passes
    on, checking its tag with `keep-release-tag.sh`: `join-macos.sh` signs and
    verifies the macOS bundle with `sign-payloads.sh`, `merge-macos.mjs` merges
-   the darwin keys into
-   the release's `latest.json` and the macOS lines into its `SHA256SUMS.txt` and
+   the darwin keys into the release's `latest.json` and the macOS lines into its
+   `SHA256SUMS.txt` and
    renders the body again unless it was edited by hand; the job attests and
    uploads the macOS files (feed last) and checks the release, publicly once it
    is published. Re-runs replace only the macOS entries. Dry runs do the same in
