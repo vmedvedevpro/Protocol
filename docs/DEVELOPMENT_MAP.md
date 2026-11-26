@@ -1647,10 +1647,14 @@ the desktop file (`linux_desktop/app_id.rs`, `linux/main.desktop`, checked by
 following the settings portal (`linux_desktop/theme.rs`); Keep on top and
 the minibar under Wayland, through a KWin script on KDE Plasma and the
 layer-shell overlay where the compositor has it (`linux_desktop/keep_above.rs`,
-`linux_desktop/layer_shell.rs`, gtk-layer-shell loaded at run time); the tray
+`linux_desktop/layer_shell.rs`, gtk-layer-shell loaded at run time), and the
+minimize that opens the minibar during a recording, which only KWin can
+report on Wayland (`keep_above::recording_changed`); the tray
 icon's name on hover (`linux_desktop/tray_name.rs`). Read it before changing
 the Linux window configuration, the title strip, the theme, keep on top, the
-minibar or the tray.
+minibar or the tray. `scripts/release/test/tauri-linux-window.test.mjs`
+checks that the Linux window entry differs from the base one only in
+`decorations`.
 
 ### Fork identity and updates
 

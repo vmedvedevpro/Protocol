@@ -9,7 +9,8 @@ does, why, which files own it, how it was checked and what is left.
 On Linux the main window uses the desktop's own frame:
 `tauri.linux.conf.json` repeats the whole window entry with
 `"decorations": true` (a platform file replaces the `windows` array, as
-`tauri.macos.conf.json` does). Windows stays frameless (`tauri.conf.json`)
+`tauri.macos.conf.json` does). `scripts/release/test/tauri-linux-window.test.mjs`
+checks that the two entries differ only in `decorations`. Windows stays frameless (`tauri.conf.json`)
 and macOS keeps its overlay title bar.
 
 GTK3 asks KWin for server-side decorations through the KDE server-decoration
@@ -135,29 +136,66 @@ at start (`keep_above::init`, logged as `Linux keep on top: …`):
 |---|---|---|
 | X11, any desktop | Tauri's call, as before | the builder's `always_on_top` and position, as before |
 | Wayland, KDE Plasma (KWin on the session bus) | a KWin script | layer-shell overlay if gtk-layer-shell loads, else the KWin script |
-| Wayland, wlroots (Sway, Hyprland…) | not offered | layer-shell overlay if gtk-layer-shell loads |
-| Wayland, GNOME | not offered; the native frame's window menu has Always on Top | a plain window: the log says it cannot stay on top |
+| Wayland, wlroots (Sway, Hyprland…) | a note in the pin's place | layer-shell overlay if gtk-layer-shell loads, else a plain window that says once it cannot stay on top |
+| Wayland, GNOME | a note in the pin's place; the native frame's window menu has Always on Top | a plain window that says once it cannot stay on top |
 
 XWayland for the whole app (`GDK_BACKEND=x11`) would make keep-above work
 everywhere but blurs the window on fractional scaling, so it is not used.
 
 **The KWin script.** KWin runs scripts sent over D-Bus
 (`org.kde.KWin /Scripting` `loadScript`, then `Script.run`), and a script may
-set `keepAbove` on any window. The script is written to `$XDG_RUNTIME_DIR`
-and matches this process's windows by pid: the minibar by its title
-(`Recording`, since Wayland has no skip-taskbar hint for KWin to read), the
-main window as every other normal window. KWin forgets a Wayland window when
-it is unmapped, and the main window is hidden while the minibar shows, so the
-script stays loaded and also applies to windows added later; it is reloaded
-with the new state on each change under one plugin name per program name
-(`<app>-keep-above`, so a new start replaces what a crashed run left) and
-unloaded at `RunEvent::Exit`. For the minibar it also hides it from the task
+set `keepAbove` on any window. The script matches this process's windows by
+pid: the minibar by its title (`Recording`, since Wayland has no
+skip-taskbar hint for KWin to read), the main window as every other normal
+window. It is loaded only while something needs it: the pin, a minibar kept
+above through KWin, or a recording (for the minimize, below). Nothing is
+loaded at start unless the saved pin is on. KWin forgets a Wayland window
+when it is unmapped, and the main window is hidden while the minibar shows,
+so a loaded script also applies to windows added later. It is reloaded with
+the new state on each change under one plugin name per program name
+(`<app>-keep-above`, so a new start replaces what a crashed run left),
+unloaded when nothing needs it any more, and unloaded at `RunEvent::Exit`
+under the same lock as the reloads, so a change still in flight cannot load
+it again after the exit. For the minibar it also hides it from the task
 manager and the switcher and puts it top centre, 12 px down; it can still be
 dragged.
 
-The frontend asks `linux_keep_on_top_available` once and shows the pin only
-where a route exists (`useKeepOnTopAvailable`, `TitleBar`'s optional
-`onTopChange`); `setWindowAlwaysOnTop` calls `linux_set_keep_on_top` on Linux.
+`keep_above::script` generates only the parts the state needs, and its unit
+tests check the text for each case: nothing pinned (no script), the pin, the
+pin going off, the minibar alone, a recording.
+
+**A Keep Above the user set is theirs.** The script raises a main window only
+if it is not kept above already, and touches `keepAbove` only while the pin
+is on. To undo only its own changes it reports back: the app exports
+`io.github.vmedvedevpro.Protocol.KWinScript` at
+`/io/github/vmedvedevpro/Protocol/KWinScript` on GLib's shared session-bus
+connection (`keep_above::register_callback`, at start on the KWin route),
+and the script calls it with KWin's `callDBus` on the connection's unique
+name. `Raised(id)` and `Released(id)` (the user turned it off from the window
+menu) keep the set of KWin window ids the script raised. When the pin goes
+off, the next script clears Keep Above on those ids only; such a release-only
+script stays loaded, inert, until the next change or the exit. The object
+answers only KWin's unique name. If it cannot be exported, the session counts
+as one with no route.
+
+The script file goes to `$XDG_RUNTIME_DIR`, which the XDG spec makes private
+to the user. Where it is unset the app refuses rather than write to a shared
+directory such as `/tmp`, where another user could have planted a symlink.
+
+**Failures are said.** `linux_set_keep_on_top` returns KWin's error (KWin
+scripting disabled makes `loadScript` return a negative id, a D-Bus error,
+no `XDG_RUNTIME_DIR`) and keeps the state it had. The frontend then sets the
+pin back off and shows a toast with the reason (`useKeepOnTopSync`); a failed
+unpin says so too. Where no route exists, the frontend asks
+`linux_keep_on_top_available` once and the strip says "Keep on top isn't
+available in this session" in the pin's place (`useKeepOnTopAvailable`,
+`TitleBar`'s `onTopUnavailable`); `setWindowAlwaysOnTop` calls
+`linux_set_keep_on_top` on Linux. A minibar that cannot stay on top (no
+route and no layer-shell, or a failed KWin load) says "Can't stay on top" in
+its status line, once a run (`linux_take_minibar_notice`, the
+`minibar-notice` event; `MinibarPage` also asks once it listens), and the
+log gives the reason at warn. A missing `libgtk-layer-shell.so.0` is logged
+at warn too.
 
 **The layer-shell minibar.** The layer-shell protocol (`zwlr_layer_shell_v1`,
 on KDE Plasma and wlroots compositors, not on GNOME) gives a surface a layer
@@ -191,7 +229,17 @@ then GTK's `leave-notify` and nothing in the page. So the open pill stayed
 open. The bar's GTK window reports its `leave-notify` (except into a child
 widget) as `minibar-pointer-left` to the bar (`keep_above::report_pointer_leaving`),
 and `MinibarPill` ends the hover on it (`pointerLeftWindow`, counted by
-`MinibarPage`).
+`MinibarPage`). Back over the pill WebKitGTK sends moves but no
+`pointerenter`, so on Linux a pointer move opens it again.
+
+A drag of the bar (KWin route) leaves the window too: the compositor takes
+the pointer for the move, and the open pill closed mid-drag, which changed
+the window's width under the pointer (seen with a virtual pointer: 476 px
+before, 172 px during the drag, 476 px after). On Linux `MinibarPill` now
+ignores leaves from the press that starts a drag until the pointer moves
+over the pill again after a leave (the drag is over), or until a
+`pointerup` reaches the page (the compositor moved nothing, as on a
+layer-shell bar).
 
 The Linux release leg checks that the deb recommends `libgtk-layer-shell0`
 and that `protocol` does not link it.
@@ -215,8 +263,41 @@ KWin's own view of the windows read through a KWin script):
   showed the same: non-resizable with no size request, 200×200; resizable or
   with a size request, its size.
 
-Not checked: GNOME (the hidden pin and the window menu's Always on Top),
-wlroots compositors, and X11 sessions (no such session on this machine).
+Not checked: GNOME (the note in the pin's place and the window menu's Always
+on Top), wlroots compositors, and X11 sessions (no such session on this
+machine).
+
+## Minimizing during a recording
+
+On Windows, macOS and X11, minimizing the main window during a recording
+opens the minibar (`lib.rs`, `on_window_event`: a `Resized` event with
+`is_minimized()`). On Wayland that never fires: xdg-shell has no minimized
+state, so the compositor tells a client nothing when it minimizes its
+window, and GDK3 never sets `GDK_WINDOW_STATE_ICONIFIED` there, not even
+for its own `gtk_window_iconify` (GTK issue 67,
+https://gitlab.gnome.org/GNOME/gtk/-/issues/67; Firefox meets the same in
+https://bugzilla.mozilla.org/show_bug.cgi?id=2063202). The xdg-toplevel
+`suspended` state that newer compositors send is not exposed by GDK3, and
+losing focus or frame callbacks also happen for many other reasons.
+
+Checked on KDE Plasma 6.7.5, Wayland, with the "Protocol QA" build of the
+first round: during a recording KWin minimized the main window (KWin's own
+`minimized` true) and the minibar did not open; the log showed no
+compact-mode call.
+
+So on Plasma the KWin script reports it: while a recording runs
+(`keep_above::recording_changed`, called where `recording_commands.rs`
+sets `IS_RECORDING`) it connects `minimizedChanged` on the main window and
+calls `Minimized(id)`, and the app opens the minibar as the X11 path does
+(`minibar::enter_compact_mode`). The frame's minimize button is KWin's
+(server-side decorations), so this is the button's path.
+
+On GNOME and wlroots compositors there is no reliable route. Minimizing
+there just minimizes the window: the recording goes on, the tray menu
+offers Stop Recording and Open Main Window, and the recording screen's
+Shrink to floating bar opens the minibar. GNOME's title bar shows no
+minimize button by default, and tiling compositors such as Sway do not
+minimize.
 
 ## The tray icon's name on hover
 
@@ -234,7 +315,8 @@ connection, which `gio::bus_get_sync` returns in the same process.
 `linux_desktop/tray_name.rs` adds a filter to that connection: it notes each
 incoming `Properties.GetAll("org.kde.StatusNotifierItem")` on an
 `/org/ayatana/NotificationItem/` path and adds a `ToolTip` (title: the
-product name) to the outgoing reply to it. Both Plasma and GNOME's
+product name) to the outgoing reply to it. An error reply ends the call
+too: it is let through unchanged and its call is no longer pending. Both Plasma and GNOME's
 AppIndicator extension read the item through `GetAll`. A separate
 StatusNotifierItem implementation (the `ksni` crate, say) would set
 `ToolTip` directly but would replace Tauri's tray, its menu and its icon

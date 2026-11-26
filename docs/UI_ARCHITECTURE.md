@@ -108,7 +108,10 @@ minibar window has none of it.
   key, `protocol-keep-on-top`, and the shell applies it to the window at
   startup (`keepOnTop.ts`). On Linux native code keeps the window on top the
   way the session allows, and where it cannot (Wayland outside KDE Plasma)
-  the pin is not shown (`useKeepOnTopAvailable`,
+  the strip says "Keep on top isn't available in this session" in the pin's
+  place (`useKeepOnTopAvailable`, `TitleBar`'s `onTopUnavailable`). A pin
+  native code could not apply goes back off with a toast that gives the
+  reason (`useKeepOnTopSync`,
   [LINUX_DESKTOP.md](LINUX_DESKTOP.md#keep-on-top-and-the-minibar-under-wayland-199)).
 - "Back to meetings" shows on every screen but the meetings (a route's
   `handle.back`) and goes to `/`.

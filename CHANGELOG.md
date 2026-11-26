@@ -129,9 +129,13 @@ is inherited from the project Protocol forked from; Protocol did not release it.
 - **Linux: Keep on top and the floating bar under Wayland**
   ([#215](https://github.com/vmedvedevpro/Protocol/issues/215)). On KDE
   Plasma the pin keeps the window on top and the floating bar stays above
-  other windows at the top of the screen. Where Wayland gives an app no way
-  to stay on top (GNOME), the pin is not shown; GNOME's window menu has
-  Always on Top.
+  other windows at the top of the screen; a Keep Above set from KWin's window
+  menu is left alone. Minimizing the window during a recording opens the
+  floating bar there too. Where Wayland gives an app no way to stay on top
+  (GNOME), the title bar says so in the pin's place, and the floating bar
+  says once that it cannot stay on top; GNOME's window menu has Always on
+  Top. When the pin cannot be applied, it goes back off and a message says
+  why.
 - **Linux: the floating bar is only as big as the bar**
   ([#215](https://github.com/vmedvedevpro/Protocol/issues/215)). It no
   longer sits in an invisible square that caught clicks meant for the
