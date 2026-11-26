@@ -152,6 +152,20 @@ fn overlap(a: (f64, f64), b: (f64, f64)) -> f64 {
     (a.1.min(b.1) - a.0.max(b.0)).max(0.0)
 }
 
+/// `spans` as the time they cover: overlapping or touching spans become one,
+/// so a stretch labelled twice counts once.
+fn merged(mut spans: Vec<(f64, f64)>) -> Vec<(f64, f64)> {
+    spans.sort_by(|a, b| a.0.total_cmp(&b.0));
+    let mut out: Vec<(f64, f64)> = Vec::new();
+    for (start, end) in spans {
+        match out.last_mut() {
+            Some(last) if start <= last.1 => last.1 = last.1.max(end),
+            _ => out.push((start, end)),
+        }
+    }
+    out
+}
+
 /// Scores `found` against the sample's `voices`.
 pub fn speaker_score<F: PartialEq + Clone>(voices: &[Turn<&str>], found: &[Turn<F>]) -> SpeakerScore {
     let mut voice_labels: Vec<&str> = Vec::new();
@@ -166,26 +180,28 @@ pub fn speaker_score<F: PartialEq + Clone>(voices: &[Turn<&str>], found: &[Turn<
             speakers.push(turn.label.clone());
         }
     }
+    // Each speaker's spans merged: Nemotron emits overlapping spans of one
+    // speaker, which would otherwise count the same speech twice.
+    let spans_of = |speaker: &F| merged(found.iter().filter(|other| &other.label == speaker).map(|other| (other.start_ms, other.end_ms)).collect());
+    let speaker_spans: Vec<Vec<(f64, f64)>> = speakers.iter().map(spans_of).collect();
+    let inside_turns = |spans: &[(f64, f64)]| -> f64 {
+        spans.iter().map(|span| voices.iter().map(|turn| overlap((turn.start_ms, turn.end_ms), *span)).sum::<f64>()).sum()
+    };
     // Time each found speaker shares with each voice.
-    let together = |voice: &str, speaker: &F| -> f64 {
+    let together = |voice: &str, speaker: usize| -> f64 {
         voices
             .iter()
             .filter(|turn| turn.label == voice)
-            .map(|turn| {
-                found
-                    .iter()
-                    .filter(|other| &other.label == speaker)
-                    .map(|other| overlap((turn.start_ms, turn.end_ms), (other.start_ms, other.end_ms)))
-                    .sum::<f64>()
-            })
+            .map(|turn| speaker_spans[speaker].iter().map(|span| overlap((turn.start_ms, turn.end_ms), *span)).sum::<f64>())
             .sum()
     };
     let speech: f64 = voices.iter().map(|turn| (turn.end_ms - turn.start_ms).max(0.0)).sum();
-    // The time the model labelled inside the turns (the turns never overlap).
-    let labelled: f64 = found
-        .iter()
-        .map(|other| voices.iter().map(|turn| overlap((turn.start_ms, turn.end_ms), (other.start_ms, other.end_ms))).sum::<f64>())
-        .sum();
+    // The share's whole: what each speaker labelled inside the turns (the
+    // turns never overlap). Two speakers at one moment both count, as one
+    // of them must be wrong: the sample's voices never overlap.
+    let labelled: f64 = speaker_spans.iter().map(|spans| inside_turns(spans)).sum();
+    // Coverage: the time any speaker labelled inside the turns, counted once.
+    let covered = inside_turns(&merged(speaker_spans.concat()));
     // The best one-to-one pairing; the sample has two voices, so trying every
     // assignment of voices to distinct speakers is cheap.
     fn best(voice: usize, voices: &[&str], speakers: usize, used: &mut Vec<bool>, gain: &dyn Fn(usize, usize) -> f64) -> f64 {
@@ -203,13 +219,13 @@ pub fn speaker_score<F: PartialEq + Clone>(voices: &[Turn<&str>], found: &[Turn<
         }
         top
     }
-    let gain = |voice: usize, speaker: usize| together(voice_labels[voice], &speakers[speaker]);
+    let gain = |voice: usize, speaker: usize| together(voice_labels[voice], speaker);
     let matched = best(0, &voice_labels, speakers.len(), &mut vec![false; speakers.len()], &gain);
     SpeakerScore {
         speakers: speakers.len(),
         voices: voice_labels.len(),
         share: if labelled > 0.0 { (matched / labelled).min(1.0) } else { 0.0 },
-        coverage: if speech > 0.0 { (labelled / speech).min(1.0) } else { 0.0 },
+        coverage: if speech > 0.0 { (covered / speech).min(1.0) } else { 0.0 },
     }
 }
 
@@ -311,6 +327,24 @@ mod tests {
         assert!(!speakers_pass(&score));
         let none: Vec<Turn<usize>> = Vec::new();
         assert_eq!(speaker_score(&sample(), &none).share, 0.0);
+    }
+
+    #[test]
+    fn overlapping_spans_of_one_speaker_count_once() {
+        // Nemotron's windows overlap: each turn comes twice, shifted.
+        let once = vec![turn(0.0, 6000.0, 1), turn(6600.0, 10000.0, 0), turn(10600.0, 16000.0, 1), turn(16600.0, 20000.0, 0)];
+        let mut twice = once.clone();
+        twice.extend([turn(500.0, 5500.0, 1), turn(7000.0, 9000.0, 0), turn(11000.0, 16000.0, 1), turn(16600.0, 19000.0, 0)]);
+        assert_eq!(speaker_score(&sample(), &twice), speaker_score(&sample(), &once));
+    }
+
+    #[test]
+    fn two_speakers_at_one_moment_count_once_for_coverage_and_against_the_share() {
+        // Half of the first turn is labelled with both speakers.
+        let found = vec![turn(0.0, 6000.0, 1), turn(0.0, 3000.0, 0), turn(6600.0, 10000.0, 0), turn(10600.0, 16000.0, 1), turn(16600.0, 20000.0, 0)];
+        let score = speaker_score(&sample(), &found);
+        assert!((score.coverage - 1.0).abs() < 1e-9, "{score:?}");
+        assert!((score.share - 18200.0 / 21200.0).abs() < 1e-9, "{score:?}");
     }
 
     #[test]
