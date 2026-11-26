@@ -97,21 +97,56 @@ jobs:
     needs: validate
     uses: ./.github/workflows/pr-checks.yml
 
+  # A leg that a green push run on main already built from the same inputs is
+  # not built again: the jobs below download that run's leg-* artifact
+  # (scripts/release/reusable-legs.sh says what counts as the same inputs).
+  # So a tag on a green main commit builds only what its dry run did not. The
+  # provenance attested by draft and join-macos then names this run, which
+  # built nothing from other sources than the run it took the installers from.
+  reuse:
+    needs: validate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      windows: ${{ steps.find.outputs.windows }}
+      macos: ${{ steps.find.outputs.macos }}
+      linux: ${{ steps.find.outputs.linux }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Find the legs a main run already built
+        id: find
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          found=$(bash scripts/release/reusable-legs.sh)
+          echo "$found"
+          echo "$found" >> "$GITHUB_OUTPUT"
+
   build-windows:
-    needs: [validate, frontend-checks]
+    needs: [validate, frontend-checks, reuse]
+    if: needs.reuse.outputs.windows == ''
     uses: ./.github/workflows/release-build-windows.yml
     with:
       version: ${{ needs.validate.outputs.version }}
 
   build-macos:
-    needs: [validate, frontend-checks]
+    needs: [validate, frontend-checks, reuse]
+    if: needs.reuse.outputs.macos == ''
     uses: ./.github/workflows/release-build-macos.yml
     with:
       version: ${{ needs.validate.outputs.version }}
       updater-configured: ${{ needs.validate.outputs.updater_configured == 'true' }}
 
   build-linux:
-    needs: [validate, frontend-checks]
+    needs: [validate, frontend-checks, reuse]
+    if: needs.reuse.outputs.linux == ''
     uses: ./.github/workflows/release-build-linux.yml
     with:
       version: ${{ needs.validate.outputs.version }}
@@ -120,8 +155,15 @@ jobs:
   # as the release-dry-run artifact instead of a release. Like `draft`, it does
   # not wait for macOS; preview-macos adds it.
   preview:
-    if: github.event_name != 'push' || github.ref_type != 'tag'
-    needs: [validate, build-windows, build-linux]
+    if: >-
+      !cancelled() && (github.event_name != 'push' || github.ref_type != 'tag')
+      && needs.frontend-checks.result == 'success' && needs.reuse.result == 'success'
+      && (needs.build-windows.result == 'success' || needs.reuse.outputs.windows != '')
+      && (needs.build-linux.result == 'success' || needs.reuse.outputs.linux != '')
+    needs: [validate, frontend-checks, reuse, build-windows, build-linux]
+    permissions:
+      actions: read
+      contents: read
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
@@ -146,10 +188,14 @@ jobs:
         with:
           name: leg-windows
           path: ${{ runner.temp }}/legs/leg-windows
+          run-id: ${{ needs.reuse.outputs.windows || github.run_id }}
+          github-token: ${{ needs.reuse.outputs.windows && github.token || '' }}
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: leg-linux
           path: ${{ runner.temp }}/legs/leg-linux
+          run-id: ${{ needs.reuse.outputs.linux || github.run_id }}
+          github-token: ${{ needs.reuse.outputs.linux && github.token || '' }}
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: release-notes-source
@@ -194,8 +240,14 @@ jobs:
   # release, with another throwaway key, so a broken macOS build or merge
   # stays visible without holding back the preview of Windows and Linux.
   preview-macos:
-    if: github.event_name != 'push' || github.ref_type != 'tag'
-    needs: [validate, preview, build-macos]
+    if: >-
+      !cancelled() && (github.event_name != 'push' || github.ref_type != 'tag')
+      && needs.preview.result == 'success'
+      && (needs.build-macos.result == 'success' || needs.reuse.outputs.macos != '')
+    needs: [validate, reuse, preview, build-macos]
+    permissions:
+      actions: read
+      contents: read
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
@@ -219,6 +271,8 @@ jobs:
         with:
           name: leg-macos
           path: ${{ runner.temp }}/leg-macos
+          run-id: ${{ needs.reuse.outputs.macos || github.run_id }}
+          github-token: ${{ needs.reuse.outputs.macos && github.token || '' }}
       # The preview's latest.json, SHA256SUMS.txt and notes.md stand in for
       # the drafted release.
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -275,12 +329,17 @@ jobs:
   # draft; join-macos adds macOS to it. Only these two jobs can read the
   # release environment, which admits only tag runs (v*).
   draft:
-    if: github.event_name == 'push' && github.ref_type == 'tag'
-    needs: [validate, build-windows, build-linux]
+    if: >-
+      !cancelled() && github.event_name == 'push' && github.ref_type == 'tag'
+      && needs.frontend-checks.result == 'success' && needs.reuse.result == 'success'
+      && (needs.build-windows.result == 'success' || needs.reuse.outputs.windows != '')
+      && (needs.build-linux.result == 'success' || needs.reuse.outputs.linux != '')
+    needs: [validate, frontend-checks, reuse, build-windows, build-linux]
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     environment: release
     permissions:
+      actions: read
       contents: write
       id-token: write
       attestations: write
@@ -309,10 +368,14 @@ jobs:
         with:
           name: leg-windows
           path: ${{ runner.temp }}/legs/leg-windows
+          run-id: ${{ needs.reuse.outputs.windows || github.run_id }}
+          github-token: ${{ needs.reuse.outputs.windows && github.token || '' }}
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: leg-linux
           path: ${{ runner.temp }}/legs/leg-linux
+          run-id: ${{ needs.reuse.outputs.linux || github.run_id }}
+          github-token: ${{ needs.reuse.outputs.linux && github.token || '' }}
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: release-notes-source
@@ -400,12 +463,16 @@ jobs:
   # failed jobs after a red or cancelled macOS leg) is safe: merge-macos.mjs
   # replaces the macOS entries and keeps everything else.
   join-macos:
-    if: github.event_name == 'push' && github.ref_type == 'tag'
-    needs: [validate, build-macos, draft]
+    if: >-
+      !cancelled() && github.event_name == 'push' && github.ref_type == 'tag'
+      && needs.draft.result == 'success'
+      && (needs.build-macos.result == 'success' || needs.reuse.outputs.macos != '')
+    needs: [validate, reuse, build-macos, draft]
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     environment: release
     permissions:
+      actions: read
       contents: write
       id-token: write
       attestations: write
@@ -434,6 +501,8 @@ jobs:
         with:
           name: leg-macos
           path: ${{ runner.temp }}/leg-macos
+          run-id: ${{ needs.reuse.outputs.macos || github.run_id }}
+          github-token: ${{ needs.reuse.outputs.macos && github.token || '' }}
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: release-notes-source
