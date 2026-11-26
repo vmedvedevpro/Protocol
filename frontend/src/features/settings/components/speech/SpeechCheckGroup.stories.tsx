@@ -78,6 +78,16 @@ export const Passed: Story = {
 
 export const PassedDark = dark(Passed)
 
+/** The report opened: the mock writes it as native does, a long text and its JSON. */
+export const ReportShown: Story = {
+    ...Passed,
+    play: async ({canvas, userEvent}) => {
+        await userEvent.click(await canvas.findByRole('button', {name: 'Show report'}))
+    },
+}
+
+export const ReportShownDark = dark(ReportShown)
+
 export const Failed: Story = {
     globals: {theme: 'light'},
     beforeEach: () => {
