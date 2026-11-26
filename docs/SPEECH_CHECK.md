@@ -31,22 +31,34 @@ compares nothing.
    A model left undownloaded is sent as `declined` and reported as not
    checked. Pyannote is built in.
 2. `speech_check_run` refuses during a recording, its stop and its save, an
-   import, a retranscription, offline diarization and the post-call pass, and
-   while a check runs. Otherwise it holds `BusyReason::SpeechCheck` until the
-   report is written, so an update never restarts the app in the middle.
-3. Under the engine lifecycle lock it notes the models the app's Whisper and
-   Parakeet hold and unloads them: a second copy would double their memory,
-   and the NPU's `active` flag and OpenVINO's last backend outcome are
-   process-wide. It also keeps that outcome.
+   import, a retranscription, offline diarization, the post-call pass and a
+   summary, and while a check runs. Otherwise, in one hold of the status, it
+   resets the cancel flags, takes `BusyReason::SpeechCheck` until the report
+   is written (so an update never restarts the app in the middle) and emits
+   Running, so the group shows "Getting ready" with Cancel at once.
+3. Under the engine lifecycle lock it asks again whether a recording
+   started, a Cancel came or other work began (a recording started from the
+   tray just after Run loads its models under that lock), and if so runs no
+   step and leaves the engines alone. Otherwise it notes the models the
+   app's Whisper and Parakeet hold and unloads them: a second copy would
+   double their memory, and the NPU's `active` flag and OpenVINO's last
+   backend outcome are process-wide. It keeps that outcome, and stops the
+   builtin LLM (`prepare_for_stt`), as every speech model load does.
 4. It reads the computer (`hardware.rs`) and the sample, then runs the steps,
-   writing the crash note before each and after each.
+   writing the crash note before each and after each. A step that panics
+   fails with its message (`guarded`), and the run goes on.
 5. It gives back: unless a recording started meanwhile, it loads back what
    the app's engines held (under the lock) and, when Whisper was not reloaded,
    puts OpenVINO's last outcome back, so Settings' fallback notice is the
    app's, not the check's.
 
 The check writes no setting and no selection, and never touches
-`WHISPER_ENGINE` or `PARAKEET_ENGINE` while a step runs.
+`WHISPER_ENGINE` or `PARAKEET_ENGINE` while a step runs. While it runs,
+`speech_check::refuse_beside` refuses an import, a retranscription (the
+post-call pass's too), speaker identification and a summary on this
+computer, with a message that names the check. A Cancel marks only a
+running check, in the same hold of the status, so one that arrives after
+the finish changes nothing.
 
 ## The steps
 
@@ -111,6 +123,8 @@ without NFKC). Pass thresholds flag broken output, not quality:
   counting only what the model labels inside the turns: the pauses within a
   reading, which no model labels, cost nothing. One speaker everywhere scores
   the longer voice's part (at most 0.62 here).
+- Each speaker's overlapping spans are merged first (Nemotron's windows
+  overlap), and the coverage counts the time any speaker labelled once.
 - **At least half of the turns labelled** (`MIN_SPEAKER_COVERAGE`), so a model
   that misses whole turns fails although what it labels is right. The turns
   run from a reading's first word to its last; working models label 78 to
@@ -125,7 +139,8 @@ and how Whisper is built; the OS and version, on Linux the distribution,
 `XDG_CURRENT_DESKTOP` and `XDG_SESSION_TYPE`; the processor with AVX2 and
 AVX-512, threads, RAM; each GPU (Linux: PCI vendor and device, address,
 kernel driver and the module's version where it states one, NVIDIA's;
-Windows: the display class's name, vendor and `DriverVersion`); ggml's Vulkan
+Windows: the display class's name, vendor and `DriverVersion` of each
+present adapter); ggml's Vulkan
 device lines, which name the Vulkan driver (`vulkan::device_lines`, kept by a
 ggml log callback that still writes everything to stderr; Mesa's version is
 not readable without a Vulkan or OpenGL context); Intel's OpenCL driver
@@ -137,21 +152,28 @@ ran-on device, fallback with its exact error, load time, each clip's time,
 real-time factor, text, language, word errors or speaker score, pass or fail,
 and where a platform path was never run before (`untested_path`: the check on
 Windows and macOS was only compiled; on Linux, Vulkan on a GPU other than
-Intel's). Warnings: fallbacks, failures, a selection that differs.
+Intel's). Warnings: fallbacks, failures, a selection that differs. The
+outcome is passed only when a step ran and passed; a check where every
+model was missing or declined says "nothing was checked".
 
 Nothing personal: the check reads only the sample, never a meeting or an
 audio device, and adds no host name; `report::scrub` writes the home folder as
-`~` (any case and slash on Windows) and the login name as `<user>` where it
-stands as a word, in every string of the report. The group shows the whole
+`~` (any case and slash on Windows, its 8.3 form too), the login name as
+`<user>` where it stands as a word (also as `CHRIST~1`) and the computer's
+name as `<computer>`, in every free text of the report. Kinds, statuses and
+the outcome are not scrubbed, so a login named "whisper" renames no step. The group shows the whole
 report before Copy and Save.
 
 ## The crash note
 
 `<data>/speech-check.json`, written whole (temp file and rename) before and
 after each step with the plan, the steps done and the step running. A start
-that finds a step still running rewrites it as `closedIn`; the group then says
+that finds a step still running records it among the done steps as
+ClosedTheApp and names it in `closedIn`, so a second crash in a resumed run
+keeps the first and does not run it again; the group then says
 "Protocol closed while checking …", shows the partial report, and offers Run
-the remaining steps (`speech_check_resume`, the note's own plan) or Run again
+the remaining steps (`speech_check_resume`, the note's own plan, only while
+the status is Interrupted) or Run again
 (`speech_check_dismiss` first). The step that closed the app is reported, not
 run again. A clean quit (`RunEvent::Exit`) is not a crash: `note::set_closing`
 removes the note and keeps later writes out. A note left between steps reads
@@ -167,9 +189,12 @@ the NPU's guards work the same way.
 
 Run is off while a recording starts, runs or saves (`useRecordingBusy`), and
 native refuses it. A recording's start calls `cancel_for_recording` before it
-takes the engine lifecycle lock and does not wait: the piece in flight
-finishes on its worker, the check stops at the next piece, reports the rest
-cancelled, and gives nothing back to the recording's engines. A quit during a
+takes the engine lifecycle lock: the check stops at the next piece, reports
+the rest cancelled ("A recording started"), and gives nothing back to the
+recording's engines. The start waits up to five seconds (`RECORDING_WAIT`)
+for the step in flight to drop its engines: the longest unit a step does
+not interrupt is one clip through a speaker engine, about 2 s here; after
+that the recording goes on beside the check's engines. A quit during a
 check asks first ("the speech check is running"), as for other work.
 
 ## Tests
@@ -177,11 +202,15 @@ check asks first ("the speech check is running"), as for other work.
 - Native (`cargo test -p protocol --lib speech_check`): `score::tests` (word
   errors, broken output, the speaker share with a split voice, one speaker,
   late boundaries, pauses inside a turn, too little labelled, keeping up), `report::tests` (text and JSON round trip,
-  scrubbing of home, Windows profiles and the user name, the outcome, the
-  selection note), `note::tests` (a step that closed the app, a clean quit, an
-  unreadable note), `sample::tests` (a damaged, missing or escaping clip; the
+  scrubbing of home, Windows profiles, 8.3 names, the user and computer
+  names and every free text, a login named like a step, the outcome with
+  nothing checked, the selection note), `note::tests` (a step that closed the app, a clean quit, an
+  unreadable note, a second crash in a resumed run), `sample::tests` (a damaged, missing or escaping clip; the
   bundled sample decodes to its turns), `steps::tests`, `mod.rs` tests (an
-  interrupted run, a recording's cancel, the refusals, the plan),
+  interrupted run, a recording's cancel and its bounded wait, a recording
+  that started after Run, a cancel after the finish or before the next step,
+  a start that resets the flags and shows Running, a step that panics, only
+  an interrupted check resuming, the refusals both ways, the plan),
   `vulkan::linux::tests::only_ggml_vulkan_device_lines_are_kept`.
 - Ignored, with installed models in the test binary's `data/models`:
   `speech_check::tests::every_engine_runs_the_sample_on_the_installed_models`
@@ -190,7 +219,8 @@ check asks first ("the speech check is running"), as for other work.
 - Frontend: `SpeechCheckGroup.test.tsx` (idle and off during a recording, the
   list with downloads, a run with a declined model and the report, Save,
   running and Cancel, a failure with its reason, resumed after a crash, device
-  words). Stories: `Settings/Speech check`.
+  words, Start only once the inputs of the choice have loaded, nothing
+  checked in a live region). Stories: `Settings/Speech check`.
 - `scripts/measure/tests/test_speech_check.py`: the text split and the cut.
 
 ## Measured on this laptop
