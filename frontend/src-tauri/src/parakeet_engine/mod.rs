@@ -27,5 +27,5 @@ pub mod chunking;
 pub mod npu;
 
 pub use parakeet_engine::{ParakeetEngine, ParakeetEngineError, QuantizationType, ModelInfo, ModelStatus, DownloadProgress};
-pub use model::{ParakeetModel, ParakeetError, TimestampedResult, Encoder, planned_encoder};
+pub use model::{ParakeetModel, ParakeetError, TimestampedResult, Encoder, planned_encoder, onnx_encoder};
 pub use commands::*;

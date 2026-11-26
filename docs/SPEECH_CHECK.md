@@ -62,17 +62,21 @@ the finish changes nothing.
 
 ## The steps
 
-Each step reads "picked" before its load from the engine's own device
-rule, the one its load follows: `parakeet_engine::planned_encoder` (the
-NPU's `ready_for`, then `directml_from_labs`), Whisper's
-`openvino::openvino_model_for` with OpenVINO's device and crash guard, else
-`context_parameters`, and Nemotron's `planned_provider`. "Ran on" comes
-afterwards from the loaded engine (`uses_npu`, before and after the clips;
-`loaded_openvino`; `nemotron::last_session`). Both are a `Device` with a
-serialised `DeviceKind` (processor, Intel NPU, Intel GPU, DirectML, Vulkan,
-Metal), and they are compared by kind. When the kinds differ the step reports
-a fallback with the error the engine recorded; nothing falls back silently.
-Pyannote and WeSpeaker always run on ONNX Runtime's CPU provider.
+Each step reads "picked" before its load from the function its load calls
+to decide: `parakeet_engine::planned_encoder` (the NPU when `ready_for`,
+then `onnx_encoder`: DirectML from Labs, else the processor), which
+`ParakeetEngine::load_model` opens the model by; Whisper's
+`openvino::openvino_model_for` and `openvino::planned_openvino_device` (the
+OpenVINO device rule, which fails while the crash guard is on), which
+`load_openvino` loads by, else whisper.cpp's `context_parameters`; and
+Nemotron's `planned_provider`. "Ran on" comes afterwards from the loaded
+engine (`uses_npu`, before and after the clips; `loaded_openvino`;
+`nemotron::last_session`). Both are a `Device` with a serialised
+`DeviceKind` (processor, Intel NPU, Intel GPU, DirectML, Vulkan, Metal), and
+they are compared by kind. When the kinds differ the step reports a fallback
+with the error the engine recorded. whisper.cpp's own fallback inside a
+Vulkan context is the exception (Limits). Pyannote and WeSpeaker always run
+on ONNX Runtime's CPU provider.
 
 Parakeet runs the live path: the pieces the live VAD cuts with the
 pipeline's thresholds and redemption time, capped as the processor caps a
@@ -262,6 +266,12 @@ in a meeting.
   not the live pipeline's frames, queue and per-source workers.
 - The NPU's preparation is not waited for: a check during `preparing` runs
   Parakeet on the processor and says why.
+- whisper.cpp on Vulkan is reported as running where `context_parameters`
+  put it: the engine records no device after the load, so "ran on" repeats
+  the plan. When the GPU backend does not start, whisper.cpp itself builds
+  the context on the processor (`whisper_backend_init` logs it and goes on),
+  and the step shows no fallback: the load and processing times are the
+  only sign. The same holds for the app's own loads.
 - A failure of the NPU or OpenVINO in the check is recorded by the engines as
   the app's own failure would be (the NPU goes `failed`, Settings offers Try
   again): it is the same device failing.

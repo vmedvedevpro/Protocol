@@ -397,39 +397,44 @@ pub enum Encoder {
     Processor,
 }
 
-/// Where `ParakeetEngine::load_model(model_id)` puts the encoder, read
-/// before the load from what the load reads: the Intel NPU once it is ready
-/// for Parakeet v3; DirectML when [`directml_from_labs`]; else the
-/// processor. The load can still fall back from the NPU, which records why
-/// (`npu::state::encoder_for_load`). The load and the Speech check both ask
-/// here, so the rule exists once.
+/// Where `ParakeetEngine::load_model(model_id)` puts the encoder: the
+/// Intel NPU once it is ready for Parakeet v3, else [`onnx_encoder`]. The
+/// load opens the model by this answer, and the Speech check reports it as
+/// the device picked, so the rule exists once. The NPU's compile can still
+/// fail in the load, which records why (`npu::state::encoder_for_load`) and
+/// takes [`onnx_encoder`] instead.
 pub fn planned_encoder(_model_id: &str) -> Encoder {
     #[cfg(windows)]
     if super::npu::state::ready_for(_model_id) {
         return Encoder::Npu;
     }
-    if directml_from_labs() {
-        Encoder::DirectMl
-    } else {
-        Encoder::Processor
-    }
+    onnx_encoder()
 }
 
-/// Parakeet on the GPU is on in Labs (Windows only), and the NPU is neither
-/// preparing nor ready: then the encoder is the NPU's, or the processor's
-/// meanwhile, not DirectML's.
-pub fn directml_from_labs() -> bool {
+/// The encoder on ONNX Runtime: DirectML when Parakeet on the GPU is on in
+/// Labs (Windows only) and the NPU is neither preparing nor ready (then the
+/// encoder is the NPU's, or the processor's meanwhile); else the processor.
+pub fn onnx_encoder() -> Encoder {
     #[cfg(windows)]
-    return super::labs::enabled() && !super::npu::state::overrides_labs();
-    #[cfg(not(windows))]
-    false
+    if super::labs::enabled() && !super::npu::state::overrides_labs() {
+        return Encoder::DirectMl;
+    }
+    Encoder::Processor
 }
 
 impl ParakeetModel {
-    /// The model with its encoder on ONNX Runtime: DirectML when
-    /// [`directml_from_labs`] says so, else the processor.
+    /// The model with its encoder on the processor: the install's check
+    /// that a model opens, the NPU kit's reference and the tests. A load for
+    /// transcription goes through `ParakeetEngine::load_model`, which asks
+    /// [`planned_encoder`].
     pub fn new<P: AsRef<Path>>(model_dir: P, quantized: bool) -> Result<Self, ParakeetError> {
-        Self::new_with_backend(model_dir, quantized, directml_from_labs())
+        Self::new_with_backend(model_dir, quantized, false)
+    }
+
+    /// The model with its encoder on ONNX Runtime's `encoder`: DirectML
+    /// adapter 0 or the processor (an `Npu` here is the processor).
+    pub fn new_on<P: AsRef<Path>>(model_dir: P, quantized: bool, encoder: Encoder) -> Result<Self, ParakeetError> {
+        Self::new_with_backend(model_dir, quantized, encoder == Encoder::DirectMl)
     }
 
     fn new_with_backend<P: AsRef<Path>>(model_dir: P, quantized: bool, gpu: bool) -> Result<Self, ParakeetError> {

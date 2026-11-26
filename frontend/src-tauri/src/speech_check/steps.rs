@@ -2,13 +2,15 @@
 //! the way the app runs it, on engines of its own: the recording's engines
 //! (`WHISPER_ENGINE`, `PARAKEET_ENGINE`) are never touched here.
 //!
-//! "Picked" comes from each engine's own device rule, which its load
-//! follows too (`parakeet_engine::planned_encoder`,
-//! `openvino::openvino_model_for` with OpenVINO's device rule and
-//! `context_parameters`, `nemotron::planned_provider`); "ran on" from the
-//! loaded engine afterwards. When their kinds differ, the step reports the
-//! fallback with the error the engine recorded: the engines never
-//! substitute a device silently, and neither does the check.
+//! "Picked" comes from each engine's own device rule, the function its load
+//! calls too (`parakeet_engine::planned_encoder`;
+//! `openvino::openvino_model_for` and `openvino::planned_openvino_device`,
+//! else whisper.cpp's `context_parameters`; `nemotron::planned_provider`);
+//! "ran on" from the loaded engine afterwards. When their kinds differ, the
+//! step reports the fallback with the error the engine recorded. One
+//! fallback stays out of sight: whisper.cpp's own move to the processor
+//! inside a Vulkan context, which the engine does not report
+//! (docs/SPEECH_CHECK.md, Limits).
 
 use std::time::Instant;
 
@@ -289,9 +291,9 @@ fn whisper_ran_on(_engine: &WhisperEngine) -> Device {
 }
 
 /// Where `model` loads: the OpenVINO model `openvino_model_for` names, on
-/// the device OpenVINO's rule picks (the one `availability` caches), unless
-/// its crash guard is on; otherwise whisper.cpp where `context_parameters`
-/// puts it. With the inputs it read.
+/// the device `planned_openvino_device` names, as the load asks them;
+/// otherwise whisper.cpp where `context_parameters` puts it. With the inputs
+/// the rules read, Settings' OpenVINO row among them.
 async fn whisper_picked(_model: &str) -> (Device, String, Vec<(String, String)>) {
     let (cpp, cpp_because) = whisper_cpp_device();
     let mut inputs = vec![("Whisper build".to_string(), crate::whisper_engine::acceleration::WhisperCompiledBackend::current().as_str().to_string())];
@@ -317,15 +319,15 @@ async fn whisper_picked(_model: &str) -> (Device, String, Vec<(String, String)>)
                 inputs.push((name.into(), value.clone()));
             }
         }
-        let stopped = openvino::stopped();
-        if let Some(stopped) = &stopped {
-            inputs.push(("OpenVINO crash guard".into(), stopped.clone()));
+        if let Some(stopped) = openvino::stopped() {
+            inputs.push(("OpenVINO crash guard".into(), stopped));
         }
         if openvino_model.is_some() {
-            let because = match (&availability.device, stopped) {
-                (Some(device), None) => return (openvino_device(device), "the Intel GPU version is installed and OpenVINO runs on whisper.cpp's GPU".into(), inputs),
-                (_, Some(stopped)) => format!("the Intel GPU version is off: {stopped}"),
-                (None, None) => format!("the Intel GPU version cannot run: {}", availability.mismatch.clone().unwrap_or_else(|| "OpenVINO picks no device here".into())),
+            let planned = tokio::task::spawn_blocking(openvino::planned_openvino_device).await.map_err(anyhow::Error::from).and_then(|planned| planned);
+            let because = match planned {
+                Ok(Some(device)) => return (openvino_device(&device), "the Intel GPU version is installed and OpenVINO runs on whisper.cpp's GPU".into(), inputs),
+                Ok(None) => format!("the Intel GPU version cannot run: {}", availability.mismatch.clone().unwrap_or_else(|| "OpenVINO picks no device here".into())),
+                Err(error) => format!("the Intel GPU version cannot run: {error:#}"),
             };
             return (cpp, because, inputs);
         }

@@ -702,9 +702,9 @@ async fn offer() -> Availability {
 /// The OpenVINO model a load of the Whisper model `model` tries first: the
 /// Intel GPU version's own folder when `model` is its id (#88), else the
 /// installed companion of a ggml model (#79), when its files are there.
-/// `None`: whisper.cpp alone. The device inside OpenVINO is `device_for`'s,
-/// chosen in the load. `WhisperEngine::load_model` and the Speech check both
-/// ask here, so the rule exists once.
+/// `None`: whisper.cpp alone. The device inside OpenVINO is
+/// [`planned_openvino_device`]'s, chosen in the load. `WhisperEngine::load_model`
+/// and the Speech check both ask here, so the rule exists once.
 pub(crate) fn openvino_model_for(model: &str) -> Option<crate::model_catalog::openvino::InstalledCompanion> {
     let companion = match crate::speech_choice::gpu_version(model) {
         Some(version) => crate::speech_choice::installed(&version),
@@ -731,8 +731,7 @@ pub async fn availability() -> Availability {
     let decided = match cached {
         Some(decided) => decided,
         None => {
-            let backend = super::WhisperCompiledBackend::current();
-            let decided = tokio::task::spawn_blocking(move || device_for(super::whisper_gpu(backend).as_ref()))
+            let decided = tokio::task::spawn_blocking(planned_openvino_device)
                 .await
                 .map_err(|error| anyhow!("{error}"))
                 .and_then(|decided| decided)
@@ -794,6 +793,21 @@ pub(crate) async fn piece_call(
         .map_err(|error| anyhow!("the OpenVINO call task failed: {error}"))?
 }
 
+/// The OpenVINO device a load of an OpenVINO model runs on here: the rule's
+/// device for this build's GPU ([`device_for`]). `Ok(None)` when it picks
+/// none: a non-Vulkan build, or a GPU that is not an Intel GPU OpenVINO
+/// lists. An error is a runtime or device failure: a runtime that is not
+/// installed or that this build cannot run, or the crash guard keeping
+/// OpenVINO off. [`WhisperEngine::load_openvino`] and the Speech check both
+/// ask here, so the rule exists once. Blocking: it can load the runtime.
+pub(crate) fn planned_openvino_device() -> Result<Option<String>> {
+    let backend = super::WhisperCompiledBackend::current();
+    if backend != super::WhisperCompiledBackend::Vulkan {
+        return Ok(None);
+    }
+    device_for(super::whisper_gpu(backend).as_ref())
+}
+
 impl WhisperEngine {
     /// Loads `model_name`'s OpenVINO companion (`model_catalog::openvino`)
     /// when one is installed and the device rule picks an OpenVINO GPU; true
@@ -824,20 +838,14 @@ impl WhisperEngine {
     }
 
     /// Loads `model_dir` (an OpenVINO model at `model_commit`) on the
-    /// OpenVINO device the rule picks for this build's GPU. `Ok(None)` when
-    /// the rule picks none: a non-Vulkan build, or a GPU that is not an Intel
-    /// GPU OpenVINO lists. An error is a runtime, device or compile failure
-    /// (a runtime that is not installed or that this build cannot run among
-    /// them), which the caller reports and falls back from.
+    /// device [`planned_openvino_device`] names. `Ok(None)` when it names
+    /// none; an error is its failure or the compile's, which the caller
+    /// reports and falls back from.
     pub(crate) async fn load_openvino(&self, model_dir: &Path, model_commit: &str) -> Result<Option<String>> {
-        let backend = super::WhisperCompiledBackend::current();
-        if backend != super::WhisperCompiledBackend::Vulkan {
-            return Ok(None);
-        }
         let model_dir = model_dir.to_path_buf();
         let model_commit = model_commit.to_string();
         let loaded = tokio::task::spawn_blocking(move || -> Result<Option<OpenVinoWhisper>> {
-            let Some(device) = device_for(super::whisper_gpu(backend).as_ref())? else {
+            let Some(device) = planned_openvino_device()? else {
                 return Ok(None);
             };
             OpenVinoWhisper::load(&model_dir, &model_commit, &device).map(Some)
