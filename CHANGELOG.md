@@ -7,6 +7,14 @@ is inherited from the project Protocol forked from; Protocol did not release it.
 
 ## Protocol — unreleased
 
+## Protocol 1.0.0-rc.3 — 2026-11-26
+
+A release candidate of Protocol 1.0, for trying it before the release: install
+it by hand; installed apps are not offered it. These notes cover what changed
+since 1.0.0-rc.2.
+
+### New
+
 - **Save logs**
   ([#234](https://github.com/vmedvedevpro/Protocol/issues/234)). Protocol
   keeps a log on disk, and Settings › Advanced › Save logs puts it, the
