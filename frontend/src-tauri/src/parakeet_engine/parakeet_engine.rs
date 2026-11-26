@@ -146,6 +146,22 @@ pub struct ParakeetEngine {
     hub: String,
 }
 
+/// `model_name` from `model_dir` with its encoder where
+/// [`planned_encoder`](crate::parakeet_engine::planned_encoder) puts it.
+/// Parakeet v3 on the Intel NPU (#66) compiles here; a failure is recorded
+/// (state `failed`) and the encoder goes where the rest of the rule puts it.
+fn open_planned(model_name: &str, model_dir: &Path, quantized: bool) -> std::result::Result<ParakeetModel, crate::parakeet_engine::ParakeetError> {
+    let encoder = match crate::parakeet_engine::planned_encoder(model_name) {
+        #[cfg(windows)]
+        crate::parakeet_engine::Encoder::Npu => match crate::parakeet_engine::npu::state::encoder_for_load(model_dir) {
+            Some(npu) => return ParakeetModel::new_with_npu(model_dir, npu),
+            None => crate::parakeet_engine::onnx_encoder(),
+        },
+        planned => planned,
+    };
+    ParakeetModel::new_on(model_dir, quantized, encoder)
+}
+
 impl ParakeetEngine {
     /// The files the installed copy of `model_name` in `model_dir` was verified
     /// against: its install record, or the 0.3.0 pins (see
@@ -401,16 +417,8 @@ impl ParakeetEngine {
 
                 // Load model based on quantization type
                 let quantized = model_info.quantization == QuantizationType::Int8;
-                // Parakeet v3's encoder on the Intel NPU once it is prepared
-                // (#66); the processor otherwise and on any NPU failure.
-                #[cfg(windows)]
-                let model = match crate::parakeet_engine::npu::state::encoder_for_load(model_name, &model_info.path) {
-                    Some(npu) => ParakeetModel::new_with_npu(&model_info.path, npu),
-                    None => ParakeetModel::new(&model_info.path, quantized),
-                };
-                #[cfg(not(windows))]
-                let model = ParakeetModel::new(&model_info.path, quantized);
-                let model = model.map_err(|e| anyhow!("Failed to load Parakeet model {}: {}", model_name, e))?;
+                let model = open_planned(model_name, &model_info.path, quantized)
+                    .map_err(|e| anyhow!("Failed to load Parakeet model {}: {}", model_name, e))?;
 
                 // Update current model and model name
                 *self.current_model.write().await = Some(model);
@@ -453,10 +461,10 @@ impl ParakeetEngine {
                 let npu = crate::parakeet_engine::npu::state::encoder_for_kit(model_dir, Path::new(&cache)).map_err(|reason| anyhow!(reason))?;
                 ParakeetModel::new_with_npu(model_dir, npu)
             }
-            None => ParakeetModel::new(model_dir, true),
+            None => ParakeetModel::new_on(model_dir, true, crate::parakeet_engine::onnx_encoder()),
         };
         #[cfg(not(windows))]
-        let model = ParakeetModel::new(model_dir, true);
+        let model = ParakeetModel::new_on(model_dir, true, crate::parakeet_engine::onnx_encoder());
         let model = model.map_err(|e| anyhow!("Failed to load Parakeet model {}: {}", model_dir.display(), e))?;
         *self.current_model.write().await = Some(model);
         *self.current_model_name.write().await = Some(model_dir.display().to_string());

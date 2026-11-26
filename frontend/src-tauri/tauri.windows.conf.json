@@ -3,6 +3,7 @@
     "resources": [
       "templates/*.json",
       "resources/diarization/*",
+      "resources/speech-check/*",
       "runtime-deps/*",
       "installer-variants/*",
       "binaries/onnxruntime/*"

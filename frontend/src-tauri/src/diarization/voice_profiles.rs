@@ -464,6 +464,8 @@ pub async fn enroll_person_voice(
     // Reads up to ten meetings' audio through the speaker models: an update
     // must not restart the app in the middle of it.
     let _busy = crate::updater::busy::hold(crate::updater::busy::BusyReason::Diarization);
+    // After the hold: a Speech check that starts now sees it and refuses.
+    crate::speech_check::refuse_beside("Learning a voice")?;
     let pool = state.db_manager.pool();
     let name: String = sqlx::query_scalar("SELECT display_name FROM people WHERE id = ?")
         .bind(&person_id).fetch_optional(pool).await.map_err(|error| error.to_string())?

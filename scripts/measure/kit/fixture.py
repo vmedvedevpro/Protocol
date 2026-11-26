@@ -208,14 +208,18 @@ def trimmed(clip: list[float]) -> list[float]:
     return clip[max(0, loud[0] - margin):min(len(clip), loud[-1] + FRAME + margin)]
 
 
+def pcm16(samples: list[float]) -> bytes:
+    """16-bit PCM of samples in [-1, 1], clipped."""
+    return array.array("h", (round(max(-1.0, min(1.0, x)) * 32767) for x in samples)).tobytes()
+
+
 def pcm16_wav(samples: list[float]) -> bytes:
-    pcm = array.array("h", (round(max(-1.0, min(1.0, x)) * 32767) for x in samples))
     data = io.BytesIO()
     with wave.open(data, "wb") as out:
         out.setnchannels(1)
         out.setsampwidth(2)
         out.setframerate(SAMPLE_RATE)
-        out.writeframes(pcm.tobytes())
+        out.writeframes(pcm16(samples))
     return data.getvalue()
 
 

@@ -21,6 +21,8 @@ Included:
 - updater/: what the in-app updater did (checks, downloads, installs).
 - crash-report.json: the crash report Protocol offered after its last crash,
   if it is still waiting to be sent or dismissed.
+- speech-check.txt: the last Speech check's report (Settings > Advanced), if
+  Settings still shows it.
 - system.txt: Protocol's version, the operating system, the architecture and
   the acceleration backend.
 - unreadable.txt: files that could not be read, if any.
@@ -46,6 +48,8 @@ pub struct Sources {
     pub errors_file: PathBuf,
     pub updater_dir: PathBuf,
     pub crash_report: Option<Vec<u8>>,
+    /// The report Settings › Advanced › Speech check shows, if any.
+    pub speech_check: Option<String>,
     pub system: String,
 }
 
@@ -76,6 +80,9 @@ pub fn write_bundle(destination: &Path, sources: &Sources, identity: &Identity) 
         }
         if let Some(report) = &sources.crash_report {
             add("crash-report.json", &String::from_utf8_lossy(report))?;
+        }
+        if let Some(report) = &sources.speech_check {
+            add("speech-check.txt", report)?;
         }
         if !unreadable.is_empty() {
             add("unreadable.txt", &format!("Left out, since they could not be read:\n{}\n", unreadable.join("\n")))?;
@@ -118,6 +125,7 @@ pub async fn save_logs_zip<R: Runtime>(app: AppHandle<R>, destination: String) -
         errors_file: super::errors_file(),
         updater_dir: crate::updater::journal_dir(&app),
         crash_report: crate::crash_report::pending_report_json(),
+        speech_check: crate::speech_check::latest_report(),
         system: crate::crash_report::system_summary(),
     };
     let count = tauri::async_runtime::spawn_blocking(move || {
@@ -166,6 +174,7 @@ mod tests {
             errors_file: root.join("log-errors.txt"),
             updater_dir: root.join("updates"),
             crash_report: None,
+            speech_check: None,
             system: "Protocol 1.0.0\n".to_string(),
         }
     }
@@ -175,6 +184,7 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let sources = Sources {
             crash_report: Some(br#"{"crashType":"panic","path":"/home/anna/x"}"#.to_vec()),
+            speech_check: Some("Protocol speech check: passed\nModel: /home/anna/models/x\n".to_string()),
             ..sources(temp.path())
         };
         fs::create_dir_all(&sources.logs_dir).unwrap();
@@ -206,11 +216,13 @@ mod tests {
                 "logs/log-errors.txt",
                 "updater/updater.log",
                 "crash-report.json",
+                "speech-check.txt",
             ]
         );
         let text = |name: &str| files.iter().find(|(file, _)| file == name).unwrap().1.clone();
         assert_eq!(text("logs/protocol_r2026-11-26_09-00-00.log"), "model at ~/.local/share/x for <user>");
         assert_eq!(text("crash-report.json"), r#"{"crashType":"panic","path":"~/x"}"#);
+        assert_eq!(text("speech-check.txt"), "Protocol speech check: passed\nModel: ~/models/x\n");
         assert!(text("README.txt").contains("What the log can hold"));
     }
 

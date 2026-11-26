@@ -28,6 +28,7 @@
     "resources": [
       "templates/*.json",
       "resources/diarization/*",
+      "resources/speech-check/*",
       "binaries/onnxruntime/*"
     ],
     "linux": {

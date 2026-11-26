@@ -50,7 +50,7 @@ impl Engines {
                 engine.load_model_in_place(path).await?;
                 let acceleration = if engine.uses_npu().await {
                     "Intel NPU encoder"
-                } else if crate::parakeet_engine::labs::enabled() {
+                } else if crate::parakeet_engine::onnx_encoder() == crate::parakeet_engine::Encoder::DirectMl {
                     "DirectML encoder (Labs)"
                 } else {
                     "CPU"

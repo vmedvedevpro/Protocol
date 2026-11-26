@@ -16,6 +16,7 @@ import {GeneralSection} from '../components/GeneralSection'
 import {RecordingSection} from '../components/RecordingSection'
 import {SimpleSettings} from '../components/SimpleSettings'
 import {IntelOfferBanner} from '../components/speech/IntelOfferBanner'
+import {SpeechCheckGroup} from '../components/speech/SpeechCheckGroup'
 import {LabsGroup} from '../components/speech/LabsGroup'
 import {LogsGroup} from '../components/LogsGroup'
 import {LocalAiGroup} from '../components/speech/LocalAiGroup'
@@ -127,6 +128,7 @@ function SectionView({section, searching = false}: {section: SettingsSection, se
             return (
                 <>
                     <LocalAiGroup/>
+                    <SpeechCheckGroup/>
                     <DiskGroup/>
                     <AgentsGroup/>
                     <LabsGroup/>

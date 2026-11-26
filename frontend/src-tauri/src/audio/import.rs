@@ -248,7 +248,8 @@ fn extract_duration_from_metadata(path: &Path) -> Result<f64> {
 }
 
 /// Start import of an audio file
-pub async fn start_import<R: Runtime>(
+async fn start_import<R: Runtime>(
+    _guard: ImportGuard,
     app: AppHandle<R>,
     source_path: String,
     title: String,
@@ -257,9 +258,7 @@ pub async fn start_import<R: Runtime>(
     model: Option<String>,
     provider: Option<String>,
 ) -> Result<ImportResult> {
-    // Acquire guard - ensures flag is cleared even on panic/early return
-    let _guard = ImportGuard::acquire().map_err(|e| anyhow!(e))?;
-
+    // `_guard` clears the flag even on panic or an early return.
     // Reset cancellation flag
     IMPORT_CANCELLED.store(false, Ordering::SeqCst);
 
@@ -1001,14 +1000,14 @@ pub async fn start_import_audio_command<R: Runtime>(
     model: Option<String>,
     provider: Option<String>,
 ) -> Result<ImportStarted, String> {
-    // Check if import is already in progress (guard will be acquired in start_import)
-    if IMPORT_IN_PROGRESS.load(Ordering::SeqCst) {
-        return Err("Import already in progress".to_string());
-    }
+    // The flag is the import's busy reason: set before the Speech check is
+    // asked, a check that starts in between sees it and refuses (#233).
+    let guard = ImportGuard::acquire()?;
+    crate::speech_check::refuse_beside("An import")?;
 
     // Spawn import in background
     tauri::async_runtime::spawn(async move {
-        let result = start_import(app, source_path, title, title_is_manual.unwrap_or(true), language, model, provider).await;
+        let result = start_import(guard, app, source_path, title, title_is_manual.unwrap_or(true), language, model, provider).await;
 
         if let Err(e) = result {
             error!("Import failed: {}", e);

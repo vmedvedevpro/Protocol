@@ -441,8 +441,8 @@ impl WhisperEngine {
         #[cfg(any(windows, target_os = "linux"))]
         super::openvino::record_status(super::openvino::BackendStatus::default());
         #[cfg(any(windows, target_os = "linux"))]
-        let reason = match crate::speech_choice::installed(version) {
-            Some(companion) if super::openvino::is_model_dir(&companion.dir) => {
+        let reason = match super::openvino::openvino_model_for(id) {
+            Some(companion) => {
                 if self.try_openvino(&companion.dir, &companion.commit).await {
                     self.release_whisper_cpp().await;
                     *self.current_model.write().await = Some(id.to_string());
@@ -462,7 +462,7 @@ impl WhisperEngine {
                     }
                 }
             }
-            _ => "it is not installed".to_string(),
+            None => "it is not installed".to_string(),
         };
         #[cfg(not(any(windows, target_os = "linux")))]
         let reason = "it runs only on Windows and Linux".to_string();

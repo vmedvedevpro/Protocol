@@ -195,6 +195,9 @@ pub async fn generate_with_builtin(
         global_manager.clone().unwrap()
     };
 
+    // The Speech check runs the speech models on the GPU and in memory the
+    // LLM would take; it stops this LLM when it starts (#233).
+    crate::speech_check::refuse_beside("A summary on this computer").map_err(|error| anyhow!(error))?;
     // Mutual exclusion: free Whisper/Parakeet VRAM before loading the LLM
     // (skipped automatically if a recording is in progress).
     crate::audio::common::prepare_for_llm().await;

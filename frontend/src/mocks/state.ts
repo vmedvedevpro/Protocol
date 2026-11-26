@@ -10,6 +10,7 @@ import {createMockDialogs} from './dialogs'
 import {createMockDiarization} from './diarization'
 import {createMockIntel} from './intel'
 import {createMockLabs} from './labs'
+import {createMockSpeechCheck} from './speechCheck'
 import {createMockLive} from './live'
 import {createMockMeetings} from './meetings'
 import {createMockMinibar} from './minibar'
@@ -112,6 +113,8 @@ function createMockState() {
         speech: createMockSpeech(),
         // The native Labs switches (src/mocks/labs.ts).
         labs: createMockLabs(),
+        // Settings › Advanced › Speech check (src/mocks/speechCheck.ts).
+        speechCheck: createMockSpeechCheck(),
         // Summary templates and the stored default (src/mocks/templates.ts).
         templates: createMockTemplates(),
         // The minibar window (src/mocks/minibar.ts).

@@ -152,55 +152,67 @@ pub struct WhisperGpu {
 pub fn whisper_gpu(compiled_backend: WhisperCompiledBackend) -> Option<WhisperGpu> {
     match compiled_backend {
         #[cfg(feature = "vulkan")]
-        WhisperCompiledBackend::Vulkan => ggml_gpu(whisper_gpu_device(compiled_backend)),
+        WhisperCompiledBackend::Vulkan => {
+            let index = usize::try_from(whisper_gpu_device(compiled_backend)).ok()?;
+            let gpu = ggml_gpu_devices().into_iter().nth(index)?;
+            Some(WhisperGpu { pci_bus_id: gpu.pci_bus_id, name: gpu.description?, integrated: gpu.integrated })
+        }
         _ => None,
     }
 }
 
+/// A GPU in ggml's device registry, as the registry reports it.
 #[cfg(feature = "vulkan")]
-fn ggml_gpu(gpu_device: i32) -> Option<WhisperGpu> {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GgmlGpu {
+    /// The backend's name for it, `Vulkan0`.
+    pub name: Option<String>,
+    /// The device name, `Intel(R) Arc(TM) B390 GPU`.
+    pub description: Option<String>,
+    /// The PCI bus id, when the driver reports one ([`WhisperGpu::pci_bus_id`]).
+    pub pci_bus_id: Option<String>,
+    pub integrated: bool,
+}
+
+/// The GPUs and integrated GPUs ggml's registry lists, in registry order:
+/// the devices whisper.cpp's `gpu_device` counts. The registry's other
+/// devices (the CPU, BLAS) are left out. Looks for the devices first
+/// (`vulkan::look_for_devices`).
+#[cfg(feature = "vulkan")]
+pub fn ggml_gpu_devices() -> Vec<GgmlGpu> {
     use whisper_rs::whisper_rs_sys as sys;
     super::vulkan::look_for_devices();
     let text = |pointer: *const std::os::raw::c_char| {
         // SAFETY: the registry's strings live as long as its devices; copied here.
         (!pointer.is_null()).then(|| unsafe { std::ffi::CStr::from_ptr(pointer) }.to_string_lossy().into_owned())
     };
-    // SAFETY: as in `ggml_device_kinds`; `props` is filled by the registry.
-    unsafe {
-        let device = (0..sys::ggml_backend_dev_count())
-            .map(|index| sys::ggml_backend_dev_get(index))
-            .filter(|device| {
-                matches!(
-                    sys::ggml_backend_dev_type(*device),
-                    sys::ggml_backend_dev_type_GGML_BACKEND_DEVICE_TYPE_GPU | sys::ggml_backend_dev_type_GGML_BACKEND_DEVICE_TYPE_IGPU
-                )
-            })
-            .nth(usize::try_from(gpu_device).ok()?)?;
-        let mut props: sys::ggml_backend_dev_props = std::mem::zeroed();
-        sys::ggml_backend_dev_get_props(device, &mut props);
-        Some(WhisperGpu {
-            pci_bus_id: text(props.device_id),
-            name: text(props.description)?,
-            integrated: props.type_ == sys::ggml_backend_dev_type_GGML_BACKEND_DEVICE_TYPE_IGPU,
-        })
-    }
-}
-
-#[cfg(feature = "vulkan")]
-fn ggml_device_kinds() -> Vec<GgmlDeviceKind> {
-    use whisper_rs::whisper_rs_sys as sys;
-    super::vulkan::look_for_devices();
-    // SAFETY: these registry calls take no pointers except the device handles the registry
-    // itself returns, for indices below the count it reports.
+    // SAFETY: registry calls on the device handles the registry itself returns,
+    // for indices below the count it reports; `props` is filled by the registry.
     unsafe {
         (0..sys::ggml_backend_dev_count())
-            .map(|index| match sys::ggml_backend_dev_type(sys::ggml_backend_dev_get(index)) {
-                sys::ggml_backend_dev_type_GGML_BACKEND_DEVICE_TYPE_GPU => GgmlDeviceKind::Gpu,
-                sys::ggml_backend_dev_type_GGML_BACKEND_DEVICE_TYPE_IGPU => GgmlDeviceKind::IntegratedGpu,
-                _ => GgmlDeviceKind::Other,
+            .map(|index| sys::ggml_backend_dev_get(index))
+            .filter_map(|device| {
+                let integrated = match sys::ggml_backend_dev_type(device) {
+                    sys::ggml_backend_dev_type_GGML_BACKEND_DEVICE_TYPE_GPU => false,
+                    sys::ggml_backend_dev_type_GGML_BACKEND_DEVICE_TYPE_IGPU => true,
+                    _ => return None,
+                };
+                let mut props: sys::ggml_backend_dev_props = std::mem::zeroed();
+                sys::ggml_backend_dev_get_props(device, &mut props);
+                Some(GgmlGpu { name: text(props.name), description: text(props.description), pci_bus_id: text(props.device_id), integrated })
             })
             .collect()
     }
+}
+
+/// The kinds of [`ggml_gpu_devices`], for [`first_discrete_gpu_device`] and
+/// [`any_gpu_device`].
+#[cfg(feature = "vulkan")]
+fn ggml_device_kinds() -> Vec<GgmlDeviceKind> {
+    ggml_gpu_devices()
+        .iter()
+        .map(|gpu| if gpu.integrated { GgmlDeviceKind::IntegratedGpu } else { GgmlDeviceKind::Gpu })
+        .collect()
 }
 
 #[cfg(test)]

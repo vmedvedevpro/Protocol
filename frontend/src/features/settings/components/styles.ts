@@ -57,6 +57,33 @@ export const RowControls = styled.div`
 `
 
 
+/**
+ * A quiet action that is text only, beside a row's main button: Back. No
+ * padding of its own, so its words sit where text sits.
+ */
+export const QuietButton = styled.button`
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-radius: ${({theme}) => theme.radii.xs};
+    background: none;
+    ${({theme}) => theme.text.label};
+    color: ${({theme}) => theme.colors.muted};
+    white-space: nowrap;
+    cursor: pointer;
+    ${colorTransition};
+    ${focusRing};
+
+    &:hover:not(:disabled) {
+        color: ${({theme}) => theme.colors.text};
+    }
+
+    &:disabled {
+        cursor: default;
+        opacity: 0.5;
+    }
+`
+
 /** A text button that opens what follows it in a Collapse, its caret turning: What's new, Credits. */
 export const Disclosure = styled.button`
     display: inline-flex;

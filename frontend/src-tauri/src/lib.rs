@@ -72,6 +72,7 @@ pub mod paths;
 pub mod quit;
 #[cfg(target_os = "linux")]
 mod recording_stream;
+pub mod speech_check;
 pub mod speech_choice;
 pub mod state;
 pub mod summary;
@@ -395,6 +396,10 @@ pub fn run() {
             #[cfg(any(windows, target_os = "linux"))]
             model_catalog::openvino::prune_at_startup();
 
+            // A Speech check Protocol closed during (#233): its note, before
+            // the WebView asks for the check's status.
+            speech_check::startup();
+
             // In-app updates: restores a downloaded update, then checks daily
             // while automatic checks are on (src/updater/).
             updater::init(_app.handle());
@@ -491,6 +496,8 @@ pub fn run() {
                 let diarization_dir = resource_path.join("resources").join("diarization");
                 log::info!("Setting bundled diarization models directory to: {:?}", diarization_dir);
                 diarization::set_bundled_dir(diarization_dir);
+                // The Speech check's sample (#233).
+                speech_check::sample::set_bundled_dir(resource_path.join("resources").join("speech-check"));
             } else {
                 log::warn!("Failed to resolve resource directory for templates");
             }
@@ -650,6 +657,12 @@ pub fn run() {
             diarization::reassign_transcript_speaker,
             diarization::set_diarization_engine,
             diarization::diarization_get_status,
+            // Settings › Advanced › Speech check (#233)
+            speech_check::speech_check_status,
+            speech_check::speech_check_run,
+            speech_check::speech_check_resume,
+            speech_check::speech_check_cancel,
+            speech_check::speech_check_dismiss,
             diarization::set_diarization_config,
             diarization::open_diarization_model_directory,
             minibar::enter_compact_mode,
@@ -824,6 +837,8 @@ pub fn run() {
                     #[cfg(windows)]
                     parakeet_engine::npu::guard::set_closing(true);
                     whisper_engine::vulkan::set_closing(true);
+                    // A check this exit cuts short did not close the app.
+                    speech_check::note::set_closing(true);
                     tauri::async_runtime::block_on(async {
                         // Clean up database connection and checkpoint WAL
                         if let Some(app_state) = _app_handle.try_state::<state::AppState>() {

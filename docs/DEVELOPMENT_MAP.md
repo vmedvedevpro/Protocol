@@ -1904,6 +1904,15 @@ Upstream's VirusTotal submission workflow was removed in #15.
 Live system-meter warnings are documented in
 [SYSTEM_AUDIO_LEVEL_ADVICE.md](SYSTEM_AUDIO_LEVEL_ADVICE.md).
 
+Testers on hardware the developers lack run Settings › Advanced › Speech check
+(#233, [SPEECH_CHECK.md](SPEECH_CHECK.md)): `src-tauri/src/speech_check/` runs
+Parakeet's live path, the pair's Whisper, Pyannote and Nemotron on engines of
+its own over a bundled FLEURS sample, each on the device the engines' own rules
+pick, and writes a scrubbed text and JSON report with each step's picked and
+actual device, fallback error, timings and scores. It holds
+`BusyReason::SpeechCheck`, keeps a crash note in `<data>/speech-check.json`,
+and a recording's start cancels it.
+
 See [PR39_INTEGRATION.md](PR39_INTEGRATION.md) for capture-readiness, setup
 gating, quiet-speech and meeting-scoped speaker-edit recovery corrections.
 
@@ -2124,6 +2133,7 @@ issue.
 | [NEMOTRON_NATIVE_ACTIVATION.md](NEMOTRON_NATIVE_ACTIVATION.md) | Native download/activation lifetime regression and verification. |
 | [MODEL_CATALOG.md](MODEL_CATALOG.md) | The model list on `main`, Hugging Face resolution, install records, 0.3.x installs, model updates, tests and limits. |
 | [upstream/UPSTREAM_0_4_1_PORTS.md](upstream/UPSTREAM_0_4_1_PORTS.md) | Selective upstream integration decisions. |
+| [SPEECH_CHECK.md](SPEECH_CHECK.md) | The Speech check in Settings › Advanced: the steps and their device inputs, the sample, the scores and thresholds, the report and its scrubbing, the crash note, tests and limits. |
 | [DIARIZATION_MODELS.md](DIARIZATION_MODELS.md) | Pyannote/WeSpeaker file provenance, qualification against the 0.3.0 files, voice-profile continuity, the 0.3.0 upgrade path, and how to repeat the measurements. |
 
 The public release documented in README is distinct from a local candidate.

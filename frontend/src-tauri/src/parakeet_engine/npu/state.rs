@@ -530,14 +530,17 @@ async fn unload_parakeet_if_idle() {
 
 // --- Use -----------------------------------------------------------------
 
-/// The NPU encoder for a load of the Parakeet model `model_id` from
-/// `model_dir`, when the NPU is ready for it; `None` otherwise (the
-/// processor). Blocking: about 1.5 s from the cache. A failure is recorded
-/// (state `failed`) and the load goes on without the NPU.
-pub fn encoder_for_load(model_id: &str, model_dir: &Path) -> Option<NpuEncoder> {
-    if model_id != MODEL_ID || status().state != NpuState::Ready {
-        return None;
-    }
+/// Whether the NPU takes a load of the Parakeet model `model_id`: it runs
+/// only Parakeet v3, once prepared (`model::planned_encoder`).
+pub fn ready_for(model_id: &str) -> bool {
+    model_id == MODEL_ID && status().state == NpuState::Ready
+}
+
+/// The NPU encoder for a load of Parakeet v3 from `model_dir`, which
+/// `model::planned_encoder` put on the NPU ([`ready_for`]); `None` when it
+/// cannot run there after all. Blocking: about 1.5 s from the cache. A
+/// failure is recorded (state `failed`) and the load goes on without the NPU.
+pub fn encoder_for_load(model_dir: &Path) -> Option<NpuEncoder> {
     let key_dir = progress().prepared.clone()?;
     // The preparation was for the encoder installed then: one updated since
     // has another key, and compiling it here would take a minute or two.

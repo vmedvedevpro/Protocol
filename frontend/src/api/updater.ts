@@ -20,6 +20,7 @@ export type BusyReason =
     | 'modelDownload'
     | 'modelCompile'
     | 'onboarding'
+    | 'speechCheck'
     | 'speechEngine'
 
 export type UpdateErrorKind =
