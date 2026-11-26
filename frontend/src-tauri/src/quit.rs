@@ -92,6 +92,7 @@ fn busy_clause(reason: BusyReason) -> &'static str {
         BusyReason::PostCall => "a meeting is being processed",
         BusyReason::ModelDownload => "a model is downloading",
         BusyReason::ModelCompile => "a speech model is being prepared for the GPU",
+        BusyReason::SpeechCheck => "the speech check is running",
         BusyReason::Recording | BusyReason::RecordingStopping | BusyReason::RecordingSave => {
             "a recording is being saved"
         }

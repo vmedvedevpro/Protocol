@@ -1,0 +1,524 @@
+//! Speech check (#233): Settings › Advanced runs every speech engine on a
+//! short known sample, each on the device Protocol picks on this computer,
+//! and writes a report a tester can paste into a chat. The feature note is
+//! docs/SPEECH_CHECK.md.
+//!
+//! Ownership. The WebView decides the pair (`api/intel.ts`, as Settings'
+//! For this computer card does) and sends it in a [`Plan`]; from then on the
+//! run is native: it outlives the WebView, holds `BusyReason::SpeechCheck`
+//! for its whole run, and writes its crash note (`note.rs`) before each step.
+//!
+//! Engines. The steps (`steps.rs`) build engines of their own on the models
+//! folder, never the recording's. Before the first step the check unloads
+//! the app's idle engines, under the engine lifecycle lock and only while
+//! nothing records or transcribes: two copies of a model would double its
+//! memory, and the NPU's "active" flag and OpenVINO's last backend outcome
+//! are process-wide. After the last step it loads back what was loaded and
+//! puts OpenVINO's outcome back. It changes no setting and no selection.
+//!
+//! Recording. Run is refused during a recording; a recording's start calls
+//! [`cancel_for_recording`] before it takes the lifecycle lock and does not
+//! wait: the piece in flight finishes on its worker, the check stops at the
+//! next piece and gives nothing back to the recording's engines.
+
+mod hardware;
+pub mod note;
+pub mod report;
+pub mod sample;
+pub mod score;
+mod steps;
+
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
+
+use serde::{Deserialize, Serialize};
+use tauri::{AppHandle, Emitter, Runtime};
+
+use crate::updater::busy::{self, BusyReason};
+use note::Note;
+use report::{Outcome, Pair, Report, StepKind, StepReport, StepStatus};
+
+/// What the WebView asks the check to run.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Plan {
+    /// The pair Protocol picks for this computer: Parakeet's model id…
+    pub live_model: String,
+    /// …and Whisper's, the Intel GPU version's id where the pair names it.
+    pub post_meeting_model: String,
+    /// What the tester selected in Settings, as `engine:model`.
+    #[serde(default)]
+    pub selected_live: Option<String>,
+    #[serde(default)]
+    pub selected_post_meeting: Option<String>,
+    /// Steps whose model the tester chose not to download.
+    #[serde(default)]
+    pub declined: Vec<StepKind>,
+    /// The inputs of the WebView's choice of the pair, name and value.
+    #[serde(default)]
+    pub choice_inputs: Vec<(String, String)>,
+}
+
+impl Plan {
+    pub fn steps(&self) -> Vec<StepKind> {
+        StepKind::ALL.to_vec()
+    }
+
+    fn pair(&self) -> Pair {
+        Pair {
+            live: Some(format!("parakeet:{}", self.live_model)),
+            post_meeting: Some(format!("whisper:{}", self.post_meeting_model)),
+            inputs: self.choice_inputs.clone(),
+        }
+    }
+
+    fn selected(&self) -> Pair {
+        Pair { live: self.selected_live.clone(), post_meeting: self.selected_post_meeting.clone(), inputs: Vec::new() }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn for_tests() -> Self {
+        Plan {
+            live_model: "parakeet-tdt-0.6b-v3-int8".into(),
+            post_meeting_model: "large-v3-turbo-q5_0".into(),
+            selected_live: None,
+            selected_post_meeting: None,
+            declined: Vec::new(),
+            choice_inputs: Vec::new(),
+        }
+    }
+}
+
+/// What the Settings group shows.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(tag = "state", rename_all = "camelCase")]
+pub enum Status {
+    Idle,
+    #[serde(rename_all = "camelCase")]
+    Running {
+        /// The step running now, `None` while the check prepares.
+        step: Option<StepKind>,
+        steps: Vec<StepKind>,
+        done: Vec<StepReport>,
+        cancelling: bool,
+    },
+    /// The check ended: passed, failed or cancelled (`report.outcome`).
+    #[serde(rename_all = "camelCase")]
+    Finished { report: Report, text: String },
+    /// Protocol closed during the check (`note.rs`).
+    #[serde(rename_all = "camelCase")]
+    Interrupted {
+        /// The step that ran, `None` when it closed between steps.
+        closed_in: Option<StepKind>,
+        remaining: Vec<StepKind>,
+        report: Report,
+        text: String,
+    },
+}
+
+pub const CHANGED_EVENT: &str = "speech-check-changed";
+
+static STATUS: Mutex<Status> = Mutex::new(Status::Idle);
+static CANCEL: AtomicBool = AtomicBool::new(false);
+/// A recording started during the run: nothing is given back to its engines.
+static RECORDING_STARTED: AtomicBool = AtomicBool::new(false);
+
+fn status() -> Status {
+    STATUS.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone()
+}
+
+fn set_status<R: Runtime>(app: &AppHandle<R>, status: Status) {
+    *STATUS.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = status.clone();
+    let _ = app.emit(CHANGED_EVENT, status);
+}
+
+fn is_running() -> bool {
+    matches!(status(), Status::Running { .. })
+}
+
+/// Called by a recording's start before it takes the lifecycle lock.
+pub fn cancel_for_recording() {
+    if is_running() {
+        log::info!("[speech check] a recording starts: cancelling the check");
+        RECORDING_STARTED.store(true, Ordering::SeqCst);
+        CANCEL.store(true, Ordering::SeqCst);
+    }
+}
+
+/// The busy reasons the check does not run beside: it unloads the app's
+/// engines, and its timings would include the other work.
+const REFUSED_WHILE: [BusyReason; 7] = [
+    BusyReason::Recording,
+    BusyReason::RecordingStopping,
+    BusyReason::RecordingSave,
+    BusyReason::Import,
+    BusyReason::Retranscription,
+    BusyReason::Diarization,
+    BusyReason::PostCall,
+];
+
+fn refusal() -> Option<String> {
+    let busy = busy::current();
+    if busy.iter().any(|reason| matches!(reason, BusyReason::Recording | BusyReason::RecordingStopping | BusyReason::RecordingSave)) {
+        return Some("The speech check can't run during a recording".into());
+    }
+    busy.iter()
+        .any(|reason| REFUSED_WHILE.contains(reason))
+        .then(|| "The speech check can't run while a transcript is being made".into())
+}
+
+/// The note left by a run that Protocol closed during, read at startup.
+pub fn startup() {
+    let Some(note) = note::take_interrupted() else { return };
+    let status = interrupted(&note);
+    *STATUS.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = status;
+}
+
+fn interrupted(note: &Note) -> Status {
+    let mut steps = note.done.clone();
+    if let Some(kind) = note.closed_in {
+        steps.push(StepReport::new(kind, StepStatus::ClosedTheApp).with_reason("Protocol closed while this step ran"));
+    }
+    let report = build_report(note, steps, Outcome::Interrupted);
+    let text = report.render();
+    Status::Interrupted { closed_in: note.closed_in, remaining: note.remaining(), report, text }
+}
+
+fn build_report(note: &Note, steps: Vec<StepReport>, outcome: Outcome) -> Report {
+    let mut warnings = note.warnings.clone();
+    for step in &steps {
+        if let Some(fallback) = &step.fallback {
+            warnings.push(format!("{}: fell back from {} to {}: {}", step.kind.title(), fallback.from, fallback.to, fallback.error));
+        }
+        if step.status == StepStatus::Failed {
+            if let Some(reason) = &step.reason {
+                warnings.push(format!("{}: {reason}", step.kind.title()));
+            }
+        }
+    }
+    let report = Report {
+        format: report::FORMAT,
+        created: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+        outcome,
+        system: note.system.clone(),
+        pair: note.pair.clone(),
+        selected: note.selected.clone(),
+        steps,
+        warnings,
+    };
+    report.scrubbed(&report::Private::of_this_computer())
+}
+
+#[tauri::command]
+pub fn speech_check_status() -> Status {
+    status()
+}
+
+#[tauri::command]
+pub async fn speech_check_run<R: Runtime>(app: AppHandle<R>, plan: Plan) -> Result<(), String> {
+    start(app, plan, None)
+}
+
+/// Runs the steps a run Protocol closed during did not finish.
+#[tauri::command]
+pub async fn speech_check_resume<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
+    let Some(note) = note::take_interrupted() else { return Err("There is no check to resume".into()) };
+    start(app, note.plan.clone(), Some(note))
+}
+
+#[tauri::command]
+pub fn speech_check_cancel<R: Runtime>(app: AppHandle<R>) {
+    if let Status::Running { step, steps, done, .. } = status() {
+        CANCEL.store(true, Ordering::SeqCst);
+        set_status(&app, Status::Running { step, steps, done, cancelling: true });
+    }
+}
+
+/// Back to idle: the report is put away, an interrupted run's note too.
+#[tauri::command]
+pub fn speech_check_dismiss<R: Runtime>(app: AppHandle<R>) {
+    if !is_running() {
+        note::remove();
+        set_status(&app, Status::Idle);
+    }
+}
+
+fn start<R: Runtime>(app: AppHandle<R>, plan: Plan, resumed: Option<Note>) -> Result<(), String> {
+    {
+        let mut current = STATUS.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        if matches!(*current, Status::Running { .. }) {
+            return Err("The speech check is already running".into());
+        }
+        if let Some(refused) = refusal() {
+            return Err(refused);
+        }
+        *current = Status::Running { step: None, steps: plan.steps(), done: Vec::new(), cancelling: false };
+    }
+    CANCEL.store(false, Ordering::SeqCst);
+    RECORDING_STARTED.store(false, Ordering::SeqCst);
+    let busy = busy::hold(BusyReason::SpeechCheck);
+    tauri::async_runtime::spawn(async move {
+        let _busy = busy;
+        run(&app, plan, resumed).await;
+    });
+    Ok(())
+}
+
+/// The app's engines as the check found them.
+struct Held {
+    whisper: Option<String>,
+    parakeet: Option<String>,
+    #[cfg(any(windows, target_os = "linux"))]
+    backend: Option<crate::whisper_engine::openvino::BackendStatus>,
+}
+
+fn app_engines() -> (Option<std::sync::Arc<crate::whisper_engine::WhisperEngine>>, Option<std::sync::Arc<crate::parakeet_engine::ParakeetEngine>>) {
+    let whisper = crate::whisper_engine::commands::WHISPER_ENGINE.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone();
+    let parakeet = crate::parakeet_engine::commands::PARAKEET_ENGINE.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone();
+    (whisper, parakeet)
+}
+
+async fn take_engines() -> Held {
+    let _engines = crate::audio::common::acquire_engine_lifecycle_lock().await;
+    let (whisper, parakeet) = app_engines();
+    let held = Held {
+        whisper: match &whisper {
+            Some(engine) => engine.get_current_model().await,
+            None => None,
+        },
+        parakeet: match &parakeet {
+            Some(engine) => engine.get_current_model().await,
+            None => None,
+        },
+        #[cfg(any(windows, target_os = "linux"))]
+        backend: crate::whisper_engine::openvino::backend_status(),
+    };
+    crate::audio::common::unload_both_stt_engines().await;
+    held
+}
+
+/// Loads back what the app's engines held, unless a recording started (it
+/// loads what it needs) or something loaded meanwhile.
+async fn give_back(held: Held, warnings: &mut Vec<String>) {
+    let recording = || RECORDING_STARTED.load(Ordering::SeqCst);
+    if recording() || crate::audio::recording_commands::is_recording().await {
+        return;
+    }
+    let _engines = crate::audio::common::acquire_engine_lifecycle_lock().await;
+    let (whisper, parakeet) = app_engines();
+    let mut whisper_reloaded = false;
+    if let (Some(engine), Some(model)) = (&parakeet, &held.parakeet) {
+        if !recording() && engine.get_current_model().await.is_none() {
+            if let Err(error) = engine.load_model(model).await {
+                warnings.push(format!("Parakeet {model} did not load again after the check: {error}"));
+            }
+        }
+    }
+    if let (Some(engine), Some(model)) = (&whisper, &held.whisper) {
+        if !recording() && engine.get_current_model().await.is_none() {
+            whisper_reloaded = true;
+            if let Err(error) = engine.load_model(model).await {
+                warnings.push(format!("Whisper {model} did not load again after the check: {error}"));
+            }
+        }
+    }
+    // A reload records its own outcome; otherwise the check's must not stand
+    // in Settings for the app's last load.
+    #[cfg(any(windows, target_os = "linux"))]
+    if !whisper_reloaded {
+        crate::whisper_engine::openvino::record_status(held.backend.unwrap_or_default());
+    }
+    let _ = whisper_reloaded;
+}
+
+async fn run<R: Runtime>(app: &AppHandle<R>, plan: Plan, resumed: Option<Note>) {
+    let held = take_engines().await;
+    let system = tokio::task::spawn_blocking(hardware::system).await.unwrap_or_default();
+    let mut note = match resumed {
+        Some(mut note) => {
+            note.system = system;
+            note
+        }
+        None => Note {
+            pair: plan.pair(),
+            selected: plan.selected(),
+            plan: plan.clone(),
+            system,
+            done: Vec::new(),
+            running: None,
+            closed_in: None,
+            warnings: Vec::new(),
+        },
+    };
+    if note.selected.live.is_some() || note.selected.post_meeting.is_some() {
+        let report_pair = Report { selected: note.selected.clone(), pair: note.pair.clone(), ..empty_report() };
+        if report_pair.selection_differs() && !note.warnings.iter().any(|warning| warning.starts_with("The selected models")) {
+            note.warnings.push("The selected models differ from the pair Protocol picks for this computer; the check ran the pair".into());
+        }
+    }
+    note::write(&note);
+    let to_run: Vec<StepKind> = note.remaining();
+    let closed = note.closed_in.map(|kind| StepReport::new(kind, StepStatus::ClosedTheApp).with_reason("Protocol closed while this step ran"));
+
+    let clips = tokio::task::spawn_blocking(sample::load).await.map_err(|error| anyhow::anyhow!(error.to_string())).and_then(|loaded| loaded);
+    let cancelled = || CANCEL.load(Ordering::SeqCst);
+    match &clips {
+        Ok(clips) => {
+            let context = steps::Context { clips, cancelled: &cancelled };
+            for kind in to_run {
+                let report = if cancelled() {
+                    StepReport::new(kind, StepStatus::Cancelled).with_reason("Cancelled")
+                } else if plan.declined.contains(&kind) {
+                    StepReport::new(kind, StepStatus::NotChecked).with_reason("The model was not downloaded for the check")
+                } else {
+                    set_status(app, Status::Running { step: Some(kind), steps: plan.steps(), done: note.done.clone(), cancelling: false });
+                    note.running = Some(kind);
+                    note::write(&note);
+                    log::info!("[speech check] checking {}", kind.title());
+                    let report = match kind {
+                        StepKind::Parakeet => steps::parakeet(&plan.live_model, &context).await,
+                        StepKind::Whisper => steps::whisper(&plan.post_meeting_model, &context).await,
+                        StepKind::Pyannote => steps::pyannote(&context).await,
+                        StepKind::Nemotron => steps::nemotron(&context).await,
+                    };
+                    note.running = None;
+                    log::info!("[speech check] {}: {:?}", kind.title(), report.status);
+                    report
+                };
+                note.done.push(report);
+                note::write(&note);
+            }
+        }
+        Err(error) => {
+            for kind in to_run {
+                note.done.push(StepReport::new(kind, StepStatus::Failed).with_reason(format!("The sample did not load: {error}")));
+            }
+        }
+    }
+    give_back(held, &mut note.warnings).await;
+    // The steps in the plan's order, the one that closed the app among them.
+    let mut steps: Vec<StepReport> = Vec::new();
+    for kind in plan.steps() {
+        if let Some(step) = note.done.iter().find(|step| step.kind == kind) {
+            steps.push(step.clone());
+        } else if let Some(step) = closed.as_ref().filter(|step| step.kind == kind) {
+            steps.push(step.clone());
+        }
+    }
+    let mut outcome = Report::outcome_of(&steps);
+    // A crash in an earlier start is reported, but it does not make this run interrupted.
+    if outcome == Outcome::Interrupted {
+        let rest: Vec<StepReport> = steps.iter().filter(|step| step.status != StepStatus::ClosedTheApp).cloned().collect();
+        outcome = match Report::outcome_of(&rest) {
+            Outcome::Passed => Outcome::Failed,
+            other => other,
+        };
+    }
+    let report = build_report(&note, steps, outcome);
+    note::remove();
+    let text = report.render();
+    set_status(app, Status::Finished { report, text });
+}
+
+fn empty_report() -> Report {
+    Report {
+        format: report::FORMAT,
+        created: String::new(),
+        outcome: Outcome::Passed,
+        system: Default::default(),
+        pair: Pair::default(),
+        selected: Pair::default(),
+        steps: Vec::new(),
+        warnings: Vec::new(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_interrupted_run_reports_the_step_that_closed_the_app_and_offers_the_rest() {
+        let mut note = note::tests::note();
+        note.done.push(StepReport::new(StepKind::Parakeet, StepStatus::Passed));
+        note.closed_in = Some(StepKind::Whisper);
+        match interrupted(&note) {
+            Status::Interrupted { closed_in, remaining, report, text } => {
+                assert_eq!(closed_in, Some(StepKind::Whisper));
+                assert_eq!(remaining, vec![StepKind::Pyannote, StepKind::Nemotron]);
+                assert_eq!(report.outcome, Outcome::Interrupted);
+                assert!(text.contains("Whisper (after the meeting): CLOSED THE APP"), "{text}");
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_recording_start_cancels_a_running_check_only() {
+        CANCEL.store(false, Ordering::SeqCst);
+        cancel_for_recording();
+        assert!(!CANCEL.load(Ordering::SeqCst), "nothing runs, nothing to cancel");
+        *STATUS.lock().unwrap() = Status::Running { step: Some(StepKind::Whisper), steps: StepKind::ALL.to_vec(), done: Vec::new(), cancelling: false };
+        cancel_for_recording();
+        assert!(CANCEL.load(Ordering::SeqCst));
+        assert!(RECORDING_STARTED.load(Ordering::SeqCst));
+        *STATUS.lock().unwrap() = Status::Idle;
+        CANCEL.store(false, Ordering::SeqCst);
+        RECORDING_STARTED.store(false, Ordering::SeqCst);
+    }
+
+    #[test]
+    fn the_check_refuses_to_run_beside_a_recording_or_a_transcript() {
+        let _recording = busy::hold(BusyReason::Recording);
+        assert_eq!(refusal().as_deref(), Some("The speech check can't run during a recording"));
+        drop(_recording);
+        let _import = busy::hold(BusyReason::Import);
+        assert_eq!(refusal().as_deref(), Some("The speech check can't run while a transcript is being made"));
+    }
+
+    /// Every step on the models installed in the test binary's data folder
+    /// (`<target>/debug/deps/data/models`; link the QA profile's `models`
+    /// there), on the bundled sample. Prints the report; `SPEECH_CHECK_WHISPER`
+    /// picks the Whisper model (the Compressed copy by default). Run with
+    /// `--ignored --nocapture`; docs/SPEECH_CHECK.md says what it shows.
+    #[tokio::test]
+    #[ignore = "needs installed models in the test binary's data/models (docs/SPEECH_CHECK.md)"]
+    async fn every_engine_runs_the_sample_on_the_installed_models() {
+        let _ = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).is_test(true).try_init();
+        let resources = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("resources");
+        sample::set_bundled_dir(resources.join("speech-check"));
+        crate::diarization::set_bundled_dir(resources.join("diarization"));
+        let clips = sample::load().expect("the bundled sample");
+        let cancelled = || false;
+        let context = steps::Context { clips: &clips, cancelled: &cancelled };
+        let whisper = std::env::var("SPEECH_CHECK_WHISPER").unwrap_or_else(|_| "large-v3-turbo-q5_0".into());
+        let mut plan = Plan::for_tests();
+        plan.post_meeting_model = whisper.clone();
+        let steps = vec![
+            steps::parakeet(&plan.live_model, &context).await,
+            steps::whisper(&whisper, &context).await,
+            steps::pyannote(&context).await,
+            steps::nemotron(&context).await,
+        ];
+        let mut note = note::tests::note();
+        note.plan = plan.clone();
+        note.pair = plan.pair();
+        note.system = hardware::system();
+        let outcome = Report::outcome_of(&steps);
+        let report = build_report(&note, steps, outcome);
+        println!("{}", report.render());
+        for step in &report.steps {
+            assert!(matches!(step.status, StepStatus::Passed | StepStatus::NotChecked), "{:?}: {:?}", step.kind, step.reason);
+        }
+    }
+
+    #[test]
+    fn the_plan_names_the_pair_as_settings_saves_models() {
+        let plan = Plan::for_tests();
+        assert_eq!(plan.pair().live.as_deref(), Some("parakeet:parakeet-tdt-0.6b-v3-int8"));
+        assert_eq!(plan.pair().post_meeting.as_deref(), Some("whisper:large-v3-turbo-q5_0"));
+        let json = serde_json::json!({"liveModel": "a", "postMeetingModel": "b", "declined": ["nemotron"]});
+        let parsed: Plan = serde_json::from_value(json).unwrap();
+        assert_eq!(parsed.declined, vec![StepKind::Nemotron]);
+    }
+}

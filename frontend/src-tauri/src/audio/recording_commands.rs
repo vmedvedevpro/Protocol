@@ -398,6 +398,8 @@ pub async fn start_recording_with_meeting_name<R: Runtime>(
         meeting_name
     );
 
+    // The Speech check stops at its next piece and gives back nothing (#233).
+    crate::speech_check::cancel_for_recording();
     let engine_lifecycle_guard = super::common::acquire_engine_lifecycle_lock().await;
 
     // Check if already recording
@@ -688,6 +690,8 @@ pub async fn start_recording_with_devices_and_meeting<R: Runtime>(
         mic_device_name, system_device_name, meeting_name
     );
 
+    // The Speech check stops at its next piece and gives back nothing (#233).
+    crate::speech_check::cancel_for_recording();
     let engine_lifecycle_guard = super::common::acquire_engine_lifecycle_lock().await;
 
     // Check if already recording
