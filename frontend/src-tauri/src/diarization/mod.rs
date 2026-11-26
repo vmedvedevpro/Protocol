@@ -1122,8 +1122,9 @@ pub async fn diarize_meeting(
     threshold: Option<f32>,
     engine: Option<String>,
 ) -> Result<MeetingDiarizationResult, String> {
-    crate::speech_check::refuse_beside("Identifying speakers")?;
     let _busy = crate::updater::busy::hold(crate::updater::busy::BusyReason::Diarization);
+    // After the hold: a Speech check that starts now sees it and refuses.
+    crate::speech_check::refuse_beside("Identifying speakers")?;
     let _operation_guard = operation_guard().await;
     let pool = state.db_manager.pool();
     let selected_engine = engine.unwrap_or_else(get_active_engine);
