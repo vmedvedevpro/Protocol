@@ -1,0 +1,34 @@
+import {createElement} from 'react'
+import {screen, waitFor} from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import {createMemoryRouter, RouterProvider} from 'react-router-dom'
+import {describe, expect, it, vi} from 'vitest'
+import {mockState} from '@/mocks/state'
+import {renderUi} from '@/test/renderUi'
+import {RouteError} from './RouteError'
+
+function Broken(): never {
+    throw new Error('Cannot read properties of undefined (reading "title")')
+}
+
+describe('RouteError', () => {
+    it('shows a screen that threw, logs it and goes back to the meetings', async () => {
+        // React logs the caught render error itself; keep the output clean.
+        vi.spyOn(console, 'error').mockImplementation(() => undefined)
+        const router = createMemoryRouter([
+            {path: '/', element: createElement('p', null, 'Meetings')},
+            {path: '/broken', element: createElement(Broken), errorElement: createElement(RouteError)},
+        ], {initialEntries: ['/broken']})
+        renderUi(createElement(RouterProvider, {router}))
+
+        expect(await screen.findByRole('heading', {level: 1, name: 'Something went wrong'})).toBeInTheDocument()
+        expect(screen.getByText(/reading "title"/)).toBeInTheDocument()
+        expect(screen.getByText(/use Save logs in Settings › Advanced/)).toBeInTheDocument()
+        await waitFor(() => expect(mockState.logs.webViewErrors).toEqual([
+            {kind: 'screen error', message: 'Cannot read properties of undefined (reading "title")'},
+        ]))
+
+        await userEvent.click(screen.getByRole('button', {name: 'Back to meetings'}))
+        expect(await screen.findByText('Meetings')).toBeInTheDocument()
+    })
+})

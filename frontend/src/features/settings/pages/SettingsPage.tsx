@@ -17,6 +17,7 @@ import {RecordingSection} from '../components/RecordingSection'
 import {SimpleSettings} from '../components/SimpleSettings'
 import {IntelOfferBanner} from '../components/speech/IntelOfferBanner'
 import {LabsGroup} from '../components/speech/LabsGroup'
+import {LogsGroup} from '../components/LogsGroup'
 import {LocalAiGroup} from '../components/speech/LocalAiGroup'
 import {SpeechModelsGroup, TranscriptionGroups} from '../components/speech/TranscriptionGroups'
 import {SummariesGroup} from '../components/SummariesGroup'
@@ -129,6 +130,7 @@ function SectionView({section, searching = false}: {section: SettingsSection, se
                     <DiskGroup/>
                     <AgentsGroup/>
                     <LabsGroup/>
+                    <LogsGroup/>
                 </>
             )
     }

@@ -4,6 +4,7 @@ import {createRoot} from 'react-dom/client'
 import {QueryClientProvider} from '@tanstack/react-query'
 import {App} from './app/App'
 import {isTauri} from './api/core'
+import {installErrorLogging} from './api/logs'
 import {queryClient} from './lib/queryClient'
 
 async function start() {
@@ -13,6 +14,8 @@ async function start() {
         const {installMockIpc} = await import('./mocks/ipc')
         installMockIpc()
     }
+    // From here on the window's uncaught errors reach the native log.
+    installErrorLogging()
 
     createRoot(document.getElementById('root')!).render(
         <StrictMode>
