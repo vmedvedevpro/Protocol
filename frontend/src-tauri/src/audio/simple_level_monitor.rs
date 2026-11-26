@@ -197,9 +197,9 @@ fn default_monitor_devices() -> Vec<String> {
     out
 }
 
-/// Linux: the device the select names, by its exact label; an input first,
-/// then an output's monitor (#216). Loose matching would take the input
-/// "X" for "Monitor of X".
+/// Linux: the device the select names, by its label as `Listing::find`
+/// looks it up; an input first, then an output's monitor (#216). Substring
+/// matching would take the input "X" for "Monitor of X".
 #[cfg(target_os = "linux")]
 fn open_level_stream(device_name: &str, levels: LevelMap) -> Result<LevelStream> {
     use crate::audio::devices::platform::linux::{resolve, Capture};

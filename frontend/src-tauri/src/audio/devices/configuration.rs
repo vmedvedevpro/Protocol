@@ -171,17 +171,34 @@ pub async fn get_device_and_config(
     }
 }
 
-/// Whether a stored device can be opened now, without opening it. A recording
-/// start checks this to fall back to the default for a device that is not
-/// connected.
-pub async fn ensure_available(audio_device: &AudioDevice) -> Result<()> {
+/// A stored device whose name now fits several connected devices (two
+/// identical microphones, #216), so none of them is opened for it.
+#[derive(Debug)]
+pub struct AmbiguousDevice {
+    pub name: String,
+    pub count: usize,
+}
+
+impl fmt::Display for AmbiguousDevice {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "'{}' now fits {} connected devices", self.name, self.count)
+    }
+}
+
+impl std::error::Error for AmbiguousDevice {}
+
+/// The stored device as it can be opened now, without opening it: the same
+/// device, under its current name where Linux matched an older form of it.
+/// A recording start checks this to fall back to the default for a device
+/// that is not connected, and tells the user it did.
+pub async fn ensure_available(audio_device: &AudioDevice) -> Result<AudioDevice> {
     #[cfg(target_os = "linux")]
     {
         let device = audio_device.clone();
-        return tokio::task::spawn_blocking(move || super::platform::linux::resolve(&device).map(|_| ()))
+        return tokio::task::spawn_blocking(move || super::platform::linux::current_name(&device))
             .await
             .map_err(|error| anyhow!("the device check stopped: {error}"))?;
     }
     #[cfg(not(target_os = "linux"))]
-    get_device_and_config(audio_device).await.map(|_| ())
+    get_device_and_config(audio_device).await.map(|_| audio_device.clone())
 }

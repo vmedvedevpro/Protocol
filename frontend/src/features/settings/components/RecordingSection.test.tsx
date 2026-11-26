@@ -135,6 +135,14 @@ describe('Recording › devices', () => {
         expect(stored().preferred_system_device).toBe('USB Headset (output)')
     })
 
+    it('says why the devices could not be listed', async () => {
+        const error = 'Failed to list audio devices: PULSE_SERVER is set to "tcp:media:4713", which names no local socket; Protocol reaches the sound server only through a local socket (unix:/path)'
+        mockState.devices.listError = error
+        renderRecording('linux')
+
+        expect(await screen.findAllByText(error)).toHaveLength(2) // the microphone and the output row
+    })
+
     it('opens no device until Test, and stops on a second press', async () => {
         mockState.devices.recordingPreferences = {...stored(), preferred_mic_device: 'Studio Display Microphone (input)'}
         renderRecording()

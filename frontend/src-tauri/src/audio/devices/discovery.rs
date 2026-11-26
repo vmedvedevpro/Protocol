@@ -63,7 +63,8 @@ pub async fn list_audio_devices() -> Result<Vec<AudioDevice>> {
 /// a microphone is there.
 #[cfg(target_os = "linux")]
 pub fn trigger_audio_permission() -> Result<bool> {
-    let present = platform::linux::microphone_present();
+    let present = platform::linux::microphone_present()
+        .inspect_err(|error| log::error!("[trigger_audio_permission] Linux: {error:#}"))?;
     log::info!("[trigger_audio_permission] Linux: a microphone is present: {present}");
     Ok(present)
 }

@@ -10,6 +10,8 @@ export interface MockDevices {
     pickedFolder: string | null
     /** Folders `open_recordings_folder` opened, in order, instead of a file manager. */
     openedFolders: string[]
+    /** What `get_audio_devices` rejects with instead of the list, as native's error string. */
+    listError: string | null
 }
 
 /** The default microphone and output, whose levels the fake feed sends (src/mocks/audio.ts). */
@@ -31,6 +33,7 @@ export function createMockDevices(platform: Platform): MockDevices {
     return {
         pickedFolder: platform === 'windows' ? 'D:\\Meetings' : '/home/preview/Meetings',
         openedFolders: [],
+        listError: null,
         list: [
             {name: MOCK_MICROPHONE, device_type: 'Input'},
             {name: 'Studio Display Microphone', device_type: 'Input'},
@@ -69,7 +72,10 @@ const clampGain = (gain: number) => Math.min(MAX_GAIN, Math.max(MIN_GAIN, gain))
  */
 export function devicesHandlers(state: {devices: MockDevices}): Record<string, MockHandler> {
     return {
-        get_audio_devices: () => structuredClone(state.devices.list),
+        get_audio_devices: () => {
+            if (state.devices.listError) throw state.devices.listError
+            return structuredClone(state.devices.list)
+        },
         get_recording_preferences: () => structuredClone(state.devices.recordingPreferences),
         set_recording_preferences: ({preferences}) => {
             if (preferences === undefined) {

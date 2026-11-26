@@ -270,10 +270,16 @@ was not found at all.
   (no libpulse to link or ship; cpal 0.18's PulseAudio host uses the same
   crate). Its `Client` is not used: its reactor ignores `RecordStreamKilled`.
   One blocking connection per listing and one per record stream, each with a
-  3-second reply timeout. Auth sends libpulse's cookie, or 256 zero bytes
-  when there is none: `pipewire-pulse` lets the user's own socket in by its
-  credentials but refuses a cookie of another length, which left a fresh
-  profile without a microphone.
+  3-second reply timeout. A `$PULSE_SERVER` that names no local socket that
+  exists (a TCP server, a stale path) is an error naming the variable and
+  its value, logged by the listing and shown in Settings, the inputs menu
+  and onboarding's microphone check; only with no socket at all is ALSA
+  offered. Auth sends libpulse's cookie (`$PULSE_COOKIE`,
+  `$XDG_CONFIG_HOME/pulse/cookie`, `~/.pulse-cookie`; `choose_cookie`), or
+  256 zero bytes when it is missing, unreadable or of another length, and
+  logs which case applied once: `pipewire-pulse` lets the user's own socket
+  in by its credentials but refuses a cookie of another length, which left
+  a fresh profile without a microphone.
 - `audio/pulse/devices.rs` lists sources in one round trip without opening a
   device: inputs, and the monitor of each output ("Monitor of …") as
   computer audio. A device is shown and stored by the server's description;
@@ -283,10 +289,26 @@ was not found at all.
   while another runs waits for it and takes its answer (`LAST`), so Settings,
   the inputs menu and a recording start do not each list again.
   `discovery.rs` runs it on a blocking thread.
+- A stored label is looked up by `Listing::find`: exactly; by the server's
+  name in its brackets (a twin's label once the other twin is gone); a plain
+  label two twins now share is ambiguous, not either of them; and the forms
+  Linux stored before #216, each only where it names one device: ALSA's
+  `default`, `pulse`, `pipewire` and "ALSA default input" are the default
+  input, a hardware PCM (`hw:CARD=X,DEV=N`, `plughw:`, `dsnoop:`, `front:`,
+  `sysdefault:CARD=X`) is the one input with that `alsa.card` and
+  `alsa.device` (the card id resolved through `/proc/asound`), and
+  "<name> (System Audio)" is a monitor with that server name or label.
+  `get_recording_preferences` answers a matched device under its current
+  label, so the select and the bar do not call it missing.
 - `audio/devices/platform/linux.rs` resolves a stored device to a source
   name (`Capture::SoundServer`). Without a sound server only "ALSA default
   input" is offered (cpal's ALSA `default`), and computer audio reports that
   it needs PipeWire or PulseAudio.
+- A recording start that cannot open the stored microphone or computer
+  audio records the default instead and says so in the warning toast
+  (`recording_commands.rs` `stored_or_default`, `substitution_warning`):
+  "Your microphone “X” isn’t connected; recording from “Y”.", or that the
+  name now matches several devices. All platforms.
 - `audio/pulse/record.rs` opens a record stream for that source as 48 kHz
   mono f32 (the server converts) with 20 ms fragments and `no_move`: an
   unplugged device ends the stream (`Ended::SourceRemoved` →
@@ -302,13 +324,18 @@ was not found at all.
   one before and the mixer padded or dropped the difference. Each block ends
   one block after the one before, never after it arrived; the clock restarts
   at arrival only when a block with nothing behind it lags by over 100 ms
-  (the server lost audio). A backlog after a stall keeps its capture times.
+  (the server lost audio, or the card's clock runs slow). A backlog after a
+  stall keeps its capture times. A message announced over 4 MiB ends the
+  stream as failed before anything is allocated for it.
 - `simple_level_monitor.rs` opens the same streams for the level ring,
   matching the select's label exactly (an input first, then a monitor).
 
 Tests: `cargo test -p protocol --lib audio::pulse` (naming, duplicate
-descriptions, a reconnect under a new index, sample decoding, the capture
-clock against PipeWire's quantum, a backlog and lost audio). Ignored ones
+descriptions, a reconnect under a new index, stored-label lookup with
+twins and pre-#216 ALSA names, `PULSE_SERVER` errors, the cookie choice,
+sample decoding, the capture clock against PipeWire's quantum, a backlog,
+lost audio and a slow card, the message bound) and `substitution_tests` in
+`recording_commands.rs` (the notice). Ignored ones
 need a running server: `lists_the_running_sound_server`, and
 `records_the_chosen_input_and_output_monitor`, which records two seconds from
 the labels in `PROTOCOL_QA_INPUT` and `PROTOCOL_QA_OUTPUT` and checks

@@ -149,7 +149,7 @@ export function MicCheck({platform}: { platform: Platform }) {
     const ready = access.data !== undefined && preferences.data !== undefined && devices.data !== undefined
     useAudioLevelMonitoring(ready ? previewNames(platform, mic, output, devices.data) : null)
 
-    const denied = access.data === false || access.isError
+    const denied = access.data === false || access.isError || devices.isError
     const listening = test.state === 'listening'
     const micFeed: LevelFeed = {kind: 'device', type: 'input', device: mic ?? undefined}
 
@@ -158,9 +158,10 @@ export function MicCheck({platform}: { platform: Platform }) {
         note = (
             <Note key="micDenied" {...swap}>
                 <WarningIcon size={14}/>
-                <span>Protocol can’t open the microphone.</span>
+                {/* A device list that failed says why, as a misconfigured sound server does (#216). */}
+                <span>{devices.isError ? devices.error.message : 'Protocol can’t open the microphone.'}</span>
                 {platform === 'macos' && <SettingsButton pane="Privacy_Microphone"/>}
-                <Button size="sm" variant="ghost" pending={access.isFetching} onClick={() => void access.refetch()}>Try again</Button>
+                <Button size="sm" variant="ghost" pending={access.isFetching || devices.isFetching} onClick={() => void Promise.all([access.refetch(), devices.refetch()])}>Try again</Button>
                 <Veil duration="fast"/>
             </Note>
         )

@@ -58,7 +58,9 @@ is inherited from the project Protocol forked from; Protocol did not release it.
   device names. Recording and the level check use the chosen one, and
   computer audio can be recorded on Linux. Listing devices no longer
   fills the log with ALSA errors. Without a sound server only ALSA's
-  default input is offered.
+  default input is offered. A device chosen before this version is kept
+  where its old ALSA name names one device; otherwise a recording says
+  which device it uses instead.
 - **Processors without AVX2**
   ([#216](https://github.com/vmedvedevpro/Protocol/issues/216)). On Windows
   and Linux, a processor without AVX2 gets a message that it is not

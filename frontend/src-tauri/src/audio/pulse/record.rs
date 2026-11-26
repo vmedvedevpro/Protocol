@@ -31,6 +31,25 @@ pub const CHANNELS: u16 = 1;
 /// not fit (RustAudio/cpal#1387).
 const FRAGMENT_BYTES: u32 = SAMPLE_RATE / 50 * 4;
 
+/// The largest message the stream reads. A record stream receives data
+/// blocks of one fragment (3840 bytes) or, after a stall, of what the server
+/// held for it, and short commands; PulseAudio itself refuses frames over
+/// 16 MiB. The length comes off the socket before the payload, so a corrupt
+/// or hostile one must not make the thread allocate gigabytes: past this it
+/// is a stream failure.
+const MAX_MESSAGE: u32 = 4 << 20;
+
+/// The payload length a descriptor announces, if the stream accepts it.
+fn message_length(announced: u32) -> Result<usize, String> {
+    if announced > MAX_MESSAGE {
+        return Err(format!(
+            "the sound server announced a {announced}-byte message, over the {} MiB a record stream accepts",
+            MAX_MESSAGE >> 20
+        ));
+    }
+    Ok(announced as usize)
+}
+
 /// How far the sample count may fall behind arrival, on a block after which
 /// nothing more is waiting to be read, before the clock restarts at arrival. Delivery jitter is under
 /// one server quantum (1024 samples, 21 ms, on PipeWire's default); a larger
@@ -174,14 +193,17 @@ impl RecordStream {
                 let mut carry = Vec::new();
                 let mut clock = Clock::default();
                 let ended = loop {
-                    let message = protocol::read_descriptor(&mut reader).map_err(|error| error.to_string()).and_then(|descriptor| {
-                        payload.resize(descriptor.length as usize, 0);
-                        reader.read_exact(&mut payload).map_err(|error| error.to_string())?;
+                    fn lost(error: impl std::fmt::Display) -> String {
+                        format!("lost the sound server: {error}")
+                    }
+                    let message = protocol::read_descriptor(&mut reader).map_err(lost).and_then(|descriptor| {
+                        payload.resize(message_length(descriptor.length)?, 0);
+                        reader.read_exact(&mut payload).map_err(lost)?;
                         Ok(descriptor)
                     });
                     let descriptor = match message {
                         Ok(descriptor) => descriptor,
-                        Err(error) => break Ended::Failed(format!("lost the sound server: {error}")),
+                        Err(error) => break Ended::Failed(error),
                     };
                     if stop_seen.load(Ordering::Acquire) {
                         return;
@@ -335,6 +357,34 @@ mod tests {
         // A lag under `LOST` is jitter and keeps counting.
         let jitter = ends(start, &[(ms(20), true), (ms(90), true)]);
         assert_eq!(jitter, [start + ms(20), start + ms(40)]);
+    }
+
+    #[test]
+    fn a_card_slower_than_the_system_clock_restarts_the_clock_past_lost() {
+        let start = Instant::now();
+        // Each 20 ms block arrives 21 ms after the one before: the card runs
+        // 5 % slow, and the count falls 1 ms further behind arrival per block.
+        let arrivals: Vec<_> = (0..104).map(|n| (ms(21 * (n + 1)), true)).collect();
+        let stamped = ends(start, &arrivals);
+        // Block 100 lags its arrival by 100 ms, which is not past `LOST`: counted.
+        assert_eq!(stamped[100], start + ms(21 + 20 * 100));
+        assert_eq!(start + arrivals[100].0 - stamped[100], LOST);
+        // Block 101 would lag by 101 ms: it is stamped at its arrival, a jump
+        // of 121 ms instead of 20, and counting goes on from there.
+        assert_eq!(stamped[101], start + arrivals[101].0);
+        assert_eq!(stamped[101] - stamped[100], ms(121));
+        assert_eq!(stamped[102], stamped[101] + ms(20));
+        assert_eq!(stamped[103], stamped[102] + ms(20));
+    }
+
+    #[test]
+    fn a_message_over_the_limit_fails_the_stream_before_anything_is_allocated() {
+        assert_eq!(message_length(FRAGMENT_BYTES), Ok(3840));
+        assert_eq!(message_length(MAX_MESSAGE), Ok(4 << 20));
+        for announced in [MAX_MESSAGE + 1, u32::MAX] {
+            let error = message_length(announced).unwrap_err();
+            assert!(error.contains(&format!("{announced}-byte message")), "{error}");
+        }
     }
 
     #[test]

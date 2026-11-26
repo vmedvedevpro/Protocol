@@ -483,9 +483,39 @@ pub async fn save_recording_preferences<R: Runtime>(
 pub async fn get_recording_preferences<R: Runtime>(
     app: AppHandle<R>,
 ) -> Result<RecordingPreferences, String> {
-    load_recording_preferences(&app)
+    let preferences = load_recording_preferences(&app)
         .await
-        .map_err(|e| format!("Failed to load recording preferences: {}", e))
+        .map_err(|e| format!("Failed to load recording preferences: {}", e))?;
+    #[cfg(target_os = "linux")]
+    let preferences = current_device_names(preferences).await;
+    Ok(preferences)
+}
+
+/// The stored devices under the labels the device list shows now. Linux
+/// accepts older forms of a stored device (`platform::linux::current_name`:
+/// an ALSA name stored before #216, a twin's bracket), and the select and
+/// the recording bar look a stored device up in the list by its label, so
+/// they would call a device that records "not connected". The stored value
+/// is rewritten only when the user next saves a preference; a device that
+/// cannot be found keeps its stored name, which the UI reports as missing.
+#[cfg(target_os = "linux")]
+async fn current_device_names(preferences: RecordingPreferences) -> RecordingPreferences {
+    use crate::audio::devices::{platform::linux::current_name, AudioDevice};
+    let mut updated = preferences.clone();
+    let looked_up = tokio::task::spawn_blocking(move || {
+        for stored in [&mut updated.preferred_mic_device, &mut updated.preferred_system_device] {
+            let Some(device) = stored.as_deref().and_then(|value| AudioDevice::from_name(value).ok()) else { continue };
+            if let Ok(current) = current_name(&device) {
+                if current.name != device.name {
+                    info!("The stored device '{}' is listed as '{}' now", device.name, current.name);
+                    *stored = Some(current.to_string());
+                }
+            }
+        }
+        updated
+    })
+    .await;
+    looked_up.unwrap_or(preferences)
 }
 
 #[tauri::command]
