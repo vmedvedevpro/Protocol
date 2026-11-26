@@ -151,9 +151,11 @@ minibar window has none of it.
 - A route that throws while rendering shows `RouteError` (`src/app/RouteError.tsx`):
   "Something went wrong", the error, Reload and Back to meetings, and the
   error goes to the native log. It is the `errorElement` of a pathless route
-  inside the shell, so the title bar stays, of the shell itself, and of the
-  minibar. `main.tsx` sends uncaught errors and unhandled rejections to the
-  log too (`installErrorLogging`, `src/api/logs.ts`).
+  inside the shell, so the title bar stays, and of the shell itself. It is an
+  alert and takes focus. The minibar has its own, `MinibarError`: one line
+  and Reload in its pill. `main.tsx` sends uncaught errors and unhandled
+  rejections to the log too (`installErrorLogging`, `src/api/logs.ts`),
+  without the ResizeObserver loop note and a repeat within 5 s.
 - A screen arrives with a fade and a 4 px rise over `base`; the screen it
   replaces leaves at once, so a click never waits for an exit.
 - A screen opened by a navigation focuses its `<main>` (`tabIndex={-1}`,

@@ -11,8 +11,8 @@ is inherited from the project Protocol forked from; Protocol did not release it.
   ([#234](https://github.com/vmedvedevpro/Protocol/issues/234)). Protocol
   keeps a log on disk, and Settings › Advanced › Save logs puts it, the
   updater's journal and a pending crash report into one ZIP to attach to a
-  bug report. The log never holds transcripts, summaries, prompts or keys;
-  the live transcript's text no longer reaches it.
+  bug report. Its lines are written to leave out transcripts, summaries,
+  prompts and keys; the live transcript's text no longer reaches it.
 
 ## Protocol 1.0.0-rc.2 — 2026-11-26
 

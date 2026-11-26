@@ -1849,15 +1849,15 @@ log through whisper-rs's hooks, panics add their place and message from
 `crash_report.rs`'s hook, and the WebView sends its uncaught errors and route
 errors through `log_webview_error`. Settings › Advanced › Bug reports › Save
 logs bundles the logs, `updater.log`, a pending crash report and a system
-summary into a ZIP with home and user name scrubbed. No log line prints meeting
-content or secrets: `scripts/log-audit/check-log-lines.mjs` checks every log
-macro call in PR checks. The feature note is [APP_LOG.md](APP_LOG.md).
+summary into a ZIP with home and user name scrubbed. Log lines leave out meeting
+content and secrets: `scripts/log-audit/check-log-lines.mjs` checks every log
+and print macro call in PR checks. The feature note is [APP_LOG.md](APP_LOG.md).
 
 | Owner | Role |
 | --- | --- |
 | `src-tauri/src/app_log/mod.rs` | The logger: start, level, rotation, line format, flush and shutdown, `record_panic`, `get_log_status`, `log_webview_error` |
 | `app_log/scrub.rs` | Secret masking per line; home and user name in the saved copy |
-| `app_log/bundle.rs` | `save_logs_zip`, `show_saved_logs`, the README, the Speech check slot |
+| `app_log/bundle.rs` | `save_logs_zip`, `show_saved_logs`, the README, `write_zip` (also the crash report's) |
 | `frontend/src/api/logs.ts`, `api/saveDialog.ts` | Status, Save logs, window error logging; the shared ZIP save dialog |
 | `features/settings/components/LogsGroup.tsx`, `src/app/RouteError.tsx` | The Bug reports group; the error screen of a route that threw |
 
