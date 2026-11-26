@@ -306,6 +306,8 @@ mod linux {
             Some(loader) => loader,
             None => {
                 log::error!("[vulkan] ggml-vulkan called a device function without a Vulkan loader");
+                // An abort skips every exit hook, the log's shutdown included.
+                crate::app_log::shutdown();
                 std::process::abort()
             }
         }
