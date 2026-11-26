@@ -54,6 +54,9 @@
     /* sizes.window: the window the screenshot shows, at 2x. */
     --window-width: 460px;
     --window-height: 700px;
+    /* Not a token: the intro column's width, two download buttons side by
+       side. The screenshot's size depends on it (.window img). */
+    --intro-width: 360px;
 
     /* motion.duration.fast, motion.easing.standard */
     --duration-fast: 120ms;
@@ -135,7 +138,7 @@ main {
     flex-direction: column;
     align-items: flex-start;
     gap: var(--space-4);
-    max-width: 360px;
+    max-width: var(--intro-width);
 }
 
 /* The GIF is the ring on a square of near-`bg`; the radial fade lets the
@@ -197,13 +200,18 @@ h1 {
 }
 
 /* The screenshot as the window it was taken from: radii.lg, a hairline and
-   the dialog shadow. Its height follows the viewport so the page never
-   scrolls on a desktop screen. 140 px is the room main's padding and the
-   footer take. */
+   the dialog shadow. Its size follows the viewport so the page never
+   scrolls on a desktop screen: 140 px is the height main's padding and the
+   footer take, and --row-room the width the intro, the gap and main's
+   padding take beside it, so a narrow window shrinks the screenshot
+   instead of pushing the row off both edges. */
 .window img {
+    --row-room: calc(var(--intro-width) + var(--space-9) + 2 * var(--space-6));
     display: block;
-    height: min(var(--window-height), calc(100vh - 140px));
-    height: min(var(--window-height), calc(100dvh - 140px));
+    height: min(var(--window-height), calc(100vh - 140px),
+        calc((100vw - var(--row-room)) * 700 / 460));
+    height: min(var(--window-height), calc(100dvh - 140px),
+        calc((100vw - var(--row-room)) * 700 / 460));
     width: auto;
     aspect-ratio: 460 / 700;
     border: 1px solid var(--border);
