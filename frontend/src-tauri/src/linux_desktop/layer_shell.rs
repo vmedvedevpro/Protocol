@@ -90,7 +90,9 @@ fn api() -> Option<&'static Api> {
             None
         }
         Err(error) => {
-            log::info!("Linux minibar: {LIBRARY} not loaded ({error})");
+            // The deb only recommends it; without it the bar falls back to
+            // KWin's keep-above or to a plain window.
+            log::warn!("Linux minibar: {LIBRARY} not loaded, install libgtk-layer-shell0 for an overlay bar ({error})");
             None
         }
     })

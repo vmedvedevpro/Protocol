@@ -139,7 +139,11 @@ fn close_minibar_locked<R: Runtime>(app: &AppHandle<R>) -> Result<bool, String> 
         // `destroy` bypasses webview close-request/event handling. Recording
         // shutdown must be able to remove a stale or unresponsive frontend.
         return match bar.destroy() {
-            Ok(()) => Ok(true),
+            Ok(()) => {
+                #[cfg(target_os = "linux")]
+                crate::linux_desktop::keep_above::minibar_closed();
+                Ok(true)
+            }
             Err(destroy_error) => {
                 // A failed destroy is recoverable on a later lifecycle call.
                 // Hide the stopped always-on-top controls in the meantime so

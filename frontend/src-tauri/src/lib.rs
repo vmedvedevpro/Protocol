@@ -374,7 +374,7 @@ pub fn run() {
             #[cfg(target_os = "linux")]
             linux_desktop::theme::init();
             #[cfg(target_os = "linux")]
-            linux_desktop::keep_above::init();
+            linux_desktop::keep_above::init(_app.handle());
             #[cfg(any(windows, target_os = "linux"))]
             onnx_runtime::initialize(_app.handle());
             log::info!("Application setup complete");
@@ -503,7 +503,9 @@ pub fn run() {
         .on_window_event(|window, event| {
             // Minimizing the main window mid-recording shows the compact bar,
             // so the recording never becomes invisible. (Minimize arrives as a
-            // Resized event; is_minimized() distinguishes it.)
+            // Resized event; is_minimized() distinguishes it.) On Wayland
+            // GDK never learns of a minimize; on KDE Plasma KWin reports it
+            // instead (linux_desktop/keep_above.rs, docs/LINUX_DESKTOP.md).
             if let tauri::WindowEvent::Resized(_) = event {
                 if window.label() == "main"
                     && window.is_minimized().unwrap_or(false)
@@ -747,6 +749,8 @@ pub fn run() {
             linux_desktop::keep_above::linux_keep_on_top_available,
             #[cfg(target_os = "linux")]
             linux_desktop::keep_above::linux_set_keep_on_top,
+            #[cfg(target_os = "linux")]
+            linux_desktop::keep_above::linux_take_minibar_notice,
             // In-app updates
             updater::commands::updater_get_status,
             updater::commands::updater_check_now,
