@@ -18,6 +18,7 @@ import {useNativeEvent} from '@/api/events'
 import {
     exitCompactMode,
     MINIBAR_NOTICE_EVENT,
+    MINIBAR_POINTER_ENTERED_EVENT,
     MINIBAR_POINTER_LEFT_EVENT,
     resizeMinibar,
     startWindowDragging,
@@ -156,8 +157,10 @@ export function MinibarPage() {
 
     // The window has these only while it is focused: Space pauses, as on
     // the recording screen; the stop shortcut stops, as in the main window.
-    const [pointerLeft, setPointerLeft] = useState(0)
-    useNativeEvent(MINIBAR_POINTER_LEFT_EVENT, () => setPointerLeft((count) => count + 1), {target: 'minibar'})
+    // On Linux native code says where the pointer is (api.ts).
+    const [pointerOver, setPointerOver] = useState(false)
+    useNativeEvent(MINIBAR_POINTER_LEFT_EVENT, () => setPointerOver(false), {target: 'minibar'})
+    useNativeEvent(MINIBAR_POINTER_ENTERED_EVENT, () => setPointerOver(true), {target: 'minibar'})
 
     // Native says once a run when the bar cannot stay on top (Linux): in the
     // status's place, as a failed command is. Read again once listening, in
@@ -190,7 +193,7 @@ export function MinibarPage() {
                     onStop={() => void stop()}
                     onBackToWindow={() => void run(exitCompactMode, 'Could not open')}
                     onWidthChange={fitWindow}
-                    pointerLeftWindow={pointerLeft}
+                    pointerOver={platform === 'linux' ? pointerOver : undefined}
                     onDragStart={() => void startWindowDragging().catch((error: unknown) => console.error('Minibar: dragging failed', error))}
                 />
             )}

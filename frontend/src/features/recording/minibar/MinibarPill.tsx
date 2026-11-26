@@ -12,7 +12,6 @@ import {Veil} from '@/components/ui/Veil'
 import {colorTransition, focusRing, px} from '@/components/ui/styles'
 import {ICON_DEFAULTS} from '@/styles/icons'
 import {MOTION_OK, SCALE_FROM, statusSwap, tween} from '@/styles/motion'
-import {platform} from '@/lib/platform'
 import {formatTimer} from '../store/session'
 
 /**
@@ -180,51 +179,22 @@ function isKeyboardFocus(element: Element) {
 }
 
 /**
- * Where a drag of the bar stands, on Linux. The compositor takes the pointer
- * for the move, so the window sees it leave although it stays on the pill,
- * which moves with it; closing the pill then would change the window's width
- * mid-drag. `left`: a leave came during the drag; the next move over the
- * pill is the pointer back after it.
- */
-type Drag = 'none' | 'dragging' | 'left'
-
-/**
  * Open while the pointer is over the pill or the keyboard's focus is in it.
  * A click focuses a button too, but does not hold the pill open after the
- * pointer leaves.
+ * pointer leaves. Where native code says where the pointer is
+ * (`pointerOver`, Linux) the webview's pointer events do not count.
  */
-function useOpenOnHover(pointerLeftWindow: number) {
+function useOpenOnHover(pointerOver: boolean | undefined) {
     const [hovered, setHovered] = useState(false)
     const [focused, setFocused] = useState(false)
-    const [drag, setDrag] = useState<Drag>('none')
-    const left = () => (drag === 'none' ? setHovered(false) : setDrag('left'))
-    // Native's word that the pointer left the window, where the webview
-    // reported no pointerleave (MinibarPage): each new count ends the hover.
-    const [leftSeen, setLeftSeen] = useState(pointerLeftWindow)
-    if (pointerLeftWindow !== leftSeen) {
-        setLeftSeen(pointerLeftWindow)
-        left()
-    }
+    const native = pointerOver !== undefined
     return {
-        open: hovered || focused,
-        /** A press that moves the window begins (Linux only, see Drag). */
-        startDrag: () => {
-            if (platform === 'linux') setDrag('dragging')
-        },
+        open: (native ? pointerOver : hovered) || focused,
         handlers: {
-            onPointerEnter: () => setHovered(true),
-            ...(platform === 'linux' && {
-                // After native's leave WebKitGTK still thinks the pointer is
-                // inside and sends no pointerenter when it comes back; it
-                // moves over the pill, though.
-                onPointerMove: () => {
-                    if (drag === 'left') setDrag('none')
-                    setHovered(true)
-                },
-                // The press reached the page, so the compositor moved nothing.
-                onPointerUp: () => setDrag('none'),
+            ...(!native && {
+                onPointerEnter: () => setHovered(true),
+                onPointerLeave: () => setHovered(false),
             }),
-            onPointerLeave: left,
             onFocus: (event: FocusEvent<HTMLElement>) => setFocused(isKeyboardFocus(event.target)),
             onBlur: (event: FocusEvent<HTMLElement>) => {
                 // Null when the window itself loses focus.
@@ -256,10 +226,11 @@ export interface MinibarPillProps {
     /** The pill's width in CSS pixels, rounded up, on mount and on every change. */
     onWidthChange?: (width: number) => void
     /**
-     * Counts the times native saw the pointer leave the window; each new
-     * count ends the hover (Linux, where the webview does not say).
+     * Whether the pointer is over the window, as native code says (Linux,
+     * where the webview's own pointer events mislead: api.ts). Undefined
+     * elsewhere: the webview's pointerenter and pointerleave count.
      */
-    pointerLeftWindow?: number
+    pointerOver?: boolean
 }
 
 /**
@@ -283,11 +254,11 @@ export function MinibarPill({
     onBackToWindow,
     onDragStart,
     onWidthChange,
-    pointerLeftWindow = 0,
+    pointerOver,
 }: MinibarPillProps) {
     const theme = useTheme()
     const pill = useRef<HTMLDivElement>(null)
-    const hover = useOpenOnHover(pointerLeftWindow)
+    const hover = useOpenOnHover(pointerOver)
     const finishing = phase === 'finishing'
     const paused = phase === 'paused'
     const open = !finishing && (held || hover.open)
@@ -315,7 +286,6 @@ export function MinibarPill({
                 if (event.button !== 0 || (event.target as Element).closest('button')) return
                 // No text selection and no focus change: the press moves the window.
                 event.preventDefault()
-                hover.startDrag()
                 onDragStart()
             }}
         >

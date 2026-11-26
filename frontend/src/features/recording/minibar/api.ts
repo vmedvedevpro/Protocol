@@ -8,11 +8,16 @@ import {command} from '@/api/core'
 import type {NativeEvent} from '@/api/events'
 
 /**
- * The pointer left the minibar's window (Linux only, keep_above.rs).
- * WebKitGTK fires no pointerleave when the pointer leaves the whole view on
- * Wayland, and the window is exactly the pill, so this closes it instead.
+ * The pointer left the minibar's window, or came into it (Linux only,
+ * keep_above.rs). On Linux these, not the webview's pointer events, say
+ * whether the pointer is over the pill: WebKitGTK fires no pointerleave when
+ * the pointer leaves the whole view on Wayland (the window is exactly the
+ * pill), and after GTK's leave it sends a move at the last position inside,
+ * which would open the pill again. Native leaves no word of the compositor
+ * taking the pointer for a drag of the bar.
  */
 export const MINIBAR_POINTER_LEFT_EVENT = 'minibar-pointer-left' as NativeEvent<null>
+export const MINIBAR_POINTER_ENTERED_EVENT = 'minibar-pointer-entered' as NativeEvent<null>
 
 /**
  * The bar cannot stay above other windows in this session (Linux only,
