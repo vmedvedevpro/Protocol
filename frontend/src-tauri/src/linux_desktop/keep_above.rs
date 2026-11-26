@@ -325,7 +325,10 @@ for (const w of windows) {{
     if spec.minibar {
         js.push_str(
             r#"        w.keepAbove = true;
-        if (added) {
+        // A new bar: just added, or shown before this load ran (KWin forgets
+        // an unmapped window, so a new one has skipTaskbar unset). A bar this
+        // script placed keeps where the user dragged it.
+        if (added || !w.skipTaskbar) {
             // Wayland lets no client place its window; put the bar top centre.
             w.skipTaskbar = true;
             w.skipSwitcher = true;
@@ -462,13 +465,13 @@ fn load(state: &mut ScriptState, spec: &Spec) -> Result<(), String> {
         return Err(format!("KWin refused the script (id {id}); KWin scripting may be disabled"));
     }
     state.loaded = true;
-    // Plasma 6 serves scripts under /Scripting/Script<id>, Plasma 5 under /<id>.
-    let run = |path: &str| -> Result<(), dbus::Error> {
-        kwin_call(&connection, path, "org.kde.kwin.Script", "run", ())
-    };
-    run(&format!("/Scripting/Script{id}"))
-        .or_else(|_| run(&format!("/{id}")))
-        .map_err(|error| format!("KWin Script.run: {error}"))?;
+    // Not `Script.run` on /Scripting/Script<id>: KWin numbers a script by
+    // the count of loaded scripts, so after an unload the new id can be the
+    // one the old script, still being deleted, holds that path under, and
+    // `run` reaches the old object (seen on Plasma 6.7: the reloaded script
+    // never ran). `start` runs every loaded script that is not running yet.
+    let _: () = kwin_call(&connection, "/Scripting", "org.kde.kwin.Scripting", "start", ())
+        .map_err(|error| format!("KWin Scripting.start: {error}"))?;
     log::info!(
         "Linux keep on top: KWin keeps the main window above: {}, the minibar: {}; watches the minimize: {}; releases {} window(s)",
         spec.main,
@@ -596,7 +599,7 @@ pub fn minibar_created<R: Runtime>(bar: &tauri::WebviewWindow<R>, closed_width: 
         let layered = match window.gtk_window() {
             Ok(gtk_window) => {
                 size_minibar(&gtk_window, closed_width, height);
-                report_pointer_leaving(&gtk_window, window.clone());
+                report_pointer_crossings(&gtk_window, window.clone());
                 is_wayland()
                     && crate::linux_desktop::layer_shell::place_minibar(
                         &gtk_window,
@@ -661,21 +664,44 @@ pub fn minibar_is_layered() -> bool {
     LAYERED.load(Ordering::SeqCst)
 }
 
-/// Tells the page when the pointer leaves the bar's window. WebKitGTK fires
-/// no `pointerleave` (nor `mouseleave` or `mouseout`) when the pointer leaves
-/// the whole view on Wayland, seen in a bare WebKitGTK 4.1 window too, and
-/// the bar's window is exactly the pill ([`size_minibar`]), so the open pill
-/// would stay open. GTK still gets the crossing; a leave into a child widget
-/// (`Inferior`) is not one. A drag of the bar leaves the window too (the
-/// compositor takes the pointer); the page ignores what arrives then
-/// (`MinibarPill`). Main thread only.
-fn report_pointer_leaving<R: Runtime>(window: &gtk::ApplicationWindow, bar: tauri::WebviewWindow<R>) {
+/// Tells the page when the pointer leaves the bar's window and when it comes
+/// back; on Linux the page takes the hover from these alone
+/// (`MinibarPill`'s `pointerOver`). WebKitGTK fires no `pointerleave` (nor
+/// `mouseleave` or `mouseout`) when the pointer leaves the whole view on
+/// Wayland, seen in a bare WebKitGTK 4.1 window too, and the bar's window is
+/// exactly the pill ([`size_minibar`]); after GTK's leave it even sends the
+/// page a move at the last position inside, which would open the pill again.
+/// GTK's crossings are right. Main thread only.
+fn report_pointer_crossings<R: Runtime>(window: &gtk::ApplicationWindow, bar: tauri::WebviewWindow<R>) {
+    use gtk::gdk::{ModifierType, NotifyType};
+    let left = bar.clone();
     window.connect_leave_notify_event(move |_, event| {
-        if event.detail() != gtk::gdk::NotifyType::Inferior {
-            let _ = bar.emit_to(bar.label(), "minibar-pointer-left", ());
+        let held = event
+            .state()
+            .intersects(ModifierType::BUTTON1_MASK | ModifierType::BUTTON2_MASK | ModifierType::BUTTON3_MASK);
+        if is_pointer_leaving(event.detail(), event.mode(), held) {
+            let _ = left.emit_to(left.label(), "minibar-pointer-left", ());
         }
         glib::Propagation::Proceed
     });
+    window.connect_enter_notify_event(move |_, event| {
+        if event.detail() != NotifyType::Inferior {
+            let _ = bar.emit_to(bar.label(), "minibar-pointer-entered", ());
+        }
+        glib::Propagation::Proceed
+    });
+}
+
+/// Whether a leave of the bar's window is the pointer leaving it. Not one
+/// into a child widget (`Inferior`), and not the compositor taking the
+/// pointer for a drag of the bar: on KDE Plasma's Wayland that leave comes
+/// with mode `Ungrab` and the button held, and when the move ends an enter
+/// follows (seen with a virtual pointer: enter, leave Virtual/Ungrab with
+/// BUTTON1, enter Normal after the move, leave Normal on the way out). On X11
+/// the window manager's grab gives mode `Grab`.
+fn is_pointer_leaving(detail: gtk::gdk::NotifyType, mode: gtk::gdk::CrossingMode, button_held: bool) -> bool {
+    use gtk::gdk::{CrossingMode, NotifyType};
+    detail != NotifyType::Inferior && mode == CrossingMode::Normal && !button_held
 }
 
 /// Sizes the bar's GTK window to the pill. GTK3 sizes a non-resizable
@@ -762,7 +788,8 @@ mod tests {
     #[test]
     fn the_minibar_alone_leaves_the_main_window_alone() {
         let text = script(&Spec { minibar: true, ..spec() }).expect("a script");
-        assert!(text.contains("w.keepAbove = true;\n        if (added)"));
+        assert!(text.contains("w.keepAbove = true;\n"));
+        assert!(text.contains("if (added || !w.skipTaskbar) {"));
         assert!(!main_part(&text).contains("keepAbove"));
         assert!(!text.contains("minimizedChanged"));
     }
@@ -772,6 +799,21 @@ mod tests {
         let text = script(&Spec { watch_minimize: true, ..spec() }).expect("a script");
         assert!(main_part(&text).contains("w.minimizedChanged.connect(() => { if (w.minimized) report(\"Minimized\", w); });"));
         assert!(!text.contains("keepAbove ="));
+    }
+
+    #[test]
+    fn a_drag_of_the_bar_is_not_the_pointer_leaving() {
+        use gtk::gdk::{CrossingMode, NotifyType};
+        assert!(is_pointer_leaving(NotifyType::Nonlinear, CrossingMode::Normal, false));
+        assert!(is_pointer_leaving(NotifyType::NonlinearVirtual, CrossingMode::Normal, false));
+        // Into a child widget.
+        assert!(!is_pointer_leaving(NotifyType::Inferior, CrossingMode::Normal, false));
+        // The compositor takes the pointer for the move (Plasma's Wayland).
+        assert!(!is_pointer_leaving(NotifyType::Virtual, CrossingMode::Ungrab, true));
+        // The window manager's grab on X11.
+        assert!(!is_pointer_leaving(NotifyType::Nonlinear, CrossingMode::Grab, false));
+        // A press dragged out of the bar.
+        assert!(!is_pointer_leaving(NotifyType::Nonlinear, CrossingMode::Normal, true));
     }
 
     #[test]
