@@ -15,7 +15,15 @@ import {
     setSystemAudioMuted,
 } from '../api/recording'
 import {useNativeEvent} from '@/api/events'
-import {exitCompactMode, MINIBAR_POINTER_LEFT_EVENT, resizeMinibar, startWindowDragging, stopRecordingFromMinibar} from './api'
+import {
+    exitCompactMode,
+    MINIBAR_NOTICE_EVENT,
+    MINIBAR_POINTER_LEFT_EVENT,
+    resizeMinibar,
+    startWindowDragging,
+    stopRecordingFromMinibar,
+    takeMinibarNotice,
+} from './api'
 import {type MinibarPhase, MinibarPill} from './MinibarPill'
 
 /**
@@ -150,6 +158,18 @@ export function MinibarPage() {
     // the recording screen; the stop shortcut stops, as in the main window.
     const [pointerLeft, setPointerLeft] = useState(0)
     useNativeEvent(MINIBAR_POINTER_LEFT_EVENT, () => setPointerLeft((count) => count + 1), {target: 'minibar'})
+
+    // Native says once a run when the bar cannot stay on top (Linux): in the
+    // status's place, as a failed command is. Read again once listening, in
+    // case the word came before.
+    const showNotice = () => {
+        if (platform !== 'linux') return
+        takeMinibarNotice().then(
+            (notice) => notice && setFailure({text: notice}),
+            (error: unknown) => console.error('Minibar: the notice could not be read', error),
+        )
+    }
+    useNativeEvent(MINIBAR_NOTICE_EVENT, showNotice, {target: 'minibar', onListening: showNotice})
 
     useHotkey({code: 'Space'}, togglePause)
     useHotkey({code: 'KeyR', mod: true}, () => void stop())

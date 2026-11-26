@@ -12,6 +12,7 @@ import {Veil} from '@/components/ui/Veil'
 import {colorTransition, focusRing, px} from '@/components/ui/styles'
 import {ICON_DEFAULTS} from '@/styles/icons'
 import {MOTION_OK, SCALE_FROM, statusSwap, tween} from '@/styles/motion'
+import {platform} from '@/lib/platform'
 import {formatTimer} from '../store/session'
 
 /**
@@ -179,6 +180,15 @@ function isKeyboardFocus(element: Element) {
 }
 
 /**
+ * Where a drag of the bar stands, on Linux. The compositor takes the pointer
+ * for the move, so the window sees it leave although it stays on the pill,
+ * which moves with it; closing the pill then would change the window's width
+ * mid-drag. `left`: a leave came during the drag; the next move over the
+ * pill is the pointer back after it.
+ */
+type Drag = 'none' | 'dragging' | 'left'
+
+/**
  * Open while the pointer is over the pill or the keyboard's focus is in it.
  * A click focuses a button too, but does not hold the pill open after the
  * pointer leaves.
@@ -186,22 +196,35 @@ function isKeyboardFocus(element: Element) {
 function useOpenOnHover(pointerLeftWindow: number) {
     const [hovered, setHovered] = useState(false)
     const [focused, setFocused] = useState(false)
+    const [drag, setDrag] = useState<Drag>('none')
+    const left = () => (drag === 'none' ? setHovered(false) : setDrag('left'))
     // Native's word that the pointer left the window, where the webview
     // reported no pointerleave (MinibarPage): each new count ends the hover.
     const [leftSeen, setLeftSeen] = useState(pointerLeftWindow)
     if (pointerLeftWindow !== leftSeen) {
         setLeftSeen(pointerLeftWindow)
-        setHovered(false)
+        left()
     }
     return {
         open: hovered || focused,
+        /** A press that moves the window begins (Linux only, see Drag). */
+        startDrag: () => {
+            if (platform === 'linux') setDrag('dragging')
+        },
         handlers: {
             onPointerEnter: () => setHovered(true),
-            // After native's leave (Linux) WebKitGTK still thinks the pointer
-            // is inside and sends no pointerenter when it comes back; it
-            // moves over the pill, though.
-            onPointerMove: () => setHovered(true),
-            onPointerLeave: () => setHovered(false),
+            ...(platform === 'linux' && {
+                // After native's leave WebKitGTK still thinks the pointer is
+                // inside and sends no pointerenter when it comes back; it
+                // moves over the pill, though.
+                onPointerMove: () => {
+                    if (drag === 'left') setDrag('none')
+                    setHovered(true)
+                },
+                // The press reached the page, so the compositor moved nothing.
+                onPointerUp: () => setDrag('none'),
+            }),
+            onPointerLeave: left,
             onFocus: (event: FocusEvent<HTMLElement>) => setFocused(isKeyboardFocus(event.target)),
             onBlur: (event: FocusEvent<HTMLElement>) => {
                 // Null when the window itself loses focus.
@@ -292,6 +315,7 @@ export function MinibarPill({
                 if (event.button !== 0 || (event.target as Element).closest('button')) return
                 // No text selection and no focus change: the press moves the window.
                 event.preventDefault()
+                hover.startDrag()
                 onDragStart()
             }}
         >

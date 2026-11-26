@@ -79,6 +79,35 @@ describe('MinibarPage', () => {
         expect(await within(pill).findByRole('button', {name: 'Mute microphone'})).toBeInTheDocument()
     })
 
+    it('keeps the pill open while a drag of the bar takes the pointer', async () => {
+        // The compositor takes the pointer for the move, and the window sees
+        // it leave although it stays on the pill.
+        recordFor(60)
+        const {pill} = await renderMinibar()
+        await userEvent.hover(pill)
+        const time = within(pill).getByRole('timer', {name: 'Recording time'})
+
+        fireEvent.mouseDown(time, {button: 0})
+        await emitMockEvent(MINIBAR_POINTER_LEFT_EVENT, null)
+        fireEvent.pointerLeave(pill)
+        expect(within(pill).getByRole('button', {name: 'Mute microphone'})).toBeInTheDocument()
+
+        // The drag is over once the pointer moves over the pill again; a
+        // leave after that closes the pill.
+        fireEvent.pointerMove(pill)
+        await emitMockEvent(MINIBAR_POINTER_LEFT_EVENT, null)
+        await waitFor(() => expect(within(pill).queryByRole('button', {name: 'Mute microphone'})).not.toBeInTheDocument())
+    })
+
+    it('says once that it cannot stay on top', async () => {
+        recordFor(60)
+        const notice = vi.spyOn(handlers, 'linux_take_minibar_notice').mockReturnValueOnce("Can't stay on top")
+        const {pill} = await renderMinibar()
+
+        expect(await within(pill).findByRole('status')).toHaveTextContent("Can't stay on top")
+        expect(notice).toHaveBeenCalled()
+    })
+
     it('opens for the keyboard and stays open while its focus is inside', async () => {
         recordFor(30)
         const {pill} = await renderMinibar()

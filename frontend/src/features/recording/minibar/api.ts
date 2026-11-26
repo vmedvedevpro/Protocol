@@ -15,6 +15,17 @@ import type {NativeEvent} from '@/api/events'
 export const MINIBAR_POINTER_LEFT_EVENT = 'minibar-pointer-left' as NativeEvent<null>
 
 /**
+ * The bar cannot stay above other windows in this session (Linux only,
+ * keep_above.rs): it reads the notice with `takeMinibarNotice`.
+ */
+export const MINIBAR_NOTICE_EVENT = 'minibar-notice' as NativeEvent<null>
+
+/** What the bar should say once about staying on top, if anything (Linux). */
+export async function takeMinibarNotice(): Promise<string | null> {
+    return command<string | null>('linux_take_minibar_notice')
+}
+
+/**
  * Hides the main window and shows the minibar. `elapsedSeconds` marks an
  * explicit shrink (native then focuses the bar); the bar reads its timer from
  * native whatever is sent. Minimizing during a recording opens it natively.
