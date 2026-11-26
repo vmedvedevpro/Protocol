@@ -13,10 +13,13 @@ on:
     tags: ['v*']
     branches: [main]
     # GitHub applies no path filter to tag pushes, so this list only lets a
-    # documentation-only push to main skip the dry run. CHANGELOG.md is not in
-    # it: the dry run's notes and latest.json come from it.
+    # push to main that changes only documentation or the site (site/ and its
+    # Pages workflow, which no build embeds) skip the dry run. CHANGELOG.md is
+    # not in it: the dry run's notes and latest.json come from it.
     paths-ignore:
       - 'docs/**'
+      - 'site/**'
+      - '.github/workflows/pages.yml'
       - '**/README.md'
       - 'AGENTS.md'
       - 'ARCHITECTURE.md'
