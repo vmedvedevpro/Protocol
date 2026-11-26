@@ -1122,6 +1122,7 @@ pub async fn diarize_meeting(
     threshold: Option<f32>,
     engine: Option<String>,
 ) -> Result<MeetingDiarizationResult, String> {
+    crate::speech_check::refuse_beside("Identifying speakers")?;
     let _busy = crate::updater::busy::hold(crate::updater::busy::BusyReason::Diarization);
     let _operation_guard = operation_guard().await;
     let pool = state.db_manager.pool();

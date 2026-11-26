@@ -1005,6 +1005,7 @@ pub async fn start_import_audio_command<R: Runtime>(
     if IMPORT_IN_PROGRESS.load(Ordering::SeqCst) {
         return Err("Import already in progress".to_string());
     }
+    crate::speech_check::refuse_beside("An import")?;
 
     // Spawn import in background
     tauri::async_runtime::spawn(async move {

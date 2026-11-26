@@ -949,6 +949,7 @@ pub async fn start_retranscription_command<R: Runtime>(
     vocabulary_scope: Option<String>,
 ) -> Result<RetranscriptionStarted, String> {
 
+    crate::speech_check::refuse_beside("A new transcript")?;
     // Reserve before returning so duplicate requests and cancellation also see
     // jobs queued behind an offline diarization pass.
     let guard = RetranscriptionGuard::acquire(&meeting_id)?;

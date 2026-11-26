@@ -30,6 +30,7 @@ mod steps;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, MutexGuard};
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Runtime};
@@ -166,6 +167,16 @@ pub fn is_running() -> bool {
     matches!(*lock_status(), Status::Running { .. })
 }
 
+/// For the start of other speech or GPU work (an import, a retranscription,
+/// the post-call pass's steps, a summary on this computer): refused while a
+/// check runs, which has put the app's engines away and times its own.
+pub fn refuse_beside(work: &str) -> Result<(), String> {
+    if is_running() {
+        return Err(format!("{work} can't start during the speech check. Try again when it ends, or cancel it in Settings › Advanced"));
+    }
+    Ok(())
+}
+
 /// Marks a running check as cancelling; false when nothing runs, so a
 /// Cancel that arrives after the finish changes nothing.
 fn mark_cancelling(status: &mut Status) -> bool {
@@ -179,19 +190,53 @@ fn mark_cancelling(status: &mut Status) -> bool {
     }
 }
 
-/// Called by a recording's start before it takes the lifecycle lock.
-pub fn cancel_for_recording() {
-    let mut current = lock_status();
-    if let Status::Running { .. } = &*current {
+/// A step's own engines exist: set before a step may build them, cleared
+/// once it has returned and dropped them.
+static STEP_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
+
+/// How long a recording's start waits for the step in flight to drop its
+/// engines. A step stops at its next piece: a live piece (at most 6 s of
+/// audio, 0.3 s here) or a Whisper piece (1 s here on the GPU), or a whole
+/// clip through a speaker engine, the longest unit (Nemotron 1.8 s here).
+/// Five seconds covers that on a computer about three times slower, while
+/// the meeting's first words are still being said; after it the recording
+/// goes on beside the check's engines, which is memory for a moment, not a
+/// lost start.
+const RECORDING_WAIT: Duration = Duration::from_secs(5);
+
+/// Called by a recording's start before it takes the lifecycle lock: the
+/// check stops, and the recording waits up to [`RECORDING_WAIT`] for the
+/// step in flight to drop its engines, so the two never hold models at once.
+pub async fn cancel_for_recording() {
+    {
+        let mut current = lock_status();
+        if !matches!(*current, Status::Running { .. }) {
+            return;
+        }
         log::info!("[speech check] a recording starts: cancelling the check");
         RECORDING_STARTED.store(true, Ordering::SeqCst);
         mark_cancelling(&mut current);
     }
+    if !step_ended_within(RECORDING_WAIT).await {
+        log::warn!("[speech check] the step in flight did not end within {RECORDING_WAIT:?}; the recording starts beside it");
+    }
+}
+
+/// Whether no step holds engines, now or within `bound`.
+async fn step_ended_within(bound: Duration) -> bool {
+    let deadline = tokio::time::Instant::now() + bound;
+    while STEP_IN_FLIGHT.load(Ordering::SeqCst) {
+        if tokio::time::Instant::now() >= deadline {
+            return false;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    true
 }
 
 /// The busy reasons the check does not run beside: it unloads the app's
 /// engines, and its timings would include the other work.
-const REFUSED_WHILE: [BusyReason; 7] = [
+const REFUSED_WHILE: [BusyReason; 8] = [
     BusyReason::Recording,
     BusyReason::RecordingStopping,
     BusyReason::RecordingSave,
@@ -199,12 +244,16 @@ const REFUSED_WHILE: [BusyReason; 7] = [
     BusyReason::Retranscription,
     BusyReason::Diarization,
     BusyReason::PostCall,
+    BusyReason::Summary,
 ];
 
 fn refusal() -> Option<String> {
     let busy = busy::current();
     if busy.iter().any(|reason| matches!(reason, BusyReason::Recording | BusyReason::RecordingStopping | BusyReason::RecordingSave)) {
         return Some("The speech check can't run during a recording".into());
+    }
+    if busy.contains(&BusyReason::Summary) {
+        return Some("The speech check can't run while a summary is being written".into());
     }
     busy.iter()
         .any(|reason| REFUSED_WHILE.contains(reason))
@@ -331,8 +380,28 @@ fn app_engines() -> (Option<std::sync::Arc<crate::whisper_engine::WhisperEngine>
     (whisper, parakeet)
 }
 
-async fn take_engines() -> Held {
+/// Why the check must not take the app's engines now: a recording or other
+/// speech work that started after Run, or a Cancel.
+fn stop_reason(recording: bool) -> Option<String> {
+    if recording || RECORDING_STARTED.load(Ordering::SeqCst) {
+        return Some("A recording started".into());
+    }
+    if CANCEL.load(Ordering::SeqCst) {
+        return Some("Cancelled".into());
+    }
+    refusal()
+}
+
+/// Puts the app's idle engines away, under the lifecycle lock. A recording
+/// started from the tray or a hotkey just after Run passes the refusal
+/// before its `IS_RECORDING` is set; it loads its models under this lock and
+/// sets the flag before it lets go, so the check asks again here and leaves
+/// those models, and the steps, alone.
+async fn take_engines() -> Result<Held, String> {
     let _engines = crate::audio::common::acquire_engine_lifecycle_lock().await;
+    if let Some(reason) = stop_reason(crate::audio::recording_commands::is_recording().await) {
+        return Err(reason);
+    }
     let (whisper, parakeet) = app_engines();
     let held = Held {
         whisper: match &whisper {
@@ -347,7 +416,9 @@ async fn take_engines() -> Held {
         backend: crate::whisper_engine::openvino::backend_status(),
     };
     crate::audio::common::unload_both_stt_engines().await;
-    held
+    // As before every speech model's load: the builtin LLM gives back its memory and GPU.
+    crate::audio::common::prepare_for_stt().await;
+    Ok(held)
 }
 
 /// Loads back what the app's engines held, unless a recording started (it
@@ -385,8 +456,15 @@ async fn give_back(held: Held, warnings: &mut Vec<String>) {
 }
 
 async fn run(emit: &impl Emit, plan: Plan, resumed: Option<Note>) {
-    let held = take_engines().await;
-    let system = tokio::task::spawn_blocking(hardware::system).await.unwrap_or_default();
+    let taken = take_engines().await;
+    if let Err(reason) = &taken {
+        log::info!("[speech check] not started: {reason}");
+    }
+    // A check stopped before its first step does not read the GPUs either.
+    let system = match &taken {
+        Ok(_) => tokio::task::spawn_blocking(hardware::system).await.unwrap_or_default(),
+        Err(_) => Default::default(),
+    };
     let mut note = match resumed {
         Some(mut note) => {
             note.system = system;
@@ -419,8 +497,14 @@ async fn run(emit: &impl Emit, plan: Plan, resumed: Option<Note>) {
         Ok(clips) => {
             let context = steps::Context { clips, cancelled: &cancelled };
             for kind in to_run {
-                let report = if cancelled() {
-                    StepReport::new(kind, StepStatus::Cancelled).with_reason("Cancelled")
+                // Set before the Cancel is read: a recording that cancels now either
+                // sees the flag and waits, or this step sees the Cancel.
+                STEP_IN_FLIGHT.store(true, Ordering::SeqCst);
+                let report = if let Err(reason) = &taken {
+                    StepReport::new(kind, StepStatus::Cancelled).with_reason(reason.clone())
+                } else if cancelled() {
+                    let reason = if RECORDING_STARTED.load(Ordering::SeqCst) { "A recording started" } else { "Cancelled" };
+                    StepReport::new(kind, StepStatus::Cancelled).with_reason(reason)
                 } else if plan.declined.contains(&kind) {
                     StepReport::new(kind, StepStatus::NotChecked).with_reason("The model was not downloaded for the check")
                 } else {
@@ -438,6 +522,7 @@ async fn run(emit: &impl Emit, plan: Plan, resumed: Option<Note>) {
                     log::info!("[speech check] {}: {:?}", kind.title(), report.status);
                     report
                 };
+                STEP_IN_FLIGHT.store(false, Ordering::SeqCst);
                 note.done.push(report);
                 note::write(&note);
             }
@@ -448,7 +533,9 @@ async fn run(emit: &impl Emit, plan: Plan, resumed: Option<Note>) {
             }
         }
     }
-    give_back(held, &mut note.warnings).await;
+    if let Ok(held) = taken {
+        give_back(held, &mut note.warnings).await;
+    }
     // The steps in the plan's order, the one that closed the app among them.
     let mut steps: Vec<StepReport> = Vec::new();
     for kind in plan.steps() {
@@ -522,6 +609,7 @@ mod tests {
 
     fn reset() {
         *lock_status() = Status::Idle;
+        STEP_IN_FLIGHT.store(false, Ordering::SeqCst);
         CANCEL.store(false, Ordering::SeqCst);
         RECORDING_STARTED.store(false, Ordering::SeqCst);
     }
@@ -552,13 +640,13 @@ mod tests {
         Status::Running { step: Some(StepKind::Whisper), steps: StepKind::ALL.to_vec(), done: Vec::new(), cancelling: false }
     }
 
-    #[test]
-    fn a_recording_start_cancels_a_running_check_only() {
+    #[tokio::test]
+    async fn a_recording_start_cancels_a_running_check_only() {
         let _statics = Statics::take();
-        cancel_for_recording();
+        cancel_for_recording().await;
         assert!(!CANCEL.load(Ordering::SeqCst), "nothing runs, nothing to cancel");
         *lock_status() = running();
-        cancel_for_recording();
+        cancel_for_recording().await;
         assert!(CANCEL.load(Ordering::SeqCst));
         assert!(RECORDING_STARTED.load(Ordering::SeqCst));
         assert!(matches!(status(), Status::Running { cancelling: true, .. }));
@@ -604,10 +692,39 @@ mod tests {
         assert!(busy::current().contains(&BusyReason::SpeechCheck));
         assert!(matches!(events.all().as_slice(), [Status::Running { step: None, cancelling: false, .. }]));
         // A recording that starts now finds the check running and cancels it.
-        cancel_for_recording();
+        futures::executor::block_on(cancel_for_recording());
         assert!(RECORDING_STARTED.load(Ordering::SeqCst));
         assert_eq!(begin(&events, &Plan::for_tests()).err().as_deref(), Some("The speech check is already running"));
         drop(busy);
+    }
+
+    #[tokio::test]
+    async fn the_check_leaves_the_engines_of_a_recording_that_started_after_run() {
+        let _statics = Statics::take();
+        assert_eq!(stop_reason(true).as_deref(), Some("A recording started"));
+        RECORDING_STARTED.store(true, Ordering::SeqCst);
+        assert_eq!(stop_reason(false).as_deref(), Some("A recording started"));
+        RECORDING_STARTED.store(false, Ordering::SeqCst);
+        CANCEL.store(true, Ordering::SeqCst);
+        assert_eq!(take_engines().await.err().as_deref(), Some("Cancelled"));
+        CANCEL.store(false, Ordering::SeqCst);
+        assert_eq!(stop_reason(false), None);
+    }
+
+    #[tokio::test]
+    async fn a_recording_waits_a_bounded_time_for_the_step_in_flight() {
+        let _statics = Statics::take();
+        assert!(step_ended_within(Duration::ZERO).await, "no step, no wait");
+        STEP_IN_FLIGHT.store(true, Ordering::SeqCst);
+        let started = std::time::Instant::now();
+        assert!(!step_ended_within(Duration::from_millis(60)).await);
+        assert!(started.elapsed() >= Duration::from_millis(60));
+        let ends = tokio::spawn(async {
+            tokio::time::sleep(Duration::from_millis(40)).await;
+            STEP_IN_FLIGHT.store(false, Ordering::SeqCst);
+        });
+        assert!(step_ended_within(Duration::from_secs(5)).await);
+        ends.await.unwrap();
     }
 
     #[test]
@@ -618,6 +735,20 @@ mod tests {
         drop(_recording);
         let _import = busy::hold(BusyReason::Import);
         assert_eq!(refusal().as_deref(), Some("The speech check can't run while a transcript is being made"));
+        drop(_import);
+        let _summary = busy::hold(BusyReason::Summary);
+        assert_eq!(refusal().as_deref(), Some("The speech check can't run while a summary is being written"));
+    }
+
+    #[test]
+    fn other_speech_work_waits_for_a_running_check() {
+        let _statics = Statics::take();
+        assert_eq!(refuse_beside("An import"), Ok(()));
+        *lock_status() = running();
+        assert_eq!(
+            refuse_beside("An import").err().as_deref(),
+            Some("An import can't start during the speech check. Try again when it ends, or cancel it in Settings › Advanced")
+        );
     }
 
     /// Every step on the models installed in the test binary's data folder
