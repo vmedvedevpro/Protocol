@@ -167,7 +167,7 @@ pub async fn get_device_and_config(
             }
         }
 
-        Err(anyhow!("Device not found: {}", audio_device.name))
+        Err(MissingDevice { name: audio_device.name.clone() }.into())
     }
 }
 
@@ -186,6 +186,23 @@ impl fmt::Display for AmbiguousDevice {
 }
 
 impl std::error::Error for AmbiguousDevice {}
+
+/// A stored device that no connected device answers to. A recording start
+/// tells the user it "isn't connected" only for this error; any other
+/// failure to open a device (busy, no usable format, the sound server) is
+/// reported with its reason.
+#[derive(Debug)]
+pub struct MissingDevice {
+    pub name: String,
+}
+
+impl fmt::Display for MissingDevice {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "'{}' is not connected", self.name)
+    }
+}
+
+impl std::error::Error for MissingDevice {}
 
 /// The stored device as it can be opened now, without opening it: the same
 /// device, under its current name where Linux matched an older form of it.

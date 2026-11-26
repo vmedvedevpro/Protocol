@@ -14,7 +14,7 @@ use tauri::{AppHandle, Emitter, Manager, Runtime};
 use tokio::task::JoinHandle;
 
 use super::{
-    devices::{ensure_available, AmbiguousDevice, AudioDevice},
+    devices::{ensure_available, AmbiguousDevice, AudioDevice, MissingDevice},
     parse_audio_device,
     default_input_device,   // Get default microphone
     default_output_device,  // Get default system audio
@@ -174,10 +174,48 @@ struct Substitution {
     kind: StoredDevice,
     /// The stored device's name, as the select showed it.
     wanted: String,
-    /// How many connected devices the name now fits, when more than one.
-    ambiguous: Option<usize>,
+    /// Why it could not be used.
+    problem: Problem,
     /// The default device recorded instead; None when there is none.
     used: Option<String>,
+}
+
+/// Why a stored device could not be used, as the toast words it: "isn't
+/// connected" only for a device that is gone, since a busy device or a
+/// sound-server failure needs another fix than plugging it back in.
+#[derive(Debug, PartialEq, Eq)]
+enum Problem {
+    Missing,
+    /// The name now fits this many connected devices.
+    Ambiguous(usize),
+    /// Any other failure, with its reason shortened for the toast.
+    Unusable(String),
+}
+
+impl Problem {
+    fn of(error: &anyhow::Error) -> Self {
+        if let Some(found) = error.downcast_ref::<AmbiguousDevice>() {
+            Problem::Ambiguous(found.count)
+        } else if error.downcast_ref::<MissingDevice>().is_some() {
+            Problem::Missing
+        } else {
+            Problem::Unusable(short_reason(error))
+        }
+    }
+}
+
+/// The outermost message of an error, on one line and at most
+/// `SHORT_REASON_CHARS` characters: the toast carries it in brackets, the log
+/// keeps the whole chain.
+fn short_reason(error: &anyhow::Error) -> String {
+    const SHORT_REASON_CHARS: usize = 120;
+    let message = error.to_string();
+    let line = message.lines().next().unwrap_or_default().trim();
+    if line.chars().count() <= SHORT_REASON_CHARS {
+        return line.to_string();
+    }
+    let cut: String = line.chars().take(SHORT_REASON_CHARS - 1).collect();
+    format!("{}…", cut.trim_end())
 }
 
 /// The stored device as it can be opened now, or the default when it
@@ -197,7 +235,7 @@ async fn stored_or_default(kind: StoredDevice, stored: &str) -> Result<(Option<A
     };
     warn!("The stored {kind:?} '{stored}' cannot be used ({reason:#}); using the current default");
     let wanted = parsed.as_ref().map_or(stored, |device| device.name.as_str()).to_string();
-    let ambiguous = reason.downcast_ref::<AmbiguousDevice>().map(|found| found.count);
+    let problem = Problem::of(&reason);
     let default = match kind {
         StoredDevice::Microphone => default_input_device(),
         StoredDevice::ComputerAudio => default_output_device(),
@@ -205,14 +243,14 @@ async fn stored_or_default(kind: StoredDevice, stored: &str) -> Result<(Option<A
     match default {
         Ok(device) => {
             let used = Some(device.name.clone());
-            Ok((Some(device), Some(Substitution { kind, wanted, ambiguous, used })))
+            Ok((Some(device), Some(Substitution { kind, wanted, problem, used })))
         }
         Err(error) if kind == StoredDevice::Microphone => Err(format!(
             "No microphone device available. Preferred device '{stored}' was not found, and the default microphone is unavailable: {error}"
         )),
         Err(error) => {
             warn!("No default computer audio either ({error}); recording the microphone only");
-            Ok((None, Some(Substitution { kind, wanted, ambiguous, used: None })))
+            Ok((None, Some(Substitution { kind, wanted, problem, used: None })))
         }
     }
 }
@@ -230,16 +268,17 @@ fn substitution_warning(substitutions: &[Substitution]) -> Option<(&'static str,
                 StoredDevice::Microphone => "microphone",
                 StoredDevice::ComputerAudio => "computer audio",
             };
-            let problem = match each.ambiguous {
-                Some(count) => format!("Your {what} “{}” now matches {count} connected devices", each.wanted),
-                None => format!("Your {what} “{}” isn’t connected", each.wanted),
+            let problem = match &each.problem {
+                Problem::Ambiguous(count) => format!("Your {what} “{}” now matches {count} connected devices", each.wanted),
+                Problem::Missing => format!("Your {what} “{}” isn’t connected", each.wanted),
+                Problem::Unusable(reason) => format!("Your {what} “{}” couldn’t be opened ({reason})", each.wanted),
             };
             let instead = match (&each.used, each.kind) {
                 (Some(used), StoredDevice::Microphone) => format!("; recording from “{used}”."),
                 (Some(used), StoredDevice::ComputerAudio) => format!("; recording computer audio from “{used}”."),
                 (None, _) => ", and there is no other to record; only the microphone is recording.".to_string(),
             };
-            let choose = if each.ambiguous.is_some() { " Choose one in Settings › Recording." } else { "" };
+            let choose = if matches!(each.problem, Problem::Ambiguous(_)) { " Choose one in Settings › Recording." } else { "" };
             format!("{problem}{instead}{choose}")
         })
         .collect();
@@ -1271,10 +1310,47 @@ mod compact_mode_tests {
 
 #[cfg(test)]
 mod substitution_tests {
-    use super::{substitution_warning, StoredDevice, Substitution};
+    use super::{short_reason, substitution_warning, Problem, StoredDevice, Substitution};
+    use crate::audio::devices::{AmbiguousDevice, MissingDevice};
 
     fn swap(kind: StoredDevice, wanted: &str, ambiguous: Option<usize>, used: Option<&str>) -> Substitution {
-        Substitution { kind, wanted: wanted.into(), ambiguous, used: used.map(Into::into) }
+        let problem = ambiguous.map_or(Problem::Missing, Problem::Ambiguous);
+        Substitution { kind, wanted: wanted.into(), problem, used: used.map(Into::into) }
+    }
+
+    #[test]
+    fn only_a_missing_device_is_called_not_connected() {
+        let missing: anyhow::Error = MissingDevice { name: "Jabra Evolve2".into() }.into();
+        assert_eq!(Problem::of(&missing.context("checking the microphone")), Problem::Missing);
+        let twins: anyhow::Error = AmbiguousDevice { name: "Yeti".into(), count: 2 }.into();
+        assert_eq!(Problem::of(&twins), Problem::Ambiguous(2));
+        let busy = anyhow::anyhow!("Failed to get default input config: The requested device is in use");
+        assert_eq!(Problem::of(&busy), Problem::Unusable("Failed to get default input config: The requested device is in use".into()));
+    }
+
+    #[test]
+    fn a_device_that_cannot_be_opened_gives_the_reason() {
+        let busy = Substitution {
+            kind: StoredDevice::Microphone,
+            wanted: "Jabra Evolve2".into(),
+            problem: Problem::Unusable("the device is in use by another application".into()),
+            used: Some("HD Audio Digital Microphone".into()),
+        };
+        let (title, message) = substitution_warning(&[busy]).unwrap();
+        assert_eq!(title, "Recording from another device");
+        assert_eq!(
+            message,
+            "Your microphone “Jabra Evolve2” couldn’t be opened (the device is in use by another application); recording from “HD Audio Digital Microphone”.",
+        );
+    }
+
+    #[test]
+    fn the_reason_is_one_short_line() {
+        let long = anyhow::anyhow!("{}\nsecond line", "x".repeat(200));
+        let reason = short_reason(&long);
+        assert_eq!(reason.chars().count(), 120);
+        assert!(reason.ends_with('…') && !reason.contains('\n'), "{reason}");
+        assert_eq!(short_reason(&anyhow::anyhow!("inner").context("outer")), "outer");
     }
 
     #[test]

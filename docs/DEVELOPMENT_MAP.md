@@ -299,7 +299,12 @@ was not found at all.
   `alsa.device` (the card id resolved through `/proc/asound`), and
   "<name> (System Audio)" is a monitor with that server name or label.
   `get_recording_preferences` answers a matched device under its current
-  label, so the select and the bar do not call it missing.
+  label, so the select and the bar do not call it missing. Settings sends
+  every preference back on any change, so `set_recording_preferences`
+  keeps the stored value when the device sent is only its current label
+  (`kept_device_name`): a gain change does not turn a twin's bracketed
+  label or an ALSA `default` into a plain label. Choosing another device
+  saves it.
 - `audio/devices/platform/linux.rs` resolves a stored device to a source
   name (`Capture::SoundServer`). Without a sound server only "ALSA default
   input" is offered (cpal's ALSA `default`), and computer audio reports that
@@ -308,7 +313,11 @@ was not found at all.
   audio records the default instead and says so in the warning toast
   (`recording_commands.rs` `stored_or_default`, `substitution_warning`):
   "Your microphone “X” isn’t connected; recording from “Y”.", or that the
-  name now matches several devices. All platforms.
+  name now matches several devices (choose one in Settings). "Isn’t
+  connected" only for `MissingDevice`, which each platform returns when no
+  device answers to the name; any other failure (a busy device, no usable
+  format, the sound server) reads "couldn’t be opened (<reason>)", the
+  error's outermost message cut to 120 characters. All platforms.
 - `audio/pulse/record.rs` opens a record stream for that source as 48 kHz
   mono f32 (the server converts) with 20 ms fragments and `no_move`: an
   unplugged device ends the stream (`Ended::SourceRemoved` →

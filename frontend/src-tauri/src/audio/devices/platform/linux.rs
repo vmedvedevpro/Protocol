@@ -11,7 +11,7 @@
 use anyhow::{anyhow, Result};
 use cpal::traits::{DeviceTrait, HostTrait};
 
-use crate::audio::devices::configuration::{AmbiguousDevice, AudioDevice, DeviceType};
+use crate::audio::devices::configuration::{AmbiguousDevice, AudioDevice, DeviceType, MissingDevice};
 use crate::audio::pulse;
 use crate::audio::pulse::devices::Lookup;
 
@@ -79,7 +79,7 @@ fn lookup(device: &AudioDevice) -> Result<pulse::devices::Source> {
     match listing.find(&device.name, device.device_type == DeviceType::Output, pulse::devices::alsa_card_index) {
         Lookup::Found(source) => Ok(source.clone()),
         Lookup::Ambiguous(count) => Err(AmbiguousDevice { name: device.name.clone(), count }.into()),
-        Lookup::Missing => Err(anyhow!("'{}' is not connected", device.name)),
+        Lookup::Missing => Err(MissingDevice { name: device.name.clone() }.into()),
     }
 }
 
