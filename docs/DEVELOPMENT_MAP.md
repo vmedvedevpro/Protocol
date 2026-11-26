@@ -1062,6 +1062,16 @@ Locally a `--features vulkan` test binary built with these variables had no
 EVEX instruction and loaded Large V3 Turbo on the Arc B390 and, with the
 Vulkan drivers hidden, on the CPU of a Core Ultra X7 358H (no AVX-512).
 
+Data in code (#216): MSVC keeps a switch's jump table of 32-bit RVAs in
+`.text`, and in 1.0.0-rc.1 one table happened to decode as
+`vblendmps %zmm18,%zmm15,%zmm21{%k3}{z}` and failed the Windows leg, though
+only the version string had moved the layout. `excludeJumpTables` reads the
+PE section headers and does not count a zmm decode that starts inside two
+neighbouring RVAs into executable sections; the script's header explains why
+a real zmm instruction cannot look like that. `zlib-rs`, the first suspect,
+has its AVX-512 code behind a feature the tree does not enable. This rule is
+proven on Windows only by the release dry run on `main`.
+
 ### Processor check at startup (#216)
 
 `cpu_support.rs` checks CPUID and XCR0 for everything x86-64-v3 adds (AVX,

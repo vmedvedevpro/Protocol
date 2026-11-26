@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { analyzeLine, findDisassembler, newReport, problemsOf } from '../check-cpu-baseline.mjs';
+import { analyzeLine, excludeJumpTables, findDisassembler, newReport, peLayout, problemsOf } from '../check-cpu-baseline.mjs';
 
 const analyze = (lines) => {
   const report = newReport();
@@ -68,4 +68,79 @@ test('a listing without code fails instead of passing', () => {
 
 test('OBJDUMP that does not run is reported', () => {
   assert.throws(() => findDisassembler({ OBJDUMP: '/nonexistent/objdump' }, 'linux'), /set OBJDUMP/);
+});
+
+// A PE32+ file with one code section, .text at RVA 0x1000 (file offset 0x200),
+// holding a real AVX-512 instruction at 0x1000 and, at 0x1010, a switch's
+// jump table of RVAs into .text, as MSVC lays them out.
+function peWithJumpTable() {
+  const buffer = Buffer.alloc(0x400);
+  buffer.write('MZ', 0, 'latin1');
+  buffer.writeUInt32LE(0x40, 0x3c);
+  buffer.write('PE\0\0', 0x40, 'latin1');
+  buffer.writeUInt16LE(0x8664, 0x44);
+  buffer.writeUInt16LE(1, 0x46);
+  buffer.writeUInt16LE(0xf0, 0x54);
+  const optional = 0x58;
+  buffer.writeUInt16LE(0x20b, optional);
+  buffer.writeBigUInt64LE(0x140000000n, optional + 24);
+  const section = optional + 0xf0;
+  buffer.write('.text', section, 'latin1');
+  buffer.writeUInt32LE(0x100, section + 8);
+  buffer.writeUInt32LE(0x1000, section + 12);
+  buffer.writeUInt32LE(0x100, section + 16);
+  buffer.writeUInt32LE(0x200, section + 20);
+  buffer.writeUInt32LE(0x60000020, section + 36);
+  Buffer.from([0x62, 0xf1, 0x7c, 0x48, 0x10, 0x00]).copy(buffer, 0x200);
+  [0x1040, 0x1062, 0x1070, 0x1080].forEach((rva, index) => buffer.writeUInt32LE(rva, 0x210 + index * 4));
+  return buffer;
+}
+
+const tableLines = [
+  '0000000140001000 <.text>:',
+  '140001000: 62 f1 7c 48 10 00           \tvmovups\t(%rax), %zmm0',
+  // The bytes from 0x140001015 on, read as code (rc.1's failure, #216).
+  '140001015: 62 ea 01 c3 65 ea 01 00     \tvblendmps\t%zmm18, %zmm15, %zmm21 {%k3} {z}',
+];
+
+test('PE layout: image base and executable sections', () => {
+  assert.deepEqual(peLayout(peWithJumpTable()), { imageBase: 0x140000000n, sections: [{ rva: 0x1000, size: 0x100, file: 0x200 }] });
+  assert.equal(peLayout(Buffer.from('\x7fELF')), null);
+});
+
+test('a decode inside a jump table of RVAs is not counted; real AVX-512 next to it is', () => {
+  const report = excludeJumpTables(analyze(tableLines), peWithJumpTable());
+  assert.equal(report.zmm, 1);
+  assert.equal(report.evex, 1);
+  assert.equal(report.jumpTable, 1);
+  assert.match(report.jumpTableSamples[0], /^140001015: vblendmps/);
+  assert.match(problemsOf(report).join('\n'), /1 instructions use zmm[^]*140001000: vmovups/);
+});
+
+test('jump-table data alone passes', () => {
+  const report = excludeJumpTables(analyze([tableLines[0], tableLines[2]]), peWithJumpTable());
+  assert.deepEqual(problemsOf(report, { noEvex: true }), []);
+  assert.deepEqual([...report.evexByFunction], []);
+});
+
+test('a dword that is an RVA without a neighbouring one is code, not a table', () => {
+  const buffer = peWithJumpTable();
+  buffer.fill(0xcc, 0x210, 0x220);
+  buffer.writeUInt32LE(0x1062, 0x214);
+  const report = excludeJumpTables(analyze(tableLines), buffer);
+  assert.equal(report.zmm, 2);
+  assert.equal(report.jumpTable, 0);
+});
+
+test('outside a PE file (ELF) nothing is taken out', () => {
+  const report = excludeJumpTables(analyze(tableLines), Buffer.from('\x7fELF and more'));
+  assert.equal(report.zmm, 2);
+});
+
+test('EVEX on xmm is never taken for table data: its P2 can be 0, like an RVA', () => {
+  const buffer = peWithJumpTable();
+  const lines = [tableLines[0], '140001014: 62 01 3c 00 57 c0           \tvxorps\t%xmm24, %xmm24, %xmm24'];
+  const report = excludeJumpTables(analyze(lines), buffer);
+  assert.equal(report.evex, 1);
+  assert.equal(report.jumpTable, 0);
 });

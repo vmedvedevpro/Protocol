@@ -5,7 +5,8 @@
 // build as protocol.exe, the Vulkan build and probe as variants, no CUDA
 // files, the pinned runtimes and sidecars, the "nsis" bundle-type marker on
 // both executables that can end up installed as protocol.exe, and no AVX-512
-// (zmm) code in them or llama-helper.exe (#176). That check disassembles with
+// (zmm) code in them or llama-helper.exe (#176), jump-table data in .text
+// aside (#216). That check disassembles with
 // llvm-objdump (the runner image's LLVM) or GNU objdump; OBJDUMP overrides it.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
@@ -116,6 +117,9 @@ try {
     .map((name) => checkExecutable(join(extracted, name), { disassembler })));
   for (const { path, report, problems } of baseline) {
     console.log(`${basename(path)}: ${report.instructions} instructions, ${report.zmm} on zmm, ${report.evex} EVEX`);
+    // Switch jump tables MSVC keeps in .text, which disassemble as AVX-512
+    // now and then (check-cpu-baseline.mjs, #216).
+    if (report.jumpTable > 0) console.log(`  not counted, jump-table data: ${report.jumpTableSamples.join('; ')}`);
     assert.deepEqual(problems, [], `${basename(path)} is not built for the x86-64-v3 baseline`);
   }
 
