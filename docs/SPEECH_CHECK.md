@@ -46,7 +46,10 @@ compares nothing.
    builtin LLM (`prepare_for_stt`), as every speech model load does.
 4. It reads the computer (`hardware.rs`) and the sample, then runs the steps,
    writing the crash note before each and after each. A step that panics
-   fails with its message (`guarded`), and the run goes on.
+   fails with its message (`guarded`), and the run goes on. A panic in the
+   check's own code finishes it with every step failed (`run_caught`); the
+   engines it took wait in a slot the caller owns, so they are given back
+   all the same.
 5. It gives back: unless a recording started meanwhile, it loads back what
    the app's engines held (under the lock) and, when Whisper was not reloaded,
    puts OpenVINO's last outcome back, so Settings' fallback notice is the
@@ -222,7 +225,9 @@ check asks first ("the speech check is running"), as for other work.
   bundled sample decodes to its turns), `steps::tests`, `mod.rs` tests (an
   interrupted run, a recording's cancel and its bounded wait, a recording
   that started after Run, a cancel after the finish or before the next step,
-  a start that resets the flags and shows Running, a step that panics, only
+  a start that resets the flags and shows Running, a step that panics, a
+  panic in the run itself that still gives the engines back, a recording
+  that did not cancel the check stopping its steps, only
   an interrupted check resuming, the refusals both ways, the plan).
 - Ignored, with installed models in the test binary's `data/models`:
   `speech_check::tests::every_engine_runs_the_sample_on_the_installed_models`

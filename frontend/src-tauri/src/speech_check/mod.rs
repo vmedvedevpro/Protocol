@@ -346,23 +346,37 @@ fn start<R: Runtime>(app: AppHandle<R>, plan: Plan, resumed: Option<Note>) -> Re
     let busy = begin(&app)?;
     tauri::async_runtime::spawn(async move {
         let _busy = busy;
-        let stopped = AssertUnwindSafe(run(&app, plan.clone(), resumed, &Engines)).catch_unwind().await;
-        // Each step is caught on its own (`guarded`); this is the check's own code.
-        // The app's engines are not loaded back then: they load on next use.
-        if let Err(panic) = stopped {
-            STEP_IN_FLIGHT.store(false, Ordering::SeqCst);
-            note::remove();
-            let reason = format!("The check stopped on an internal error: {}", panic_message(&*panic));
-            // log-audit: a panic of the check's own code, which runs only the bundled sample.
-            log::error!("[speech check] {reason}");
-            let note = Note::of(plan, Default::default());
-            let steps = StepKind::ALL.iter().map(|kind| StepReport::new(*kind, StepStatus::Failed).with_reason(reason.clone())).collect();
-            let report = build_report(&note, steps, Outcome::Failed);
-            let text = report.render();
-            set_status(&app, Status::Finished { report, text });
-        }
+        run_caught(&app, plan, resumed, &Engines).await;
     });
     Ok(())
+}
+
+/// [`run`], and a panic of its own code (each step is caught on its own,
+/// `guarded`) finishes the check with every step failed. The engines `run`
+/// took are in `held` from the moment it takes them until it gives them
+/// back, so they are given back here too, with OpenVINO's last outcome.
+async fn run_caught(emit: &impl Emit, plan: Plan, resumed: Option<Note>, runner: &impl Runner) {
+    let held = Mutex::new(None);
+    let stopped = AssertUnwindSafe(run(emit, plan.clone(), resumed, runner, &held)).catch_unwind().await;
+    let Err(panic) = stopped else { return };
+    STEP_IN_FLIGHT.store(false, Ordering::SeqCst);
+    note::remove();
+    let reason = format!("The check stopped on an internal error: {}", panic_message(&*panic));
+    // log-audit: a panic of the check's own code, which runs only the bundled sample.
+    log::error!("[speech check] {reason}");
+    let mut note = Note::of(plan, Default::default());
+    if let Some(held) = take_held(&held) {
+        give_back(held, &mut note.warnings).await;
+    }
+    let steps = StepKind::ALL.iter().map(|kind| StepReport::new(*kind, StepStatus::Failed).with_reason(reason.clone())).collect();
+    let report = build_report(&note, steps, Outcome::Failed);
+    let text = report.render();
+    set_status(emit, Status::Finished { report, text });
+}
+
+/// The engines in `held`, taken out so that they are given back once.
+fn take_held(held: &Mutex<Option<Held>>) -> Option<Held> {
+    held.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).take()
 }
 
 /// The text of a panic's payload.
@@ -535,15 +549,23 @@ async fn give_back(held: Held, warnings: &mut Vec<String>) {
     }
 }
 
-async fn run(emit: &impl Emit, plan: Plan, resumed: Option<Note>, runner: &impl Runner) {
-    let taken = take_engines().await;
-    if let Err(reason) = &taken {
-        // log-audit: the refusal's own sentence ("A recording started", a busy reason).
-        log::info!("[speech check] not started: {reason}");
-    }
+/// The check, from taking the app's engines to the report. The engines it
+/// takes wait in `held`, the caller's, until it gives them back.
+async fn run(emit: &impl Emit, plan: Plan, resumed: Option<Note>, runner: &impl Runner, held: &Mutex<Option<Held>>) {
+    let taken = match take_engines().await {
+        Ok(engines) => {
+            *held.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(engines);
+            Ok(())
+        }
+        Err(reason) => {
+            // log-audit: the refusal's own sentence ("A recording started", a busy reason).
+            log::info!("[speech check] not started: {reason}");
+            Err(reason)
+        }
+    };
     // A check stopped before its first step does not read the GPUs either.
     let system = match &taken {
-        Ok(_) => runner.system().await,
+        Ok(()) => runner.system().await,
         Err(_) => Default::default(),
     };
     let mut note = match resumed {
@@ -593,7 +615,7 @@ async fn run(emit: &impl Emit, plan: Plan, resumed: Option<Note>, runner: &impl 
             }
         }
     }
-    if let Ok(held) = taken {
+    if let Some(held) = take_held(held) {
         give_back(held, &mut note.warnings).await;
     }
     // The steps in the plan's order, those that closed the app among them.
@@ -852,7 +874,7 @@ mod tests {
         let events = Events::default();
         let plan = Plan::for_tests();
         let _busy = begin(&events).unwrap();
-        run(&events, plan, None, runner).await;
+        run_caught(&events, plan, None, runner).await;
         note::use_path_for_tests(None);
         (events.all(), folder)
     }
@@ -870,6 +892,45 @@ mod tests {
         assert!(!folder.path().join("speech-check.json").exists(), "the note goes, so the next start claims no crash");
         assert!(!STEP_IN_FLIGHT.load(Ordering::SeqCst));
         assert_eq!(status(), events.last().unwrap().clone());
+    }
+
+    /// A runner whose own code panics after a step changed OpenVINO's last
+    /// outcome, as a Whisper step's load records it.
+    struct PanicsAfterTheSteps;
+
+    impl Runner for PanicsAfterTheSteps {
+        fn system(&self) -> BoxFuture<'_, report::System> {
+            Box::pin(async {
+                #[cfg(any(windows, target_os = "linux"))]
+                crate::whisper_engine::openvino::record_status(crate::whisper_engine::openvino::BackendStatus {
+                    openvino_device: None,
+                    fallback_reason: Some("the check's own load".into()),
+                });
+                panic!("the run's own code")
+            })
+        }
+
+        fn step<'a>(&'a self, kind: StepKind, _plan: &'a Plan, _context: &'a steps::Context<'a>) -> BoxFuture<'a, StepReport> {
+            Box::pin(async move { StepReport::new(kind, StepStatus::Passed) })
+        }
+    }
+
+    #[tokio::test]
+    async fn a_panic_in_the_run_itself_gives_the_engines_back() {
+        let _file = note::tests::FILE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _statics = Statics::take();
+        #[cfg(any(windows, target_os = "linux"))]
+        let before = crate::whisper_engine::openvino::BackendStatus { openvino_device: Some("GPU".into()), fallback_reason: None };
+        #[cfg(any(windows, target_os = "linux"))]
+        crate::whisper_engine::openvino::record_status(before.clone());
+        let (events, folder) = run_on_the_sample(&PanicsAfterTheSteps).await;
+        let Some(Status::Finished { report, .. }) = events.last() else { panic!("{events:?}") };
+        assert_eq!(report.outcome, Outcome::Failed);
+        assert_eq!(report.steps[0].reason.as_deref(), Some("The check stopped on an internal error: the run's own code"));
+        #[cfg(any(windows, target_os = "linux"))]
+        assert_eq!(crate::whisper_engine::openvino::backend_status(), Some(before), "the app's outcome is back");
+        assert!(!folder.path().join("speech-check.json").exists());
+        assert!(!STEP_IN_FLIGHT.load(Ordering::SeqCst));
     }
 
     #[test]
