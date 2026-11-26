@@ -1,10 +1,10 @@
 name: Pages
 
 # Publishes site/, the one-page site, to GitHub Pages. site/ is plain files
-# with no build step; its images and favicon are symlinks into docs/media/ and
-# the app's icons, which upload-pages-artifact dereferences, so those files
-# are in the path filter too. Pages must be set to "GitHub Actions" in the
-# repository's settings once (WORKFLOWS_OVERVIEW.md).
+# with no build step; its ring GIFs and favicon are symlinks into docs/media/
+# and the app's icons, which upload-pages-artifact dereferences, so those
+# files are in the path filter too. Pages must be set to "GitHub Actions" in
+# the repository's settings once (WORKFLOWS_OVERVIEW.md).
 on:
   push:
     branches: [main]

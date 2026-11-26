@@ -339,13 +339,13 @@ favicon are symlinks into `docs/media/` and `frontend/src-tauri/icons/`;
 `upload-pages-artifact` dereferences them, and `pages.yml`'s path filter lists
 those files so a new ring redeploys the site. With reduced motion the page
 shows `site/media/ring-*-still.png`, one frame of each GIF; retake them with
-the GIFs. Every path is relative, so
-a renamed repository keeps working; only the search and link-preview tags in
-`<head>` (canonical, Open Graph, JSON-LD) name the site's absolute address and
-change with it. `og.png` is the link preview and the repository's social
-preview, which the owner uploads by hand: a 1280x640 screenshot of the page
-in the light theme with reduced motion and the GitHub link hidden. To look at it locally, serve the folder:
-`python3 -m http.server -d site`.
+the GIFs. Every path is relative, so a renamed repository keeps working; only
+the search and link-preview tags in `<head>` (canonical, Open Graph, JSON-LD)
+name the site's absolute address and change with it. `og.png` is the link
+preview and the repository's social preview, which the owner uploads by hand:
+a 1280x640 screenshot of the page in the light theme with reduced motion and
+the GitHub link hidden.
+To look at it locally, serve the folder: `python3 -m http.server -d site`.
 
 `pages.yml` runs only on a push to `main` that changes those paths, never on a
 pull request, and only in this repository. It uploads `site/` and deploys it
