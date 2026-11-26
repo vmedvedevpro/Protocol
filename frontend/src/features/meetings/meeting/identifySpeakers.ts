@@ -39,10 +39,26 @@ export function useIdentifySpeakers(meetingId: string, hasAudio: boolean) {
             toast.loading('Identifying speakers…', {id: `diarize-${meetingId}`, description: 'Listening to the recording on this computer.'})
         },
         onSuccess: (result, _count, _context, {client}) => {
-            toast.success(result.num_speakers > 0 ? `Found ${speakerCountLabel(result.num_speakers)}` : 'No speakers found', {
-                id: `diarize-${meetingId}`,
-                description: `${result.labeled} ${result.labeled === 1 ? 'line' : 'lines'} relabelled.`,
-            })
+            const id = `diarize-${meetingId}`
+            const found = speakerCountLabel(result.num_speakers)
+            const lines = (count: number) => `${count} ${count === 1 ? 'line' : 'lines'}`
+            if (result.num_speakers === 0) {
+                toast.success('No speakers found', {id, description: 'No line was relabelled.'})
+            } else if (result.speakers_on_lines < result.num_speakers) {
+                // A voice whose speech overlaps no line cannot show (#207).
+                toast.warning(`Found ${found}, ${result.speakers_on_lines} on the transcript`, {
+                    id,
+                    description: `The speech of the others overlaps no transcript line. ${lines(result.changed)} relabelled.`,
+                })
+            } else if (result.changed === 0 && result.labelled_before > 0) {
+                // A rerun that ends as the last one did must not look like nothing happened (#205).
+                toast.success(`Found ${found} again`, {id, description: 'Every line already had these labels, so none changed.'})
+            } else if (result.changed === 0) {
+                // A first run is not a repeat: no line had a label, and none got one.
+                toast.success(`Found ${found}`, {id, description: 'No transcript line got a label.'})
+            } else {
+                toast.success(`Found ${found}`, {id, description: `${lines(result.changed)} relabelled.`})
+            }
             return client.invalidateQueries({queryKey: meetingKeys.transcripts(meetingId)})
         },
         onError: (error) => {

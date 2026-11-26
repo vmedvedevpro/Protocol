@@ -288,8 +288,28 @@ cloud_models anthropic:: groq:: openai::` (a local HTTP server stands in for
 the providers), frontend `SummaryModelPage.test.tsx`.
 
 `diarization/mod.rs` owns persisted engine settings and offline command dispatch.
-Nemotron is Auto-detect only; manual counts belong to Pyannote. Rerunning speaker
-identification must preserve transcript text, row identity, and timestamps.
+Nemotron is Auto-detect only; manual counts belong to Pyannote.
+Pyannote clusters its turns (one local speaker of one non-overlapping 10 s
+window) in `clustering::agglomerative` (#217). A cluster is a speaker only with
+`MIN_SPEAKER_TURNS` (2) turns; smaller ones join the nearest speaker, so one
+odd turn neither spends a chosen count nor shows on its own. The mic
+voiceprint guard (`mic_is_one_consistent_voice`) reads the clusters before
+that folding, `agglomerative_unfolded`, so an odd turn blocks enrolment. The
+0.60 automatic threshold is not recalibrated.
+Rerunning speaker identification must preserve transcript text, row identity,
+and timestamps. `plan_labels` relabels every line from the new clusters: each
+name the user gave goes to the cluster that overlaps its lines most, the
+other clusters' lines get `Speaker N`. A line no voice overlaps keeps its
+label; one with no usable timing keeps a given name only. A line moved on its own in Who said this
+carries `speaker_manual` and keeps its label; `reassign_transcript_speaker_component`
+sets it and clears it when the name is removed, a whole-speaker rename leaves
+it. Lines moved before migration `20261126010000` carry no mark and are
+relabelled. With a chosen count, a cluster that leads no line joins the line
+it covers most. The result's `changed`, `labelled_before` and
+`speakers_on_lines` drive the dialog's toast. Tests: `diarization::clustering`
+and the `plan_labels` cases in `diarization/mod.rs`, the `speaker_manual` case
+in `person.rs`, and the ignored, Linux-only
+`qualification::a_chosen_count_is_spent_on_the_two_voices` on public fixtures.
 `row_speakers` labels a row with the speaker who overlaps it most, then those who
 overlap it for a fifth of that and talk at the same time; of speakers who overlap
 it equally the lower index comes first (#75; it was hash order), so one timeline
@@ -298,7 +318,12 @@ Read [PR34_NEMOTRON.md](PR34_NEMOTRON.md) before changing that contract.
 
 Frontend post-call sequencing lives in
 `frontend/src/features/recording/store/postCallRunner.ts`, mounted above
-navigation through `RecordingRuntime` in the shell; screens read the job
+navigation through `RecordingRuntime` in the shell. A recording's save starts
+it with retranscription, speakers and the summary; an import (#206) starts it
+through `postCallControls.afterImport` from Import's sheet once the meeting is
+filed, with speakers and the summary only, since the import transcribed the
+file (tests: the import cases of `postCallRunner.test.ts` and
+`ImportSheet.test.tsx`); screens read the job
 (`src/api/postCall.ts`) and ask the runner to cancel, retry or skip. The old
 UI (`162e8be`) had it in `components/MeetingDetails/PostCallProcessingWorker.tsx`
 and `contexts/PostCallJobsContext.tsx`. Completion and

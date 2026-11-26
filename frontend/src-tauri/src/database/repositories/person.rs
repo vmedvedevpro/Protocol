@@ -774,10 +774,14 @@ impl PeopleRepository {
         };
 
         let updated = replace_speaker_component(&from, selected, &resolved_to);
+        // A line given to someone by hand keeps them through a rerun of
+        // Identify speakers (#217); one whose name was taken away goes back
+        // to the voice clusters.
         let result = sqlx::query(
-            "UPDATE transcripts SET speaker = ? WHERE id = ? AND meeting_id = ?",
+            "UPDATE transcripts SET speaker = ?, speaker_manual = ? WHERE id = ? AND meeting_id = ?",
         )
         .bind(&updated)
+        .bind(!removed_name)
         .bind(transcript_id)
         .bind(meeting_id)
         .execute(&mut *tx)
@@ -1353,8 +1357,8 @@ mod tests {
         sqlx::raw_sql(
             "CREATE TABLE people (id TEXT PRIMARY KEY, display_name TEXT NOT NULL, normalized_name TEXT NOT NULL UNIQUE, notes TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, is_manual INTEGER NOT NULL DEFAULT 0);
              CREATE TABLE person_speakers (person_id TEXT NOT NULL, meeting_id TEXT NOT NULL, speaker_label TEXT NOT NULL, UNIQUE(meeting_id, speaker_label));
-             CREATE TABLE transcripts (id TEXT PRIMARY KEY, meeting_id TEXT NOT NULL, speaker TEXT, transcript TEXT, audio_start_time REAL, source_type TEXT);
-             INSERT INTO transcripts VALUES
+             CREATE TABLE transcripts (id TEXT PRIMARY KEY, meeting_id TEXT NOT NULL, speaker TEXT, transcript TEXT, audio_start_time REAL, source_type TEXT, speaker_manual INTEGER NOT NULL DEFAULT 0);
+             INSERT INTO transcripts (id, meeting_id, speaker, transcript, audio_start_time, source_type) VALUES
              ('a', 'm1', 'Speaker 3', 'words a', 1.5, 'system'),
              ('b', 'm1', 'You + Speaker 3 + Speaker 6', 'words b', 2.5, 'mic'),
              ('c', 'm1', 'Speaker 30 + Speaker 6', 'words c', 3.5, 'system'),
@@ -1504,7 +1508,7 @@ mod tests {
              INSERT INTO person_speakers VALUES \
                  ('person-alice', 'm1', 'Alice'), ('person-alice', 'm2', 'Alice'), \
                  ('person-bob', 'm3', 'Bob'), ('person-david', 'm4', 'David'); \
-             INSERT INTO transcripts VALUES ('t1', 'm1', 'Alice'), ('t2', 'm4', 'David');",
+             INSERT INTO transcripts (id, meeting_id, speaker) VALUES ('t1', 'm1', 'Alice'), ('t2', 'm4', 'David');",
         )
         .execute(&pool)
         .await
@@ -1568,7 +1572,7 @@ mod tests {
             "CREATE TABLE people (id TEXT PRIMARY KEY, display_name TEXT NOT NULL, normalized_name TEXT NOT NULL UNIQUE, notes TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL); \
              CREATE TABLE person_speakers (person_id TEXT NOT NULL, meeting_id TEXT NOT NULL, speaker_label TEXT NOT NULL, UNIQUE(meeting_id, speaker_label)); \
              CREATE TABLE transcripts (id TEXT PRIMARY KEY, meeting_id TEXT NOT NULL, speaker TEXT); \
-             INSERT INTO transcripts VALUES ('turn', 'meeting', 'Alice');"
+             INSERT INTO transcripts (id, meeting_id, speaker) VALUES ('turn', 'meeting', 'Alice');"
         ).execute(&pool).await.unwrap();
         PeopleRepository::rename_meeting_speaker(&pool, "meeting", "Alice", "Alice").await.unwrap();
         let linked: String = sqlx::query_scalar(
@@ -1590,7 +1594,7 @@ mod tests {
              INSERT INTO people (id, display_name, normalized_name, notes, created_at, updated_at) VALUES ('person-carol', 'Carol', 'carol', NULL, 'now', 'now'); \
              INSERT INTO person_speakers VALUES \
                  ('person-carol', 'm1', 'Carol'), ('person-carol', 'm1', 'C.'); \
-             INSERT INTO transcripts VALUES ('t1', 'm1', 'Carol'), ('t2', 'm1', 'C.');",
+             INSERT INTO transcripts (id, meeting_id, speaker) VALUES ('t1', 'm1', 'Carol'), ('t2', 'm1', 'C.');",
         )
         .execute(&pool)
         .await
@@ -1634,7 +1638,7 @@ mod tests {
                  speaker_label TEXT NOT NULL, UNIQUE(meeting_id, speaker_label)); \
              CREATE TABLE transcripts (id TEXT PRIMARY KEY, meeting_id TEXT NOT NULL, speaker TEXT); \
              INSERT INTO people (id, display_name, normalized_name, notes, created_at, updated_at) VALUES ('person-elodie', 'Élodie', 'Élodie', NULL, 'now', 'now'); \
-             INSERT INTO transcripts VALUES ('t1', 'm1', 'Speaker 1');",
+             INSERT INTO transcripts (id, meeting_id, speaker) VALUES ('t1', 'm1', 'Speaker 1');",
         )
         .execute(&pool)
         .await
@@ -1748,14 +1752,14 @@ mod tests {
                  updated_at TEXT NOT NULL DEFAULT 'now'); \
              CREATE TABLE person_speakers (person_id TEXT NOT NULL, meeting_id TEXT NOT NULL, \
                  speaker_label TEXT NOT NULL, UNIQUE(meeting_id, speaker_label)); \
-             CREATE TABLE transcripts (id TEXT PRIMARY KEY, meeting_id TEXT NOT NULL, speaker TEXT); \
+             CREATE TABLE transcripts (id TEXT PRIMARY KEY, meeting_id TEXT NOT NULL, speaker TEXT, speaker_manual INTEGER NOT NULL DEFAULT 0); \
              CREATE TABLE action_items (id TEXT PRIMARY KEY, meeting_id TEXT NOT NULL, text TEXT NOT NULL, \
                  owner_label TEXT, person_id TEXT, updated_at TEXT NOT NULL DEFAULT 'now'); \
              INSERT INTO meetings (id) VALUES ('m1'), ('m2'); \
              INSERT INTO people (id, display_name, normalized_name, notes) VALUES \
                  ('p-tom', 'Tom', 'tom', 'Met at kickoff'), ('p-thomas', 'Thomas Becker', 'thomas becker', NULL); \
              INSERT INTO person_speakers VALUES ('p-tom', 'm1', 'Tom'), ('p-thomas', 'm2', 'Thomas Becker'); \
-             INSERT INTO transcripts VALUES ('t1', 'm1', 'Tom'), ('t2', 'm1', 'Speaker 1'), \
+             INSERT INTO transcripts (id, meeting_id, speaker) VALUES ('t1', 'm1', 'Tom'), ('t2', 'm1', 'Speaker 1'), \
                  ('t3', 'm2', 'Thomas Becker'), ('t4', 'm2', 'You'); \
              INSERT INTO action_items (id, meeting_id, text, owner_label, person_id) VALUES \
                  ('a1', 'm1', 'Send the contract', 'Tom', 'p-tom');",
@@ -1772,6 +1776,38 @@ mod tests {
             .fetch_one(pool)
             .await
             .unwrap()
+    }
+
+    async fn hand_placed(pool: &sqlx::SqlitePool, transcript_id: &str) -> bool {
+        sqlx::query_scalar("SELECT speaker_manual FROM transcripts WHERE id = ?")
+            .bind(transcript_id)
+            .fetch_one(pool)
+            .await
+            .unwrap()
+    }
+
+    /// `speaker_manual` (#217): Just this line marks the line, a blank name
+    /// there clears the mark, and renaming a speaker as a whole leaves the
+    /// marks as they are.
+    #[tokio::test]
+    async fn just_this_line_marks_the_line_and_a_whole_rename_keeps_the_mark() {
+        let pool = contacts_pool().await;
+
+        PeopleRepository::reassign_transcript_speaker(&pool, "m1", "t2", "Anna").await.unwrap();
+        assert_eq!(speaker_of(&pool, "t2").await, "Anna");
+        assert!(hand_placed(&pool, "t2").await);
+
+        PeopleRepository::rename_meeting_speaker(&pool, "m1", "Anna", "Anna Ivanova").await.unwrap();
+        PeopleRepository::rename_meeting_speaker(&pool, "m1", "Tom", "Tommy").await.unwrap();
+        assert_eq!(speaker_of(&pool, "t2").await, "Anna Ivanova");
+        assert!(hand_placed(&pool, "t2").await);
+        assert_eq!(speaker_of(&pool, "t1").await, "Tommy");
+        assert!(!hand_placed(&pool, "t1").await);
+
+        let cleared = PeopleRepository::reassign_transcript_speaker(&pool, "m1", "t2", "  ").await.unwrap();
+        assert!(cleared.removed_name);
+        assert_eq!(speaker_of(&pool, "t2").await, cleared.speaker);
+        assert!(!hand_placed(&pool, "t2").await);
     }
 
     #[tokio::test]
@@ -1897,7 +1933,7 @@ mod tests {
         let pool = contacts_pool().await;
         sqlx::raw_sql(
             "INSERT INTO person_speakers VALUES ('p-tom', 'm2', 'Tom'); \
-             INSERT INTO transcripts VALUES ('t5', 'm2', 'Tom');",
+             INSERT INTO transcripts (id, meeting_id, speaker) VALUES ('t5', 'm2', 'Tom');",
         )
         .execute(&pool)
         .await
@@ -1913,7 +1949,7 @@ mod tests {
         let pool = contacts_pool().await;
         sqlx::raw_sql(
             "INSERT INTO person_speakers VALUES ('p-tom', 'm2', 'Tom'); \
-             INSERT INTO transcripts VALUES ('t5', 'm2', 'Tom');",
+             INSERT INTO transcripts (id, meeting_id, speaker) VALUES ('t5', 'm2', 'Tom');",
         )
         .execute(&pool)
         .await

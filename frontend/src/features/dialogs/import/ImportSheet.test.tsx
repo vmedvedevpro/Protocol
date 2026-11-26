@@ -1,7 +1,8 @@
 import {act, screen, waitFor, within} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import {beforeEach, describe, expect, it} from 'vitest'
+import {beforeEach, describe, expect, it, vi} from 'vitest'
 import {PARAKEET_MODEL, POST_CALL_WHISPER_MODEL} from '@/api/models'
+import {registerPostCallControls} from '@/api/postCall'
 import {useSummaryLanguageStore} from '@/api/preferences'
 import {emitMockEvent} from '@/mocks/ipc'
 import {mockState} from '@/mocks/state'
@@ -84,6 +85,24 @@ describe('ImportSheet', () => {
         const meeting = mockState.meetings.meetings.find((entry) => entry.id === 'meeting-import-1')
         await waitFor(() => expect(meeting?.group_id).toBe('group-acme'))
         expect(mockState.meetings.summaryLanguages['meeting-import-1']).toBe('de')
+    })
+
+    it('hands the imported meeting to the post-call steps, even when another dialog took the sheet\'s place', async () => {
+        mockState.dialogs.importStepMs = 30
+        const afterImport = vi.fn()
+        const unregister = registerPostCallControls({cancel: vi.fn(), retry: vi.fn(), skip: vi.fn(), afterImport, settled: () => Promise.resolve()})
+        try {
+            const {router} = renderDialogs({kind: 'import'})
+            const dialog = await chooseFile()
+            await pick(dialog, 'Folder', 'Acme Corp')
+            await userEvent.click(within(dialog).getByRole('button', {name: 'Import'}))
+            act(() => openDialog({kind: 'export', meetingId: 'meeting-roadmap'}))
+            await waitFor(() => expect(afterImport).toHaveBeenCalledWith('meeting-import-1'))
+            expect(mockState.meetings.meetings.find((entry) => entry.id === 'meeting-import-1')?.group_id).toBe('group-acme')
+            await waitFor(() => expect(router.state.location.pathname).toBe('/meetings/meeting-import-1'))
+        } finally {
+            unregister()
+        }
     })
 
     it('shows the progress, and Stop cancels the import', async () => {

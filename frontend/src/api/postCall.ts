@@ -132,6 +132,12 @@ export interface MeetingDiarizationResult {
     num_speakers: number
     /** Transcript rows that got a speaker label. */
     labeled: number
+    /** How many of the `num_speakers` label at least one row (#207). */
+    speakers_on_lines: number
+    /** Rows whose label the run changed; 0 when it ended with the labels the meeting had (#205). */
+    changed: number
+    /** Rows that carried a label before the run; 0 on a first run over an unlabelled transcript. */
+    labelled_before: number
     /** `[transcript id, "Speaker N"]` pairs. */
     assignments: [string, string][]
 }
@@ -281,6 +287,12 @@ export interface PostCallControls {
      */
     skip: (meetingId: string) => void
     /**
+     * An import finished (#206): identify speakers and write the automatic
+     * summary, as after a recording. The pass is the runner's, so it goes on
+     * when the import sheet closes or another dialog takes its place.
+     */
+    afterImport: (meetingId: string) => void
+    /**
      * Resolves once the meeting's pass holds no native work: at once without
      * a pass or after a failure, else when a cancelled step has ended and
      * native has let go of the model (a retranscription finishes the piece it
@@ -299,10 +311,18 @@ export function registerPostCallControls(next: PostCallControls): () => void {
     }
 }
 
-/** Forwards to the registered runner; does nothing without one. */
+/**
+ * Forwards to the registered runner; does nothing without one, except that an
+ * import's pass is then lost and says so: the meeting stays without speakers
+ * and without its automatic summary.
+ */
 export const postCallControls: PostCallControls = {
     cancel: (meetingId) => controls?.cancel(meetingId),
     retry: (meetingId) => controls?.retry(meetingId),
     skip: (meetingId) => controls?.skip(meetingId),
+    afterImport: (meetingId) => {
+        if (controls) controls.afterImport(meetingId)
+        else console.warn(`No post-call runner is registered: imported meeting ${meetingId} gets no speakers or automatic summary.`)
+    },
     settled: (meetingId) => controls?.settled(meetingId) ?? Promise.resolve(),
 }

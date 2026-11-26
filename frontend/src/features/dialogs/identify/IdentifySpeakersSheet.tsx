@@ -3,7 +3,8 @@ import {useQuery} from '@tanstack/react-query'
 import styled from 'styled-components'
 import {activeEngine, diarizationStatusQuery} from '@/api/diarization'
 import {Button} from '@/components/ui/Button'
-import {SettingsRadioGroup, SettingsRadioRow} from '@/components/ui/SettingsRow'
+import {Select} from '@/components/ui/Select'
+import {SettingsGroup, SettingsRow} from '@/components/ui/SettingsRow'
 import {Sheet, SheetClose} from '@/components/ui/Sheet'
 import {closeDialog, type OpenedDialog, useDialog} from '@/lib/dialogs'
 
@@ -13,6 +14,12 @@ const FORM_ID = 'identify-speakers'
 const SPEAKER_COUNTS = [2, 3, 4, 5, 6, 8] as const
 
 const AUTOMATIC = 'auto'
+
+/** One dropdown on one row with its label (#205), Detect automatically first. */
+const COUNT_OPTIONS = [
+    {value: AUTOMATIC, label: 'Detect automatically'},
+    ...SPEAKER_COUNTS.map((count) => ({value: String(count), label: `${count} speakers`})),
+]
 
 const Note = styled.p`
     margin: 0;
@@ -34,10 +41,10 @@ export function IdentifySpeakersSheet() {
             open={slot.open && request !== null}
             onOpenChange={(next) => !next && closeDialog('identify-speakers')}
             title="Identify speakers"
-            // diarize_meeting replaces only the generated labels (Speaker N,
-            // You, Guest): a named line keeps its name, which also goes to the
-            // rest of that voice, and contact links are kept.
-            description="Protocol listens to the recording again and replaces the “Speaker N” labels; names you gave, links to contacts, the text and its times stay."
+            // diarize_meeting relabels every line from the new voices (#217):
+            // a name goes to the voice it matches, a line moved by hand keeps
+            // its label, and contact links are kept.
+            description="Protocol listens to the recording again and labels the lines by voice. A name you gave stays with its voice, and a line you moved by hand keeps its speaker; the text and its times stay."
             footer={(
                 <>
                     <SheetClose asChild><Button variant="ghost">Cancel</Button></SheetClose>
@@ -65,10 +72,13 @@ function CountForm({request}: { request: Extract<OpenedDialog, { kind: 'identify
             {nemotron ? (
                 <Note>NVIDIA Nemotron, the speaker engine in Settings, finds the number of speakers itself.</Note>
             ) : (
-                <SettingsRadioGroup title="Speakers" layout="grid" value={choice} onValueChange={setChoice}>
-                    <SettingsRadioRow value={AUTOMATIC} label="Detect automatically"/>
-                    {SPEAKER_COUNTS.map((count) => <SettingsRadioRow key={count} value={String(count)} label={`${count} speakers`}/>)}
-                </SettingsRadioGroup>
+                <SettingsGroup>
+                    <SettingsRow
+                        label="Speakers"
+                        description={choice === AUTOMATIC ? undefined : 'The transcript shows exactly this many.'}
+                        control={<Select options={COUNT_OPTIONS} value={choice} onValueChange={setChoice}/>}
+                    />
+                </SettingsGroup>
             )}
         </form>
     )

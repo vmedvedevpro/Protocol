@@ -39,6 +39,8 @@ export function createMockPostCall() {
         cancelled: false,
         /** One step of the fake work, ms; a test sets 0. */
         stepMs: 300,
+        /** What `diarize_meeting` answers besides the count; a test changes it. */
+        diarization: {labeled: 12, changed: 12, labelledBefore: 12, speakersOnLines: null as number | null},
     }
 }
 
@@ -94,7 +96,9 @@ export function postCallHandlers(state: MockState): Record<string, MockHandler> 
             meetingId == null ? state.postCall.retranscribing !== null : state.postCall.retranscribing === meetingId,
         diarize_meeting: async ({numSpeakers}: MockArgs): Promise<MeetingDiarizationResult> => {
             await wait(state.postCall.stepMs * 4)
-            return {num_speakers: typeof numSpeakers === 'number' ? numSpeakers : 3, labeled: 0, assignments: []}
+            const found = typeof numSpeakers === 'number' ? numSpeakers : 3
+            const {labeled, changed, labelledBefore, speakersOnLines} = state.postCall.diarization
+            return {num_speakers: found, labeled, changed, labelled_before: labelledBefore, speakers_on_lines: speakersOnLines ?? found, assignments: []}
         },
     }
 }

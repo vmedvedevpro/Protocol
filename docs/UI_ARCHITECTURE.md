@@ -1355,12 +1355,18 @@ another meeting starts from fresh state).
   Transcript tab (icon only, its name in the tooltip, so the row fits the
   460 px window), and the menu's Identify speakers again…, open the
   Identify speakers sheet (`openDialog`, with the screen's run as
-  `identify`); its Identify reruns diarization with a count or detecting
-  it (`diarizeMeeting`) and closes, and picking a count alone starts
-  nothing, so a meeting is never relabelled by a stray pick. Offered
-  only with a speaker engine, audio and no pass running; the sheet says
-  that named lines, contact links, the text and its times are kept, as
-  native's rerun does. With Nemotron (`activeEngine` of the diarization
+  `identify`); its Speakers dropdown (`Select`: Detect automatically,
+  then 2–8 speakers, on one row with its label, #217) picks the count,
+  and its Identify reruns diarization with that count or detecting it
+  (`diarizeMeeting`) and closes; picking a count alone starts nothing,
+  so a meeting is never relabelled by a stray pick. Offered only with a
+  speaker engine, audio and no pass running; the sheet says that a given
+  name stays with its voice, a line moved by hand keeps its speaker, and
+  the text and its times are kept, as native's rerun does. The result
+  toast reads native's `changed` and `speakers_on_lines`: a run that
+  changed no line says it found the speakers again and none changed, and
+  one whose voices do not all reach a line says how many are on the
+  transcript, as a warning. With Nemotron (`activeEngine` of the diarization
   status), which native runs without a count, the sheet offers none and
   says the engine finds the number itself. A second Identify while a run
   is in the cache is ignored. Native holds the busy reason; the
@@ -1488,7 +1494,15 @@ another meeting starts from fresh state).
   registers its listeners before the start call, cannot be dismissed while
   the work runs, and Stop asks native to cancel; the native event, not the
   promise, ends it. Import's phase lives in a store of its own
-  (`import/importState.ts`), since the footer and the form both read it.
+  (`import/importState.ts`), since the footer and the form both read it,
+  with the folder chosen at Import. `ImportSheet` itself, which DialogHost
+  keeps mounted while another dialog takes the slot, hears
+  `import-complete`: it files the meeting, sets the pinned summary language,
+  then hands the meeting to the post-call runner through
+  `postCallControls.afterImport` (#206), which identifies speakers and
+  writes the automatic summary as after a recording, without the
+  retranscription; closing the sheet, or the window to the tray, does not
+  stop them.
 - Files dragged over the main window dim it (`import/DropOverlay.tsx`,
   Tauri's `tauri://drag-*` events of that window); the first audio or
   video file dropped opens Import with it.

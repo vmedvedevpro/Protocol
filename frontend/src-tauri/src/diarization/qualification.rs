@@ -722,3 +722,195 @@ fn der_counts_misses_false_alarms_and_confusion_with_the_best_mapping() {
     assert_eq!(collar.iter().filter(|&&keep| !keep).count(), 25 + 50 + 50);
     assert_eq!(der(&reference, &hypothesis, &collar).speech, 100.0);
 }
+
+// ---------------------------------------------------------------------------
+// A chosen count and an odd turn (#207, #217)
+// ---------------------------------------------------------------------------
+//
+// Linux only: the FLEURS clip comes out of a .tar.gz, and `flate2` is a
+// dependency on Linux alone (OpenVINO's archive, #178). #104 removed the
+// test-only copies of `flate2` and `tar` from [dev-dependencies], and the
+// test is ignored and model-dependent anyway, so it is not worth adding them
+// back for the other platforms.
+
+#[cfg(target_os = "linux")]
+/// pyannote-audio's tutorial sample: 30 s, two speakers, with its RTTM (MIT).
+const PYANNOTE_COMMIT: &str = "b5794f46d16f85de1551a7080658b6de7d62046f";
+#[cfg(target_os = "linux")]
+const PYANNOTE_SAMPLE: [(&str, u64, &str); 2] = [
+    ("sample.wav", 960_104, "c319b4abca767b124e41432d364fd7df006cb26bb79d09326c487d606a134e6e"),
+    ("sample.rttm", 596, "d78fe62c69d8e6dcbb42c26adfce83faccb374c5a1e6d987fe37f85f1c173c87"),
+];
+#[cfg(target_os = "linux")]
+/// FLEURS en_us dev audio (Google, CC BY 4.0), pinned as the measuring kit
+/// pins it (`scripts/measure/kit/fixture.py`), whose cache it shares.
+const FLEURS_EN_DEV: (&str, u64, &str) = (
+    "https://huggingface.co/datasets/google/fleurs/resolve/70bb2e84b976b7e960aa89f1c648e09c59f894dd/data/en_us/audio/dev.tar.gz",
+    171_250_900,
+    "2658fda72f199e12676ecac9415094667a4e14e149b146e568ea00b2a2f0954c",
+);
+#[cfg(target_os = "linux")]
+/// The third voice: a woman reading, of FLEURS en_us dev.
+const THIRD_VOICE: &str = "dev/2606692427476446963.wav";
+
+#[cfg(target_os = "linux")]
+/// `.measure/cache/<name>`, downloaded first when missing; panics unless the
+/// size and SHA-256 match.
+fn cached(name: &str, url: &str, size: u64, sha256: &str) -> PathBuf {
+    use sha2::{Digest, Sha256};
+    let cache = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.measure/cache");
+    let path = cache.join(name);
+    if !path.exists() {
+        std::fs::create_dir_all(&cache).unwrap();
+        eprintln!("downloading {url}");
+        let mut response = reqwest::blocking::Client::builder()
+            .timeout(None)
+            .build()
+            .unwrap()
+            .get(url)
+            .send()
+            .and_then(|r| r.error_for_status())
+            .unwrap_or_else(|e| panic!("{url}: {e}"));
+        let partial = path.with_extension("part");
+        let mut file = std::fs::File::create(&partial).unwrap();
+        std::io::copy(&mut response, &mut file).unwrap();
+        std::fs::rename(&partial, &path).unwrap();
+    }
+    let bytes = std::fs::read(&path).unwrap();
+    let digest: String = Sha256::digest(&bytes).iter().map(|b| format!("{b:02x}")).collect();
+    assert!(
+        bytes.len() as u64 == size && digest == sha256,
+        "{} does not match its pinned size and SHA-256; delete it to download it again",
+        path.display()
+    );
+    path
+}
+
+#[cfg(target_os = "linux")]
+fn write_wav16(path: &Path, samples: &[f32]) {
+    let data: Vec<u8> = samples
+        .iter()
+        .flat_map(|s| ((s.clamp(-1.0, 1.0) * 32767.0) as i16).to_le_bytes())
+        .collect();
+    let mut out = Vec::with_capacity(44 + data.len());
+    out.extend_from_slice(b"RIFF");
+    out.extend_from_slice(&(36 + data.len() as u32).to_le_bytes());
+    out.extend_from_slice(b"WAVEfmt ");
+    out.extend_from_slice(&16u32.to_le_bytes());
+    out.extend_from_slice(&1u16.to_le_bytes());
+    out.extend_from_slice(&1u16.to_le_bytes());
+    out.extend_from_slice(&16_000u32.to_le_bytes());
+    out.extend_from_slice(&32_000u32.to_le_bytes());
+    out.extend_from_slice(&2u16.to_le_bytes());
+    out.extend_from_slice(&16u16.to_le_bytes());
+    out.extend_from_slice(b"data");
+    out.extend_from_slice(&(data.len() as u32).to_le_bytes());
+    out.extend_from_slice(&data);
+    std::fs::write(path, out).unwrap();
+}
+
+#[cfg(target_os = "linux")]
+/// 2 s of the third voice's speech, scaled to `peak`: from 0.1 s before the
+/// first 10 ms with an RMS of at least a fiftieth of the peak, as the kit
+/// cuts FLEURS clips to their speech.
+fn third_voice_clip(dir: &Path, peak: f32) -> Vec<f32> {
+    let (url, size, sha) = FLEURS_EN_DEV;
+    let archive = cached("fleurs-en_us-dev.tar.gz", url, size, sha);
+    let mut tar = tar::Archive::new(flate2::read::GzDecoder::new(std::fs::File::open(archive).unwrap()));
+    let entry = tar
+        .entries()
+        .unwrap()
+        .map(Result::unwrap)
+        .find(|entry| entry.path().unwrap().to_str() == Some(THIRD_VOICE))
+        .expect("the third voice's file in the archive");
+    let wav = dir.join("third.wav");
+    std::io::copy(&mut { entry }, &mut std::fs::File::create(&wav).unwrap()).unwrap();
+    let (samples, rate) = dsp::read_wav(&wav).unwrap();
+    assert_eq!(rate, 16_000);
+    let own_peak = samples.iter().fold(0f32, |m, s| m.max(s.abs()));
+    let samples: Vec<f32> = samples.iter().map(|s| s * peak / own_peak).collect();
+    let first = samples
+        .chunks(160)
+        .position(|frame| (frame.iter().map(|s| s * s).sum::<f32>() / frame.len() as f32).sqrt() >= peak / 50.0)
+        .unwrap();
+    let start = (first * 160).saturating_sub(1_600);
+    samples[start..start + 32_000].to_vec()
+}
+
+#[cfg(target_os = "linux")]
+/// #207 without the owner's audio: the sample, 1 s of silence, 2 s of a
+/// third voice alone in its own 10 s window, then the sample again (70 s).
+/// On 1.0.0 both Detect automatically and 2 speakers gave two clusters of 10
+/// turns and 1: the third voice spent the count. With 2 chosen the clusters
+/// must be the sample's two speakers, and both must lead transcript-sized
+/// rows (the reference turns). Downloads about 172 MB into `.measure/cache`
+/// on its first run; uses the bundled models. Run with
+/// `cargo test -p protocol --lib diarization::qualification::a_chosen_count_is_spent_on_the_two_voices -- --ignored --nocapture`.
+#[test]
+#[ignore = "Downloads public fixtures (172 MB) and runs the diarization models"]
+fn a_chosen_count_is_spent_on_the_two_voices() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut files = PYANNOTE_SAMPLE.iter().map(|(name, size, sha)| {
+        let url = format!("https://github.com/pyannote/pyannote-audio/raw/{PYANNOTE_COMMIT}/tutorials/assets/{name}");
+        cached(&format!("pyannote-{name}"), &url, *size, sha)
+    });
+    let (sample_wav, sample_rttm) = (files.next().unwrap(), files.next().unwrap());
+    let (sample, rate) = dsp::read_wav(&sample_wav).unwrap();
+    assert_eq!((rate, sample.len()), (16_000, 480_000));
+    let peak = sample.iter().fold(0f32, |m, s| m.max(s.abs()));
+
+    let second = 16_000usize;
+    let mut audio = sample.clone();
+    audio.resize(31 * second, 0.0);
+    audio.extend(third_voice_clip(dir.path(), peak));
+    audio.resize(40 * second, 0.0);
+    audio.extend(&sample);
+    let construction = dir.path().join("construction.wav");
+    write_wav16(&construction, &audio);
+
+    let reference: Vec<Turn> = read_rttm(&sample_rttm)
+        .into_iter()
+        .flat_map(|turn| {
+            [0.0, 40.0].map(|offset| Turn { start: turn.start + offset, end: turn.end + offset, speaker: turn.speaker.clone() })
+        })
+        .collect();
+    let models = Path::new(env!("CARGO_MANIFEST_DIR")).join("resources/diarization");
+
+    let overlap = |segments: &[DiarizationSegment], speaker: usize, turn: &Turn| -> f64 {
+        segments
+            .iter()
+            .filter(|s| s.speaker == speaker)
+            .map(|s| ((s.end as f64).min(turn.end) - (s.start as f64).max(turn.start)).max(0.0))
+            .sum()
+    };
+    for count in [None, Some(2)] {
+        let result = diarize_file_with_models(&construction, &models, count, None).unwrap();
+        let speech: Vec<f32> = (0..result.num_speakers)
+            .map(|c| result.segments.iter().filter(|s| s.speaker == c).map(|s| s.end - s.start).sum())
+            .collect();
+        println!("count {count:?}: {} speakers, speech per speaker {speech:.1?}", result.num_speakers);
+        if count.is_none() {
+            continue;
+        }
+        assert_eq!(result.num_speakers, 2);
+        // Each reference speaker's time, per cluster.
+        let mut by_speaker: BTreeMap<&str, Vec<f64>> = BTreeMap::new();
+        for turn in &reference {
+            let row = by_speaker.entry(turn.speaker.as_str()).or_insert_with(|| vec![0.0; 2]);
+            for c in 0..2 {
+                row[c] += overlap(&result.segments, c, turn);
+            }
+        }
+        println!("reference speaker -> seconds per cluster: {by_speaker:.1?}");
+        let dominant: BTreeSet<usize> = by_speaker
+            .values()
+            .map(|row| if row[0] >= row[1] { 0 } else { 1 })
+            .collect();
+        assert_eq!(dominant.len(), 2, "both reference speakers fell into one cluster");
+        let leading: BTreeSet<usize> = reference
+            .iter()
+            .filter_map(|turn| super::row_speakers(&result.segments, turn.start as f32, turn.end as f32).first().copied())
+            .collect();
+        assert_eq!(leading, BTreeSet::from([0, 1]), "rows of the sample are led by both speakers");
+    }
+}

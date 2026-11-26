@@ -40,6 +40,29 @@ describe('the post-call pass', () => {
         expect(mockState.meetings.summaries[MEETING].status).toBe('completed')
     })
 
+    it('finds the speakers of an imported meeting, then writes the summary, without retranscribing it', async () => {
+        const invoke = spyOnIpc()
+        const queued = vi.spyOn(postCallJobs, 'queue')
+        postCallControls.afterImport(MEETING)
+        await waitFor(() => expect(queued).toHaveBeenCalledWith(MEETING, ['speakers', 'summary']))
+        await waitFor(() => expect(mockState.meetings.summaries[MEETING]?.status).toBe('completed'))
+        queued.mockRestore()
+        const commands = invoke.mock.calls.map(([command]) => command)
+        expect(commands).not.toContain('start_retranscription_command')
+        expect(commands.indexOf('diarize_meeting')).toBeLessThan(commands.indexOf('api_process_transcript'))
+    })
+
+    it('only finds the speakers of an imported meeting while the automatic summary is off', async () => {
+        useAutoSummaryStore.getState().set(false)
+        const invoke = spyOnIpc()
+        await startPostCall({meetingId: MEETING, folderPath: null, audioSaved: true, imported: true})
+        expect(postCallJobs.get(MEETING)?.steps).toEqual(['speakers'])
+        await waitFor(() => expect(postCallJobs.get(MEETING)).toBeNull())
+        const commands = invoke.mock.calls.map(([command]) => command)
+        expect(commands).toContain('diarize_meeting')
+        expect(commands).not.toContain('api_process_transcript')
+    })
+
     it('keeps the live transcript of a meeting whose audio was not saved', async () => {
         useAutoSummaryStore.getState().set(false)
         await startPostCall({meetingId: MEETING, folderPath: '/preview/roadmap', audioSaved: false})

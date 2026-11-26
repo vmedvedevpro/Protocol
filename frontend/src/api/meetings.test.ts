@@ -109,7 +109,7 @@ describe('meetings', () => {
 
     it('refuses to delete while the meeting’s pass has not let go of it in time', async () => {
         vi.useFakeTimers()
-        const unregister = registerPostCallControls({cancel: vi.fn(), retry: vi.fn(), skip: vi.fn(), settled: () => new Promise(() => undefined)})
+        const unregister = registerPostCallControls({cancel: vi.fn(), retry: vi.fn(), skip: vi.fn(), afterImport: vi.fn(), settled: () => new Promise(() => undefined)})
         try {
             const client = createTestQueryClient()
             const deleting = run(client, deleteMeetingMutation('meeting-roadmap'), undefined)

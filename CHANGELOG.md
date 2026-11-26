@@ -27,6 +27,29 @@ is inherited from the project Protocol forked from; Protocol did not release it.
   typed, search lists a few people after the recent meetings, newest meeting
   first. "Show all people" or the People command lists everyone, and typing
   filters them by name, role, company or email.
+- **Identify speakers with a chosen count**
+  ([#217](https://github.com/vmedvedevpro/Protocol/issues/217)). With 2
+  speakers chosen, a meeting could still show one: a single odd moment of
+  audio took the second speaker. A voice now counts as a speaker only when
+  it is heard in more than one stretch of the meeting, so the chosen count
+  goes to real voices, and Detect automatically no longer reports such a
+  moment as a speaker of its own: a voice heard only once is counted as
+  the speaker it sounds closest to.
+- **Identify speakers after renaming a speaker**
+  ([#217](https://github.com/vmedvedevpro/Protocol/issues/217)). Running it
+  again after you named a speaker could not split that speaker any more. A
+  name now stays with the voice it belongs to and the other voices get their
+  own labels. A line you moved to someone on its own keeps that person.
+- **Speakers and the summary after an import**
+  ([#217](https://github.com/vmedvedevpro/Protocol/issues/217)). An imported
+  recording now has its speakers identified and, when the automatic summary
+  is on, its summary written, as a finished recording does.
+- **The Identify speakers dialog**
+  ([#217](https://github.com/vmedvedevpro/Protocol/issues/217)). The
+  speaker count is one dropdown instead of a grid of buttons that cut
+  "Detect automatically" short. A run that ends with the labels the
+  meeting already had says so, and a run whose speakers do not all reach
+  a line says how many are on the transcript.
 
 ## Protocol 1.0.0-rc.1 — 2026-11-26
 

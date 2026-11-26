@@ -64,11 +64,13 @@ describe('the post-call jobs', () => {
 
 describe('the post-call controls', () => {
     it('forward to the registered runner, and to nothing once it is gone', async () => {
-        const runner = {cancel: vi.fn(), retry: vi.fn(), skip: vi.fn(), settled: vi.fn(() => Promise.resolve())}
+        const runner = {cancel: vi.fn(), retry: vi.fn(), skip: vi.fn(), afterImport: vi.fn(), settled: vi.fn(() => Promise.resolve())}
         const unregister = registerPostCallControls(runner)
         postCallControls.cancel('m1')
         postCallControls.retry('m1')
         postCallControls.skip('m1')
+        postCallControls.afterImport('m1')
+        expect(runner.afterImport).toHaveBeenCalledWith('m1')
         expect(runner.cancel).toHaveBeenCalledWith('m1')
         expect(runner.retry).toHaveBeenCalledWith('m1')
         expect(runner.skip).toHaveBeenCalledWith('m1')
@@ -76,6 +78,12 @@ describe('the post-call controls', () => {
         unregister()
         postCallControls.cancel('m1')
         expect(runner.cancel).toHaveBeenCalledTimes(1)
+        // An import's pass with no runner to take it is not lost silently.
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+        postCallControls.afterImport('m2')
+        expect(runner.afterImport).toHaveBeenCalledTimes(1)
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining('m2'))
+        warn.mockRestore()
         // Without a runner nothing holds native work, so a delete need not wait.
         await expect(postCallControls.settled('m1')).resolves.toBeUndefined()
     })

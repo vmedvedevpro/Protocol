@@ -67,6 +67,8 @@ export function useStoryPass({state, step, percent, noSummary, noAudio, play}: S
                 if (job) postCallJobs.run(meetingId, job.step)
             },
             skip: next,
+            // The story pass is already running; an import has nothing to start here.
+            afterImport: () => {},
             settled: () => Promise.resolve(),
         })
 
