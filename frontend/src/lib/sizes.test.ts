@@ -11,6 +11,6 @@ describe('formatModelSize', () => {
         expect(formatModelSize(null)).toBe('')
         expect(formatModelSize(0)).toBe('')
         expect(withSize('Download', undefined)).toBe('Download')
-        expect(withSize('Download', 2 * 1024 * 1024)).toBe('Download · 2 MB')
+        expect(withSize('Download', 2 * 1024 * 1024)).toBe('Download (2 MB)')
     })
 })

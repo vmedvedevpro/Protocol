@@ -68,7 +68,7 @@ export function DiskGroup() {
         <SettingsGroup>
             <SettingsRow
                 label="Disk"
-                description={folder.data ? `Meetings database and models · ${folder.data}` : 'Meetings database and models'}
+                description={folder.data ? `Meetings database and models\n${folder.data}` : 'Meetings database and models'}
                 control={<Button size="sm" pending={open.isPending} onClick={() => open.mutate()}>Show folder</Button>}
             />
         </SettingsGroup>

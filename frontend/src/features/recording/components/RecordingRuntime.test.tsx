@@ -144,7 +144,7 @@ describe('RecordingRuntime', () => {
 
         const sheet = await screen.findByRole('dialog', {name: 'An interrupted meeting'})
         const item = within(sheet).getByRole('listitem', {name: 'Design sync'})
-        expect(item).toHaveTextContent('2 lines · audio can be rebuilt')
+        expect(item).toHaveTextContent('2 lines, audio can be rebuilt')
         expect(await within(item).findByText(/onboarding copy/)).toBeInTheDocument()
 
         await userEvent.click(within(item).getByRole('button', {name: 'Recover'}))
@@ -162,11 +162,13 @@ describe('RecordingRuntime', () => {
     it('takes an automatic title in an older copy as not the user’s', async () => {
         const startTime = Date.now() - 600_000
         const automatic = automaticTitle(new Date(startTime))
-        // #224's coming form of the same title.
-        const commas = automatic.replaceAll(' · ', ', ')
+        // The same title as a copy made before #219 wrote it, with middle dots.
+        const day = new Date(startTime).toLocaleDateString(undefined, {weekday: 'short', month: 'short', day: 'numeric'})
+        const dotted = automatic.replace(`Meeting, ${day}, `, `Meeting \u00B7 ${day} \u00B7 `)
+        expect(dotted).not.toBe(automatic)
         await beginRecovery({meetingId: 'meeting-1', title: automatic, startTime})
         await storeRecoveryLine('meeting-1', line(1, 'Hello.'))
-        await beginRecovery({meetingId: 'meeting-2', title: commas, startTime})
+        await beginRecovery({meetingId: 'meeting-2', title: dotted, startTime})
         await storeRecoveryLine('meeting-2', line(1, 'Hello.'))
         await beginRecovery({meetingId: 'meeting-3', title: 'Meeting, budget review, 10:30', startTime})
         await storeRecoveryLine('meeting-3', line(1, 'Hello.'))
@@ -177,7 +179,7 @@ describe('RecordingRuntime', () => {
 
         expect(mockState.meetings.meetings.slice(-3)).toEqual([
             expect.objectContaining({title: automatic, titleIsManual: false}),
-            expect.objectContaining({title: commas, titleIsManual: false}),
+            expect.objectContaining({title: dotted, titleIsManual: false}),
             expect.objectContaining({title: 'Meeting, budget review, 10:30', titleIsManual: true}),
         ])
     })

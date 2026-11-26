@@ -37,7 +37,7 @@ function long(iso: string): string {
     const date = new Date(iso)
     const day = date.toLocaleDateString('en-US', {weekday: 'short', month: 'short', day: 'numeric'})
     const time = date.toLocaleTimeString('en-US', {hour: 'numeric', minute: '2-digit'})
-    return `${day} · ${time}`
+    return `${day}, ${time}`
 }
 
 /** A `meetings` row as native keeps it. */
@@ -80,7 +80,7 @@ function sampleMeetings(): MockMeeting[] {
         {id: 'meeting-design-crit', title: 'Onboarding flow critique', created_at: at(2, 11, 0), group_id: 'group-design', folder_path: '/preview/design-crit'},
         standup(0, 2),
         standup(1, 1),
-        {id: 'meeting-untitled', title: `Meeting · ${long(at(9, 16, 40))}`, created_at: at(9, 16, 40), group_id: null, folder_path: '/preview/untitled', titleIsManual: false},
+        {id: 'meeting-untitled', title: `Meeting, ${long(at(9, 16, 40))}`, created_at: at(9, 16, 40), group_id: null, folder_path: '/preview/untitled', titleIsManual: false},
         {id: 'meeting-acme-kickoff', title: 'Acme pilot kickoff', created_at: at(11, 10, 0), group_id: 'group-acme', folder_path: '/preview/acme-kickoff'},
         standup(2, 3),
         {id: 'meeting-1on1', title: '1:1 with Priya', created_at: at(16, 14, 0), group_id: null, folder_path: '/preview/1on1'},

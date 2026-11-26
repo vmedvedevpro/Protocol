@@ -19,6 +19,9 @@ const minutes = (seconds: number | undefined) => {
  * every 5 s while it shows (native sends nothing when a model loads); both
  * unloads are refused during a recording. Disk is the AI half's row.
  */
+/** "Loaded on the Intel GPU", or "Loaded" when the device is not known. */
+const loadedOn = (device: string | null) => (device ? `Loaded on the ${device}` : 'Loaded')
+
 export function LocalAiGroup() {
     const status = useQuery({...localStackQuery, refetchInterval: LOCAL_STACK_POLL_MS})
     const unload = useMutation({
@@ -35,11 +38,11 @@ export function LocalAiGroup() {
         <SettingsGroup title="Local AI">
             <SettingsRow
                 label="Parakeet"
-                control={<RowValue>{data ? (data.parakeet.loaded ? `Loaded · ${parakeetOn}` : 'Not loaded') : ''}</RowValue>}
+                control={<RowValue>{data ? (data.parakeet.loaded ? `Loaded on the ${parakeetOn}` : 'Not loaded') : ''}</RowValue>}
             />
             <SettingsRow
                 label="Whisper"
-                control={<RowValue>{data ? (data.whisper.loaded ? `Loaded · ${whisperDevice(data)}` : 'Not loaded') : ''}</RowValue>}
+                control={<RowValue>{data ? (data.whisper.loaded ? loadedOn(whisperDevice(data)) : 'Not loaded') : ''}</RowValue>}
             />
             <SettingsRow
                 label="Memory"

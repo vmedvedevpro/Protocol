@@ -371,7 +371,7 @@ install turns the guard back on.
 ### Update and removal
 
 When the catalog pins another version for this build's level, the card
-offers it ("An update to Intel's libraries is available · N MB", Update), as
+offers it ("An update to Intel's libraries is available (N MB)", Update), as
 a model update is offered; the click is the same download, without `choose`. The new version installs
 beside the old one. If this process has not loaded the old one, it is removed
 at once and the next model load uses the new one; if it has, the row and the

@@ -23,7 +23,7 @@ type View = (typeof VIEWS)[number]['value']
 
 const TEXT: Record<View, string> = {
     notes: 'Pilot scope: two teams, local models only. Legal wants the retention statement in writing.',
-    transcript: 'Speaker 2 · 03:18 — Appreciate it. Our main concern is still where the audio ends up.',
+    transcript: 'Speaker 2, 03:18 — Appreciate it. Our main concern is still where the audio ends up.',
     summary: 'Decisions: ship a config that only shows local models. Open question: who writes the retention statement?',
 }
 

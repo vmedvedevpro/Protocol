@@ -22,7 +22,19 @@ export interface ThemeColors {
     soft: string
     /** Secondary lines, placeholders, icons. */
     muted: string
+    /** A hairline between areas: a card's edge, a divider. */
     border: string
+    /**
+     * The edge of a control: a text field, a select, a secondary button, a
+     * radio tile, the import drop area. At least 3:1 (WCAG 1.4.11) against
+     * the control's own fill (`raised`) and every surface it sits on (`bg`, a
+     * card's `surface`, a sheet's `raised`): light 3.1:1 against `surface`,
+     * its lowest, dark 3.1:1 against `raised`. `border`, a hairline between
+     * areas, is not meant to: in the dark palette it is three steps above
+     * `raised`, so a field on a sheet lost its edge (#208). Hover (`muted`)
+     * and focus (`text`, 2 px) stay apart from it in both palettes.
+     */
+    controlBorder: string
     /** Dims the window under a dialog. */
     scrim: string
     /** A switch's track while it is off. */
@@ -57,6 +69,7 @@ const colors: Record<ThemeName, ThemeColors> = {
         soft: '#262626',
         muted: '#525252',
         border: '#E4E4E4',
+        controlBorder: '#8A8A8A',
         scrim: 'rgba(0, 0, 0, 0.28)',
         track: '#D4D4D4',
         knob: '#FFFFFF',
@@ -72,6 +85,7 @@ const colors: Record<ThemeName, ThemeColors> = {
         soft: '#D4D4D4',
         muted: '#A4A4A4',
         border: '#262626',
+        controlBorder: '#6E6E6E',
         scrim: 'rgba(0, 0, 0, 0.55)',
         track: '#3A3A3A',
         knob: '#A4A4A4',
@@ -242,6 +256,14 @@ const sizes = {
     search: {field: '48px', icon: '26px', glyph: '14px', hints: '36px'},
     /** The person screen's Details: the column of field names. */
     detailLabel: '72px',
+    /**
+     * The narrowest the settings search stands beside the section tabs.
+     * Its "Search" placeholder, the magnifier and the field's padding take
+     * 77 px in Geist (Chromium and WebKitGTK measure the same); the rest is
+     * slack for another renderer's text. Below it the field wraps to a line
+     * of its own (SettingsPage).
+     */
+    settingsSearch: '96px',
 }
 
 /** Motion tokens for CSS transitions; the values live in ./motion.ts. */

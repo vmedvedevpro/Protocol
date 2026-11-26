@@ -14,8 +14,8 @@ export function describeSummaryModel(
     if (!config || !provider) return {value: 'Not chosen'}
     if (config.provider === 'builtin-ai') {
         const model = builtInName ? shortModelName(builtInName) : config.model
-        return {value: model ? `Built-in · ${model}` : provider.label}
+        return {value: model ? `Built-in (${model})` : provider.label}
     }
-    const value = config.model ? `${provider.label} · ${config.model}` : provider.label
+    const value = config.model ? `${provider.label} (${config.model})` : provider.label
     return provider.needsApiKey && !config.apiKey ? {value, description: 'Needs an API key'} : {value}
 }

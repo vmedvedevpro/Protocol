@@ -43,7 +43,7 @@ describe('SearchDialog', () => {
 
         await screen.findByRole('option', {name: /a data retention statement for the recordings folder/})
         expect(groupNames()).toEqual(['Said in a meeting', 'In a summary'])
-        expect(screen.getByRole('option', {name: /Sam Rivera · .* · Acme pilot security review/})).toBeInTheDocument()
+        expect(screen.getByRole('option', {name: /Sam Rivera ?, .* ?, Acme pilot security review/})).toBeInTheDocument()
         // A summary's snippet is cut from its Markdown; the row shows only the words.
         const inSummary = within(screen.getByRole('group', {name: 'In a summary'})).getAllByRole('option')
         for (const row of inSummary) expect(row.textContent).not.toMatch(/\||#|\*\*/)

@@ -38,7 +38,7 @@ describe('AI agents', () => {
 
     it('shows the data folder and opens it', async () => {
         openAdvanced()
-        expect(await screen.findByText(/Meetings database and models · \/home\/user\/.local\/share\/protocol/)).toBeInTheDocument()
+        expect(await screen.findByText(/Meetings database and models \/home\/user\/.local\/share\/protocol/)).toBeInTheDocument()
         await userEvent.click(screen.getByRole('button', {name: 'Show folder'}))
         await waitFor(() => expect(mockState.settings.dataFolderOpened).toBe(1))
     })

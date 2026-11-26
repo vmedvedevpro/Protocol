@@ -53,7 +53,7 @@ describe('Stop and save', () => {
 
         await waitFor(() => expect(mockState.live.saveAnswers).toEqual([{stopId: 1, outcome: 'saved'}]))
         const meeting = mockState.meetings.meetings.at(-1)!
-        expect(meeting.title).toMatch(/^Meeting · /)
+        expect(meeting.title).toMatch(/^Meeting, /)
         // The app made the title: the save says so, and native keeps the record (#218).
         expect(meeting.titleIsManual).toBe(false)
         expect(meeting.folder_path).toMatch(/Meeting_/)

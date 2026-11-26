@@ -30,7 +30,7 @@ export function SummaryChoice({choice}: {choice: SummaryChoiceState}) {
     return (
         <Groups>
             <SettingsRadioGroup<SummaryWay> title="Summaries" value={way} onValueChange={setWay}>
-                <SettingsRadioRow value="builtIn" label="On this computer" description={size ? `Built-in model · ${size}` : 'Built-in model'}/>
+                <SettingsRadioRow value="builtIn" label="On this computer" description={size ? `Built-in model (${size})` : 'Built-in model'}/>
                 <SettingsRadioRow value="provider" label="With your API key" description={PROVIDER_NAMES}/>
                 <SettingsRadioRow value="later" label="Later" description="No model is chosen now"/>
             </SettingsRadioGroup>

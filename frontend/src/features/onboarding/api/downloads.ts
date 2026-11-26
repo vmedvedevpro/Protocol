@@ -94,7 +94,7 @@ export function firstLaunchDownloads(hardware: Hardware = NO_INTEL): FirstLaunch
         {
             id: 'live',
             title: 'Live text',
-            detail: hardware.npuLibraries && !gpuVersion ? 'Parakeet · on the Intel NPU' : 'Parakeet · on the processor',
+            detail: hardware.npuLibraries && !gpuVersion ? 'Parakeet on the Intel NPU' : 'Parakeet on the processor',
             engine: 'parakeet',
             model: PARAKEET_MODEL,
             start: () => downloadParakeetModel(PARAKEET_MODEL),
@@ -104,7 +104,7 @@ export function firstLaunchDownloads(hardware: Hardware = NO_INTEL): FirstLaunch
         gpuVersion ? {
             id: 'afterMeetings',
             title: 'Transcript after meetings',
-            detail: 'Whisper Large V3 Turbo · on the Intel GPU',
+            detail: 'Whisper Large V3 Turbo on the Intel GPU',
             engine: 'intelGpu',
             model: gpuVersion,
             start: gpu,

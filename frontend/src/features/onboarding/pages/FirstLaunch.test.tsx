@@ -104,7 +104,7 @@ describe('First launch', () => {
         expect(done()).toBeDisabled()
         expect(screen.getByText('Install the model, or choose Later')).toBeInTheDocument()
         await userEvent.click(screen.getByRole('button', {name: 'Install Qwen 3.5 4B'}))
-        expect(screen.getByRole('button', {name: 'Install Qwen 3.5 4B'})).toHaveTextContent('Install · 2.6 GB')
+        expect(screen.getByRole('button', {name: 'Install Qwen 3.5 4B'})).toHaveTextContent('Install (2.6 GB)')
 
         // Cancel takes it back to Install, and nothing is chosen.
         await userEvent.click(await screen.findByRole('button', {name: 'Cancel downloading Qwen 3.5 4B'}))
@@ -202,7 +202,7 @@ describe('First launch', () => {
         await heading('Welcome to Protocol')
         await userEvent.type(screen.getByRole('textbox', {name: 'What should we call you?'}), 'Ada{Enter}')
 
-        expect(await screen.findByText('Whisper Large V3 Turbo · on the Intel GPU')).toBeInTheDocument()
+        expect(await screen.findByText('Whisper Large V3 Turbo on the Intel GPU')).toBeInTheDocument()
         await ready('Transcript after meetings')
 
         expect(mockState.speech.postCallConfig).toEqual({provider: 'whisper', model: GPU_VERSION_ID})
@@ -218,7 +218,7 @@ describe('First launch', () => {
         await heading('Welcome to Protocol')
         await userEvent.type(screen.getByRole('textbox', {name: 'What should we call you?'}), 'Ada{Enter}')
 
-        expect(await screen.findByText('Parakeet · on the Intel NPU')).toBeInTheDocument()
+        expect(await screen.findByText('Parakeet on the Intel NPU')).toBeInTheDocument()
         await ready('Live text on the Intel NPU')
         expect(mockState.intel.runtimeInstalled).toBe(true)
     }, 10_000)

@@ -25,7 +25,7 @@ const Trigger = styled(RadixSelect.Trigger)`
     height: ${({theme}) => theme.sizes.control.sm};
     margin: 0;
     padding: 0 ${({theme}) => theme.space[2]} 0 ${({theme}) => theme.space[2.5]};
-    border: 1px solid ${({theme}) => theme.colors.border};
+    border: 1px solid ${({theme}) => theme.colors.controlBorder};
     border-radius: ${({theme}) => theme.radii.sm};
     background: ${({theme}) => theme.colors.raised};
     color: ${({theme}) => theme.colors.text};

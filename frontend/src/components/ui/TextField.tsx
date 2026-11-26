@@ -6,7 +6,11 @@ import {colorTransition, fieldFocusRing} from './styles'
 /** sm: 28 px inside a settings row; md: 32 px, most fields; lg: 36 px, a field that stands alone. */
 export type FieldSize = 'sm' | 'md' | 'lg'
 
-/** outline: a bordered field on the window or a card; soft: a borderless grey field, such as a search box. */
+/**
+ * outline: a bordered field on any surface (window, card, sheet), its edge
+ * in `controlBorder`; soft: a borderless grey field on the window, such as a
+ * search box, which reads as a field only off a `surface`.
+ */
 export type FieldTone = 'outline' | 'soft'
 
 // The border darkens on hover and turns to the text colour on focus, over
@@ -18,7 +22,7 @@ const fieldBox = (focus: '&:focus' | '&:focus-within') => css<{ $tone: FieldTone
     width: 100%;
     min-width: 0;
     margin: 0;
-    border: 1px solid ${({theme, $tone}) => $tone === 'soft' ? 'transparent' : theme.colors.border};
+    border: 1px solid ${({theme, $tone}) => $tone === 'soft' ? 'transparent' : theme.colors.controlBorder};
     background: ${({theme, $tone}) => $tone === 'soft' ? theme.colors.surface : theme.colors.raised};
     color: ${({theme}) => theme.colors.text};
     ${colorTransition};

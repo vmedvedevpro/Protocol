@@ -4,6 +4,7 @@ import {CaretDownIcon, CopyIcon, DotsThreeIcon, FolderIcon, GearIcon} from '@pho
 import {useNavigate} from 'react-router-dom'
 import styled from 'styled-components'
 import {foldersQuery} from '@/api/meetings'
+import {SpacedParts} from '@/components/ui/SpacedParts'
 import {IconButton} from '@/components/ui/Button'
 import {Menu, MenuGroup, MenuItem, MenuRadioGroup, MenuRadioItem} from '@/components/ui/Menu'
 import {focusRing} from '@/components/ui/styles'
@@ -71,10 +72,9 @@ const TitleInput = styled.input`
     ${focusRing};
 `
 
-const Sub = styled.p`
-    display: flex;
+// The start and the folder are two things: SpacedParts sets them apart.
+const Sub = styled(SpacedParts)`
     align-items: center;
-    gap: ${({theme}) => theme.space[1]};
     ${({theme}) => theme.text.small};
     color: ${({theme}) => theme.colors.muted};
 `
@@ -197,12 +197,12 @@ export function RecordingHeader() {
                 )}
                 {/* Kept while the save runs, so the header does not jump at Stop. */}
                 {(live || phase === 'finishing') && startedAt && (
-                    <Sub>
-                        <span>{startedLabel(new Date(startedAt))}</span>
-                        <span aria-hidden="true">·</span>
-                        <FolderIcon size={12} aria-hidden="true"/>
-                        <FolderPicker disabled={!live}/>
-                    </Sub>
+                    <Sub
+                        parts={[
+                            startedLabel(new Date(startedAt)),
+                            <><FolderIcon size={12} aria-hidden="true"/><FolderPicker disabled={!live}/></>,
+                        ]}
+                    />
                 )}
             </Titles>
             <Menu

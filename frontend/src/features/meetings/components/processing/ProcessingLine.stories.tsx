@@ -42,7 +42,7 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
-/** "Improving the transcript · about 2 min", as Home's row shows it. */
+/** "Improving the transcript (about 2 min)", as Home's row shows it. */
 export const Light: Story = {globals: {theme: 'light'}}
 
 export const Dark: Story = {globals: {theme: 'dark'}}

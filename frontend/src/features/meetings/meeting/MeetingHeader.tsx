@@ -13,6 +13,7 @@ import {useLayoutEffect, useRef, useState} from 'react'
 import styled from 'styled-components'
 import type {Folder} from '@/api/meetings'
 import {IconButton} from '@/components/ui/Button'
+import {SpacedParts} from '@/components/ui/SpacedParts'
 import {Menu, MenuItem, MenuRadioGroup, MenuRadioItem, MenuSeparator, MenuSub} from '@/components/ui/Menu'
 import {Tooltip} from '@/components/ui/Tooltip'
 import {formatLength, headerWhen} from '@/lib/dates'
@@ -38,13 +39,9 @@ const Title = styled.h1`
     text-overflow: ellipsis;
 `
 
-const Meta = styled.p`
-    margin: 0;
-    overflow: hidden;
+const Meta = styled(SpacedParts)`
     ${({theme}) => theme.text.small};
     color: ${({theme}) => theme.colors.muted};
-    white-space: nowrap;
-    text-overflow: ellipsis;
 `
 
 /** The title on one line; cut off, it shows whole in a tooltip. */
@@ -101,14 +98,14 @@ export function MeetingHeader(props: MeetingHeaderProps) {
     const meta = [
         createdAt && headerWhen(createdAt),
         durationSeconds ? formatLength(durationSeconds) : null,
-        folder?.name,
-    ].filter(Boolean).join(' · ')
+        folder && <><FolderSimpleIcon size={12} aria-hidden/>{folder.name}</>,
+    ]
 
     return (
         <Head>
             <Text>
                 <MeetingTitle title={title}/>
-                {meta && <Meta>{meta}</Meta>}
+                {meta.some(Boolean) && <Meta parts={meta}/>}
             </Text>
             <Menu
                 trigger={(

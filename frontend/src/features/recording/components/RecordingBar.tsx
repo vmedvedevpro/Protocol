@@ -165,7 +165,7 @@ export function RecordingBar({idle = false}: RecordingBarProps) {
                             onOpenSettings={openSettings}
                             trigger={(
                                 <Inputs type="button" aria-label={`Inputs: ${inputs}.${missing ? ` ${missing}.` : ''} Change`}>
-                                    <span>{missing ? `${inputs} · ${missing}` : inputs}</span>
+                                    <span>{missing ? `${inputs} (${missing})` : inputs}</span>
                                     <CaretDownIcon size={11} aria-hidden="true"/>
                                 </Inputs>
                             )}

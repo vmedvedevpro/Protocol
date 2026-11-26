@@ -10,7 +10,7 @@
  * recording that starts the pass:
  *
  * - the native commands and events of retranscription and diarization,
- *   which Enhance transcript (#119) and "N speakers · change" (#113) call too;
+ *   which Enhance transcript (#119) and "N speakers (Change)" (#113) call too;
  * - the state of each meeting's pass (`usePostCallJob`). The recording's
  *   runner (features/recording/store/postCallRunner.ts), mounted through
  *   RecordingRuntime by the shell above navigation, is its only writer;

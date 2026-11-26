@@ -47,7 +47,8 @@ describe('MeetingScreen', () => {
     it('shows the title, when it was, how long and its folder', async () => {
         renderMeeting('meeting-acme-review')
         expect(await screen.findByRole('heading', {level: 1, name: 'Acme pilot security review'})).toBeInTheDocument()
-        await waitFor(() => expect(screen.getByText(/^Today, .* · \d+ min · Acme Corp$/)).toBeInTheDocument())
+        const header = screen.getByRole('heading', {level: 1, name: 'Acme pilot security review'}).closest('div') as HTMLElement
+        await waitFor(() => expect(header).toHaveTextContent(/Today, .*, \d+ min, Acme Corp$/))
     })
 
     it('opens on the summary with its action section as the model wrote it', async () => {
@@ -130,7 +131,7 @@ describe('MeetingScreen', () => {
         await userEvent.click(await screen.findByRole('button', {name: /More actions/}))
         await userEvent.click(screen.getByRole('menuitem', {name: 'Move to folder'}))
         await userEvent.click(await screen.findByRole('menuitemradio', {name: 'Design Team'}))
-        await waitFor(() => expect(screen.getByText(/· Design Team$/)).toBeInTheDocument())
+        await waitFor(() => expect(screen.getByText('Design Team', {selector: 'p span, span span'})).toBeInTheDocument())
     })
 
     it('opens Export and Improve the transcript from the menu', async () => {

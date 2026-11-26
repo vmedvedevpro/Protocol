@@ -238,7 +238,7 @@ async function runStep(pass: Pass, step: PostCallStep) {
             await queries().invalidateQueries({queryKey: meetingKeys.transcripts(pass.meetingId)})
             return
         case 'speakers':
-            // The count is detected; "N speakers · change" (#113) runs it again with one.
+            // The count is detected; "N speakers (Change)" (#113) runs it again with one.
             await diarizeMeeting(pass.meetingId, null)
             if (pass.cancel.signal.aborted) throw new Cancelled()
             await queries().invalidateQueries({queryKey: meetingKeys.transcripts(pass.meetingId)})

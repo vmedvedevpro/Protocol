@@ -22,7 +22,7 @@ describe('startRecording', () => {
         expect(commands.indexOf('check_transcription_runtime')).toBeLessThan(commands.indexOf('parakeet_load_model'))
         expect(commands.indexOf('parakeet_load_model')).toBeLessThan(commands.indexOf('start_recording_with_devices_and_meeting'))
         expect(mockState.live.recording).toMatchObject({micDevice: 'Studio Display Microphone', systemDevice: null})
-        expect(mockState.live.recording?.meetingName).toMatch(/^Meeting · /)
+        expect(mockState.live.recording?.meetingName).toMatch(/^Meeting, /)
         expect(openRecording).toHaveBeenCalledTimes(1)
         expect(session.get()).toMatchObject({phase: 'recording', title: mockState.live.recording?.meetingName})
         expect(session.get().recoveryId).toMatch(/^meeting-\d+$/)

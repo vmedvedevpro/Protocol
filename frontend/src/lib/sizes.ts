@@ -6,8 +6,8 @@ export function formatModelSize(bytes: number | null | undefined): string {
     return `${Math.max(1, Math.round(megabytes))} MB`
 }
 
-/** "Download · 640 MB", or the label alone while the size is unknown. */
+/** "Download (640 MB)", or the label alone while the size is unknown. */
 export const withSize = (label: string, bytes: number | null | undefined) => {
     const size = formatModelSize(bytes)
-    return size ? `${label} · ${size}` : label
+    return size ? `${label} (${size})` : label
 }

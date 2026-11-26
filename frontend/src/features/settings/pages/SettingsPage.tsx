@@ -48,9 +48,15 @@ const View = styled(CrossfadeView)`
     flex-direction: column;
 `
 
+// The four tabs, dense, and the search beside them while the row has
+// room for the search's whole placeholder (sizes.settingsSearch); in a
+// narrower window, down to the minimum 360 px, the search wraps to a full
+// line under the tabs. Wrapping needs no width threshold, so it holds for
+// any font rendering, and nothing in the row is ever cut (#202).
 const TabRow = styled.div`
     display: flex;
     flex: none;
+    flex-wrap: wrap;
     align-items: center;
     gap: ${({theme}) => theme.space[2]};
     padding: 0 ${({theme}) => theme.space[4]} ${({theme}) => theme.space[2.5]};
@@ -77,10 +83,11 @@ const Note = styled.p`
     color: ${({theme}) => theme.colors.muted};
 `
 
-// The tabs keep their width; the search takes what is left of the row.
+// The tabs keep their width; the search takes what is left of the row,
+// never less than the width its placeholder needs.
 const Search = styled.div`
-    flex: 1;
-    min-width: 0;
+    flex: 1 0 ${({theme}) => theme.sizes.settingsSearch};
+    min-width: ${({theme}) => theme.sizes.settingsSearch};
 `
 
 const Results = styled.div`
@@ -165,7 +172,7 @@ function SearchResults({query}: {query: string}) {
                         <SettingsNavRow
                             key={id}
                             label={SETTINGS_PAGES[id].title}
-                            description={`${sectionLabel(SETTINGS_PAGES[id].section)} · ${count} matching`}
+                            description={`${sectionLabel(SETTINGS_PAGES[id].section)}, ${count} matching`}
                             onClick={() => void navigate(paths.settingsPage(id))}
                         />
                     ))}
@@ -236,7 +243,7 @@ export function SettingsPage() {
                             onChange={(next) => setSearch({section: next}, {replace: true})}
                         >
                             <TabRow>
-                                <TabList/>
+                                <TabList dense/>
                                 <Search>
                                     <TextField
                                         type="search"

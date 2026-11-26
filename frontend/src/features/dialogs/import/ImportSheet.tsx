@@ -2,7 +2,7 @@ import {type FormEvent, useEffect, useState} from 'react'
 import {CaretDownIcon, DownloadSimpleIcon, WaveformIcon, XIcon} from '@phosphor-icons/react'
 import {type QueryClient, useQuery, useQueryClient} from '@tanstack/react-query'
 import {useNavigate} from 'react-router-dom'
-import styled from 'styled-components'
+import styled, {css} from 'styled-components'
 import {
     AUDIO_FORMATS_TEXT,
     type AudioFileInfo,
@@ -26,7 +26,8 @@ import {ProgressBar} from '@/components/ui/ProgressBar'
 import {Select} from '@/components/ui/Select'
 import {SettingsGroup, SettingsRow} from '@/components/ui/SettingsRow'
 import {Sheet, SheetClose} from '@/components/ui/Sheet'
-import {focusRing} from '@/components/ui/styles'
+import {Spinner} from '@/components/ui/Spinner'
+import {colorTransition, focusRing} from '@/components/ui/styles'
 import {TextField} from '@/components/ui/TextField'
 import {toast} from '@/components/ui/toastStore'
 import {closeDialog, type OpenedDialog, useDialog} from '@/lib/dialogs'
@@ -50,21 +51,78 @@ const Form = styled.form`
     gap: ${({theme}) => theme.space[2.5]};
 `
 
-const Drop = styled.div`
+// The whole area is the picker's one button: a click, Enter or Space
+// anywhere in it opens the picker, and a file dragged over the window lights
+// it up (`$dragging`, from DropOverlay). Its edge is a field's (`controlBorder`),
+// and hover and drag fill it with `surface`, so it reads as a target on a
+// sheet in both themes.
+const Drop = styled.button<{ $dragging: boolean }>`
     display: flex;
     flex-direction: column;
     align-items: center;
     gap: ${({theme}) => theme.space[1.5]};
+    width: 100%;
+    margin: 0;
     padding: ${({theme}) => theme.space[4]} ${({theme}) => theme.space[3]};
-    border: ${({theme}) => theme.sizes.radio.ring} dashed ${({theme}) => theme.colors.border};
+    border: ${({theme}) => theme.sizes.radio.ring} dashed ${({theme}) => theme.colors.controlBorder};
     border-radius: ${({theme}) => theme.radii.lg};
+    background: transparent;
+    font: inherit;
     ${({theme}) => theme.text.body};
     color: ${({theme}) => theme.colors.text};
     text-align: center;
+    cursor: pointer;
+    ${colorTransition};
+    ${focusRing};
 
     > svg {
         color: ${({theme}) => theme.colors.muted};
     }
+
+    &:hover:not([aria-busy='true']) {
+        border-color: ${({theme}) => theme.colors.muted};
+        background: ${({theme}) => theme.colors.surface};
+    }
+
+    /* While native checks a file the area stays focusable (focus is not
+       lost to the sheet) and ignores clicks; aria-busy says why. */
+    &[aria-busy='true'] {
+        cursor: default;
+    }
+
+    ${({$dragging}) => $dragging && css`
+        &, &:hover {
+            border-color: ${({theme}) => theme.colors.text};
+            background: ${({theme}) => theme.colors.surface};
+        }
+
+        > svg {
+            color: ${({theme}) => theme.colors.text};
+        }
+    `};
+`
+
+// "Choose a file" drawn as a small secondary button inside the area; the
+// area is the button, so this is only its look.
+const ChooseLook = styled.span`
+    display: inline-flex;
+    align-items: center;
+    gap: ${({theme}) => theme.space[1.5]};
+    height: ${({theme}) => theme.sizes.control.sm};
+    margin: ${({theme}) => theme.space[0.5]} 0;
+    padding: 0 ${({theme}) => theme.space[2.5]};
+    border: 1px solid ${({theme}) => theme.colors.controlBorder};
+    border-radius: ${({theme}) => theme.radii.sm};
+    background: ${({theme}) => theme.colors.raised};
+    ${({theme}) => theme.text.label};
+    font-weight: ${({theme}) => theme.fontWeights.medium};
+`
+
+const Rejected = styled.p`
+    margin: 0;
+    ${({theme}) => theme.text.small};
+    color: ${({theme}) => theme.colors.text};
+    text-align: center;
 `
 
 const Hint = styled.span`
@@ -243,7 +301,7 @@ async function checkFile(read: () => Promise<AudioFileInfo | null>) {
         toast.info('One recording imports at a time', {description: 'Drop it again when this import ends.'})
         return
     }
-    useImportState.setState({phase: {step: 'checking'}})
+    useImportState.setState({phase: {step: 'checking'}, rejectedDrop: false})
     try {
         const info = await read()
         if (info) useImportState.setState({file: info, title: info.filename, phase: {step: 'ready'}})
@@ -306,7 +364,7 @@ function ImportForm({request, completeHeard}: { request: Extract<OpenedDialog, {
     const meetingLanguage = useMeetingLanguageStore((state) => state.value)
     const models = useSpeechModels()
 
-    const {phase, file, title} = useImportState()
+    const {phase, file, title, rejectedDrop, dragging} = useImportState()
     const [folderId, setFolderId] = useState(NO_FOLDER)
     const [advanced, setAdvanced] = useState(false)
     const [language, setLanguage] = useState(meetingLanguage)
@@ -383,26 +441,38 @@ function ImportForm({request, completeHeard}: { request: Extract<OpenedDialog, {
     return (
         <Form id={FORM_ID} onSubmit={(event) => void submit(event)} aria-busy={busy || phase.step === 'checking'}>
             {!busy && (
-                <Drop>
-                    <DownloadSimpleIcon size={20} aria-hidden/>
-                    Drop an audio or video file here
-                    <Button
-                        size="sm"
+                <>
+                    <Drop
                         type="button"
-                        pending={phase.step === 'checking'}
-                        onClick={() => void checkFile(chooseAudioFile)}
+                        $dragging={dragging}
+                        aria-busy={phase.step === 'checking' || undefined}
+                        aria-label={file ? 'Choose another file or drop one here' : 'Choose a file or drop one here'}
+                        aria-describedby={file ? undefined : `${FORM_ID}-formats`}
+                        onClick={() => {
+                            if (phase.step !== 'checking') void checkFile(chooseAudioFile)
+                        }}
                     >
-                        {file ? 'Choose another file' : 'Choose a file'}
-                    </Button>
-                    {!file && <Hint>{AUDIO_FORMATS_TEXT}</Hint>}
-                </Drop>
+                        <DownloadSimpleIcon size={20} aria-hidden/>
+                        {dragging ? 'Drop to import this recording' : 'Drop an audio or video file here'}
+                        <ChooseLook>
+                            {phase.step === 'checking' && <Spinner delayed/>}
+                            {file ? 'Choose another file' : 'Choose a file'}
+                        </ChooseLook>
+                        {!file && <Hint id={`${FORM_ID}-formats`}>{AUDIO_FORMATS_TEXT}</Hint>}
+                    </Drop>
+                    {rejectedDrop && (
+                        <Rejected role="alert">
+                            That isn’t an audio or video file. Drop one of these: {AUDIO_FORMATS_TEXT}.
+                        </Rejected>
+                    )}
+                </>
             )}
             {file && (
                 <File>
                     <WaveformIcon size={16} aria-hidden/>
                     <FileText>
                         <FileName>{file.path.split(/[\\/]/).pop() || file.filename}</FileName>
-                        <Hint>{fileLength(file.duration_seconds)} · {file.format}</Hint>
+                        <Hint>{fileLength(file.duration_seconds)}, {file.format}</Hint>
                     </FileText>
                     {!busy && (
                         <IconButton

@@ -14,7 +14,7 @@ export interface SegmentedOption<T extends string> {
 
 /**
  * segments: a compact radio group on the window, such as the theme switch;
- * tabs: a larger track of tabs over panels, such as Notes · Transcript ·
+ * tabs: a larger track of tabs over panels, such as Notes, Transcript and
  * Summary.
  */
 type Variant = 'segments' | 'tabs'
@@ -28,7 +28,9 @@ type Variant = 'segments' | 'tabs'
 // transparent border keeps the same geometry. Both pad the thumb by 2 px.
 // Never narrower than its labels: as a flex item it would shrink (its
 // columns' minimum is 0) and the segments would run into each other.
-const Track = styled.div<{ $count: number, $variant: Variant }>`
+const Track = styled.div<{ $count: number, $variant: Variant, $dense?: boolean }>`
+    /* A segment's side padding, for its labels and the thumb's copy of them alike. */
+    --segment-padding: ${({theme, $variant, $dense}) => $variant === 'segments' ? theme.space[2.5] : $dense ? theme.space[2] : theme.space[3]};
     position: relative;
     display: inline-grid;
     flex: none;
@@ -55,7 +57,7 @@ const segmentText = css<{ $variant: Variant }>`
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    padding: 0 ${({theme, $variant}) => $variant === 'segments' ? theme.space[2.5] : theme.space[3]};
+    padding: 0 var(--segment-padding);
     ${({theme, $variant}) => $variant === 'segments' ? theme.text.small : theme.text.label};
     white-space: nowrap;
 `
@@ -274,8 +276,13 @@ const KEY_STEPS: Record<string, (at: number, count: number) => number> = {
     End: (_, count) => count - 1,
 }
 
-/** The tabs of the Tabs around it, on the segmented track. */
-export function TabList() {
+/**
+ * The tabs of the Tabs around it, on the segmented track. `dense` pads each
+ * tab 8 px a side instead of 12, for a row that must hold the tabs and
+ * something beside them in a narrow window (Settings' four tabs and its
+ * search at 360 px).
+ */
+export function TabList({dense = false}: { dense?: boolean }) {
     const {ids, label, options, value, onChange} = useTabs('TabList')
     const buttons = useRef<(HTMLButtonElement | null)[]>([])
     const at = indexOf(options, value)
@@ -299,6 +306,7 @@ export function TabList() {
             aria-label={label}
             $count={options.length}
             $variant="tabs"
+            $dense={dense}
             onKeyDown={onKeyDown}
             onPointerDown={handlers.onPointerDown}
         >

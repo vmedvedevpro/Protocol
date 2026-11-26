@@ -86,7 +86,7 @@ function Running({job}: { job: PostCallJob }) {
                             // The meaning: a new step, or the wait turning into a cancel.
                             key: `${job.state}:${job.step}`,
                             text: postCallStatusText(job),
-                            value: remaining ? `· ${remaining}` : undefined,
+                            value: remaining ? `(${remaining})` : undefined,
                             busy: true,
                         }}
                     />

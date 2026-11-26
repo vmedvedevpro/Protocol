@@ -346,7 +346,11 @@ theme; the motion from the Motion section.
   is named by the row's label and described by its description, which may
   be a `StatusLine` for a status that changes (an update's). A control too
   wide to leave the text 160 px (Theme's three segments) drops to its own
-  line rather than squeezing the label to a word per line. A focused
+  line rather than squeezing the label to a word per line. A control's
+  edge (a text field's outline tone, a select, a secondary button, a radio
+  tile, the import drop area) is `controlBorder`, not `border`: at least
+  3:1 against the control's `raised` fill and every surface it sits on, a
+  sheet's `raised` included, where dark `border` all but vanished (#208). A focused
   field draws a 2 px stroke in the text colour on its edge
   (`fieldFocusRing`), so focus differs from hover's `muted` border. The
   stroke is one outline over the border, never a border plus a spread
@@ -366,11 +370,22 @@ theme; the motion from the Motion section.
   it inside a word (#121). A row that does not match renders nothing,
   so its control remounts when it shows again; a group with no row left
   (`[data-settings-row]`) hides by CSS `:has()`, titled with the scope
-  before its own title ("AI · Summaries") and without its note. The card's
+  after its own title ("Summaries (AI)") and without its note. The card's
   hairlines skip the empty wrapper a hidden row leaves (a `Collapse`).
   `onMatches` gives the count, for "Nothing matches". Filtering does not
   animate, as on Home.
 - `VisuallyHidden` holds text only assistive technology reads.
+- No text joins its parts with "·" (#219). Parts that read as one phrase
+  take a comma or parentheses ("38 min, M4A", "Download (640 MB)",
+  "Built-in (Qwen 3.5 4B)"); parts that do not (a meeting's date, length
+  and folder) are `SpacedParts`: set apart by spacing and wrapping whole,
+  never cut, with a comma for screen readers and copied text; a second
+  fact may take a line of its own in a row's description (`\n`, the data
+  folder's path; only such a description keeps its line breaks and breaks
+  a long path anywhere). `src/test/noMiddleDot.test.ts` parses every
+  shipped source under `src/` and fails with file and line on a "·" in a
+  string, a template or JSX text; comments, tests, stories, `mocks/` and
+  test helpers are skipped.
 - Menu and select rows show only the design's faint sliding highlight, for
   the pointer and the keyboard alike: Radix focuses a row under the pointer,
   so a `:focus-visible` ring showed on hover as well. The notes editor's
@@ -483,7 +498,7 @@ enter and exit, indicators and springs.
   change only the text colour; keyboard focus draws an outline.
   `SegmentedControl` is a radio group on the window (the theme);
   `Tabs` with `TabList` and `TabPanels` is a tab list on a grey track over
-  its views (the meeting's Notes · Transcript · Summary).
+  its views (the meeting's Notes, Transcript and Summary).
 - Radix gives the overlays their behaviour; motion animates them. Sheet,
   Menu and Tooltip hold their open state, and AnimatePresence keeps their
   `forceMount`ed content until the exit has played (Radix's guide to
@@ -710,7 +725,7 @@ post-call runner writes `postCallJobs` (Recording below).
   by writing a job. When a step ends the runner invalidates the meeting's
   queries. The file also holds the retranscription and
   diarization commands and events, which Enhance transcript (#119) and
-  "N speakers · change" (#113) call, and `RETRANSCRIPTION_BANDS`: native's
+  "N speakers (Change)" (#113) call, and `RETRANSCRIPTION_BANDS`: native's
   percent is not linear in time, and only its chunks' band (25 to 80) has a
   pace, so the time left is measured there.
   `features/meetings/components/processing` draws a job:
@@ -1208,8 +1223,14 @@ recording and hides the main window: minimizing the main window does it
   descriptions of every row it can show, data rows such as models or apps
   left out). `SettingsSubpage` draws the head and Back, `paths.settingsPage`
   lists the ids. A page opened from the simple page goes back to it.
-- Search sits beside the tabs; its query is `?q=`, and picking a tab or
-  turning Advanced off drops it. Results render every section under a
+- Search sits beside the tabs (`TabList dense`, 8 px a side) while the
+  row leaves it `sizes.settingsSearch` (96 px: the 77 px its placeholder,
+  magnifier and padding take in Geist, plus slack), as at the 460 px the
+  window opens at; in a narrower window, down to the 360 px minimum, the
+  row wraps and the search takes a line of its own under the tabs.
+  Wrapping needs no width threshold, so no renderer cuts it mid-word
+  (#202; stories `AdvancedDefaultWidth` and `AdvancedNarrowest`). Its
+  query is `?q=`, and picking a tab or turning Advanced off drops it. Results render every section under a
   `SettingsSearchScope` named after it, so a section's rows match by their
   own text with no list kept by hand. Pages are looked up in their index
   without rendering, so a search loads nothing of theirs (running apps,
@@ -1494,7 +1515,14 @@ another meeting starts from fresh state).
   stop them.
 - Files dragged over the main window dim it (`import/DropOverlay.tsx`,
   Tauri's `tauri://drag-*` events of that window); the first audio or
-  video file dropped opens Import with it.
+  video file dropped opens Import with it. The webview gets no DOM drag
+  events, so the drag state lives in `importState` (`dragging`). While
+  Import is open with its drop area (`takesDrops`: no import running, no
+  failure shown), the window does not dim: the area lights up instead,
+  and a drop with no audio says so under the area (`rejectedDrop`) rather
+  than in the toast a drop gets otherwise. The area is one button, "Choose
+  a file or drop one here": a click, Enter or Space anywhere in it opens
+  the picker, and the "Choose a file" inside is only its look (#219).
 - Export renders the document Copy builds (`components/transcript/meetingText.ts`,
   `lib/summaryMarkdown.ts`, moved down from features/meetings): Markdown,
   with Obsidian wikilinks to named voices on request (the choice is

@@ -7,8 +7,19 @@ export function languagesLine(languages: string[] | undefined): string | null {
     return `${languages.length} language${languages.length === 1 ? '' : 's'}`
 }
 
-/** The catalog's description with its "•" written as the UI's "·". */
-export const catalogLine = (description: string | undefined) => (description ?? '').replace(/\s*•\s*/g, ' · ').trim()
+/**
+ * The catalog's description, its "•" between phrases ("Real time • Smaller
+ * size") ending a sentence: the UI never joins text with a dot (#219).
+ */
+export const catalogLine = (description: string | undefined) => (description ?? '').replace(/\s*•\s*/g, '. ').trim()
 
-/** A row's facts, the empty ones left out. */
-export const facts = (...parts: (string | null | undefined | false)[]) => parts.filter(Boolean).join(' · ')
+/**
+ * A row's facts: the first, then the rest in parentheses, "After meetings
+ * (1.6 GB)" or "Better accuracy, moderate speed (488 MB, 25 languages)";
+ * the empty ones left out.
+ */
+export function facts(first: string | null | undefined | false, ...rest: (string | null | undefined | false)[]): string {
+    const more = rest.filter(Boolean).join(', ')
+    if (!first) return more
+    return more ? `${first} (${more})` : first
+}

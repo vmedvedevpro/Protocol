@@ -97,6 +97,23 @@ is inherited from the project Protocol forked from; Protocol did not release it.
   ([#218](https://github.com/vmedvedevpro/Protocol/issues/218)). Choosing a
   default template no longer moves it to the top: templates are listed by
   name everywhere, and the default is marked.
+- **Text fields show on sheets in the dark theme**
+  ([#219](https://github.com/vmedvedevpro/Protocol/issues/219)). Fields and
+  selects have a clearer edge, so a field on a sheet, such as the speaker
+  sheet's contact search, no longer blends into it.
+- **The whole import drop area opens the file picker**
+  ([#219](https://github.com/vmedvedevpro/Protocol/issues/219)). Click
+  anywhere in it, or press Enter or Space. A file dragged over the window
+  lights the area up while Import is open, and a file that isn't audio or
+  video is turned down right under it.
+- **The settings search fits beside the tabs**
+  ([#219](https://github.com/vmedvedevpro/Protocol/issues/219)). At the
+  window's default width it shows "Search" whole instead of "Searc"; in a
+  narrower window it moves to a line of its own under the tabs.
+- **No more "·" between words**
+  ([#219](https://github.com/vmedvedevpro/Protocol/issues/219)). Details are
+  set apart by spacing, a comma or parentheses instead. New automatic titles
+  read "Meeting, Mon, Sep 28, 2:30 PM"; older ones still count as automatic.
 
 ## Protocol 1.0.0-rc.1 — 2026-11-26
 

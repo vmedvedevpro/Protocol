@@ -24,7 +24,7 @@ describe('Settings › AI, speech', () => {
         await waitFor(() => expect(after).toHaveTextContent('Same as during the meeting'))
 
         await userEvent.click(after)
-        await userEvent.click(await screen.findByRole('option', {name: 'Whisper · Large V3 Turbo Compressed'}))
+        await userEvent.click(await screen.findByRole('option', {name: 'Whisper Large V3 Turbo Compressed'}))
 
         await waitFor(() => expect(mockState.speech.postCallConfig).toEqual({provider: 'whisper', model: POST_CALL_WHISPER_MODEL}))
     })
@@ -163,7 +163,7 @@ describe('Settings › Speech models', () => {
         const pair = await screen.findByRole('region', {name: 'For this computer'})
 
         expect(await within(pair).findByText(/on the Intel GPU/)).toBeInTheDocument()
-        expect(within(pair).queryByRole('button', {name: 'Remove Whisper · Large V3 Turbo Compressed'})).not.toBeInTheDocument()
+        expect(within(pair).queryByRole('button', {name: 'Remove Whisper Large V3 Turbo Compressed'})).not.toBeInTheDocument()
         expect(within(pair).getByText('It didn’t start last time, so Whisper runs on the processor')).toBeInTheDocument()
         expect(within(pair).getByRole('button', {name: 'Try again'})).toBeInTheDocument()
     })
@@ -171,7 +171,7 @@ describe('Settings › Speech models', () => {
     it('removes Whisper Large V3 Turbo through the optional removal', async () => {
         renderPage()
         const pair = await screen.findByRole('region', {name: 'For this computer'})
-        await userEvent.click(await within(pair).findByRole('button', {name: 'Remove Whisper · Large V3 Turbo Compressed'}))
+        await userEvent.click(await within(pair).findByRole('button', {name: 'Remove Whisper Large V3 Turbo Compressed'}))
         await userEvent.click(within(await screen.findByRole('dialog')).getByRole('button', {name: 'Remove'}))
 
         await waitFor(() => expect(mockState.models.whisper[POST_CALL_WHISPER_MODEL]).toBe('Missing'))

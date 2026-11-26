@@ -28,7 +28,7 @@ beforeEach(() => {
 describe('useSummaryTitleSync', () => {
     it('shows the title a summary gave a meeting whose title the app made', async () => {
         const {result} = mount()
-        await waitFor(() => expect(result.current.list).toMatch(/^Meeting · /))
+        await waitFor(() => expect(result.current.list).toMatch(/^Meeting, /))
 
         await summarize()
 

@@ -93,7 +93,7 @@ export function ForThisComputer() {
             engine="parakeet"
             model={live}
             use={usageOf('parakeet', live.name)}
-            description={facts(`During meetings · on ${npuOn ? 'the Intel NPU' : 'the processor'}`, formatModelSize(live.size_bytes))}
+            description={facts(`During meetings on ${npuOn ? 'the Intel NPU' : 'the processor'}`, formatModelSize(live.size_bytes))}
             downloads={downloads}
             onDownload={() => download(live)}
             onCancel={() => cancel(live)}
@@ -129,7 +129,7 @@ export function ForThisComputer() {
             engine="whisper"
             model={gpuVersion}
             use={usageOf('whisper', gpuVersion.name)}
-            description={facts('After meetings · on the Intel GPU', formatModelSize((offered.size ?? 0) + (offered.runtime?.installedSize ?? 0)))}
+            description={facts('After meetings on the Intel GPU', formatModelSize((offered.size ?? 0) + (offered.runtime?.installedSize ?? 0)))}
             downloads={downloads}
             onRemove={() => removeGpuVersion(offered.id)
                 .catch((error) => toast.error('Couldn’t remove the Intel GPU version', {description: intelError(error)}))
@@ -160,7 +160,7 @@ export function ForThisComputer() {
             onDownload={() => download(copy, {activate: true})}
             onCancel={() => cancel(copy)}
             onRemove={() => remove(copy)}
-            removeDetail={facts(formatModelSize(copy.size_bytes) && `This frees ${formatModelSize(copy.size_bytes)}`, 'Transcripts after meetings then use the live model') + '.'}
+            removeDetail={`${formatModelSize(copy.size_bytes) ? `This frees ${formatModelSize(copy.size_bytes)}. ` : ''}Transcripts after meetings then use the live model.`}
         />
     )
 
