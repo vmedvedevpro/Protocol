@@ -143,7 +143,7 @@ XWayland for the whole app (`GDK_BACKEND=x11`) would make keep-above work
 everywhere but blurs the window on fractional scaling, so it is not used.
 
 **The KWin script.** KWin runs scripts sent over D-Bus
-(`org.kde.KWin /Scripting` `loadScript`, then `Script.run`), and a script may
+(`org.kde.KWin /Scripting` `loadScript`, then `start`), and a script may
 set `keepAbove` on any window. The script matches this process's windows by
 pid: the minibar by its title (`Recording`, since Wayland has no
 skip-taskbar hint for KWin to read), the main window as every other normal
@@ -158,7 +158,16 @@ unloaded when nothing needs it any more, and unloaded at `RunEvent::Exit`
 under the same lock as the reloads, so a change still in flight cannot load
 it again after the exit. For the minibar it also hides it from the task
 manager and the switcher and puts it top centre, 12 px down; it can still be
-dragged.
+dragged. A bar shown before the reloaded script ran is placed by its first
+pass (a new KWin window has `skipTaskbar` unset); one it placed stays where
+the user dragged it.
+
+The script is started with `Scripting.start`, not `Script.run` on
+`/Scripting/Script<id>`: KWin numbers a script by the count of loaded
+scripts, so after an unload the new id can be the one the old script, still
+being deleted, holds that path under, and a reload then did not run (seen
+on Plasma 6.7: the script reloaded for a new minibar neither kept it above
+nor placed it, while the same file under a fresh name did).
 
 `keep_above::script` generates only the parts the state needs, and its unit
 tests check the text for each case: nothing pinned (no script), the pin, the
@@ -226,20 +235,29 @@ With the window exactly the pill, leaving the pill means leaving the
 window, and there WebKitGTK fires no `pointerleave` (nor `mouseleave` or
 `mouseout`) on Wayland: a bare WebKitGTK 4.1 test window got `pointerenter`,
 then GTK's `leave-notify` and nothing in the page. So the open pill stayed
-open. The bar's GTK window reports its `leave-notify` (except into a child
-widget) as `minibar-pointer-left` to the bar (`keep_above::report_pointer_leaving`),
-and `MinibarPill` ends the hover on it (`pointerLeftWindow`, counted by
-`MinibarPage`). Back over the pill WebKitGTK sends moves but no
-`pointerenter`, so on Linux a pointer move opens it again.
+open. Worse, after GTK's leave WebKitGTK sends the page a move at the
+pointer's last position inside, so a page that opened the pill on moves
+opened it again at once (seen in this round's QA: the page heard the leave
+and the pill stayed open).
+
+So on Linux the hover comes from GTK alone. The bar's GTK window reports
+`leave-notify` as `minibar-pointer-left` and `enter-notify` as
+`minibar-pointer-entered` (except crossings into a child widget,
+`keep_above::report_pointer_crossings`), `MinibarPage` keeps whether the
+pointer is over the window, and `MinibarPill` takes that as `pointerOver`
+and ignores the webview's pointer events. Elsewhere the webview's
+`pointerenter` and `pointerleave` count as before.
 
 A drag of the bar (KWin route) leaves the window too: the compositor takes
-the pointer for the move, and the open pill closed mid-drag, which changed
-the window's width under the pointer (seen with a virtual pointer: 476 px
-before, 172 px during the drag, 476 px after). On Linux `MinibarPill` now
-ignores leaves from the press that starts a drag until the pointer moves
-over the pill again after a leave (the drag is over), or until a
-`pointerup` reaches the page (the compositor moved nothing, as on a
-layer-shell bar).
+the pointer for the move. Read with a virtual pointer on Plasma 6.7, the
+crossings were: enter (Normal) on hover, leave (Virtual, Ungrab, BUTTON1
+held) as the move began, enter (Normal) when it ended, leave (Normal) on the
+way out. The old code closed the open pill mid-drag, which changed the
+window's width under the pointer (476 px before, 172 px during, 476 px
+after). `keep_above::is_pointer_leaving` now reports a leave only in mode
+Normal with no button held (X11's window-manager grab gives mode Grab), so
+the pill stays open through the drag and closes once the pointer leaves
+after it; its unit test covers those cases.
 
 The Linux release leg checks that the deb recommends `libgtk-layer-shell0`
 and that `protocol` does not link it.
@@ -263,9 +281,29 @@ KWin's own view of the windows read through a KWin script):
   showed the same: non-resizable with no size request, 200×200; resizable or
   with a size request, its size.
 
-Not checked: GNOME (the note in the pin's place and the window menu's Always
-on Top), wlroots compositors, and X11 sessions (no such session on this
-machine).
+Checked in this round on the same session (a "Protocol QA" build of this
+branch, KWin's view read through a KWin script, the pin and the recording
+driven through AT-SPI, the pointer through a virtual uinput tablet):
+
+- With the pin saved off, nothing was loaded in KWin at start
+  (`isScriptLoaded` false).
+- Pin on, then off: KWin's `keepAbove` on the main window went true, then
+  false (`releases 1 window(s)`); after the window was hidden for the
+  minibar and shown again, unpinning cleared it on the new window too
+  (`releases 2 window(s)`).
+- A Keep Above set as KWin's window menu sets it, with the pin off, stayed
+  on through pin on and pin off; the script was then unloaded.
+- The minibar on the KWin route through several reloads (pin, recording,
+  minimize): kept above, top centre, not in the task manager.
+- Dragging the open minibar kept it open (476 px) and moved it; leaving it
+  then closed it (172 px), and a hover and leave after that opened and
+  closed it again.
+- At quit the script was unloaded.
+
+Not checked: GNOME (the note in the pin's place, the minibar's notice and
+the window menu's Always on Top), wlroots compositors, X11 sessions (no such
+session on this machine), and KWin with scripting disabled (the toast is
+covered by `App.test.tsx`).
 
 ## Minimizing during a recording
 
@@ -283,7 +321,9 @@ losing focus or frame callbacks also happen for many other reasons.
 Checked on KDE Plasma 6.7.5, Wayland, with the "Protocol QA" build of the
 first round: during a recording KWin minimized the main window (KWin's own
 `minimized` true) and the minibar did not open; the log showed no
-compact-mode call.
+compact-mode call. With this round's build the same minimize opened the
+minibar at once, kept above and top centre, and after the recording stopped
+the script no longer watched the minimize.
 
 So on Plasma the KWin script reports it: while a recording runs
 (`keep_above::recording_changed`, called where `recording_commands.rs`
