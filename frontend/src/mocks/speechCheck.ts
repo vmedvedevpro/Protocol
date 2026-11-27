@@ -102,6 +102,7 @@ export function mockStep(kind: CheckStep['kind'], status: CheckStep['status'] = 
         inputs: facts.inputs,
         ranOn: status === 'notChecked' ? undefined : facts.device,
         loadMs: ran ? (kind === 'whisper' ? 2_840 : 610) : undefined,
+        firstUseMs: ran && kind === 'whisper' ? 1_230 : undefined,
         clips: !ran ? [] : CLIPS.map((clip, index) => {
             const failing = status === 'failed' && clip.clip === 'en'
             const realTimeFactor = facts.rtf[index]
@@ -131,6 +132,7 @@ function stepText(step: CheckStep): string[] {
     for (const [name, value] of step.inputs) lines.push(`    ${name}: ${value}`)
     if (step.ranOn) lines.push(`  Ran on: ${step.ranOn.name}`)
     if (step.loadMs !== undefined) lines.push(`  Load: ${seconds(step.loadMs)}`)
+    if (step.firstUseMs !== undefined) lines.push(`  First use: ${seconds(step.firstUseMs)}`)
     for (const clip of step.clips) {
         const scored = clip.wordErrorRate !== undefined ? `, word errors ${clip.wordErrorRate.toFixed(3)}` : ''
         const language = clip.language ? `, language ${clip.language}` : ''
@@ -156,7 +158,7 @@ const OUTCOME_WORDS: Record<CheckReport['outcome'], string> = {
 export function mockReport(steps: CheckStep[], outcome: CheckReport['outcome']): {report: CheckReport, text: string} {
     const created = '2026-11-26T10:00:00Z'
     const warnings = steps.filter((step) => step.status === 'failed' && step.reason).map((step) => `${TITLES[step.kind]}: ${step.reason}`)
-    const report: CheckReport = {format: 1, created, outcome, steps, warnings}
+    const report: CheckReport = {format: 2, created, outcome, steps, warnings}
     const text = [
         `Protocol speech check: ${OUTCOME_WORDS[outcome]}`,
         `Created ${created}`,
