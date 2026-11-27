@@ -36,6 +36,8 @@ macro_rules! perf_trace {
 pub mod agent_access;
 pub mod api;
 pub mod app_log;
+#[cfg(target_os = "linux")]
+mod appimage_library;
 pub mod audio;
 pub mod claude_desktop_extension;
 pub mod config;
@@ -370,6 +372,11 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(summary::summary_engine::ModelManagerState(Arc::new(tokio::sync::Mutex::new(None))))
         .setup(|_app| {
+            // Before anything opens the database or writes to the data root
+            // (#230). The single-instance plugin's setup has already sent a
+            // second copy away, so no Protocol has the old library open.
+            #[cfg(target_os = "linux")]
+            appimage_library::import_at_startup(_app.handle());
             if let Err(error) = crash_report::start_session() {
                 log::error!("Failed to initialize crash reporting: {error}");
             }

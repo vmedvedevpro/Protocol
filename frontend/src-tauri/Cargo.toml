@@ -264,6 +264,9 @@ tar = "0.4"
 # The sound server's devices and record streams over the PulseAudio protocol,
 # which PipeWire speaks too (audio/pulse/, #216). Pure Rust: no libpulse.
 pulseaudio = "0.3.2"
+# The user's id, so a library in the shared /tmp is imported only from this
+# user's own folders (appimage_library.rs). Already in the tree.
+libc = "0.2"
 
 [dev-dependencies]
 tempfile = "3.3.0"

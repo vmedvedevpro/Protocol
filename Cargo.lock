@@ -4661,6 +4661,7 @@ dependencies = [
  "gtk",
  "infer 0.15.0",
  "lazy_static",
+ "libc",
  "libloading 0.8.9",
  "log",
  "meeting-library",
