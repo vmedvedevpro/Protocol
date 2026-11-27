@@ -11,7 +11,9 @@ use super::sample::Clip;
 use super::score::{self, SpeakerScore, WordErrors};
 
 /// Bumped when a field changes meaning, so a tool comparing reports can tell.
-pub const FORMAT: u32 = 1;
+/// 2: Whisper's clips no longer include its first inference, which
+/// `firstUseMs` reports (#247).
+pub const FORMAT: u32 = 2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -201,6 +203,10 @@ pub struct StepReport {
     pub fallback: Option<Fallback>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub load_ms: Option<f64>,
+    /// Whisper: its untimed first piece before the clips, which carries the
+    /// GPU's one-time setup (pipelines compiled on the first inference).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub first_use_ms: Option<f64>,
     #[serde(default)]
     pub clips: Vec<ClipResult>,
     /// Parakeet: whether it keeps up with a meeting (`score::keeps_up`).
@@ -221,6 +227,7 @@ impl StepReport {
             ran_on: None,
             fallback: None,
             load_ms: None,
+            first_use_ms: None,
             clips: Vec::new(),
             keeps_up: None,
         }
@@ -416,8 +423,11 @@ impl Report {
 fn system_lines(out: &mut String, s: &System) {
     use std::fmt::Write;
     let _ = writeln!(out, "Protocol {} ({}), Whisper built for {}", s.protocol_version, s.package, s.whisper_build);
-    let os: String = [&s.distribution, &s.desktop, &s.session].into_iter().flatten().map(|part| format!(", {part}")).collect();
-    let _ = writeln!(out, "OS: {} {}{os}", s.os, s.os_version);
+    // Linux: the distribution's own name, which holds its version where it
+    // has one (Arch's has none); elsewhere the OS and its version.
+    let named = s.distribution.clone().unwrap_or_else(|| format!("{} {}", s.os, s.os_version).trim().to_string());
+    let desktop: String = [&s.desktop, &s.session].into_iter().flatten().map(|part| format!(", {part}")).collect();
+    let _ = writeln!(out, "OS: {named}{desktop}");
     let flag = |value: Option<bool>| match value {
         Some(true) => "yes",
         Some(false) => "no",
@@ -480,6 +490,9 @@ fn step_lines(out: &mut String, step: &StepReport) {
     }
     if let Some(load_ms) = step.load_ms {
         let _ = writeln!(out, "  Load: {}", seconds(load_ms));
+    }
+    if let Some(first_use_ms) = step.first_use_ms {
+        let _ = writeln!(out, "  First use: {}", seconds(first_use_ms));
     }
     for clip in &step.clips {
         let _ = write!(
@@ -719,6 +732,8 @@ mod tests {
         whisper.picked_because = Some("the Vulkan build found a GPU".into());
         whisper.ran_on = Some(Device::processor());
         whisper.fallback = Some(Fallback { from: Device::new(DeviceKind::Vulkan, "GPU"), to: Device::processor(), error: "vk error at /home/tyler/x".into() });
+        whisper.load_ms = Some(2840.0);
+        whisper.first_use_ms = Some(12_940.0);
         let mut parakeet = StepReport::new(StepKind::Parakeet, StepStatus::Passed);
         parakeet.clips.push(ClipResult {
             clip: "ru".into(),
@@ -752,6 +767,7 @@ mod tests {
         assert!(text.contains("Whisper (after the meeting): FAIL"));
         assert!(text.contains("Picked: GPU (Vulkan): Intel(R) Arc(TM) B390 GPU (the Vulkan build found a GPU)"));
         assert!(text.contains("Fallback: GPU to processor: vk error at ~/x"));
+        assert!(text.contains("  Load: 2.8 s\n  First use: 12.9 s\n"), "{text}");
         assert!(text.contains("Selected in Settings (differs): live parakeet:parakeet-tdt-0.6b-v3-int8, after the meeting whisper:small"));
         assert!(text.contains("ru: 2.1 s for 20.8 s (real-time factor 0.10), word errors 0.067 (2 sub, 0 del, 0 ins of 30), pass"));
         assert!(text.contains("Nemotron (speakers): NOT CHECKED"));
@@ -759,6 +775,20 @@ mod tests {
         let json = &text[text.find("JSON:\n").unwrap() + 6..];
         let parsed: Report = serde_json::from_str(json).unwrap();
         assert_eq!(parsed, report().scrubbed(&private()));
+    }
+
+    #[test]
+    fn the_os_line_names_the_distribution_once() {
+        let line = |system: System| {
+            let mut out = String::new();
+            system_lines(&mut out, &system);
+            out.lines().find(|line| line.starts_with("OS: ")).unwrap().to_string()
+        };
+        // Arch Linux: no VERSION_ID, so no version.
+        let arch = System { os: "linux".into(), distribution: Some("Arch Linux".into()), desktop: Some("KDE".into()), session: Some("wayland".into()), ..System::default() };
+        assert_eq!(line(arch), "OS: Arch Linux, KDE, wayland");
+        assert_eq!(line(System { os: "windows".into(), os_version: "10 (19045)".into(), ..System::default() }), "OS: windows 10 (19045)");
+        assert_eq!(line(System { os: "macos".into(), ..System::default() }), "OS: macos");
     }
 
     #[test]

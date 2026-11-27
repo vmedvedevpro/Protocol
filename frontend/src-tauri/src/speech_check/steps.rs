@@ -16,7 +16,7 @@ use std::time::Instant;
 
 use crate::audio::pipeline::{live_redemption_ms, LIVE_NEGATIVE_SPEECH_THRESHOLD, LIVE_POSITIVE_SPEECH_THRESHOLD};
 use crate::audio::post_meeting::{self, Pass, PieceOutcome};
-use crate::audio::vad::{DEFAULT_NEGATIVE_SPEECH_THRESHOLD, DEFAULT_POSITIVE_SPEECH_THRESHOLD};
+use crate::audio::vad::{SpeechSegment, DEFAULT_NEGATIVE_SPEECH_THRESHOLD, DEFAULT_POSITIVE_SPEECH_THRESHOLD};
 use crate::diarization::nemotron;
 use crate::parakeet_engine::chunking::{self, Live};
 use crate::parakeet_engine::{Encoder, ParakeetEngine};
@@ -133,7 +133,8 @@ fn parakeet_picked(model: &str) -> (Device, String, Vec<(String, String)>) {
     let inputs = std::iter::once(labs).chain(npu_inputs()).collect();
     let (device, because) = match crate::parakeet_engine::planned_encoder(model) {
         Encoder::Npu => (Device::new(DeviceKind::IntelNpu, "Intel NPU"), "the NPU is prepared for Parakeet v3"),
-        Encoder::DirectMl => (Device::new(DeviceKind::DirectMl, "GPU (DirectML adapter 0)"), "Parakeet on the GPU is on in Labs"),
+        // `parakeet_engine::model` opens DirectML's device 0.
+        Encoder::DirectMl => (Device::new(DeviceKind::DirectMl, super::hardware::directml_adapter(0)), "Parakeet on the GPU is on in Labs"),
         Encoder::Processor if cfg!(windows) => (Device::processor(), "the Intel NPU is not ready for this model, and Parakeet on the GPU is off"),
         Encoder::Processor => (Device::processor(), "Parakeet runs on the processor here"),
     };
@@ -364,11 +365,24 @@ fn whisper_record(models: &[crate::whisper_engine::whisper_engine::ModelInfo], m
     })
 }
 
+/// A second of speech for Whisper's first use: from the start of `clip`'s
+/// first turn, so the pass does not skip it as silent. Whisper pads every
+/// call to 30 s, so a second runs the same encoder graph as a whole piece.
+fn first_use_piece(clip: &Clip) -> Option<SpeechSegment> {
+    const SAMPLES: usize = 16_000;
+    let start_ms = clip.turns.first()?.start_ms;
+    let start = (start_ms * 16.0) as usize;
+    let samples = clip.samples.get(start..clip.samples.len().min(start + SAMPLES))?.to_vec();
+    let end_timestamp_ms = start_ms + samples.len() as f64 / 16.0;
+    Some(SpeechSegment { samples, start_timestamp_ms: start_ms, end_timestamp_ms, confidence: 1.0, capped: false })
+}
+
 /// Whisper as the post-meeting pass runs it (`post_meeting::Pass`: the batch
 /// VAD from pause to pause, the language detected once, the silence filter),
 /// but not through retranscription or the import: so
 /// `speech_choice::after_post_meeting_pass` never runs, and a successful
-/// Intel GPU pass here does not retire the Compressed copy.
+/// Intel GPU pass here does not retire the Compressed copy. A first, untimed
+/// piece ([`first_use_piece`]) takes the one-time GPU setup out of the clips.
 pub async fn whisper(model: &str, context: &Context<'_>) -> StepReport {
     let (picked, because, inputs) = whisper_picked(model).await;
     let mut step = speech_step(StepKind::Whisper, model, picked.clone(), because, inputs);
@@ -396,6 +410,24 @@ pub async fn whisper(model: &str, context: &Context<'_>) -> StepReport {
     step.ran_on = Some(ran_on);
 
     const TRACK: &str = "mixed audio";
+    // ggml compiles a GPU pipeline the first time a graph needs it, during
+    // the first inference and not at the load (`vulkan::first_run`): 11 to
+    // 14 s on testers' Vulkan GPUs (#247), which the first clip carried as
+    // if the GPU were slow. One untimed piece through the same pass first,
+    // so the clips measure steady speed; its time is reported as first use,
+    // so the setup stays in the report.
+    if context.is_cancelled() {
+        return step.stopped();
+    }
+    let Some(piece) = context.clips.first().and_then(first_use_piece) else {
+        return step.failed("The sample has no speech for Whisper's first use");
+    };
+    let started = Instant::now();
+    match Pass::new(None, Some(&engine), None, None).transcribe(&piece, TRACK).await {
+        Ok(PieceOutcome::Skipped(reason)) => return step.failed(format!("Whisper's first-use piece was skipped as {reason}")),
+        Ok(_) => step.first_use_ms = Some(ms(started)),
+        Err(error) => return step.failed(format!("Whisper failed on its first use: {error}")),
+    }
     for clip in context.clips {
         if context.is_cancelled() {
             return step.stopped();
@@ -494,7 +526,8 @@ pub async fn nemotron(context: &Context<'_>) -> StepReport {
     }
     let mut step = StepReport::new(StepKind::Nemotron, StepStatus::Failed);
     step.model = Some(ModelId { id: nemotron::NEMOTRON_MODEL_FILENAME.into(), version: Some(nemotron::NEMOTRON_SHA256[..12].into()) });
-    let directml = Device::new(DeviceKind::DirectMl, "GPU (DirectML adapter 0)");
+    // `sortformer::support` opens DirectML's device 0.
+    let directml = Device::new(DeviceKind::DirectMl, super::hardware::directml_adapter(0));
     let (picked, because) = match nemotron::planned_provider() {
         nemotron::Provider::DirectMl => (directml.clone(), "Nemotron asks DirectML first on Windows"),
         nemotron::Provider::Cpu => (Device::processor(), "Nemotron runs on ONNX Runtime's CPU provider outside Windows"),
@@ -553,6 +586,17 @@ mod tests {
         assert_eq!(kind(Backend::HipBlas), DeviceKind::Hip);
         assert_eq!(kind(Backend::Cpu), DeviceKind::Processor);
         assert_eq!(whisper_cpp_gpu(Backend::Cuda, "device 0").0.name, "GPU (CUDA): device 0");
+    }
+
+    #[test]
+    fn whisper_first_uses_a_second_of_speech_from_each_bundled_clip() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("resources/speech-check");
+        for clip in super::super::sample::load_from(&dir).unwrap() {
+            let piece = first_use_piece(&clip).unwrap();
+            assert_eq!(piece.samples.len(), 16_000, "{}", clip.id);
+            assert_eq!(piece.start_timestamp_ms, clip.turns[0].start_ms);
+            assert_eq!(post_meeting::skip_reason(&piece.samples), None, "{}", clip.id);
+        }
     }
 
     #[test]

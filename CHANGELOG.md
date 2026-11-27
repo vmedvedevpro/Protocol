@@ -7,6 +7,16 @@ is inherited from the project Protocol forked from; Protocol did not release it.
 
 ## Protocol — unreleased
 
+### Changed
+
+- **Speech check report**
+  ([#247](https://github.com/vmedvedevpro/Protocol/issues/247)). Whisper runs
+  once before its timed clips, and the report gives that run's time on a
+  line of its own, First use, so a GPU's one-time setup no longer reads as a
+  slow GPU. On Linux the report names each GPU from the system's PCI list and
+  the distribution once by its own name; on Windows it names the GPU that
+  DirectML runs on.
+
 ## Protocol 1.0.0-rc.3 — 2026-11-26
 
 A release candidate of Protocol 1.0, for trying it before the release: install

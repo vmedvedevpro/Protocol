@@ -1915,7 +1915,9 @@ Testers on hardware the developers lack run Settings › Advanced › Speech che
 Parakeet's live path, the pair's Whisper, Pyannote and Nemotron on engines of
 its own over a bundled FLEURS sample, each on the device the engines' own rules
 pick, and writes a scrubbed text and JSON report with each step's picked and
-actual device, fallback error, timings and scores. It holds
+actual device, fallback error, timings and scores. Whisper first runs one
+untimed piece, reported as its first use, so its clips leave out the GPU's
+one-time pipeline compile (#247). It holds
 `BusyReason::SpeechCheck`, keeps a crash note in `<data>/speech-check.json`,
 and a recording's start cancels it.
 

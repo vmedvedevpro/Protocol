@@ -79,7 +79,11 @@ engine (`uses_npu`, before and after the clips; `loaded_openvino`;
 they are compared by kind. When the kinds differ the step reports a fallback
 with the error the engine recorded. whisper.cpp's own fallback inside a
 Vulkan context is the exception (Limits). Pyannote and WeSpeaker always run
-on ONNX Runtime's CPU provider.
+on ONNX Runtime's CPU provider. A DirectML device (Parakeet from Labs,
+Nemotron) is named by DXGI's description of the adapter ONNX Runtime opens,
+adapter 0 (`hardware::directml_adapter`, `IDXGIFactory1::EnumAdapters1` as
+the DirectML provider numbers them): on a hybrid laptop that is usually the
+integrated GPU. When DXGI does not answer, the name carries its error.
 
 Parakeet runs the live path: the pieces the live VAD cuts with the
 pipeline's thresholds and redemption time, capped as the processor caps a
@@ -91,6 +95,24 @@ Whisper runs `post_meeting::Pass` directly, not retranscription or the
 import, so `speech_choice::after_post_meeting_pass` never runs: a successful
 Intel GPU pass in the check does not retire the Compressed copy. Its Vulkan
 steps go through the same guard as the app's (`vulkan::load`, `first_run`).
+
+Before the clips Whisper runs one untimed piece through the same pass
+(#247): a second from the start of the first clip's first turn
+(`first_use_piece`), speech, so the pass does not skip it, and padded to
+30 s by Whisper as every call is, so it runs the same encoder graph as a
+clip. ggml compiles a GPU pipeline the first time a graph needs it, during
+the first inference and not at the load (`vulkan.rs`, `load_in`). The first
+testers' reports showed it: on whisper.cpp's Vulkan backend the first clip
+took 11 to 14 s more than the second (Windows 10 with an RTX 3080, 15.0 s
+for the 22.6 s ru clip against 1.5 s for en; EndeavourOS with a GTX 1650,
+22.2 s against 11.3 s), while Parakeet, Pyannote and Nemotron took the same
+time on both clips. A second launch on the RTX 3080, once the NVIDIA driver
+had cached the compiled shaders, gave 3.1 s for ru. OpenVINO compiles at
+the load, which Load counts: on Intel GPUs the clips were even and the
+compile showed in Load (5.8 s on an Iris Xe). The report gives that piece's
+time as **First use** (`firstUseMs`), so the setup stays visible, and the
+clips measure steady speed. A first-use piece that fails fails the step
+with Whisper's error.
 
 Parakeet keeps up with a meeting when its real-time factor over both clips is
 at most 0.5 (`MAX_LIVE_REAL_TIME_FACTOR`): a recording decodes two sources on
@@ -146,13 +168,20 @@ without NFKC). Pass thresholds flag broken output, not quality:
 
 ## The report
 
-Plain text, then the same data as JSON (`report::FORMAT` 1): Protocol's
+Plain text, then the same data as JSON (`report::FORMAT` 2; 2 since
+Whisper's clips leave out its first use, #247): Protocol's
 version and package (deb, rpm, AppImage, NSIS, macOS app, development build)
-and how Whisper is built; the OS and version, on Linux the distribution,
-`XDG_CURRENT_DESKTOP` and `XDG_SESSION_TYPE`; the processor with AVX2 and
-AVX-512, threads, RAM; each GPU (Linux: PCI vendor and device, address,
-kernel driver and the module's version where it states one, NVIDIA's;
-Windows: the display class's name, vendor and `DriverVersion` of each
+and how Whisper is built; the OS: on Linux the distribution's `PRETTY_NAME`
+from os-release (`/etc/os-release`, else `/usr/lib/os-release`), which holds
+its version where it has one (Arch's and EndeavourOS's have no
+`VERSION_ID`), with `XDG_CURRENT_DESKTOP` and `XDG_SESSION_TYPE`; elsewhere
+the OS and its version; the processor with AVX2 and
+AVX-512, threads, RAM; each GPU (Linux: the device's name from the system's
+`pci.ids` (`/usr/share/hwdata/pci.ids`, else `/usr/share/misc/pci.ids`)
+before its PCI vendor and device ids and address, the bare ids when the file
+does not list it, the vendor's name from the file for a vendor Protocol does
+not name itself, kernel driver and the module's version where it states one,
+NVIDIA's; Windows: the display class's name, vendor and `DriverVersion` of each
 present adapter); the GPUs ggml's registry lists, by name and description
 (`ggml_backend_dev_*`; the registry does not name the Vulkan driver, and
 Mesa's version is not readable without a Vulkan or OpenGL context of the
@@ -160,7 +189,8 @@ check's own); Intel's OpenCL driver
 (Linux); the NPU and its state (Windows); ONNX Runtime's version and
 providers. Then the pair and the selected models (the report says when they
 differ; the check still runs the pair), and per step: the model and its catalog commit, picked device with the inputs,
-ran-on device, fallback with its exact error, load time, each clip's time,
+ran-on device, fallback with its exact error, load time, Whisper's first
+use, each clip's time,
 real-time factor, text, language, word errors or speaker score, pass or fail.
 Which platform paths were never run before is development history, kept in
 Limits below, not in a tester's report. Warnings: fallbacks, failures, a selection that differs. The
@@ -211,20 +241,25 @@ takes the engine lifecycle lock: the check stops at the next piece, reports
 the rest cancelled ("A recording started"), and gives nothing back to the
 recording's engines. The start waits up to five seconds (`RECORDING_WAIT`)
 for the step in flight to drop its engines: the longest unit a step does
-not interrupt is one clip through a speaker engine, about 2 s here; after
-that the recording goes on beside the check's engines. A quit during a
+not interrupt is one clip through a speaker engine, about 2 s here, or one
+Whisper piece, whose first use took 11 to 14 s on testers' Vulkan GPUs;
+after that the recording goes on beside the check's engines. A quit during a
 check asks first ("the speech check is running"), as for other work.
 
 ## Tests
 
 - Native (`cargo test -p protocol --lib speech_check`): `score::tests` (word
   errors, broken output, the speaker share with a split voice, one speaker,
-  late boundaries, pauses inside a turn, too little labelled, keeping up), `report::tests` (text and JSON round trip,
+  late boundaries, pauses inside a turn, too little labelled, keeping up), `report::tests` (text and JSON round trip with
+  Whisper's first use, the OS line with and without a distribution,
   scrubbing of home, Windows profiles, 8.3 names, the user and computer
   names and every free text, a login named like a step, the outcome with
   nothing checked, the selection note), `note::tests` (a step that closed the app, a clean quit, an
   unreadable note, a second crash in a resumed run), `sample::tests` (the
-  bundled sample decodes to its turns), `steps::tests`, `mod.rs` tests (an
+  bundled sample decodes to its turns), `steps::tests` (Whisper's
+  first-use piece of each bundled clip is a second of speech the pass does
+  not skip), `hardware::tests` (a GPU named from `pci.ids` and an unlisted
+  one, `PRETTY_NAME` with and without a version), `mod.rs` tests (an
   interrupted run, a recording's cancel and its bounded wait, a recording
   that started after Run, a cancel after the finish or before the next step,
   a start that resets the flags and shows Running, a step that panics, a
@@ -236,7 +271,8 @@ check asks first ("the speech check is running"), as for other work.
   prints the whole report (`--ignored --nocapture`; `SPEECH_CHECK_WHISPER`
   picks the Whisper model).
 - Frontend: `SpeechCheckGroup.test.tsx` (idle and off during a recording, the
-  list with downloads, a run with a declined model and the report, Save,
+  list with downloads, a run with a declined model and the report with
+  Whisper's first use, Save,
   running and Cancel, a failure with its reason, resumed after a crash, device
   words, Start only once the inputs of the choice have loaded, nothing
   checked in a live region). Stories: `Settings/Speech check`.
@@ -266,8 +302,9 @@ in a meeting.
 
 ## Limits
 
-- Windows (DirectML, the Intel NPU, the registry's GPUs) and macOS (Metal)
-  were reached only by compiling, on the release dry run. On Linux only an Intel Arc iGPU was run, so Vulkan on
+- Windows (DirectML, the Intel NPU, the registry's GPUs, the DirectML
+  adapter's DXGI name) and macOS (Metal) were reached only by compiling, on
+  the release dry run. On Linux only an Intel Arc iGPU was run, so Vulkan on
   another vendor's GPU is untested too.
 - The live step runs the live VAD's settings over the whole clip at once,
   not the live pipeline's frames, queue and per-source workers.

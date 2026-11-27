@@ -59,6 +59,8 @@ export interface CheckStep {
     ranOn?: CheckDevice
     fallback?: {from: CheckDevice, to: CheckDevice, error: string}
     loadMs?: number
+    /** Whisper: its untimed first piece, which carries the GPU's one-time setup; the clips measure steady speed. */
+    firstUseMs?: number
     clips: CheckClip[]
     keepsUp?: boolean
 }

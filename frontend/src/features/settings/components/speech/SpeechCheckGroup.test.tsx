@@ -88,7 +88,10 @@ describe('Settings › Advanced › Speech check', () => {
         // The report waits behind Show report; Copy and Save do not.
         expect(within(check).queryByLabelText('Speech check report')).not.toBeInTheDocument()
         await userEvent.click(within(check).getByRole('button', {name: 'Show report'}))
-        expect(await within(check).findByLabelText('Speech check report')).toHaveTextContent('Protocol speech check: passed')
+        const report = await within(check).findByLabelText('Speech check report')
+        expect(report).toHaveTextContent('Protocol speech check: passed')
+        // Whisper's first use, apart from its clips' times.
+        expect(report).toHaveTextContent('Load: 2.8 s First use: 1.2 s ru:')
         expect(within(check).getByRole('button', {name: 'Hide report'})).toHaveAttribute('aria-expanded', 'true')
     })
 

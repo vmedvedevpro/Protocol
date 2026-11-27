@@ -199,6 +199,8 @@ windows = { version = "0.54.0", features = [
     "implement",
     "Win32_Devices_Properties",
     "Win32_Foundation",
+    # The Speech check names the DirectML adapter by its DXGI description (#247).
+    "Win32_Graphics_Dxgi",
     "Win32_Media_Audio",
     "Win32_Media_Audio_Endpoints",
     "Win32_System_Com",
