@@ -1694,6 +1694,36 @@ identifier a first run would copy an installed upstream build's models and
 database. Internal names stay upstream-compatible to keep merges cheap:
 `MEETILY_*` environment variables and localStorage/event keys.
 
+#### The data root (#230)
+
+`paths::install_data_root()` is resolved once, before the logger starts, by
+`choose_root` in `paths.rs`; the log's first line names the root and why
+(`data_root_origin`, [APP_LOG.md](APP_LOG.md)):
+
+| Build | Data root |
+| --- | --- |
+| macOS | `~/Library/Application Support/vmedvedevpro/Protocol` |
+| Windows installer | `<install folder>\data` when writable, else `%APPDATA%\vmedvedevpro\Protocol` |
+| Linux AppImage, FUSE or extract-and-run | `$XDG_DATA_HOME/vmedvedevpro/Protocol` (`~/.local/share/…`) |
+| Linux deb | the same XDG folder, since `/usr/bin/data` is not writable |
+| Development build | `target/<profile>/data`, beside the executable |
+
+Linux ships no portable build. The `data` folder beside the executable stays
+on Linux for development builds only: a branch's database, with migrations
+that were never released, must not reach the installed app's library, which
+would then refuse to open it. An AppImage never uses it: an executable inside
+the AppImage runtime's `APPDIR` always gets the XDG folder, since with
+`APPIMAGE_EXTRACT_AND_RUN=1` it runs from a writable
+`/tmp/appimage_extracted_<hash>/usr/bin`, which a reboot may clear and the
+next AppImage replaces. An `APPDIR` that names another folder is ignored, as
+child processes of an AppImage app inherit it.
+
+Until 1.0.0 such a run kept its library in `…/usr/bin/data`. Protocol does
+not move it: only testers ran those AppImages. Tests:
+`root_choice_tests` in `paths.rs` and the
+release leg's AppImage start check, which runs extract-and-run with its own
+`XDG_DATA_HOME` and requires the log to name that data root.
+
 The in-app updater (#31) replaces upstream's removed one (`app_update.rs`, the
 update dialog, the onboarding consent step; the CUDA launch notice that lived
 there is `components/CudaReconfigurationNotice.tsx`). It works like Orca's:

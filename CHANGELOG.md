@@ -17,6 +17,15 @@ is inherited from the project Protocol forked from; Protocol did not release it.
   the distribution once by its own name; on Windows it names the GPU that
   DirectML runs on.
 
+### Fixed
+
+- **AppImage meetings in a temporary folder**
+  ([#230](https://github.com/vmedvedevpro/Protocol/issues/230)). An AppImage
+  started without FUSE (`APPIMAGE_EXTRACT_AND_RUN=1`) kept its meetings and
+  models in `/tmp`, which a restart may clear and an update left behind. Every
+  AppImage now keeps them in `~/.local/share/vmedvedevpro/Protocol`, as the
+  deb does.
+
 ## Protocol 1.0.0-rc.3 — 2026-11-26
 
 A release candidate of Protocol 1.0, for trying it before the release: install

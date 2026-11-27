@@ -1,14 +1,24 @@
 //! Platform-safe local path resolution.
 //!
-//! Windows and Linux prefer a self-contained `data` directory beside the
-//! executable. macOS always uses
-//! `~/Library/Application Support/vmedvedevpro/Protocol` because its executable
-//! lives inside the signed app bundle; writing runtime data there invalidates the
-//! bundle signature.
+//! Windows prefers a self-contained `data` directory beside the executable.
+//! macOS always uses `~/Library/Application Support/vmedvedevpro/Protocol`
+//! because its executable lives inside the signed app bundle; writing runtime
+//! data there invalidates the bundle signature.
 //!
-//! On portable platforms, everything is placed under `<exe_dir>/data`. If that
-//! directory is not writable (for example, under `C:\Program Files`), storage
-//! transparently falls back to the OS data directory.
+//! On Windows and Linux, data goes under `<exe_dir>/data` when that folder is
+//! writable. If it is not (`C:\Program Files`, the deb's `/usr/bin`, a FUSE
+//! mounted AppImage), storage falls back to the OS data directory.
+//!
+//! Linux ships no portable build: the deb and the AppImage both keep data in
+//! the XDG data folder. The `data` folder beside the executable stays on Linux
+//! for development builds, which run from a writable `target/` folder: there it
+//! keeps a branch's database, with migrations that were never released, out of
+//! the installed app's library, which would then refuse to open it. An
+//! AppImage never uses it, even when its executable folder is writable: with
+//! `APPIMAGE_EXTRACT_AND_RUN=1` (no FUSE) the executable runs from a
+//! `/tmp/appimage_extracted_<hash>` folder that a reboot may clear and that
+//! the next AppImage version replaces (#230). A library such a run left
+//! there is not moved: only testers ran those AppImages.
 
 use std::path::PathBuf;
 use std::sync::OnceLock;
@@ -49,21 +59,62 @@ fn resolved_root() -> &'static (PathBuf, String) {
 
         #[cfg(not(target_os = "macos"))]
         {
-            // Preferred: next to the executable, under `data/`.
-            let mut origin = "the OS data folder".to_string();
-            if let Some(exe_dir) = std::env::current_exe()
-                .ok()
-                .and_then(|p| p.parent().map(|d| d.to_path_buf()))
-            {
-                let candidate = exe_dir.join(DATA_SUBDIR);
-                if ensure_writable(&candidate) {
-                    return (candidate, "portable, beside the executable".to_string());
-                }
-                origin = format!("the OS data folder, since {} is not writable", candidate.display());
+            let exe = std::env::current_exe().ok();
+            // The AppImage runtime sets APPDIR in both FUSE and extract-and-run
+            // mode. Only Linux has AppImages; elsewhere the variable means
+            // nothing to Protocol.
+            #[cfg(target_os = "linux")]
+            let appdir = std::env::var_os("APPDIR")
+                .filter(|value| !value.is_empty())
+                .map(PathBuf::from);
+            #[cfg(not(target_os = "linux"))]
+            let appdir: Option<PathBuf> = None;
+            match choose_root(exe.as_deref(), appdir.as_deref(), ensure_writable) {
+                RootChoice::Portable(dir) => (dir, "portable, beside the executable".to_string()),
+                RootChoice::Os(origin) => (os_data_root(), origin),
             }
-            (os_data_root(), origin)
         }
     })
+}
+
+#[cfg(not(target_os = "macos"))]
+#[derive(Debug, PartialEq)]
+enum RootChoice {
+    /// `<exe_dir>/data`, which `writable` has created.
+    Portable(PathBuf),
+    /// The OS data folder, with the reason the log's first line gives.
+    Os(String),
+}
+
+/// Where the data root goes for the executable `exe`, given the AppImage
+/// runtime's `APPDIR`. `writable` creates and probes the portable folder.
+#[cfg(not(target_os = "macos"))]
+fn choose_root(
+    exe: Option<&std::path::Path>,
+    appdir: Option<&std::path::Path>,
+    writable: impl Fn(&std::path::Path) -> bool,
+) -> RootChoice {
+    let Some(exe_dir) = exe.and_then(|exe| exe.parent()) else {
+        return RootChoice::Os("the OS data folder".to_string());
+    };
+    if appdir.is_some_and(|appdir| inside(exe_dir, appdir)) {
+        return RootChoice::Os("the OS data folder, since Protocol runs from an AppImage".to_string());
+    }
+    let candidate = exe_dir.join(DATA_SUBDIR);
+    if writable(&candidate) {
+        return RootChoice::Portable(candidate);
+    }
+    RootChoice::Os(format!("the OS data folder, since {} is not writable", candidate.display()))
+}
+
+/// Whether `path` lies inside `dir`. An AppImage's child processes inherit
+/// APPDIR, so a variable that names some other folder, as in a development
+/// build started from a terminal an AppImage app opened, does not make this
+/// executable an AppImage's.
+#[cfg(not(target_os = "macos"))]
+fn inside(path: &std::path::Path, dir: &std::path::Path) -> bool {
+    let canonical = |p: &std::path::Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+    canonical(path).starts_with(canonical(dir))
 }
 
 fn os_data_root() -> PathBuf {
@@ -238,7 +289,7 @@ fn remove_retired_dir(dir: &std::path::Path) {
 
 /// Ensure `dir` exists and is writable by probing an actual file write.
 #[cfg(not(target_os = "macos"))]
-fn ensure_writable(dir: &PathBuf) -> bool {
+fn ensure_writable(dir: &std::path::Path) -> bool {
     if std::fs::create_dir_all(dir).is_err() {
         return false;
     }
@@ -274,5 +325,59 @@ mod retired_dir_tests {
         let root = tempfile::tempdir().unwrap();
         remove_retired_dir(&root.path().join("claude-cli"));
         assert!(root.path().exists());
+    }
+}
+
+#[cfg(all(test, not(target_os = "macos")))]
+mod root_choice_tests {
+    use super::{choose_root, RootChoice};
+
+    #[test]
+    fn an_appimage_uses_the_os_data_folder_even_when_its_folder_is_writable() {
+        // Extract-and-run: the executable sits in a writable temporary folder.
+        let appdir = tempfile::tempdir().unwrap();
+        let exe = appdir.path().join("usr").join("bin").join("protocol");
+        std::fs::create_dir_all(exe.parent().unwrap()).unwrap();
+
+        let choice = choose_root(Some(&exe), Some(appdir.path()), |_| true);
+
+        assert_eq!(
+            choice,
+            RootChoice::Os("the OS data folder, since Protocol runs from an AppImage".to_string())
+        );
+    }
+
+    #[test]
+    fn an_inherited_appdir_elsewhere_keeps_the_portable_folder() {
+        let appdir = tempfile::tempdir().unwrap();
+        let build = tempfile::tempdir().unwrap();
+        let exe = build.path().join("protocol");
+
+        let choice = choose_root(Some(&exe), Some(appdir.path()), |_| true);
+
+        assert_eq!(choice, RootChoice::Portable(build.path().join("data")));
+    }
+
+    #[test]
+    fn a_writable_folder_outside_an_appimage_is_portable() {
+        let build = tempfile::tempdir().unwrap();
+        let exe = build.path().join("protocol");
+
+        assert_eq!(
+            choose_root(Some(&exe), None, |_| true),
+            RootChoice::Portable(build.path().join("data"))
+        );
+    }
+
+    #[test]
+    fn a_read_only_install_folder_uses_the_os_data_folder() {
+        // The deb's /usr/bin, Windows' Program Files.
+        let exe = std::path::Path::new("/usr/bin/protocol");
+
+        let expected = format!(
+            "the OS data folder, since {} is not writable",
+            exe.parent().unwrap().join("data").display()
+        );
+        assert_eq!(choose_root(Some(exe), None, |_| false), RootChoice::Os(expected));
     }
 }
