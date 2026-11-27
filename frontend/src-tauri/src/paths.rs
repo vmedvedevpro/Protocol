@@ -17,8 +17,8 @@
 //! AppImage never uses it, even when its executable folder is writable: with
 //! `APPIMAGE_EXTRACT_AND_RUN=1` (no FUSE) the executable runs from a
 //! `/tmp/appimage_extracted_<hash>` folder that a reboot may clear and that
-//! the next AppImage version replaces (#230). `appimage_library.rs` moves a
-//! library such a run left there.
+//! the next AppImage version replaces (#230). A library such a run left
+//! there is not moved: only testers ran those AppImages.
 
 use std::path::PathBuf;
 use std::sync::OnceLock;
@@ -32,8 +32,8 @@ const DATA_SUBDIR: &str = "data";
 const FALLBACK_PUBLISHER: &str = "vmedvedevpro";
 const FALLBACK_APP_NAME: &str = "Protocol";
 
-/// The data root, how it was chosen, and whether it is the portable folder.
-static ROOT: OnceLock<(PathBuf, String, bool)> = OnceLock::new();
+/// The data root and how it was chosen.
+static ROOT: OnceLock<(PathBuf, String)> = OnceLock::new();
 
 /// Returns the app-managed data root, creating it if needed. Resolved once and
 /// cached for the lifetime of the process.
@@ -50,17 +50,11 @@ pub fn data_root_origin() -> &'static str {
     &resolved_root().1
 }
 
-/// Whether the data root is the `data` folder beside the executable rather
-/// than the OS data folder.
-pub fn data_root_is_portable() -> bool {
-    resolved_root().2
-}
-
-fn resolved_root() -> &'static (PathBuf, String, bool) {
+fn resolved_root() -> &'static (PathBuf, String) {
     ROOT.get_or_init(|| {
         #[cfg(target_os = "macos")]
         {
-            (os_data_root(), "the macOS data folder".to_string(), false)
+            (os_data_root(), "the macOS data folder".to_string())
         }
 
         #[cfg(not(target_os = "macos"))]
@@ -76,8 +70,8 @@ fn resolved_root() -> &'static (PathBuf, String, bool) {
             #[cfg(not(target_os = "linux"))]
             let appdir: Option<PathBuf> = None;
             match choose_root(exe.as_deref(), appdir.as_deref(), ensure_writable) {
-                RootChoice::Portable(dir) => (dir, "portable, beside the executable".to_string(), true),
-                RootChoice::Os(origin) => (os_data_root(), origin, false),
+                RootChoice::Portable(dir) => (dir, "portable, beside the executable".to_string()),
+                RootChoice::Os(origin) => (os_data_root(), origin),
             }
         }
     })

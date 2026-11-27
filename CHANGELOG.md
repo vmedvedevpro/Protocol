@@ -24,9 +24,7 @@ is inherited from the project Protocol forked from; Protocol did not release it.
   started without FUSE (`APPIMAGE_EXTRACT_AND_RUN=1`) kept its meetings and
   models in `/tmp`, which a restart may clear and an update left behind. Every
   AppImage now keeps them in `~/.local/share/vmedvedevpro/Protocol`, as the
-  deb does. At the first start, Protocol moves the meetings and recordings
-  such a run left there; models download again. If it cannot, it says where
-  they are.
+  deb does.
 
 ## Protocol 1.0.0-rc.3 — 2026-11-26
 

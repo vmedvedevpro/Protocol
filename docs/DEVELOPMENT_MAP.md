@@ -1718,27 +1718,9 @@ the AppImage runtime's `APPDIR` always gets the XDG folder, since with
 next AppImage replaces. An `APPDIR` that names another folder is ignored, as
 child processes of an AppImage app inherit it.
 
-Until 1.0.0 such a run kept its library in `…/usr/bin/data`.
-`appimage_library::import_at_startup`, first in Tauri's setup (after the
-single-instance plugin has sent a second copy away, before anything opens the
-database), moves it once:
-
-- only when the XDG folder has no `meeting_minutes.sqlite` and exactly one
-  `appimage_extracted_*/usr/bin/data` in `/tmp` or `$TMPDIR` holds one, with
-  every folder on the way a real folder (no link) of the current user;
-- the database through `VACUUM INTO`, which reads through a WAL a crash left,
-  then checked with `integrity_check` and per-table row counts; the other
-  items (recordings saved to the root, voice profiles, templates, settings
-  files) copied, synced and compared byte for byte; models, runtimes, caches,
-  logs and crash records stay behind, and models and runtimes download again;
-- into `<root>/.appimage-import`, renamed into place with the database last,
-  and only then is the old `data` folder deleted.
-
-A name already taken in the XDG folder, a link, another user's file or a
-failed check keeps the old folder as it was and empties the staging folder;
-the log says why and a dialog tells the user where the meetings are. Several
-candidate folders move none and the dialog lists them. Tests:
-`root_choice_tests` in `paths.rs`, the tests in `appimage_library.rs`, and the
+Until 1.0.0 such a run kept its library in `…/usr/bin/data`. Protocol does
+not move it: only testers ran those AppImages. Tests:
+`root_choice_tests` in `paths.rs` and the
 release leg's AppImage start check, which runs extract-and-run with its own
 `XDG_DATA_HOME` and requires the log to name that data root.
 
