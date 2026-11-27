@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -7,7 +8,7 @@ import { feedProblems, loneSurrogatePaths, publishedPlatforms } from '../check-p
 import { UPDATER_PAYLOADS, formatSha256Sums, latestJson, requiredAssets } from '../release-lib.mjs';
 import { renderNotes } from '../render-notes.mjs';
 import { SUMS_FILE, checkSums, writeSums } from '../write-sha256sums.mjs';
-import { withTempDir } from './helpers.mjs';
+import { repoRoot, withTempDir } from './helpers.mjs';
 
 // A SHA256SUMS.txt over every asset of `platforms` but itself.
 function sumsOf(version, platforms) {
@@ -94,6 +95,30 @@ test('a draft must hold exactly the local files, uploaded with matching digests'
     'a.exe: digest sha256:00 differs',
   ]);
   assert.deepEqual(releaseProblems({ draft: true, assets: [] }, local), ['release: a.exe is missing']);
+});
+
+// The v1.0.0-rc.2 draft lost its tag to a placeholder (#231).
+test('a release must keep its tag', () => {
+  const local = { 'a.exe': { size: 3, sha256: 'f'.repeat(64) } };
+  const asset = { name: 'a.exe', state: 'uploaded', size: 3, digest: `sha256:${'f'.repeat(64)}` };
+  const placeholder = { tag_name: 'untagged-38ca44aeba8f67a5b7a9', draft: true, assets: [asset] };
+  assert.deepEqual(releaseProblems({ ...placeholder, tag_name: 'v1.0.0' }, local, { tag: 'v1.0.0' }), []);
+  assert.deepEqual(releaseProblems(placeholder, local, { tag: 'v1.0.0' }), ['the release has the tag untagged-38ca44aeba8f67a5b7a9, not v1.0.0']);
+  assert.deepEqual(releaseProblems({ ...placeholder, draft: false }, local, { draft: false, tag: 'v1.0.0' }), ['the release has the tag untagged-38ca44aeba8f67a5b7a9, not v1.0.0']);
+});
+
+test('the release check needs the tag whenever it reads a release', async () => {
+  await withTempDir(async (dir) => {
+    const release = join(dir, 'release.json');
+    writeFileSync(release, JSON.stringify({ tag_name: 'v0.3.0', draft: true, assets: [] }));
+    const run = (...extra) => spawnSync('node', [join(repoRoot, 'scripts/release/check-release-assets.mjs'), '--version', '0.3.0', '--dir', dir, '--stage', 'legs', '--platforms', 'macos', ...extra], { encoding: 'utf8' });
+    const untagged = run('--release', release);
+    assert.equal(untagged.status, 2, untagged.stderr);
+    assert.match(untagged.stderr, /--release <file> --tag <tag>/);
+    const wrong = run('--release', release, '--tag', 'v0.3.1');
+    assert.equal(wrong.status, 1);
+    assert.match(wrong.stderr, /the release has the tag v0\.3\.0, not v0\.3\.1/);
+  });
 });
 
 test('a joined platform checks the whole release, draft or published, and its own uploads', () => {

@@ -2,8 +2,8 @@
 // Asserts that a release's files are complete before and after the upload.
 //
 //   node scripts/release/check-release-assets.mjs --version 0.3.0 --dir dist [--platforms windows,linux] [--stage legs|signed]
-//   node scripts/release/check-release-assets.mjs --version 0.3.0 --dir dist [--platforms windows,linux] --release <file>
-//   node scripts/release/check-release-assets.mjs --version 0.3.0 --dir joined --stage joined --platforms macos --release <file>
+//   node scripts/release/check-release-assets.mjs --version 0.3.0 --dir dist [--platforms windows,linux] --release <file> --tag v0.3.0
+//   node scripts/release/check-release-assets.mjs --version 0.3.0 --dir joined --stage joined --platforms macos --release <file> --tag v0.3.0
 //
 // --platforms:    the platforms dist covers (default all three).
 // --stage legs:   dist holds exactly the platform assets the build legs make.
@@ -16,6 +16,8 @@
 //                 Joined: the release, draft or published, has every asset of
 //                 all three platforms, and the uploaded ones equal the local
 //                 files. Files are compared by name, size and SHA-256 digest.
+// --tag:          required with --release: the tag_name the release must have
+//                 (a draft can lose it to an untagged-… placeholder, #231).
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -37,11 +39,13 @@ export function setProblems(actual, expected, where) {
 }
 
 // Problems with an uploaded release; `local` maps name to { size, sha256 }.
-// The release must hold exactly `expected` (by default the local files) and,
-// unless `draft` is false, still be a draft. An asset without a digest (GitHub
-// computes it after the upload) is checked by size only.
-export function releaseProblems(release, local, { draft = true, expected = Object.keys(local).sort() } = {}) {
+// The release must hold exactly `expected` (by default the local files), have
+// the tag_name `tag` when one is given and, unless `draft` is false, still be
+// a draft. An asset without a digest (GitHub computes it after the upload) is
+// checked by size only.
+export function releaseProblems(release, local, { draft = true, expected = Object.keys(local).sort(), tag } = {}) {
   const problems = [];
+  if (tag !== undefined && release.tag_name !== tag) problems.push(`the release has the tag ${release.tag_name}, not ${tag}`);
   if (draft && !release.draft) problems.push('the release is no longer a draft');
   const assets = release.assets ?? [];
   problems.push(...setProblems(assets.map((asset) => asset.name).sort(), expected, 'release'));
@@ -63,8 +67,8 @@ async function main() {
   };
   const version = option('version');
   const dir = option('dir');
-  if (!version || !dir) {
-    console.error('usage: check-release-assets.mjs --version <v> --dir <dir> [--platforms <list>] [--stage legs|signed|joined] [--release <file>]');
+  if (!version || !dir || (option('release') && !option('tag'))) {
+    console.error('usage: check-release-assets.mjs --version <v> --dir <dir> [--platforms <list>] [--stage legs|signed|joined] [--release <file> --tag <tag>]');
     process.exit(2);
   }
   const stage = option('stage') ?? 'signed';
@@ -77,7 +81,7 @@ async function main() {
     const release = JSON.parse(readFileSync(option('release'), 'utf8'));
     // A joined platform completes the release, whatever it was drafted with.
     const joined = stage === 'joined' ? { draft: false, expected: requiredAssets(version) } : {};
-    problems.push(...releaseProblems(release, local, joined));
+    problems.push(...releaseProblems(release, local, { ...joined, tag: option('tag') }));
     for (const asset of release.assets ?? []) {
       if (!asset.digest) console.log(`warning: GitHub reports no digest for ${asset.name} yet; checked by size`);
     }
