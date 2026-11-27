@@ -164,7 +164,7 @@ export function mockReport(steps: CheckStep[], outcome: CheckReport['outcome']):
         `Created ${created}`,
         '',
         'Protocol 1.0.0-rc.2 (deb), Whisper built for Vulkan',
-        'OS: linux 26.10, Kubuntu 26.10, KDE, wayland',
+        'OS: Ubuntu 26.10, KDE, wayland',
         'Processor: Intel(R) Core(TM) Ultra X7 358H (16 threads, AVX2 yes, AVX-512 no), RAM 30.9 GB',
         'GPU: PCI 8086:b080 at 0000:00:02.0 (Intel), driver xe',
         'Vulkan devices (ggml): Vulkan0: Intel(R) Arc(TM) B390 GPU',

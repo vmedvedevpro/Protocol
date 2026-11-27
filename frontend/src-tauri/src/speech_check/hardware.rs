@@ -28,7 +28,7 @@ pub fn system() -> System {
         whisper_build: crate::whisper_engine::acceleration::WhisperCompiledBackend::current().as_str().to_string(),
         os: std::env::consts::OS.to_string(),
         os_version: sysinfo::System::os_version().unwrap_or_default(),
-        distribution: if linux { sysinfo::System::long_os_version() } else { None },
+        distribution: distribution(),
         desktop: if linux { environment("XDG_CURRENT_DESKTOP") } else { None },
         session: if linux { environment("XDG_SESSION_TYPE") } else { None },
         processor,
@@ -42,6 +42,58 @@ pub fn system() -> System {
         npu: npu(),
         onnx_runtime,
         onnx_providers,
+    }
+}
+
+/// Linux: the distribution's `PRETTY_NAME` from os-release ("Arch Linux",
+/// "Kubuntu 26.10"), which already holds its version where it has one:
+/// Arch's and EndeavourOS's os-release have no `VERSION_ID`.
+#[cfg(target_os = "linux")]
+fn distribution() -> Option<String> {
+    // os-release(5): /etc first, then the vendor's copy.
+    ["/etc/os-release", "/usr/lib/os-release"].into_iter().find_map(|path| std::fs::read_to_string(path).ok()).and_then(|text| pretty_name(&text))
+}
+
+#[cfg(not(target_os = "linux"))]
+fn distribution() -> Option<String> {
+    None
+}
+
+/// `PRETTY_NAME` of an os-release text, its quotes taken off.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn pretty_name(os_release: &str) -> Option<String> {
+    let value = os_release.lines().find_map(|line| line.trim().strip_prefix("PRETTY_NAME="))?.trim();
+    let name = ['"', '\''].into_iter().find_map(|quote| value.strip_prefix(quote).and_then(|rest| rest.strip_suffix(quote))).unwrap_or(value).trim();
+    (!name.is_empty()).then(|| name.to_string())
+}
+
+/// The DirectML adapter `index` by its DXGI description ("GPU (DirectML
+/// adapter 0): NVIDIA GeForce RTX 3080"): ONNX Runtime's DirectML provider
+/// opens `device_id` as `IDXGIFactory::EnumAdapters1` numbers the adapters,
+/// and on a hybrid laptop adapter 0 is usually the integrated GPU. When DXGI
+/// does not answer, the name says so with its error.
+pub fn directml_adapter(index: u32) -> String {
+    #[cfg(windows)]
+    return match dxgi_description(index) {
+        Ok(description) => format!("GPU (DirectML adapter {index}): {description}"),
+        Err(error) => format!("GPU (DirectML adapter {index}, not named: {error})"),
+    };
+    #[cfg(not(windows))]
+    format!("GPU (DirectML adapter {index})")
+}
+
+#[cfg(windows)]
+fn dxgi_description(index: u32) -> windows::core::Result<String> {
+    use windows::Win32::Graphics::Dxgi::{CreateDXGIFactory1, IDXGIFactory1, DXGI_ADAPTER_DESC1};
+    // SAFETY: the factory and the adapter are COM pointers the crate releases
+    // on drop; `GetDesc1` fills the struct it is given.
+    unsafe {
+        let factory: IDXGIFactory1 = CreateDXGIFactory1()?;
+        let adapter = factory.EnumAdapters1(index)?;
+        let mut desc = DXGI_ADAPTER_DESC1::default();
+        adapter.GetDesc1(&mut desc)?;
+        let length = desc.Description.iter().position(|&unit| unit == 0).unwrap_or(desc.Description.len());
+        Ok(String::from_utf16_lossy(&desc.Description[..length]).trim().to_string())
     }
 }
 
@@ -75,11 +127,14 @@ fn vendor_name(vendor: u32) -> Option<&'static str> {
 }
 
 /// Linux: the kernel's DRM devices (`/sys/class/drm/cardN`), each with its
-/// PCI vendor and device, its kernel driver and, when the module states one
-/// (NVIDIA's does, the in-tree ones do not), its version. Mesa's name and
-/// version are not readable without a Vulkan or OpenGL context of its own.
+/// PCI vendor and device, named from the system's `pci.ids` where it lists
+/// them, its kernel driver and, when the module states one (NVIDIA's does,
+/// the in-tree ones do not), its version. Mesa's name and version are not
+/// readable without a Vulkan or OpenGL context of its own.
 #[cfg(target_os = "linux")]
 fn gpus() -> Vec<Gpu> {
+    // hwdata's path (Fedora, Arch, Debian's hwdata), then pciutils' own.
+    let pci_ids = ["/usr/share/hwdata/pci.ids", "/usr/share/misc/pci.ids"].into_iter().find_map(|path| std::fs::read_to_string(path).ok()).unwrap_or_default();
     let read = |path: std::path::PathBuf| std::fs::read_to_string(path).ok().map(|text| text.trim().to_string());
     let mut cards: Vec<_> = std::fs::read_dir("/sys/class/drm")
         .into_iter()
@@ -103,14 +158,40 @@ fn gpus() -> Vec<Gpu> {
                 read(std::path::Path::new("/sys/module").join(driver).join("version"))
                     .or_else(|| (driver == "nvidia").then(|| read("/proc/driver/nvidia/version".into())).flatten())
             });
+            let id = id.trim_start_matches("0x");
+            let (vendor_listed, device_listed) = pci_names(&pci_ids, &format!("{vendor:04x}"), id);
+            let pci = format!("PCI {vendor:04x}:{id} at {}", address.unwrap_or(card));
             Some(Gpu {
-                name: format!("PCI {vendor:04x}:{} at {}", id.trim_start_matches("0x"), address.unwrap_or(card)),
-                vendor: vendor_name(vendor).map(str::to_string),
+                name: device_listed.map(|name| format!("{name} ({pci})")).unwrap_or(pci),
+                vendor: vendor_name(vendor).map(str::to_string).or(vendor_listed),
                 driver,
                 driver_version,
             })
         })
         .collect()
+}
+
+/// The vendor's and the device's names in a `pci.ids` text, `vendor` and
+/// `device` being four hex digits: a vendor line starts with its id, its
+/// devices follow it indented by one tab, their subsystems by two.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn pci_names(pci_ids: &str, vendor: &str, device: &str) -> (Option<String>, Option<String>) {
+    let entry = |line: &str, id: &str| line.split_once("  ").filter(|(found, _)| found.eq_ignore_ascii_case(id)).map(|(_, name)| name.trim().to_string());
+    let mut vendor_name = None;
+    for line in pci_ids.lines().filter(|line| !line.trim().is_empty() && !line.trim_start().starts_with('#')) {
+        match (&vendor_name, line.strip_prefix('\t')) {
+            (None, None) => vendor_name = entry(line, vendor),
+            (Some(_), Some(indented)) if !indented.starts_with('\t') => {
+                if let Some(name) = entry(indented, device) {
+                    return (vendor_name, Some(name));
+                }
+            }
+            // The next vendor: the device is not listed.
+            (Some(_), None) => break,
+            _ => {}
+        }
+    }
+    (vendor_name, None)
 }
 
 /// Windows: the display adapters in the display class, as
@@ -255,4 +336,31 @@ fn onnx_runtime() -> (String, Vec<String>) {
         providers.push("DirectML".to_string());
     }
     (version, providers)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const PCI_IDS: &str = "# pci.ids\n10de  NVIDIA Corporation\n\t1f99  TU106M\n\t1f9d  TU117M [GeForce GTX 1650 Mobile / Max-Q]\n\t\t1043 1f9d  ROG laptop\n# a comment\n1414  Microsoft Corporation\n\t1f9d  Not NVIDIA's\nC 03  Display controller\n";
+
+    #[test]
+    fn a_gpu_is_named_from_pci_ids_and_an_unlisted_one_keeps_its_id() {
+        assert_eq!(pci_names(PCI_IDS, "10de", "1f9d"), (Some("NVIDIA Corporation".into()), Some("TU117M [GeForce GTX 1650 Mobile / Max-Q]".into())));
+        assert_eq!(pci_names(PCI_IDS, "10DE", "1F9D").1.as_deref(), Some("TU117M [GeForce GTX 1650 Mobile / Max-Q]"));
+        // Listed under another vendor only, or not at all.
+        assert_eq!(pci_names(PCI_IDS, "10de", "2204"), (Some("NVIDIA Corporation".into()), None));
+        assert_eq!(pci_names(PCI_IDS, "8086", "1f9d"), (None, None));
+        assert_eq!(pci_names("", "10de", "1f9d"), (None, None));
+    }
+
+    #[test]
+    fn the_distribution_is_its_pretty_name_with_or_without_a_version() {
+        // Arch Linux: no VERSION_ID.
+        assert_eq!(pretty_name("NAME=\"Arch Linux\"\nPRETTY_NAME=\"Arch Linux\"\nID=arch\nBUILD_ID=rolling\n").as_deref(), Some("Arch Linux"));
+        assert_eq!(pretty_name("PRETTY_NAME='Kubuntu 26.10'\nVERSION_ID=\"26.10\"").as_deref(), Some("Kubuntu 26.10"));
+        assert_eq!(pretty_name("PRETTY_NAME=Gentoo").as_deref(), Some("Gentoo"));
+        assert_eq!(pretty_name("NAME=x\nPRETTY_NAME=\"\""), None);
+        assert_eq!(pretty_name("NAME=x"), None);
+    }
 }

@@ -133,7 +133,8 @@ fn parakeet_picked(model: &str) -> (Device, String, Vec<(String, String)>) {
     let inputs = std::iter::once(labs).chain(npu_inputs()).collect();
     let (device, because) = match crate::parakeet_engine::planned_encoder(model) {
         Encoder::Npu => (Device::new(DeviceKind::IntelNpu, "Intel NPU"), "the NPU is prepared for Parakeet v3"),
-        Encoder::DirectMl => (Device::new(DeviceKind::DirectMl, "GPU (DirectML adapter 0)"), "Parakeet on the GPU is on in Labs"),
+        // `parakeet_engine::model` opens DirectML's device 0.
+        Encoder::DirectMl => (Device::new(DeviceKind::DirectMl, super::hardware::directml_adapter(0)), "Parakeet on the GPU is on in Labs"),
         Encoder::Processor if cfg!(windows) => (Device::processor(), "the Intel NPU is not ready for this model, and Parakeet on the GPU is off"),
         Encoder::Processor => (Device::processor(), "Parakeet runs on the processor here"),
     };
@@ -525,7 +526,8 @@ pub async fn nemotron(context: &Context<'_>) -> StepReport {
     }
     let mut step = StepReport::new(StepKind::Nemotron, StepStatus::Failed);
     step.model = Some(ModelId { id: nemotron::NEMOTRON_MODEL_FILENAME.into(), version: Some(nemotron::NEMOTRON_SHA256[..12].into()) });
-    let directml = Device::new(DeviceKind::DirectMl, "GPU (DirectML adapter 0)");
+    // `sortformer::support` opens DirectML's device 0.
+    let directml = Device::new(DeviceKind::DirectMl, super::hardware::directml_adapter(0));
     let (picked, because) = match nemotron::planned_provider() {
         nemotron::Provider::DirectMl => (directml.clone(), "Nemotron asks DirectML first on Windows"),
         nemotron::Provider::Cpu => (Device::processor(), "Nemotron runs on ONNX Runtime's CPU provider outside Windows"),

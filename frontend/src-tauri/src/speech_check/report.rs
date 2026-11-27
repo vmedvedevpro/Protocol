@@ -423,8 +423,11 @@ impl Report {
 fn system_lines(out: &mut String, s: &System) {
     use std::fmt::Write;
     let _ = writeln!(out, "Protocol {} ({}), Whisper built for {}", s.protocol_version, s.package, s.whisper_build);
-    let os: String = [&s.distribution, &s.desktop, &s.session].into_iter().flatten().map(|part| format!(", {part}")).collect();
-    let _ = writeln!(out, "OS: {} {}{os}", s.os, s.os_version);
+    // Linux: the distribution's own name, which holds its version where it
+    // has one (Arch's has none); elsewhere the OS and its version.
+    let named = s.distribution.clone().unwrap_or_else(|| format!("{} {}", s.os, s.os_version).trim().to_string());
+    let desktop: String = [&s.desktop, &s.session].into_iter().flatten().map(|part| format!(", {part}")).collect();
+    let _ = writeln!(out, "OS: {named}{desktop}");
     let flag = |value: Option<bool>| match value {
         Some(true) => "yes",
         Some(false) => "no",
@@ -772,6 +775,20 @@ mod tests {
         let json = &text[text.find("JSON:\n").unwrap() + 6..];
         let parsed: Report = serde_json::from_str(json).unwrap();
         assert_eq!(parsed, report().scrubbed(&private()));
+    }
+
+    #[test]
+    fn the_os_line_names_the_distribution_once() {
+        let line = |system: System| {
+            let mut out = String::new();
+            system_lines(&mut out, &system);
+            out.lines().find(|line| line.starts_with("OS: ")).unwrap().to_string()
+        };
+        // Arch Linux: no VERSION_ID, so no version.
+        let arch = System { os: "linux".into(), distribution: Some("Arch Linux".into()), desktop: Some("KDE".into()), session: Some("wayland".into()), ..System::default() };
+        assert_eq!(line(arch), "OS: Arch Linux, KDE, wayland");
+        assert_eq!(line(System { os: "windows".into(), os_version: "10 (19045)".into(), ..System::default() }), "OS: windows 10 (19045)");
+        assert_eq!(line(System { os: "macos".into(), ..System::default() }), "OS: macos");
     }
 
     #[test]
