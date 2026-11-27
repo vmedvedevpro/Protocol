@@ -7,18 +7,165 @@ is inherited from the project Protocol forked from; Protocol did not release it.
 
 ## Protocol — unreleased
 
+## Protocol 1.0.0 — 2026-11-27
+
+Protocol 1.0 has a new interface. These notes cover everything since 0.5.1:
+versions 0.6.0 and 1.0.0-rc.1 were never released, and 1.0.0-rc.2 and
+1.0.0-rc.3 were release candidates for testers.
+
+### New
+
+- **New interface**
+  ([#123](https://github.com/vmedvedevpro/Protocol/issues/123)). One compact
+  window: your meetings by date, with folders; each meeting's notes,
+  transcript and summary; a ring that shows what the microphone and the
+  computer hear; a floating bar while you record.
+- **Search**
+  ([#118](https://github.com/vmedvedevpro/Protocol/issues/118),
+  [#220](https://github.com/vmedvedevpro/Protocol/issues/220)). Ctrl K finds
+  meetings, transcript lines, summaries, people and settings, and a
+  transcript hit opens the meeting at that line. With nothing typed, it
+  lists recent meetings and a few people.
+- **People**
+  ([#118](https://github.com/vmedvedevpro/Protocol/issues/118)). Each person
+  has a page with your meetings together and your notes.
+- **Editing a meeting**
+  ([#119](https://github.com/vmedvedevpro/Protocol/issues/119)). Rename or
+  merge speakers from a line, identify speakers again, improve the
+  transcript with another model, and write the summary again with another
+  template, language or model. Drop an audio file on the window to import
+  it.
+- **Settings**
+  ([#114](https://github.com/vmedvedevpro/Protocol/issues/114),
+  [#117](https://github.com/vmedvedevpro/Protocol/issues/117)). The common
+  settings come first, and Advanced shows the rest. A model downloads only
+  when you click Install.
+- **Light, Dark or Match system**
+  ([#96](https://github.com/vmedvedevpro/Protocol/issues/96)). Match system
+  follows the system's mode in every window. A saved Midnight or Charcoal
+  theme becomes Dark, and Vanilla becomes Light.
+- **First launch asks the meeting language**
+  ([#220](https://github.com/vmedvedevpro/Protocol/issues/220)). It starts at
+  your system's language when the transcript after the meeting supports it,
+  otherwise at Detect automatically.
+- **Meetings are named from their summary**
+  ([#218](https://github.com/vmedvedevpro/Protocol/issues/218)). A meeting
+  that still has the title Protocol gave it (the date and time, a folder's
+  name or an imported file's name) gets a short title from its summary. A
+  title you typed is never replaced.
+- **The Linux desktop**
+  ([#215](https://github.com/vmedvedevpro/Protocol/issues/215)). The window
+  has the desktop's own frame and Protocol's icon, Match system follows the
+  desktop's dark mode, and the tray icon shows Protocol's name. On KDE Plasma
+  under Wayland, Keep on top and the floating bar stay above other windows,
+  and minimizing during a recording opens the floating bar. Where the desktop
+  gives an app no way to stay on top, as on GNOME, Protocol says so.
+- **Linux sound devices by name**
+  ([#216](https://github.com/vmedvedevpro/Protocol/issues/216)). The
+  microphone and computer audio lists show the devices PipeWire or
+  PulseAudio knows, such as a USB or Bluetooth headset, instead of ALSA's
+  raw device names, and computer audio can be recorded on Linux. A device
+  you chose before is kept when its old name points to one device;
+  otherwise the recording says which device it uses.
+- **Whisper on the graphics card on Linux**
+  ([#176](https://github.com/vmedvedevpro/Protocol/issues/176)). The
+  AppImage and the deb run Whisper through Vulkan on an Intel, AMD or NVIDIA
+  graphics card. If the driver ever closes Protocol, the next start stays on
+  the processor, and Settings says so, with Try again.
+- **Whisper on Intel GPUs on Linux**
+  ([#178](https://github.com/vmedvedevpro/Protocol/issues/178)). With
+  Intel's OpenCL driver installed, Large V3 Turbo runs on an Intel GPU, as on
+  Windows, and the libraries download when you click. Without the driver,
+  Settings names the package to install.
+- **Save logs**
+  ([#234](https://github.com/vmedvedevpro/Protocol/issues/234)). Protocol
+  keeps a log on disk, and Settings › Advanced › Save logs puts it, the
+  updater's journal and a pending crash report into one ZIP to attach to a
+  bug report. Its lines are written to leave out transcripts, summaries,
+  prompts and keys; the live transcript's text no longer reaches it.
+- **Speech check**
+  ([#233](https://github.com/vmedvedevpro/Protocol/issues/233)). Settings ›
+  Advanced › Speech check runs each speech model on a short sample, on the
+  device Protocol picks for this computer, and writes a report to copy or
+  save for the developers. It shows which device each model ran on and
+  whether it passed.
+
 ### Changed
 
-- **Speech check report**
-  ([#247](https://github.com/vmedvedevpro/Protocol/issues/247)). Whisper runs
-  once before its timed clips, and the report gives that run's time on a
-  line of its own, First use, so a GPU's one-time setup no longer reads as a
-  slow GPU. On Linux the report names each GPU from the system's PCI list and
-  the distribution once by its own name; on Windows it names the GPU that
-  DirectML runs on.
+- **Action items stay in the summary**
+  ([#218](https://github.com/vmedvedevpro/Protocol/issues/218)). The
+  separate list with owners, due dates and checkboxes is gone from the
+  meeting, the person page and search. The first time this version starts,
+  it puts the items back into each summary, with the items you added and
+  the owners and due dates you changed. A checked item stays checked in a
+  list but not in a table, and an item you deleted comes back if you also
+  reworded one of the AI's items in that meeting. Each summary is first
+  saved as it was, in `summary-backups` in Protocol's data folder.
+- **Cloud models come from the provider**
+  ([#220](https://github.com/vmedvedevpro/Protocol/issues/220)). Claude,
+  OpenAI and Groq list the chat models their API offers for your key,
+  instead of a built-in list. A rejected key or a provider that can't be
+  reached shows an error under the model select, with Try again.
+- **Imports get speakers and a summary**
+  ([#217](https://github.com/vmedvedevpro/Protocol/issues/217)). An imported
+  recording has its speakers identified and, when the automatic summary is
+  on, its summary written, as a finished recording does.
+- **Quit asks while work is running**
+  ([#121](https://github.com/vmedvedevpro/Protocol/issues/121)): a
+  recording, the transcript pass after a meeting, a summary, an import or a
+  download. On Linux and macOS, logging out or shutting down no longer shows
+  a crash report at the next start.
+- **An interrupted download shows Resume**
+  ([#121](https://github.com/vmedvedevpro/Protocol/issues/121)) instead of
+  calling the file damaged.
+- **Meeting detection is off**
+  ([#102](https://github.com/vmedvedevpro/Protocol/issues/102)) until it
+  stops repeating "meeting detected" while a call app is open.
+- **The Linux deb uses the system's ffmpeg**
+  ([#100](https://github.com/vmedvedevpro/Protocol/issues/100)) and installs
+  next to it. The AppImage still brings its own.
+
+### Removed
+
+- The AI chat, the Contacts and Groups pages (groups are now folders), bulk
+  actions and sorting in the meeting list, the recording notice and desktop
+  notifications ([#126](https://github.com/vmedvedevpro/Protocol/issues/126)).
+  Your meetings, people and groups are kept.
+- The MCP server's `get_action_items` tool
+  ([#218](https://github.com/vmedvedevpro/Protocol/issues/218)). AI agents
+  read action items in the summary.
 
 ### Fixed
 
+- **Identify speakers with a chosen count**
+  ([#217](https://github.com/vmedvedevpro/Protocol/issues/217)). With 2
+  speakers chosen, a meeting could still show one, because a single odd
+  moment of audio took the second label. A voice now counts as a speaker
+  only when it is heard in more than one stretch of the meeting; a voice
+  heard once goes to the speaker it sounds closest to.
+- **Identify speakers after renaming a speaker**
+  ([#217](https://github.com/vmedvedevpro/Protocol/issues/217)). Running it
+  again after you named a speaker could not split that speaker. The name
+  now stays with its voice, and the other voices get their own labels.
+- **Summaries from small built-in models show as text**
+  ([#218](https://github.com/vmedvedevpro/Protocol/issues/218)). A summary
+  that the model wrapped in an unclosed code block, or in the tags of its
+  own instructions, showed as one block of code.
+- **Recordings play in the Linux AppImage**
+  ([#121](https://github.com/vmedvedevpro/Protocol/issues/121),
+  [#176](https://github.com/vmedvedevpro/Protocol/issues/176)). The AppImage
+  brings the GStreamer plugins its player needs; without them the window
+  went blank when a meeting opened.
+- **A library from another computer opens**
+  ([#121](https://github.com/vmedvedevpro/Protocol/issues/121)). The Linux
+  version opens a database made on Windows, and a meeting whose folder
+  moved finds its recording by folder name in your recordings folder.
+- **Processors without AVX-512 or AVX2**
+  ([#176](https://github.com/vmedvedevpro/Protocol/issues/176),
+  [#216](https://github.com/vmedvedevpro/Protocol/issues/216)). Whisper no
+  longer crashes on processors without AVX-512 on Windows and Linux.
+  Protocol needs AVX2, and on a processor without it the app now says so
+  instead of closing without a word.
 - **AppImage meetings in a temporary folder**
   ([#230](https://github.com/vmedvedevpro/Protocol/issues/230)). An AppImage
   started without FUSE (`APPIMAGE_EXTRACT_AND_RUN=1`) kept its meetings and
