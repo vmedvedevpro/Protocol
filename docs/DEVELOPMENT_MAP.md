@@ -1694,6 +1694,54 @@ identifier a first run would copy an installed upstream build's models and
 database. Internal names stay upstream-compatible to keep merges cheap:
 `MEETILY_*` environment variables and localStorage/event keys.
 
+#### The data root (#230)
+
+`paths::install_data_root()` is resolved once, before the logger starts, by
+`choose_root` in `paths.rs`; the log's first line names the root and why
+(`data_root_origin`, [APP_LOG.md](APP_LOG.md)):
+
+| Build | Data root |
+| --- | --- |
+| macOS | `~/Library/Application Support/vmedvedevpro/Protocol` |
+| Windows installer | `<install folder>\data` when writable, else `%APPDATA%\vmedvedevpro\Protocol` |
+| Linux AppImage, FUSE or extract-and-run | `$XDG_DATA_HOME/vmedvedevpro/Protocol` (`~/.local/share/…`) |
+| Linux deb | the same XDG folder, since `/usr/bin/data` is not writable |
+| Development build | `target/<profile>/data`, beside the executable |
+
+Linux ships no portable build. The `data` folder beside the executable stays
+on Linux for development builds only: a branch's database, with migrations
+that were never released, must not reach the installed app's library, which
+would then refuse to open it. An AppImage never uses it: an executable inside
+the AppImage runtime's `APPDIR` always gets the XDG folder, since with
+`APPIMAGE_EXTRACT_AND_RUN=1` it runs from a writable
+`/tmp/appimage_extracted_<hash>/usr/bin`, which a reboot may clear and the
+next AppImage replaces. An `APPDIR` that names another folder is ignored, as
+child processes of an AppImage app inherit it.
+
+Until 1.0.0 such a run kept its library in `…/usr/bin/data`.
+`appimage_library::import_at_startup`, first in Tauri's setup (after the
+single-instance plugin has sent a second copy away, before anything opens the
+database), moves it once:
+
+- only when the XDG folder has no `meeting_minutes.sqlite` and exactly one
+  `appimage_extracted_*/usr/bin/data` in `/tmp` or `$TMPDIR` holds one, with
+  every folder on the way a real folder (no link) of the current user;
+- the database through `VACUUM INTO`, which reads through a WAL a crash left,
+  then checked with `integrity_check` and per-table row counts; the other
+  items (recordings saved to the root, voice profiles, templates, settings
+  files) copied, synced and compared byte for byte; models, runtimes, caches,
+  logs and crash records stay behind, and models and runtimes download again;
+- into `<root>/.appimage-import`, renamed into place with the database last,
+  and only then is the old `data` folder deleted.
+
+A name already taken in the XDG folder, a link, another user's file or a
+failed check keeps the old folder as it was and empties the staging folder;
+the log says why and a dialog tells the user where the meetings are. Several
+candidate folders move none and the dialog lists them. Tests:
+`root_choice_tests` in `paths.rs`, the tests in `appimage_library.rs`, and the
+release leg's AppImage start check, which runs extract-and-run with its own
+`XDG_DATA_HOME` and requires the log to name that data root.
+
 The in-app updater (#31) replaces upstream's removed one (`app_update.rs`, the
 update dialog, the onboarding consent step; the CUDA launch notice that lived
 there is `components/CudaReconfigurationNotice.tsx`). It works like Orca's:
