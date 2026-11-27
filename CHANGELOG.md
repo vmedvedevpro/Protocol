@@ -9,9 +9,7 @@ is inherited from the project Protocol forked from; Protocol did not release it.
 
 ## Protocol 1.0.0 — 2026-11-27
 
-Protocol 1.0 has a new interface. These notes cover everything since 0.5.1:
-versions 0.6.0 and 1.0.0-rc.1 were never released, and 1.0.0-rc.2 and
-1.0.0-rc.3 were release candidates for testers.
+Protocol 1.0 has a new interface. These notes cover everything since 0.5.1.
 
 ### New
 
