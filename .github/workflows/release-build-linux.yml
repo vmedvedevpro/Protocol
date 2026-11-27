@@ -292,8 +292,10 @@ jobs:
           done
 
           log="$RUNNER_TEMP/protocol-launch.log"
+          # A data folder of the check's own, which the log line below must name.
+          xdg_data="$RUNNER_TEMP/xdg-data"
           # Own session, so stopping it also stops Xvfb and the app's children.
-          APPIMAGE_EXTRACT_AND_RUN=1 RUST_BACKTRACE=1 RUST_LOG=info setsid xvfb-run -a "$appimage" >"$log" 2>&1 &
+          XDG_DATA_HOME="$xdg_data" APPIMAGE_EXTRACT_AND_RUN=1 RUST_BACKTRACE=1 RUST_LOG=info setsid xvfb-run -a "$appimage" >"$log" 2>&1 &
           pid=$!
           sleep 30
           if ! kill -0 "$pid" >/dev/null 2>&1; then
@@ -308,6 +310,12 @@ jobs:
           wait "$pid" >/dev/null 2>&1 || true
           cat "$log"
           grep -q "Application setup complete" "$log"
+          # Extract-and-run puts the executable in a writable /tmp folder; the
+          # data must still go to the XDG data folder, not beside it (#230).
+          if ! grep -qF "data root $xdg_data/vmedvedevpro/Protocol (the OS data folder, since Protocol runs from an AppImage)" "$log"; then
+            echo "The AppImage does not keep its data in the XDG data folder"
+            exit 1
+          fi
           node scripts/release/check-linux-desktop-entry.mjs --log "$log"
           # The version build/onnxruntime.rs pins for Linux.
           if ! grep -q "Initialized verified bundled ONNX Runtime 1.24.4" "$log"; then
